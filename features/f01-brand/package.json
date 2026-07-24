@@ -1,0 +1,13 @@
+{
+  "name": "@postqron/f01-brand",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "pnpm --filter @postqron/web exec vue-tsc --noEmit -p ../../features/f01-brand/tsconfig.json"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  }
+}
