@@ -1,0 +1,10 @@
+schema_version: 1
+id: scheduling
+kind: api
+version: 0.1.0
+entrypoint: ./scheduling.go
+dependencies:
+  - f06-composer
+  - social-connections
+migrations:
+  - ./migrations/000001_create_scheduled_posts.sql
