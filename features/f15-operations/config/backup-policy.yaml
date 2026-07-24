@@ -1,0 +1,32 @@
+schema_version: 1
+owner: engineering-and-security
+encryption_required: true
+production_credentials_may_delete_backups: false
+retention_days: 35
+
+postgresql:
+  rpo_minutes: 15
+  rto_hours: 4
+  full_backup_schedule: daily
+  continuous_wal_archiving: true
+  separate_failure_domain: true
+
+objects:
+  rpo_hours: 24
+  rto_hours: 8
+  encrypted_daily_snapshot: true
+  checksum_inventory: true
+
+end_to_end:
+  rto_hours: 8
+  minimum_services:
+    - api
+    - postgresql
+    - worker
+
+verification:
+  backup_job_check: daily
+  isolated_database_restore: monthly
+  end_to_end_restore: quarterly
+  disaster_recovery_tabletop: annually
+  report_retention_months: 13
