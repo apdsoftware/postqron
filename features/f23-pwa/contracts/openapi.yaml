@@ -1,0 +1,93 @@
+openapi: 3.1.0
+info:
+  title: Postqron PWA push subscription API
+  version: 0.1.0
+paths:
+  /api/v1/push/subscriptions:
+    post:
+      summary: Opt the authenticated account's current browser into push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionInput'
+      responses:
+        '201':
+          description: Device subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionView'
+        '200':
+          description: Existing device subscription refreshed
+        '400':
+          description: Invalid or expired browser subscription
+        '401':
+          description: Authentication required
+        '409':
+          description: Endpoint is already owned by another account
+    delete:
+      summary: Revoke push opt-in for the authenticated account's current browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [endpoint]
+              properties:
+                endpoint:
+                  type: string
+                  format: uri
+                  pattern: '^https://'
+      responses:
+        '204':
+          description: Revoked or already absent
+        '400':
+          description: Invalid endpoint
+        '401':
+          description: Authentication required
+components:
+  schemas:
+    SubscriptionInput:
+      type: object
+      additionalProperties: false
+      required: [endpoint, keys]
+      properties:
+        endpoint:
+          type: string
+          format: uri
+          pattern: '^https://'
+        expiration_time:
+          type: [integer, 'null']
+          description: Browser expiration timestamp in Unix milliseconds
+        keys:
+          type: object
+          additionalProperties: false
+          required: [p256dh, auth]
+          properties:
+            p256dh:
+              type: string
+              contentEncoding: base64url
+            auth:
+              type: string
+              contentEncoding: base64url
+    SubscriptionView:
+      type: object
+      required: [id, account_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        account_id:
+          type: string
+        expiration_time:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
