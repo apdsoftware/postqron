@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 )
 
 require (
