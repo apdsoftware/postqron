@@ -1,0 +1,226 @@
+openapi: 3.1.0
+info:
+  title: Postqron entitlements API
+  version: 0.1.0
+paths:
+  /api/v1/billing/plans:
+    get:
+      summary: List the three purchasable plans
+      operationId: listPublicPlans
+      responses:
+        "200":
+          description: Public Stripe catalog in EUR
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicCatalog"
+  /api/v1/workspaces/{workspace_id}/billing:
+    get:
+      summary: Show the active public plan, usage, and remaining capacity
+      operationId: getBillingOverview
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Client-safe entitlement overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Overview"
+        "403":
+          description: The account is not a workspace member
+        "503":
+          description: No reliable entitlement is currently available
+  /api/v1/workspaces/{workspace_id}/billing/checkout:
+    post:
+      summary: Start an Owner-only Stripe Checkout
+      operationId: createBillingCheckout
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [plan, interval, idempotency_key]
+              properties:
+                plan:
+                  $ref: "#/components/schemas/PlanCode"
+                interval:
+                  type: string
+                  enum: [monthly, annual]
+                idempotency_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+      responses:
+        "201":
+          description: Stripe-hosted Checkout session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, url, expires_at]
+                properties:
+                  id:
+                    type: string
+                  url:
+                    type: string
+                    format: uri
+                  expires_at:
+                    type: string
+                    format: date-time
+        "403":
+          description: Only an Owner can manage billing
+  /api/v1/workspaces/{workspace_id}/billing/portal:
+    post:
+      summary: Open the Owner-only Stripe Customer Portal
+      operationId: createBillingPortal
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [idempotency_key]
+              properties:
+                idempotency_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+      responses:
+        "201":
+          description: Stripe-hosted Customer Portal session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url:
+                    type: string
+                    format: uri
+        "403":
+          description: Only an Owner can manage billing
+components:
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    PlanCode:
+      type: string
+      enum: [start, pro, team]
+    Money:
+      type: object
+      required: [amount_cents, currency]
+      properties:
+        amount_cents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          const: EUR
+    PublicPlan:
+      type: object
+      required: [code, name, prices, limits]
+      properties:
+        code:
+          $ref: "#/components/schemas/PlanCode"
+        name:
+          type: string
+        prices:
+          type: object
+          required: [monthly, annual]
+          properties:
+            monthly:
+              $ref: "#/components/schemas/Money"
+            annual:
+              $ref: "#/components/schemas/Money"
+        limits:
+          type: object
+          required: [members, channels, scheduled_publications]
+          properties:
+            members:
+              type: integer
+            channels:
+              type: integer
+            scheduled_publications:
+              type: integer
+    PublicCatalog:
+      type: object
+      required: [provider, currency, plans]
+      properties:
+        provider:
+          type: string
+          const: stripe
+        currency:
+          type: string
+          const: EUR
+        plans:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/PublicPlan"
+    Usage:
+      type: object
+      required: [resource, used, limit, remaining, over_limit]
+      properties:
+        resource:
+          type: string
+          enum: [members, channels, scheduled_publications]
+        used:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        remaining:
+          type: integer
+          format: int64
+        over_limit:
+          type: boolean
+    Overview:
+      type: object
+      required: [plan, interval, state, period, usage]
+      properties:
+        plan:
+          $ref: "#/components/schemas/PublicPlan"
+        interval:
+          type: string
+          enum: [monthly, annual]
+        state:
+          type: string
+          enum:
+            - trialing
+            - active
+            - past_due
+            - trial_expired
+            - payment_restricted
+            - canceled
+        period:
+          type: object
+          required: [start, end]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        usage:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/Usage"
