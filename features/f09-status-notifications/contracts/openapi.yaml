@@ -1,0 +1,159 @@
+openapi: 3.1.0
+info:
+  title: Postqron publication status and retry API
+  version: 0.1.0
+paths:
+  /api/v1/workspaces/{workspace_id}/publication-status/{post_id}:
+    get:
+      operationId: getPublicationStatus
+      summary: Read aggregate and per-destination publication status
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceID'
+        - $ref: '#/components/parameters/PostID'
+      responses:
+        '200':
+          description: Client-safe publication status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostStatus'
+        '403':
+          description: The account is not a workspace member
+        '404':
+          description: The post does not exist in the workspace
+  /api/v1/workspaces/{workspace_id}/publication-status/{post_id}/destinations/{destination_id}/retry:
+    post:
+      operationId: retryPublicationDestination
+      summary: Idempotently request a manual retry of the current failed cycle
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceID'
+        - $ref: '#/components/parameters/PostID'
+        - $ref: '#/components/parameters/DestinationID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [idempotency_key]
+              properties:
+                idempotency_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+      responses:
+        '202':
+          description: Retry request queued or previously queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnqueueResult'
+        '403':
+          description: The account cannot retry publications
+        '404':
+          description: The post or destination does not exist
+        '409':
+          description: The destination is not currently failed
+components:
+  parameters:
+    WorkspaceID:
+      in: path
+      name: workspace_id
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    PostID:
+      in: path
+      name: post_id
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    DestinationID:
+      in: path
+      name: destination_id
+      required: true
+      schema:
+        type: string
+        minLength: 1
+  schemas:
+    State:
+      type: string
+      enum: [draft, scheduled, publishing, published, failed, cancelled]
+    Diagnostic:
+      type: object
+      additionalProperties: false
+      required: [retryable]
+      properties:
+        code:
+          type: string
+          maxLength: 64
+        message:
+          type: string
+          maxLength: 320
+        retryable:
+          type: boolean
+        at:
+          type: string
+          format: date-time
+    DestinationStatus:
+      type: object
+      additionalProperties: false
+      required: [id, channel_id, status, updated_at]
+      properties:
+        id:
+          type: string
+        channel_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/State'
+        remote_id:
+          type: string
+        diagnostic:
+          $ref: '#/components/schemas/Diagnostic'
+        updated_at:
+          type: string
+          format: date-time
+    PostStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - workspace_id
+        - post_id
+        - status
+        - destinations
+        - created_at
+        - updated_at
+      properties:
+        workspace_id:
+          type: string
+        post_id:
+          type: string
+        draft_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/State'
+        destinations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DestinationStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EnqueueResult:
+      type: object
+      additionalProperties: false
+      required: [id, created, state]
+      properties:
+        id:
+          type: string
+        created:
+          type: boolean
+        state:
+          type: string
+          enum: [pending, sending, retry, delivered]
