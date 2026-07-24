@@ -1,0 +1,9 @@
+schema_version: 1
+id: f21-content-assistant
+kind: api
+version: 0.1.0
+entrypoint: ./assistant.go
+dependencies:
+  - f06-composer
+migrations:
+  - ./migrations/000001_create_content_assistant_proposals.sql

@@ -1,0 +1,373 @@
+openapi: 3.1.0
+info:
+  title: Postqron Content Assistant API
+  version: 0.1.0
+  description: |
+    Channel-specific content proposals with an explicit human confirmation
+    boundary. Generation and manual fallback never mutate composer drafts.
+paths:
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/content-assistant/proposals:
+    post:
+      operationId: createContentProposal
+      summary: Generate pending channel-specific alternatives
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/DraftId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                destination_ids:
+                  type: array
+                  uniqueItems: true
+                  maxItems: 10
+                  items:
+                    type: string
+                alternatives_per_channel:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                  default: 1
+      responses:
+        "201":
+          description: Pending proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proposal"
+        "503":
+          description: Generator unavailable; manual fallback remains available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualFallbackError"
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/content-assistant/manual-proposals:
+    post:
+      operationId: createManualContentProposal
+      summary: Create a pending proposal from user-entered alternatives
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/DraftId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [candidates]
+              properties:
+                candidates:
+                  type: array
+                  minItems: 1
+                  maxItems: 30
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [destination_id, proposed]
+                    properties:
+                      destination_id:
+                        type: string
+                      proposed:
+                        type: string
+                        minLength: 1
+                        maxLength: 5000
+      responses:
+        "201":
+          description: Pending manual proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proposal"
+  /api/v1/workspaces/{workspace_id}/content-assistant/proposals/{proposal_id}:
+    get:
+      operationId: getContentProposal
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ProposalId"
+      responses:
+        "200":
+          description: Proposal with immutable comparison and trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proposal"
+  /api/v1/workspaces/{workspace_id}/content-assistant/proposals/{proposal_id}/confirm:
+    post:
+      operationId: confirmContentProposal
+      summary: Explicitly confirm selected alternatives
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ProposalId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, confirmation, candidate_ids]
+              properties:
+                expected_revision:
+                  type: integer
+                  minimum: 1
+                confirmation:
+                  type: boolean
+                  const: true
+                candidate_ids:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Confirmed proposal and versioned F6 change set
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [proposal, change_set]
+                properties:
+                  proposal:
+                    $ref: "#/components/schemas/Proposal"
+                  change_set:
+                    $ref: "#/components/schemas/ConfirmedChangeSet"
+  /api/v1/workspaces/{workspace_id}/content-assistant/proposals/{proposal_id}/reject:
+    post:
+      operationId: rejectContentProposal
+      summary: Explicitly reject a pending proposal
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ProposalId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision]
+              properties:
+                expected_revision:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Rejected proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proposal"
+components:
+  parameters:
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+    DraftId:
+      name: draft_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ProposalId:
+      name: proposal_id
+      in: path
+      required: true
+      schema:
+        type: string
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+  schemas:
+    DiffSegment:
+      type: object
+      required: [operation, text]
+      properties:
+        operation:
+          type: string
+          enum: [equal, delete, insert]
+        text:
+          type: string
+    Candidate:
+      type: object
+      required:
+        - id
+        - destination_id
+        - channel
+        - original
+        - proposed
+        - diff
+        - source
+      properties:
+        id:
+          type: string
+        destination_id:
+          type: string
+        channel:
+          type: string
+        original:
+          type: string
+        proposed:
+          type: string
+        diff:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiffSegment"
+        source:
+          type: string
+          enum: [generated, manual]
+        provider:
+          type: string
+        model:
+          type: string
+        provider_request_id:
+          type: string
+    TraceEvent:
+      type: object
+      required: [id, action, actor_id, correlation_id, occurred_at]
+      properties:
+        id:
+          type: string
+        action:
+          type: string
+          enum:
+            - proposal.generated
+            - proposal.manual_submitted
+            - proposal.confirmed
+            - proposal.rejected
+        actor_id:
+          type: string
+        correlation_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        candidate_ids:
+          type: array
+          items:
+            type: string
+    Proposal:
+      type: object
+      required:
+        - id
+        - workspace_id
+        - draft_id
+        - draft_revision
+        - status
+        - revision
+        - candidates
+        - trace
+        - created_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        draft_id:
+          type: string
+        draft_revision:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [pending, confirmed, rejected]
+        revision:
+          type: integer
+          minimum: 1
+        candidates:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Candidate"
+        trace:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TraceEvent"
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+    SuggestedChange:
+      type: object
+      required:
+        - candidate_id
+        - destination_id
+        - channel
+        - original
+        - proposed
+      properties:
+        candidate_id:
+          type: string
+        destination_id:
+          type: string
+        channel:
+          type: string
+        original:
+          type: string
+        proposed:
+          type: string
+    ConfirmedChangeSet:
+      type: object
+      required:
+        - proposal_id
+        - workspace_id
+        - draft_id
+        - draft_revision
+        - confirmed_by
+        - confirmed_at
+        - changes
+      properties:
+        proposal_id:
+          type: string
+        workspace_id:
+          type: string
+        draft_id:
+          type: string
+        draft_revision:
+          type: integer
+          minimum: 1
+        confirmed_by:
+          type: string
+        confirmed_at:
+          type: string
+          format: date-time
+        changes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SuggestedChange"
+    ManualFallbackError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, manual_fallback_available]
+          properties:
+            code:
+              type: string
+              const: generator_unavailable
+            message:
+              type: string
+            manual_fallback_available:
+              type: boolean
+              const: true
