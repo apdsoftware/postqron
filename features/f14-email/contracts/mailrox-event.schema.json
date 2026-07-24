@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/f14/mailrox-event.schema.json",
+  "title": "Mailrox delivery event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "message_id",
+    "recipient_id",
+    "occurred_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "enum": [
+        "delivered",
+        "deferred",
+        "soft_bounce",
+        "hard_bounce",
+        "complaint"
+      ]
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recipient_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "code": {
+      "type": "string"
+    },
+    "diagnostic": {
+      "type": "string"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

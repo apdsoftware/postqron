@@ -1,0 +1,9 @@
+schema_version: 1
+id: email
+kind: worker
+version: 0.1.0
+entrypoint: ./email.go
+dependencies:
+  - brand
+migrations:
+  - ./migrations/000001_create_email_delivery.sql

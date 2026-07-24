@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/f14/email-command.schema.json",
+  "title": "Email delivery command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "idempotency_key",
+    "channel",
+    "template_id",
+    "template_version",
+    "recipient",
+    "data",
+    "occurred_at"
+  ],
+  "properties": {
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "channel": {
+      "enum": ["transactional", "marketing"]
+    },
+    "template_id": {
+      "enum": [
+        "welcome",
+        "plan_changed",
+        "publication_failed",
+        "security_alert",
+        "marketing_update"
+      ]
+    },
+    "template_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "recipient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "email"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heading", "intro"],
+      "properties": {
+        "heading": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intro": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "action_label": {
+          "type": "string"
+        },
+        "action_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "unsubscribe_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      }
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "channel": {
+            "const": "marketing"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "required": ["unsubscribe_url"]
+          }
+        }
+      }
+    }
+  ]
+}
