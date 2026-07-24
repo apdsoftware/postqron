@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/f19/f10-media-quota-command.schema.json",
+  "title": "F19 server-side F10 media quota command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspace_id",
+    "resource",
+    "delta",
+    "idempotency_key",
+    "occurred_at"
+  ],
+  "properties": {
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resource": {
+      "const": "media_storage_bytes"
+    },
+    "delta": {
+      "type": "integer",
+      "not": {
+        "const": 0
+      }
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

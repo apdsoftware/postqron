@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/f19/f06-composer-media.schema.json",
+  "title": "F19 media reference for F6",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "storage_key",
+    "kind",
+    "content_type",
+    "size_bytes",
+    "width",
+    "height"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^media_"
+    },
+    "storage_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": ["image", "video"]
+    },
+    "content_type": {
+      "type": "string"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "color_space": {
+      "type": "string"
+    },
+    "video_codec": {
+      "type": "string"
+    },
+    "audio_codec": {
+      "type": "string"
+    },
+    "audio_sample_rate": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "frames_per_second": {
+      "type": "number",
+      "minimum": 0
+    },
+    "video_bitrate": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "audio_bitrate": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "has_audio": {
+      "type": "boolean"
+    },
+    "has_edit_list": {
+      "type": "boolean"
+    },
+    "moov_before_media_data": {
+      "type": "boolean"
+    }
+  }
+}

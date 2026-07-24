@@ -1,0 +1,10 @@
+schema_version: 1
+id: f19-media-library
+kind: api
+version: 0.1.0
+entrypoint: ./media.go
+dependencies:
+  - f06-composer
+  - f10-entitlements
+migrations:
+  - ./migrations/000001_create_media_library.sql
