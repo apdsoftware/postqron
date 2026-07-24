@@ -1,0 +1,12 @@
+schema_version: 1
+id: publishing
+kind: worker
+version: 0.1.0
+entrypoint: ./publishing.go
+dependencies:
+  - f06-composer
+  - operations
+  - scheduling
+  - social-connections
+migrations:
+  - ./migrations/000001_create_publishing.sql

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.local/contracts/f08/publication-status.schema.json",
+  "title": "Per-destination publication status event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "post_id",
+    "destination_id",
+    "channel_id",
+    "status",
+    "occurred_at"
+  ],
+  "properties": {
+    "job_id": { "type": "string", "minLength": 1 },
+    "post_id": { "type": "string", "minLength": 1 },
+    "destination_id": { "type": "string", "minLength": 1 },
+    "channel_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": [
+        "pending",
+        "publishing",
+        "retry_wait",
+        "published",
+        "dead_letter",
+        "cancelled"
+      ]
+    },
+    "remote_id": { "type": "string", "minLength": 1 },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string" },
+        "detail": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  }
+}
