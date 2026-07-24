@@ -1,0 +1,18 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "pnpm install --frozen-lockfile && go mod download -C packages/runtime/go && go mod download -C services/api && go mod download -C services/worker"
+run_mode = "concurrent"
+
+[scripts.run.dev]
+command = "API_ADDR=:$((CONDUCTOR_PORT + 1)) NUXT_PORT=$CONDUCTOR_PORT NUXT_PUBLIC_API_BASE=http://127.0.0.1:$((CONDUCTOR_PORT + 1)) pnpm dev"
+default = true
+icon = "play"
+
+[scripts.run.test]
+command = "pnpm test"
+icon = "test-tube"
+
+[prompts]
+general = "Read .context/SPEC.md and the workspace issue before changing files. Respect the issue file-ownership list and run the narrowest relevant checks."
+code_review = "Check correctness, feature-slice isolation, secret handling, migration safety, and workspace port collisions."

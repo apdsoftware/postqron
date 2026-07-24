@@ -1,0 +1,27 @@
+FROM golang:1.26-alpine AS build
+
+WORKDIR /workspace
+COPY go.work ./
+COPY packages/runtime/go/go.mod packages/runtime/go/go.sum packages/runtime/go/
+COPY services/api/go.mod services/api/go.sum services/api/
+COPY services/worker/go.mod services/worker/go.sum services/worker/
+RUN go mod download -C services/api
+
+COPY packages/runtime/go packages/runtime/go
+COPY services/api services/api
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./services/api/cmd/api \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./services/api/cmd/migrate
+
+FROM alpine:3.23 AS runtime
+
+RUN addgroup -S postqron && adduser -S -G postqron postqron
+WORKDIR /app
+COPY --from=build /out/api /usr/local/bin/api
+COPY --from=build /out/migrate /usr/local/bin/migrate
+COPY services/api/features ./features
+
+USER postqron
+EXPOSE 8080
+ENV API_ADDR=:8080
+ENV POSTQRON_FEATURE_ROOTS=/app/features
+CMD ["api"]

@@ -1,0 +1,30 @@
+{
+  "name": "postqron",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.12.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @postqron/runtime build && pnpm --filter @postqron/web build",
+    "dev": "concurrently --kill-others-on-fail --names web,api,worker \"pnpm dev:web\" \"pnpm dev:api\" \"pnpm dev:worker\"",
+    "dev:api": "go run ./services/api/cmd/api",
+    "dev:web": "pnpm --filter @postqron/web dev",
+    "dev:worker": "go run ./services/worker/cmd/worker",
+    "lint": "eslint apps packages && go vet ./services/api/... ./services/worker/... ./packages/runtime/go/...",
+    "migrations:check": "go run ./services/api/cmd/migrate --check",
+    "prepare": "pnpm --filter @postqron/web prepare",
+    "test": "pnpm --filter @postqron/runtime test && go test ./services/api/... ./services/worker/... ./packages/runtime/go/...",
+    "typecheck": "pnpm --filter @postqron/web typecheck && pnpm --filter @postqron/runtime typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.1.1",
+    "concurrently": "10.0.3",
+    "eslint": "10.7.0",
+    "eslint-plugin-vue": "10.10.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0"
+  }
+}

@@ -1,0 +1,8 @@
+schema_version: 1
+id: platform
+kind: api
+version: 0.1.0
+entrypoint: ./platform.go
+dependencies: []
+migrations:
+  - ./migrations/000001_create_system_metadata.sql
