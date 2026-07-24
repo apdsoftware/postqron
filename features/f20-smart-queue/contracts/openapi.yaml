@@ -1,0 +1,409 @@
+openapi: 3.1.0
+info:
+  title: Postqron Smart Queue API
+  version: 0.1.0
+paths:
+  /api/v1/workspaces/{workspace_id}/smart-queues:
+    post:
+      summary: Create a recurring smart queue
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueueWrite"
+      responses:
+        "201":
+          description: Queue created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Queue"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/workspaces/{workspace_id}/smart-queues/{queue_id}:
+    put:
+      summary: Replace recurring windows using an expected revision
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/QueueID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/QueueFields"
+                - type: object
+                  required: [expected_revision]
+                  properties:
+                    expected_revision:
+                      type: integer
+                      minimum: 1
+              unevaluatedProperties: false
+      responses:
+        "200":
+          description: Queue updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Queue"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/workspaces/{workspace_id}/smart-queues/{queue_id}/preview:
+    post:
+      summary: Preview the deterministic first available slot
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/QueueID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                not_before_utc:
+                  type: string
+                  format: date-time
+                until_utc:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: First available slot preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/workspaces/{workspace_id}/smart-queues/{queue_id}/confirm:
+    post:
+      summary: Confirm and atomically reserve a previewed slot
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/QueueID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - preview_token
+                - draft_id
+                - channel_ids
+                - idempotency_key
+              properties:
+                preview_token:
+                  type: string
+                  pattern: "^preview_"
+                draft_id:
+                  type: string
+                  minLength: 1
+                channel_ids:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    minLength: 1
+                idempotency_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "201":
+          description: Slot reserved and F7 command durably enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+components:
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    QueueID:
+      name: queue_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^queue_"
+  responses:
+    BadRequest:
+      description: Invalid field or request body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Permission denied or feature unavailable on the plan
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Queue or preview not found in this workspace
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: |
+        Deterministic conflict. Codes include revision_conflict,
+        no_slot_available, slot_unavailable, preview_expired,
+        preview_consumed, queue_changed, capacity_exceeded and
+        idempotency_mismatch.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    RecurringWindow:
+      type: object
+      additionalProperties: false
+      required: [weekday, start_time, end_time]
+      properties:
+        weekday:
+          type: string
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+        start_time:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        end_time:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+    QueueFields:
+      type: object
+      required:
+        - name
+        - time_zone
+        - interval_minutes
+        - horizon_days
+        - windows
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        time_zone:
+          type: string
+          description: Explicit IANA time zone; Local is rejected.
+          minLength: 1
+        interval_minutes:
+          type: integer
+          minimum: 5
+          maximum: 1440
+        horizon_days:
+          type: integer
+          minimum: 1
+          maximum: 366
+        windows:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/RecurringWindow"
+    QueueWrite:
+      allOf:
+        - $ref: "#/components/schemas/QueueFields"
+      unevaluatedProperties: false
+    Queue:
+      allOf:
+        - $ref: "#/components/schemas/QueueFields"
+        - type: object
+          required:
+            - id
+            - workspace_id
+            - revision
+            - created_by
+            - created_at
+            - updated_at
+          properties:
+            id:
+              type: string
+              pattern: "^queue_"
+            workspace_id:
+              type: string
+            revision:
+              type: integer
+              minimum: 1
+            created_by:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      unevaluatedProperties: false
+    Slot:
+      type: object
+      additionalProperties: false
+      required:
+        - starts_at_utc
+        - local_date_time
+        - time_zone
+        - utc_offset_minutes
+      properties:
+        starts_at_utc:
+          type: string
+          format: date-time
+        local_date_time:
+          type: string
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+        time_zone:
+          type: string
+        utc_offset_minutes:
+          type: integer
+          minimum: -1080
+          maximum: 1080
+    Preview:
+      type: object
+      additionalProperties: false
+      required:
+        - preview_token
+        - workspace_id
+        - queue_id
+        - queue_revision
+        - slot
+        - not_before_utc
+        - search_until_utc
+        - created_at
+        - expires_at
+      properties:
+        preview_token:
+          type: string
+          pattern: "^preview_"
+        workspace_id:
+          type: string
+        queue_id:
+          type: string
+          pattern: "^queue_"
+        queue_revision:
+          type: integer
+          minimum: 1
+        slot:
+          $ref: "#/components/schemas/Slot"
+        not_before_utc:
+          type: string
+          format: date-time
+        search_until_utc:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    Reservation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workspace_id
+        - queue_id
+        - draft_id
+        - channel_ids
+        - slot
+        - created_by
+        - created_at
+      properties:
+        id:
+          type: string
+          pattern: "^reservation_"
+        workspace_id:
+          type: string
+        queue_id:
+          type: string
+          pattern: "^queue_"
+        draft_id:
+          type: string
+        channel_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+        slot:
+          $ref: "#/components/schemas/Slot"
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+            field:
+              type: string
+            rule:
+              type: string
+            field_code:
+              type: string
+            message:
+              type: string

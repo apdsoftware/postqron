@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.local/contracts/f20/f10-smart-queue-limits.schema.json",
+  "title": "F10SmartQueueLimits",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enabled",
+    "max_queues",
+    "max_pending_reservations",
+    "max_horizon_days"
+  ],
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "max_queues": { "type": "integer", "minimum": 0 },
+    "max_pending_reservations": { "type": "integer", "minimum": 0 },
+    "max_horizon_days": { "type": "integer", "minimum": 0, "maximum": 366 }
+  }
+}

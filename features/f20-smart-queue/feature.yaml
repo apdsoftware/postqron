@@ -1,0 +1,10 @@
+schema_version: 1
+id: f20-smart-queue
+kind: api
+version: 0.1.0
+entrypoint: ./smartqueue.go
+dependencies:
+  - scheduling
+  - f10-entitlements
+migrations:
+  - ./migrations/000001_create_smart_queue.sql
