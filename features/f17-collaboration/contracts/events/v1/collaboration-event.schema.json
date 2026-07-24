@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/events/v1/collaboration-event.schema.json",
+  "title": "Collaboration event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "workspace_id",
+    "draft_id",
+    "correlation_id",
+    "occurred_at",
+    "data"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^event_" },
+    "type": {
+      "type": "string",
+      "enum": [
+        "collaboration.comment.created.v1",
+        "collaboration.comment.resolved.v1",
+        "collaboration.review.requested.v1",
+        "collaboration.review.changes_requested.v1",
+        "collaboration.review.approved.v1",
+        "collaboration.scheduling.blocked.v1"
+      ]
+    },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "actor_id": { "type": "string", "minLength": 1 },
+    "draft_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "comment_id": { "type": "string" },
+        "review_id": { "type": "string" },
+        "draft_revision": { "type": "integer", "minimum": 1 },
+        "status": {
+          "type": "string",
+          "enum": ["changes_requested", "approved"]
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["approval_required", "unresolved_comments"]
+        }
+      }
+    }
+  }
+}

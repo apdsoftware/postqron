@@ -1,0 +1,264 @@
+openapi: 3.1.0
+info:
+  title: Postqron editorial collaboration API
+  version: 0.1.0
+paths:
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+    get:
+      summary: List editorial comments for a draft
+      responses:
+        '200':
+          description: Ordered comments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comments]
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Comment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Add an internal editorial comment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/comments/{comment_id}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+      - in: path
+        name: comment_id
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Resolve a comment using server-side reviewer permission
+      responses:
+        '200':
+          description: Resolved comment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/review:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+    get:
+      summary: Read the latest review state
+      responses:
+        '200':
+          description: Latest review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      summary: Request review for an exact composer revision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision]
+              properties:
+                expected_revision:
+                  type: integer
+                  minimum: 1
+      responses:
+        '201':
+          description: Review requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '200':
+          description: Existing idempotent pending review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '409':
+          description: Revision changed or another review is pending
+        '422':
+          description: Composer validation failed
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/review/{review_id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+      - in: path
+        name: review_id
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Approve or request changes using server-side reviewer permission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, request_changes]
+                note:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Review decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '403':
+          description: Missing reviewer permission or self-approval
+        '409':
+          description: Review is stale, decided, or has unresolved comments
+components:
+  parameters:
+    WorkspaceID:
+      in: path
+      name: workspace_id
+      required: true
+      schema:
+        type: string
+    DraftID:
+      in: path
+      name: draft_id
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Active membership or permission required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found in this workspace
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    Comment:
+      type: object
+      required: [id, workspace_id, draft_id, author_id, body, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        draft_id:
+          type: string
+        author_id:
+          type: string
+        body:
+          type: string
+          maxLength: 4000
+        created_at:
+          type: string
+          format: date-time
+        resolved_by:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+    Review:
+      type: object
+      required:
+        - id
+        - workspace_id
+        - draft_id
+        - draft_revision
+        - status
+        - requested_by
+        - requested_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        draft_id:
+          type: string
+        draft_revision:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [pending, changes_requested, approved]
+        requested_by:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        decided_by:
+          type: string
+        decided_at:
+          type: string
+          format: date-time
+        decision_note:
+          type: string
+          maxLength: 1000
