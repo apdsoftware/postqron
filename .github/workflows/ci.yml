@@ -33,7 +33,7 @@ jobs:
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec eslint apps packages
       - run: find apps services packages/runtime/go -name '*.go' -type f -print0 | xargs -0 gofmt -l | tee /tmp/gofmt-files && test ! -s /tmp/gofmt-files
@@ -82,7 +82,7 @@ jobs:
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
