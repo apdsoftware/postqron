@@ -1,0 +1,10 @@
+schema_version: 1
+id: marketing-site
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies:
+  - brand
+  - compliance
+  - f10-entitlements
+migrations: []
