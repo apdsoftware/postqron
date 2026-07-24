@@ -1,0 +1,52 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - docker.io
+  - docker-compose-v2
+  - unattended-upgrades
+
+users:
+  - default
+  - name: postqron
+    groups:
+      - docker
+    lock_passwd: true
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${deployment_ssh_public_key}
+
+write_files:
+  - path: /etc/sudoers.d/postqron-deploy
+    owner: root:root
+    permissions: "0440"
+    content: |
+      postqron ALL=(root) NOPASSWD: /usr/bin/systemctl start postqron.service, /usr/bin/systemctl restart postqron.service
+  - path: /etc/systemd/system/postqron.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Postqron application stack
+      Requires=docker.service
+      After=docker.service network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory=/opt/postqron
+      ExecStart=/usr/bin/docker compose --env-file /opt/postqron/runtime.env up -d --remove-orphans
+      ExecReload=/usr/bin/docker compose --env-file /opt/postqron/runtime.env up -d --remove-orphans
+      ExecStop=/usr/bin/docker compose --env-file /opt/postqron/runtime.env down
+      TimeoutStartSec=600
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - install -d -m 0755 -o postqron -g postqron /opt/postqron
+  - install -m 0600 -o postqron -g postqron /dev/null /opt/postqron/runtime.env
+  - systemctl enable docker.service
+  - systemctl daemon-reload
+  - systemctl enable postqron.service

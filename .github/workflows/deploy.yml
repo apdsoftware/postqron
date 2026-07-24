@@ -1,0 +1,141 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target GitHub environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: web
+            dockerfile: apps/web/Dockerfile
+          - name: api
+            dockerfile: services/api/Dockerfile
+          - name: worker
+            dockerfile: services/worker/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ghcr.io/${{ github.repository }}-${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  infrastructure:
+    name: Provision ${{ inputs.environment }}
+    needs: images
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      host: ${{ steps.output.outputs.host }}
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/${{ inputs.environment }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_SECRET_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_admin_cidrs: ${{ vars.ADMIN_CIDRS_JSON }}
+      TF_VAR_api_domain: ${{ vars.API_DOMAIN }}
+      TF_VAR_app_domain: ${{ vars.APP_DOMAIN }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_deployment_ssh_public_key: ${{ vars.DEPLOYMENT_SSH_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Configure remote state
+        env:
+          BACKEND_CONFIG: ${{ secrets.TF_BACKEND_CONFIG }}
+        run: |
+          install -m 0600 /dev/null "$RUNNER_TEMP/backend.hcl"
+          printf '%s\n' "$BACKEND_CONFIG" > "$RUNNER_TEMP/backend.hcl"
+          terraform init -backend-config="$RUNNER_TEMP/backend.hcl"
+      - run: terraform apply -auto-approve
+      - id: output
+        run: echo "host=$(terraform output -raw deployment_host)" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Release ${{ inputs.environment }}
+    needs: infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      DEPLOYMENT_HOST: ${{ needs.infrastructure.outputs.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOYMENT_SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 0700 "$HOME/.ssh"
+          install -m 0600 /dev/null "$HOME/.ssh/id_ed25519"
+          install -m 0600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Prepare runtime configuration
+        env:
+          API_DOMAIN: ${{ vars.API_DOMAIN }}
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          RUNTIME_ENV: ${{ secrets.RUNTIME_ENV }}
+        run: |
+          install -m 0600 /dev/null "$RUNNER_TEMP/runtime.env"
+          printf '%s\n' "$RUNTIME_ENV" > "$RUNNER_TEMP/runtime.env"
+          {
+            printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
+            printf 'APP_DOMAIN=%s\n' "$APP_DOMAIN"
+            printf 'WEB_IMAGE=ghcr.io/%s-web:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf 'API_IMAGE=ghcr.io/%s-api:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf 'WORKER_IMAGE=ghcr.io/%s-worker:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+          } >> "$RUNNER_TEMP/runtime.env"
+      - name: Wait for cloud-init
+        run: |
+          for _ in $(seq 1 30); do
+            if ssh -o ConnectTimeout=5 postqron@"$DEPLOYMENT_HOST" 'test -d /opt/postqron'; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: Upload release
+        run: |
+          scp infra/deploy/compose.yaml infra/deploy/Caddyfile postqron@"$DEPLOYMENT_HOST":/opt/postqron/
+          scp "$RUNNER_TEMP/runtime.env" postqron@"$DEPLOYMENT_HOST":/opt/postqron/runtime.env
+      - name: Pull images and restart
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_READ_TOKEN" | ssh postqron@"$DEPLOYMENT_HOST" docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          ssh postqron@"$DEPLOYMENT_HOST" 'chmod 0600 /opt/postqron/runtime.env && sudo systemctl restart postqron.service'

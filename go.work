@@ -1,0 +1,7 @@
+go 1.26.0
+
+use (
+	./packages/runtime/go
+	./services/api
+	./services/worker
+)

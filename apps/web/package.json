@@ -1,0 +1,21 @@
+{
+  "name": "@postqron/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "prepare": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@postqron/runtime": "workspace:*",
+    "nuxt": "3.21.9",
+    "vue": "3.5.40"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vue-tsc": "3.3.8"
+  }
+}

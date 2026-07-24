@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.5"
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.12.0"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            packages/runtime/go/go.sum
+            services/api/go.sum
+            services/worker/go.sum
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec eslint apps packages
+      - run: find apps services packages/runtime/go -name '*.go' -type f -print0 | xargs -0 gofmt -l | tee /tmp/gofmt-files && test ! -s /tmp/gofmt-files
+      - run: go vet ./services/api/... ./services/worker/... ./packages/runtime/go/...
+      - run: terraform fmt -check -recursive infra/terraform
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            packages/runtime/go/go.sum
+            services/api/go.sum
+            services/worker/go.sum
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @postqron/runtime test
+      - run: go test -race ./services/api/... ./services/worker/... ./packages/runtime/go/...
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            packages/runtime/go/go.sum
+            services/api/go.sum
+            services/worker/go.sum
+      - uses: hashicorp/setup-terraform@v3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: go build ./services/api/cmd/api ./services/api/cmd/migrate ./services/worker/cmd/worker
+      - run: terraform -chdir=infra/terraform/environments/staging init -backend=false
+      - run: terraform -chdir=infra/terraform/environments/staging validate
+      - run: terraform -chdir=infra/terraform/environments/production init -backend=false
+      - run: terraform -chdir=infra/terraform/environments/production validate
+      - name: Validate production Compose
+        env:
+          API_DOMAIN: api.example.test
+          API_IMAGE: ghcr.io/apdsoftware/postqron-api:test
+          APP_DOMAIN: app.example.test
+          DATABASE_URL: postgres://postqron:test@postgres:5432/postqron
+          POSTGRES_PASSWORD: test
+          WEB_IMAGE: ghcr.io/apdsoftware/postqron-web:test
+          WORKER_IMAGE: ghcr.io/apdsoftware/postqron-worker:test
+        run: docker compose -f infra/deploy/compose.yaml config --quiet
+
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: postqron
+          POSTGRES_PASSWORD: postqron-ci
+          POSTGRES_USER: postqron
+        options: >-
+          --health-cmd "pg_isready -U postqron -d postqron"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgres://postqron:postqron-ci@localhost:5432/postqron?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            packages/runtime/go/go.sum
+            services/api/go.sum
+            services/worker/go.sum
+      - run: go run ./services/api/cmd/migrate --check
+      - run: go run ./services/api/cmd/migrate
+      - name: Migrations are idempotent
+        run: go run ./services/api/cmd/migrate
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            packages/runtime/go/go.sum
+            services/api/go.sum
+            services/worker/go.sum
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level high
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
+        working-directory: packages/runtime/go
+      - run: govulncheck ./...
+        working-directory: services/api
+      - run: govulncheck ./...
+        working-directory: services/worker
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

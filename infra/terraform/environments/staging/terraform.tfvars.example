@@ -1,0 +1,7 @@
+admin_cidrs               = ["203.0.113.10/32"]
+api_domain                = "api.staging.example.com"
+app_domain                = "staging.example.com"
+cloudflare_zone_id        = "replace-with-zone-id"
+deployment_ssh_public_key = "ssh-ed25519 replace-with-public-key postqron-staging"
+location                  = "nbg1"
+server_type               = "cx23"
