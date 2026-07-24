@@ -1,0 +1,81 @@
+openapi: 3.1.0
+info:
+  title: Postqron Operations API
+  version: 0.1.0
+  description: Non-public operational endpoints. Metrics must be network restricted.
+paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Liveness"
+  /readyz:
+    get:
+      operationId: getReadiness
+      security: []
+      responses:
+        "200":
+          description: Required dependencies are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: One or more required dependencies are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /metrics:
+    get:
+      operationId: getMetrics
+      description: Restricted to the internal monitoring network.
+      security:
+        - monitoringNetwork: []
+      responses:
+        "200":
+          description: Bounded Prometheus metrics without tenant or user labels.
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    monitoringNetwork:
+      type: mutualTLS
+  schemas:
+    Liveness:
+      type: object
+      additionalProperties: false
+      required: [status, service, version]
+      properties:
+        status:
+          const: ok
+        service:
+          const: operations
+        version:
+          type: string
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status, dependencies]
+      properties:
+        status:
+          enum: [ready, unavailable]
+        dependencies:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, status]
+            properties:
+              name:
+                type: string
+              status:
+                enum: [ready, unavailable]

@@ -1,0 +1,8 @@
+schema_version: 1
+id: operations
+kind: api
+version: 0.1.0
+entrypoint: ./operations.go
+dependencies: []
+migrations:
+  - ./migrations/000001_create_sensitive_audit_events.sql

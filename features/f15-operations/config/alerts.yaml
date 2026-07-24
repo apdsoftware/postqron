@@ -1,0 +1,56 @@
+groups:
+  - name: postqron-f15-operations
+    rules:
+      - alert: PostqronPublicationQueueDelayed
+        expr: postqron_queue_depth > 100 or postqron_oldest_queued_job_age_seconds > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Durable publication queue is outside its pickup objective
+          runbook: features/f15-operations/runbooks/incident-response.md#publication-queue
+
+      - alert: PostqronPublicationFailures
+        expr: increase(postqron_publication_failures_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: One or more publications reached a terminal failure
+          runbook: features/f15-operations/runbooks/incident-response.md#publication-failures
+
+      - alert: PostqronServiceNotReady
+        expr: postqron_readiness == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A required service dependency is unavailable
+          runbook: features/f15-operations/runbooks/incident-response.md#readiness
+
+      - alert: PostqronSensitiveAuditWriteFailed
+        expr: increase(postqron_audit_write_failures_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: A sensitive action could not be persisted to the audit log
+          runbook: features/f15-operations/runbooks/incident-response.md#audit-write-failures
+
+      - alert: PostqronDatabaseBackupStale
+        expr: postqron_last_successful_backup_timestamp_seconds == 0 or time() - postqron_last_successful_backup_timestamp_seconds > 86400
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: No verified database backup has completed in 24 hours
+          runbook: features/f15-operations/runbooks/backup-restore.md#backup-failure
+
+      - alert: PostqronRestoreTestOverdue
+        expr: postqron_last_successful_restore_test_timestamp_seconds == 0 or time() - postqron_last_successful_restore_test_timestamp_seconds > 2678400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: The monthly database restore test is overdue
+          runbook: features/f15-operations/runbooks/backup-restore.md#restore-drills
