@@ -1,0 +1,11 @@
+schema_version: 1
+id: f18-analytics
+kind: api
+version: 0.1.0
+entrypoint: ./analytics.go
+dependencies:
+  - operations
+  - publishing
+  - social-connections
+migrations:
+  - ./migrations/000001_create_analytics.sql
