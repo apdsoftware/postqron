@@ -1,0 +1,82 @@
+openapi: 3.1.0
+info:
+  title: Postqron private entitlement administration
+  version: 0.1.0
+  description: Private-listener contract. This contract is never published by the public API.
+servers:
+  - url: https://admin.internal
+paths:
+  /internal/v1/workspaces/{workspace_id}/entitlement-override:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/CorrelationID'
+    put:
+      operationId: assignInternalEntitlementOverride
+      security:
+        - strongAdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Assignment'
+      responses:
+        '200':
+          description: Override assignment processed.
+        '400':
+          description: Invalid payload.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Admin authorization or allowlist check failed.
+        '503':
+          description: Authorization, audit, or persistence unavailable.
+    delete:
+      operationId: revokeInternalEntitlementOverride
+      security:
+        - strongAdminSession: []
+      responses:
+        '200':
+          description: Override revocation processed.
+        '400':
+          description: Invalid request.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Strong admin authorization failed.
+        '503':
+          description: Authorization, audit, or persistence unavailable.
+components:
+  securitySchemes:
+    strongAdminSession:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron-admin
+      description: Private strong-auth session established by the server.
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CorrelationID:
+      name: X-Correlation-ID
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+  schemas:
+    Assignment:
+      type: object
+      additionalProperties: false
+      required:
+        - target_account_id
+      properties:
+        target_account_id:
+          type: string
+          format: uuid
