@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#185c43">
+    <title>Postqron non è in linea</title>
+    <style>
+      :root { color-scheme: light dark; font-family: Inter, system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f8f5; color: #13231d; }
+      main { box-sizing: border-box; width: min(36rem, calc(100% - 2rem)); padding: 2rem; border: 1px solid #b9cdc1; border-radius: 1.25rem; background: #fff; box-shadow: 0 .5rem 2rem rgb(19 35 29 / 10%); }
+      h1 { margin-top: 0; font-size: clamp(1.75rem, 7vw, 2.5rem); }
+      p { color: #405149; line-height: 1.6; }
+      button { border: 0; border-radius: .75rem; padding: .8rem 1rem; background: #185c43; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+      button:focus-visible { outline: .2rem solid #c43d12; outline-offset: .2rem; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0d1c16; color: #f4f8f5; }
+        main { background: #13231d; border-color: #405149; }
+        p { color: #dceee4; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sei offline</h1>
+      <p>Postqron non salva pagine o dati dell’account sul dispositivo. Riconnettiti per consultare e modificare i contenuti.</p>
+      <button type="button" onclick="location.reload()">Riprova</button>
+    </main>
+  </body>
+</html>
