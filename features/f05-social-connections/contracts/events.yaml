@@ -1,0 +1,57 @@
+schema_version: 1
+events:
+  - type: social.connection.connected
+    version: 1
+  - type: social.connection.reconnected
+    version: 1
+  - type: social.connection.reconnect-required
+    version: 1
+  - type: social.connection.token-refreshed
+    version: 1
+  - type: social.connection.disconnected
+    version: 1
+description: >
+  Transactional outbox events for social connection lifecycle changes.
+  Tokens, display names, handles, picture URLs, and provider error messages are
+  deliberately excluded.
+required:
+  - event_id
+  - event_type
+  - event_version
+  - workspace_id
+  - connection_id
+  - provider
+  - remote_id
+  - correlation_id
+  - occurred_at
+properties:
+  event_id:
+    type: string
+  event_type:
+    type: string
+  event_version:
+    const: 1
+  workspace_id:
+    type: string
+  connection_id:
+    type: string
+  provider:
+    type: string
+    enum: [facebook_pages, instagram_professional]
+  remote_id:
+    type: string
+  actor_account_id:
+    type: [string, "null"]
+  reason:
+    type: string
+    enum:
+      - ""
+      - authentication_revoked
+      - permission_missing
+      - resource_gone
+      - not_refreshable
+  correlation_id:
+    type: string
+  occurred_at:
+    type: string
+    format: date-time
