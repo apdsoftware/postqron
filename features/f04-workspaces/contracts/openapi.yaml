@@ -1,0 +1,398 @@
+openapi: 3.1.0
+info:
+  title: Postqron workspace API
+  version: 0.1.0
+  description: >
+    Server-side contract for personal workspaces, invitations, memberships,
+    fixed Owner/Member roles, and ownership transfer.
+paths:
+  /api/v1/workspaces/personal:
+    put:
+      summary: Idempotently ensure the authenticated account's personal workspace
+      operationId: ensurePersonalWorkspace
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Existing personal workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "201":
+          description: Personal workspace and Owner membership created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+  /api/v1/workspaces/{workspaceId}:
+    get:
+      summary: Read a workspace as an active Owner or Member
+      operationId: getWorkspace
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      summary: Rename a workspace
+      operationId: renameWorkspace
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Renamed workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/workspaces/{workspaceId}/invitations:
+    get:
+      summary: List pending invitations as an Owner
+      operationId: listPendingInvitations
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Pending invitations without email or token digests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invitation"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: Invite or re-invite a Member
+      operationId: inviteMember
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "201":
+          description: Invitation created; its token is returned only in this response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationToken"
+        "200":
+          description: Existing pending invitation reissued with a rotated token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationToken"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Member limit reached or workspace is not active
+  /api/v1/workspaces/{workspaceId}/invitations/{invitationId}:
+    delete:
+      summary: Revoke a pending invitation
+      operationId: revokeInvitation
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Invitation revoked
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/invitations/accept:
+    post:
+      summary: Accept an invitation using the authenticated verified email
+      operationId: acceptInvitation
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  minLength: 32
+                  writeOnly: true
+      responses:
+        "200":
+          description: Existing membership returned for an idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "201":
+          description: Member membership activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "409":
+          description: Invitation expired, revoked, mismatched, or member limit reached
+  /api/v1/workspaces/{workspaceId}/members/{accountId}/role:
+    put:
+      summary: Promote or demote an active member
+      operationId: changeMemberRole
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  $ref: "#/components/schemas/Role"
+      responses:
+        "204":
+          description: Role changed
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The operation would remove the final Owner
+  /api/v1/workspaces/{workspaceId}/members:
+    get:
+      summary: List active memberships as an Owner or Member
+      operationId: listMemberships
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Active memberships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Membership"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/workspaces/{workspaceId}/ownership:
+    post:
+      summary: Atomically promote a Member and demote the acting Owner
+      operationId: transferOwnership
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetAccountId]
+              properties:
+                targetAccountId:
+                  type: string
+      responses:
+        "204":
+          description: Ownership transferred
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Target is not an active Member
+  /api/v1/workspaces/{workspaceId}/members/{accountId}:
+    delete:
+      summary: Remove an active member
+      operationId: removeMember
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: Membership access revoked immediately
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The operation would remove the final Owner
+  /api/v1/workspaces/{workspaceId}/leave:
+    post:
+      summary: Leave a workspace
+      operationId: leaveWorkspace
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "204":
+          description: Membership access revoked immediately
+        "409":
+          description: An Owner must transfer ownership before leaving
+  /api/v1/workspaces/{workspaceId}/deletion-requests:
+    post:
+      summary: Request workspace deletion after fresh identity confirmation
+      operationId: requestWorkspaceDeletion
+      security:
+        - recentSession: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  const: DELETE
+      responses:
+        "202":
+          description: Workspace moved to deletion_pending
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    session:
+      type: http
+      scheme: bearer
+    recentSession:
+      type: http
+      scheme: bearer
+      description: Server-verified session with a fresh identity confirmation
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema:
+        type: string
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Forbidden:
+      description: The authenticated account's stored active membership lacks permission
+  schemas:
+    Role:
+      type: string
+      enum: [owner, member]
+    Workspace:
+      type: object
+      required: [id, name, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, deletion_pending]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Membership:
+      type: object
+      required: [workspaceId, accountId, role, status, createdAt, updatedAt]
+      properties:
+        workspaceId:
+          type: string
+        accountId:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          enum: [active, removed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    InvitationToken:
+      allOf:
+        - $ref: "#/components/schemas/Invitation"
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              writeOnly: true
+    Invitation:
+      type: object
+      required: [id, workspaceId, status, expiresAt]
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        status:
+          type: string
+          const: pending
+        expiresAt:
+          type: string
+          format: date-time
