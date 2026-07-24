@@ -1,0 +1,261 @@
+openapi: 3.1.0
+info:
+  title: Postqron authentication slice
+  version: 0.1.0
+paths:
+  /api/v1/auth/authorize:
+    post:
+      summary: Start a federated login or registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BeginLogin'
+      responses:
+        '201':
+          description: Authorization request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Authorization'
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/callback:
+    get:
+      summary: Complete providers using query response mode
+      parameters:
+        - $ref: '#/components/parameters/State'
+        - $ref: '#/components/parameters/Code'
+        - $ref: '#/components/parameters/ProviderError'
+      responses:
+        '200':
+          $ref: '#/components/responses/Callback'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Complete providers using form_post response mode
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                code:
+                  type: string
+                error:
+                  type: string
+              required: [state]
+      responses:
+        '200':
+          $ref: '#/components/responses/Callback'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/link:
+    post:
+      summary: Start explicit provider linking from a recently authenticated session
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider]
+              properties:
+                provider:
+                  $ref: '#/components/schemas/Provider'
+                return_to:
+                  type: string
+                  pattern: '^/(?!/)'
+      responses:
+        '201':
+          description: Linking authorization request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Authorization'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke the current session
+      security:
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Session revoked and cookie cleared
+  /api/v1/auth/sessions/revoke:
+    post:
+      summary: Revoke every session for the current account
+      security:
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Sessions revoked and cookie cleared
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/providers/{provider}:
+    delete:
+      summary: Revoke and unlink one identity provider
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Provider'
+      responses:
+        '204':
+          description: Provider revoked and unlinked
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
+  parameters:
+    State:
+      name: state
+      in: query
+      required: true
+      schema:
+        type: string
+    Code:
+      name: code
+      in: query
+      schema:
+        type: string
+    ProviderError:
+      name: error
+      in: query
+      schema:
+        type: string
+  responses:
+    Callback:
+      description: Login, registration, or linking completed
+      headers:
+        Set-Cookie:
+          description: Secure HttpOnly session cookie for login and registration
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [account_id, linked, onboarding, return_to]
+            properties:
+              account_id:
+                type: string
+              linked:
+                type: boolean
+              onboarding:
+                type: boolean
+              return_to:
+                type: string
+    Error:
+      description: Stable, retry-aware error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Provider:
+      type: string
+      enum: [google, apple, facebook, linkedin]
+    ConsentReceipt:
+      type: object
+      additionalProperties: false
+      required:
+        - document_key
+        - version
+        - digest_sha256
+        - action
+        - purpose
+        - locale
+        - surface
+        - control_text_id
+      properties:
+        document_key:
+          type: string
+        version:
+          type: string
+          pattern: '^[1-9][0-9]*\.[0-9]+$'
+        digest_sha256:
+          type: string
+          pattern: '^[0-9a-fA-F]{64}$'
+        action:
+          type: string
+          enum: [accepted, acknowledged, granted, rejected, withdrawn]
+        purpose:
+          type: string
+        locale:
+          const: it-IT
+        surface:
+          type: string
+        control_text_id:
+          type: string
+    BeginLogin:
+      type: object
+      additionalProperties: false
+      required: [provider]
+      properties:
+        provider:
+          $ref: '#/components/schemas/Provider'
+        return_to:
+          type: string
+          pattern: '^/(?!/)'
+        contract_country:
+          type: string
+          description: Required and limited to IT when a new account is created.
+        consents:
+          type: array
+          description: Required legal receipts when a new account is created.
+          items:
+            $ref: '#/components/schemas/ConsentReceipt'
+    Authorization:
+      type: object
+      additionalProperties: false
+      required: [authorization_url, expires_at]
+      properties:
+        authorization_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
