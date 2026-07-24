@@ -1,0 +1,199 @@
+:root,
+[data-pq-theme="light"] {
+  color-scheme: light;
+
+  /* Primitive brand colors */
+  --pq-pine-50: #f0f7f3;
+  --pq-pine-100: #dceee4;
+  --pq-pine-200: #b9dcc8;
+  --pq-pine-300: #86c0a0;
+  --pq-pine-400: #4d9f77;
+  --pq-pine-500: #2f805e;
+  --pq-pine-600: #226b4e;
+  --pq-pine-700: #185c43;
+  --pq-pine-800: #164a37;
+  --pq-pine-900: #133d30;
+  --pq-pine-950: #0a221a;
+  --pq-coral-50: #fff4ef;
+  --pq-coral-100: #ffe6d9;
+  --pq-coral-200: #ffc9b3;
+  --pq-coral-300: #ffa17e;
+  --pq-coral-400: #f9784b;
+  --pq-coral-500: #e95a2a;
+  --pq-coral-600: #d84b1e;
+  --pq-coral-700: #c43d12;
+  --pq-coral-800: #9c3415;
+  --pq-coral-900: #7e2e18;
+  --pq-coral-950: #441408;
+  --pq-slate-0: #fff;
+  --pq-slate-50: #f7f9f8;
+  --pq-slate-100: #eef2f0;
+  --pq-slate-200: #dce3df;
+  --pq-slate-300: #bdc9c3;
+  --pq-slate-400: #8d9d95;
+  --pq-slate-500: #66766e;
+  --pq-slate-600: #4c5c54;
+  --pq-slate-700: #394941;
+  --pq-slate-800: #24352d;
+  --pq-slate-900: #182820;
+  --pq-slate-950: #0d1813;
+
+  /* Semantic colors: use these in product UI */
+  --pq-color-canvas: #f4f8f5;
+  --pq-color-surface: #fff;
+  --pq-color-surface-subtle: #eef4f0;
+  --pq-color-text: #13231d;
+  --pq-color-text-muted: #4c5c54;
+  --pq-color-text-inverse: #fff;
+  --pq-color-border: #bdc9c3;
+  --pq-color-border-strong: #66766e;
+  --pq-color-brand: #185c43;
+  --pq-color-brand-hover: #164a37;
+  --pq-color-brand-subtle: #dceee4;
+  --pq-color-accent: #c43d12;
+  --pq-color-focus: #c43d12;
+  --pq-color-danger: #a42d35;
+  --pq-color-danger-solid: #a42d35;
+  --pq-color-on-danger: #fff;
+  --pq-color-danger-surface: #fff5f5;
+  --pq-color-warning: #7a4b00;
+  --pq-color-warning-surface: #fff8e6;
+  --pq-color-info: #175a77;
+  --pq-color-info-surface: #eff9ff;
+  --pq-color-success: #185c43;
+  --pq-color-success-surface: #f0f7f3;
+
+  /* Type */
+  --pq-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pq-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --pq-font-size-xs: 0.75rem;
+  --pq-font-size-sm: 0.875rem;
+  --pq-font-size-md: 1rem;
+  --pq-font-size-lg: 1.125rem;
+  --pq-font-size-xl: 1.25rem;
+  --pq-font-size-2xl: 1.5rem;
+  --pq-font-size-3xl: 2rem;
+  --pq-font-size-4xl: clamp(2.5rem, 7vw, 4.5rem);
+  --pq-font-weight-regular: 400;
+  --pq-font-weight-medium: 500;
+  --pq-font-weight-semibold: 600;
+  --pq-font-weight-bold: 750;
+  --pq-line-height-tight: 1.1;
+  --pq-line-height-heading: 1.2;
+  --pq-line-height-body: 1.6;
+  --pq-letter-spacing-tight: -0.025em;
+  --pq-letter-spacing-normal: 0;
+  --pq-letter-spacing-wide: 0.06em;
+
+  /* Space and size */
+  --pq-space-0: 0;
+  --pq-space-1: 0.25rem;
+  --pq-space-2: 0.5rem;
+  --pq-space-3: 0.75rem;
+  --pq-space-4: 1rem;
+  --pq-space-5: 1.25rem;
+  --pq-space-6: 1.5rem;
+  --pq-space-8: 2rem;
+  --pq-space-10: 2.5rem;
+  --pq-space-12: 3rem;
+  --pq-space-16: 4rem;
+  --pq-space-20: 5rem;
+  --pq-space-24: 6rem;
+  --pq-size-target-min: 2.75rem;
+  --pq-size-content-narrow: 40rem;
+  --pq-size-content: 72rem;
+  --pq-size-content-wide: 90rem;
+
+  /* Shape, depth, motion and layers */
+  --pq-radius-sm: 0.375rem;
+  --pq-radius-md: 0.625rem;
+  --pq-radius-lg: 1rem;
+  --pq-radius-xl: 1.5rem;
+  --pq-radius-full: 9999px;
+  --pq-border-thin: 1px;
+  --pq-border-thick: 2px;
+  --pq-border-focus: 3px;
+  --pq-shadow-sm: 0 1px 2px #0d181314;
+  --pq-shadow-md: 0 8px 24px -8px #0d18131f;
+  --pq-shadow-lg: 0 20px 48px -16px #0d181329;
+  --pq-duration-instant: 0ms;
+  --pq-duration-fast: 120ms;
+  --pq-duration-normal: 200ms;
+  --pq-duration-slow: 320ms;
+  --pq-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --pq-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --pq-breakpoint-sm: 36rem;
+  --pq-breakpoint-md: 48rem;
+  --pq-breakpoint-lg: 64rem;
+  --pq-breakpoint-xl: 80rem;
+  --pq-z-base: 0;
+  --pq-z-raised: 10;
+  --pq-z-dropdown: 100;
+  --pq-z-overlay: 200;
+  --pq-z-modal: 300;
+  --pq-z-toast: 400;
+}
+
+[data-pq-theme="dark"] {
+  color-scheme: dark;
+  --pq-color-canvas: #0d1813;
+  --pq-color-surface: #182820;
+  --pq-color-surface-subtle: #24352d;
+  --pq-color-text: #f7f9f8;
+  --pq-color-text-muted: #bdc9c3;
+  --pq-color-text-inverse: #0d1813;
+  --pq-color-border: #4c5c54;
+  --pq-color-border-strong: #8d9d95;
+  --pq-color-brand: #86c0a0;
+  --pq-color-brand-hover: #b9dcc8;
+  --pq-color-brand-subtle: #133d30;
+  --pq-color-accent: #ffa17e;
+  --pq-color-focus: #ffa17e;
+  --pq-color-danger: #fecaca;
+  --pq-color-danger-solid: #fecaca;
+  --pq-color-on-danger: #681c25;
+  --pq-color-danger-surface: #681c25;
+  --pq-color-warning: #fde4a3;
+  --pq-color-warning-surface: #482900;
+  --pq-color-info: #bae6fd;
+  --pq-color-info-surface: #0d3345;
+  --pq-color-success: #b9dcc8;
+  --pq-color-success-surface: #133d30;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-pq-theme="system"] {
+    color-scheme: dark;
+    --pq-color-canvas: #0d1813;
+    --pq-color-surface: #182820;
+    --pq-color-surface-subtle: #24352d;
+    --pq-color-text: #f7f9f8;
+    --pq-color-text-muted: #bdc9c3;
+    --pq-color-text-inverse: #0d1813;
+    --pq-color-border: #4c5c54;
+    --pq-color-border-strong: #8d9d95;
+    --pq-color-brand: #86c0a0;
+    --pq-color-brand-hover: #b9dcc8;
+    --pq-color-brand-subtle: #133d30;
+    --pq-color-accent: #ffa17e;
+    --pq-color-focus: #ffa17e;
+    --pq-color-danger: #fecaca;
+    --pq-color-danger-solid: #fecaca;
+    --pq-color-on-danger: #681c25;
+    --pq-color-danger-surface: #681c25;
+    --pq-color-warning: #fde4a3;
+    --pq-color-warning-surface: #482900;
+    --pq-color-info: #bae6fd;
+    --pq-color-info-surface: #0d3345;
+    --pq-color-success: #b9dcc8;
+    --pq-color-success-surface: #133d30;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pq-duration-fast: 0ms;
+    --pq-duration-normal: 0ms;
+    --pq-duration-slow: 0ms;
+  }
+}

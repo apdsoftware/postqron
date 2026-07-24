@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">Postqron</title>
+  <desc id="description">Programma e gestisci i tuoi contenuti social da un unico spazio.</desc>
+  <rect width="1200" height="630" fill="#f4f8f5"/>
+  <circle cx="1090" cy="92" r="190" fill="#dceee4"/>
+  <circle cx="1120" cy="560" r="280" fill="#fff4ef"/>
+  <g transform="translate(90 78) scale(1.5)">
+    <rect x="6" y="6" width="48" height="48" rx="15" fill="#185c43"/>
+    <circle cx="30" cy="29" r="11" fill="none" stroke="#ffffff" stroke-width="4"/>
+    <path d="M30 22v7l5 3" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m39 39 9 9" fill="none" stroke="#185c43" stroke-width="8" stroke-linecap="round"/>
+    <path d="m39 39 9 9" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="50" cy="14" r="6" fill="#c43d12"/>
+  </g>
+  <text x="190" y="140" fill="#13231d" font-family="Inter, Arial, sans-serif" font-size="58" font-weight="750" letter-spacing="-2">Postqron</text>
+  <text x="90" y="315" fill="#13231d" font-family="Inter, Arial, sans-serif" font-size="66" font-weight="750" letter-spacing="-2">I tuoi contenuti social,</text>
+  <text x="90" y="397" fill="#13231d" font-family="Inter, Arial, sans-serif" font-size="66" font-weight="750" letter-spacing="-2">chiari e programmati.</text>
+  <text x="92" y="520" fill="#4c5c54" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="500">Programma e gestisci da un unico spazio.</text>
+</svg>

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "vue": ["../../apps/web/node_modules/vue"],
+      "vue/*": ["../../apps/web/node_modules/vue/*"]
+    },
+    "types": []
+  },
+  "include": ["runtime.ts", "components/**/*.ts", "components/**/*.vue", "examples/**/*.vue"]
+}

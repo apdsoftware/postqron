@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title description">
+  <title id="title">Simbolo Postqron</title>
+  <desc id="description">Un post arrotondato con un quadrante e una coda, simbolo di programmazione.</desc>
+  <rect x="6" y="6" width="48" height="48" rx="15" fill="#185c43"/>
+  <circle cx="30" cy="29" r="11" fill="none" stroke="#ffffff" stroke-width="4"/>
+  <path d="M30 22v7l5 3" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m39 39 9 9" fill="none" stroke="#185c43" stroke-width="8" stroke-linecap="round"/>
+  <path d="m39 39 9 9" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="50" cy="14" r="6" fill="#c43d12"/>
+</svg>

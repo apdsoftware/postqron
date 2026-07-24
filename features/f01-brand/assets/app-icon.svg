@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Icona applicazione Postqron</title>
+  <desc id="description">Simbolo di programmazione Postqron su fondo verde.</desc>
+  <rect width="512" height="512" rx="120" fill="#185c43"/>
+  <circle cx="236" cy="232" r="106" fill="none" stroke="#ffffff" stroke-width="42"/>
+  <path d="M236 164v68l54 28" fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m322 322 82 82" fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round"/>
+  <circle cx="402" cy="110" r="46" fill="#ffc9b3"/>
+</svg>
