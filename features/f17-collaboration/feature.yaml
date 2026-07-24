@@ -1,0 +1,10 @@
+schema_version: 1
+id: f17-collaboration
+kind: api
+version: 0.1.0
+entrypoint: ./collaboration.go
+dependencies:
+  - workspaces
+  - f06-composer
+migrations:
+  - ./migrations/000001_create_editorial_collaboration.sql
