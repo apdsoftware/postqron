@@ -1,0 +1,398 @@
+openapi: 3.1.0
+info:
+  title: Postqron account and privacy API
+  version: 0.1.0
+paths:
+  /api/v1/account:
+    get:
+      summary: Read profile, providers, workspaces, plans, and usage
+      responses:
+        '200':
+          description: Account area
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountArea'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/account/profile:
+    patch:
+      summary: Update the authenticated account profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+  /api/v1/account/providers/{provider_id}:
+    delete:
+      summary: Revoke and disconnect an identity or social provider
+      parameters:
+        - $ref: '#/components/parameters/ProviderID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  description: Must exactly match provider_id.
+      responses:
+        '204':
+          description: Provider disconnected and local credentials removed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: The provider is the account's last login method
+  /api/v1/account/exports:
+    post:
+      summary: Queue a temporary portable data export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scope, confirmation]
+              properties:
+                scope:
+                  type: string
+                  enum: [account, workspace]
+                workspace_id:
+                  type: string
+                confirmation:
+                  type: string
+                  const: EXPORT
+      responses:
+        '202':
+          description: Export queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Only an Owner may export a workspace
+  /api/v1/account/exports/{export_id}/download:
+    get:
+      summary: Issue an authenticated signed URL valid for at most 24 hours
+      parameters:
+        - in: path
+          name: export_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Temporary signed download
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Download'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Export not ready
+        '410':
+          description: Export package expired
+  /api/v1/account/deletions:
+    post:
+      summary: Confirm account or workspace deletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeletionInput'
+      responses:
+        '202':
+          description: Access deactivated and deletion in grace period
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Ownership is unresolved or another deletion is active
+        '503':
+          description: A required immediate safety effect was incomplete
+  /api/v1/account/deletions/{request_id}:
+    delete:
+      summary: Cancel a deletion before the grace period elapses
+      parameters:
+        - in: path
+          name: request_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deletion cancelled; providers and jobs remain disconnected
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Grace period elapsed or finalization is immediate
+components:
+  parameters:
+    ProviderID:
+      in: path
+      name: provider_id
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Authentication or recent reauthentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InvalidRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+    Profile:
+      type: object
+      required: [account_id, display_name, locale, timezone, updated_at]
+      properties:
+        account_id:
+          type: string
+        display_name:
+          type: string
+          maxLength: 100
+        locale:
+          type: string
+        timezone:
+          type: string
+          description: IANA timezone
+        updated_at:
+          type: string
+          format: date-time
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      required: [display_name, locale, timezone]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        locale:
+          type: string
+        timezone:
+          type: string
+    Provider:
+      type: object
+      required: [id, kind, name, connected_at, only_login_method]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [identity, social]
+        name:
+          type: string
+        external_label:
+          type: string
+        connected_at:
+          type: string
+          format: date-time
+        only_login_method:
+          type: boolean
+          description: True only when disconnecting would leave no login method.
+    Plan:
+      type: object
+      required: [code, name, state, usage, limits, manageable]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        state:
+          type: string
+        usage:
+          type: object
+          additionalProperties:
+            type: integer
+        limits:
+          type: object
+          additionalProperties:
+            type: integer
+        renews_at:
+          type: string
+          format: date-time
+        manageable:
+          type: boolean
+    WorkspacePlan:
+      type: object
+      required: [workspace, plan]
+      properties:
+        workspace:
+          type: object
+          required: [id, name, role]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            role:
+              type: string
+        plan:
+          $ref: '#/components/schemas/Plan'
+    AccountArea:
+      type: object
+      required: [profile, providers, workspaces]
+      properties:
+        profile:
+          $ref: '#/components/schemas/Profile'
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Provider'
+        workspaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspacePlan'
+    ExportRequest:
+      type: object
+      required: [id, account_id, scope, status, requested_at, expires_at]
+      properties:
+        id:
+          type: string
+        account_id:
+          type: string
+        scope:
+          type: string
+          enum: [account, workspace]
+        workspace_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, ready, failed, expired]
+        requested_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    Download:
+      type: object
+      required: [url, expires_at, sha256, size_bytes]
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        size_bytes:
+          type: integer
+          minimum: 1
+    OwnershipAction:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, action]
+      properties:
+        workspace_id:
+          type: string
+        action:
+          type: string
+          enum: [transfer, delete]
+        transfer_account_id:
+          type: string
+    DeletionInput:
+      type: object
+      additionalProperties: false
+      required: [scope, immediate, confirmation]
+      properties:
+        scope:
+          type: string
+          enum: [account, workspace]
+        workspace_id:
+          type: string
+        ownership_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnershipAction'
+        immediate:
+          type: boolean
+          description: Explicitly waive the 28-day grace period.
+        confirmation:
+          type: string
+          const: DELETE
+    DeletionRequest:
+      type: object
+      required:
+        - id
+        - account_id
+        - scope
+        - status
+        - requested_at
+        - grace_ends_at
+        - immediate
+        - ownership
+      properties:
+        id:
+          type: string
+        account_id:
+          type: string
+        scope:
+          type: string
+          enum: [account, workspace]
+        workspace_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - deactivating
+            - grace_period
+            - finalizing
+            - completed
+            - cancelled
+            - deactivation_failed
+            - finalization_failed
+        requested_at:
+          type: string
+          format: date-time
+        grace_ends_at:
+          type: string
+          format: date-time
+        immediate:
+          type: boolean
+        ownership:
+          type: object
+          required: [actions]
+          properties:
+            actions:
+              type: array
+              items:
+                $ref: '#/components/schemas/OwnershipAction'
