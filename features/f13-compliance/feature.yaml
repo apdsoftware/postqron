@@ -1,0 +1,8 @@
+schema_version: 1
+id: compliance
+kind: web
+version: 0.1.0
+entrypoint: ./src/index.ts
+dependencies: []
+migrations:
+  - ./migrations/000001_create_compliance_ledger.sql

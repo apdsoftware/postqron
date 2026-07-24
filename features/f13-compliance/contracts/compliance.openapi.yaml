@@ -1,0 +1,262 @@
+openapi: 3.1.0
+info:
+  title: Postqron compliance contracts
+  version: 0.1.0
+paths:
+  /api/v1/legal-documents/{documentKey}/current:
+    get:
+      summary: Return the current approved document
+      parameters:
+        - $ref: '#/components/parameters/DocumentKey'
+      responses:
+        '200':
+          description: Exact approved and published artifact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishedLegalDocument'
+        '404':
+          description: No approved document is publishable
+  /api/v1/legal-documents/{documentKey}/versions/{version}:
+    get:
+      summary: Return an immutable public document version
+      parameters:
+        - $ref: '#/components/parameters/DocumentKey'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+      responses:
+        '200':
+          description: Exact approved and published artifact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishedLegalDocument'
+        '404':
+          description: Version missing, unapproved, or not published
+  /api/v1/consent-events:
+    post:
+      summary: Append evidence of an acceptance, acknowledgement, choice, or withdrawal
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentEvidence'
+      responses:
+        '201':
+          description: Evidence appended
+        '200':
+          description: Identical evidence already recorded for this idempotency key
+        '409':
+          description: Idempotency key already used with different evidence
+  /api/v1/cookie-preferences:
+    get:
+      summary: Read the current editable cookie preferences
+      responses:
+        '200':
+          description: Current choice; optional categories are false when absent or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookiePreferences'
+    put:
+      summary: Replace optional cookie preferences without changing necessary cookies
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CookiePreferenceSelection'
+      responses:
+        '200':
+          description: Preferences saved and trackers synchronised immediately
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookiePreferences'
+components:
+  parameters:
+    DocumentKey:
+      name: documentKey
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LegalDocumentKey'
+  schemas:
+    LegalDocumentKey:
+      type: string
+      enum: [terms_it, privacy_it, cookies_it, dpa_it, subprocessors]
+    PublishedLegalDocument:
+      type: object
+      additionalProperties: false
+      required:
+        - documentKey
+        - jurisdiction
+        - locale
+        - version
+        - content
+        - digestSha256
+        - contentStatus
+        - legalApprovalId
+        - approvedAt
+        - publishedAt
+        - effectiveAt
+        - permanentUrl
+        - currentUrl
+        - changeType
+      properties:
+        documentKey:
+          $ref: '#/components/schemas/LegalDocumentKey'
+        jurisdiction:
+          const: IT
+        locale:
+          const: it-IT
+        version:
+          type: string
+        content:
+          type: string
+        digestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        contentStatus:
+          const: approved
+        legalApprovalId:
+          type: string
+        approvedAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+        effectiveAt:
+          type: string
+          format: date-time
+        supersededAt:
+          type: string
+          format: date-time
+        permanentUrl:
+          type: string
+          format: uri
+        currentUrl:
+          type: string
+          format: uri
+        changeType:
+          type: string
+          enum: [material, non_material]
+    ConsentEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - subject
+        - documentKey
+        - documentVersion
+        - documentDigestSha256
+        - purpose
+        - action
+        - occurredAt
+        - locale
+        - contractualCountry
+        - surface
+        - correlationId
+        - controlTextVersion
+      properties:
+        eventId:
+          type: string
+        subject:
+          type: object
+          additionalProperties: false
+          required: [kind, id]
+          properties:
+            kind:
+              type: string
+              enum: [authenticated_user, pseudonymous_browser]
+            id:
+              type: string
+        workspaceId:
+          type: string
+        documentKey:
+          $ref: '#/components/schemas/LegalDocumentKey'
+        documentVersion:
+          type: string
+        documentDigestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        uiDigestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        purpose:
+          type: string
+        action:
+          type: string
+          enum: [accepted, acknowledged, granted, rejected, withdrawn]
+        occurredAt:
+          type: string
+          format: date-time
+        locale:
+          const: it-IT
+        contractualCountry:
+          const: IT
+        surface:
+          type: string
+        correlationId:
+          type: string
+        controlTextVersion:
+          type: string
+    CookiePreferenceSelection:
+      type: object
+      additionalProperties: false
+      required: [preferences, analytics, marketing]
+      properties:
+        preferences:
+          type: boolean
+          default: false
+        analytics:
+          type: boolean
+          default: false
+        marketing:
+          type: boolean
+          default: false
+    CookiePreferences:
+      type: object
+      additionalProperties: false
+      required:
+        - necessary
+        - preferences
+        - analytics
+        - marketing
+        - selectedAt
+        - expiresAt
+      properties:
+        necessary:
+          const: true
+        preferences:
+          type: boolean
+        analytics:
+          type: boolean
+        marketing:
+          type: boolean
+        selectedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
