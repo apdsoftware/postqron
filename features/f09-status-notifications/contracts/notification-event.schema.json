@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/f09/notification-event.schema.json",
+  "title": "Transactional notification orchestration event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "kind",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": ["welcome", "plan_changed", "security_alert"]
+    },
+    "account_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "action_label": {
+      "type": "string"
+    },
+    "action_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": ["welcome", "security_alert"]
+          }
+        }
+      },
+      "then": {
+        "required": ["account_id"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "plan_changed"
+          }
+        }
+      },
+      "then": {
+        "required": ["workspace_id"]
+      }
+    }
+  ]
+}

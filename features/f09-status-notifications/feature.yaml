@@ -1,0 +1,13 @@
+schema_version: 1
+id: status-notifications
+kind: api
+version: 0.1.0
+entrypoint: ./status.go
+dependencies:
+  - auth
+  - email
+  - f10-entitlements
+  - publishing
+  - scheduling
+migrations:
+  - ./migrations/000001_create_status_notifications.sql
