@@ -1,0 +1,15 @@
+{
+  "name": "@postqron/f02-marketing-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/link-workspace-runtime.mjs && pnpm --dir ../../apps/web exec nuxt build --cwd ../../features/f02-marketing-site",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "node scripts/link-workspace-runtime.mjs && pnpm --dir ../../apps/web exec nuxt typecheck --cwd ../../features/f02-marketing-site"
+  },
+  "peerDependencies": {
+    "nuxt": "^3.21.0",
+    "vue": "^3.5.0"
+  }
+}
