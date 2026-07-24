@@ -33,6 +33,7 @@ jobs:
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
+      - uses: hashicorp/setup-terraform@v3
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec eslint apps packages
       - run: find apps services packages/runtime/go -name '*.go' -type f -print0 | xargs -0 gofmt -l | tee /tmp/gofmt-files && test ! -s /tmp/gofmt-files
@@ -164,6 +165,5 @@ jobs:
         working-directory: services/api
       - run: govulncheck ./...
         working-directory: services/worker
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - run: gitleaks git --no-banner --redact .
