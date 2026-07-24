@@ -1,0 +1,364 @@
+openapi: 3.1.0
+info:
+  title: Postqron media library API
+  version: 0.1.0
+paths:
+  /api/v1/workspaces/{workspace_id}/media/uploads:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: createMediaUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [original_name, content_type, size_bytes, idempotency_key]
+              properties:
+                original_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                content_type:
+                  type: string
+                  pattern: "^(image|video)/"
+                size_bytes:
+                  type: integer
+                  minimum: 1
+                  maximum: 5368709120
+                idempotency_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "201":
+          description: F10 quota reserved and signed object upload issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadTicket"
+        "409":
+          description: Media quota exceeded
+  /api/v1/workspaces/{workspace_id}/media/uploads/{upload_id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - $ref: "#/components/parameters/UploadID"
+    post:
+      operationId: completeMediaUpload
+      responses:
+        "201":
+          description: Object inspected and reusable asset created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "400":
+          description: Inspected object differs from its reservation
+        "410":
+          description: Upload authorization expired
+  /api/v1/workspaces/{workspace_id}/media/assets:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: searchMediaAssets
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [image, video]
+        - name: tags
+          in: query
+          description: Comma-separated tags; every tag must match
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+      responses:
+        "200":
+          description: Ready workspace assets
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [assets]
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Asset"
+  /api/v1/workspaces/{workspace_id}/media/assets/{asset_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - $ref: "#/components/parameters/AssetID"
+    get:
+      operationId: getMediaAsset
+      responses:
+        "200":
+          description: Ready or archived asset metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+    patch:
+      operationId: updateMediaMetadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, original_name, alt_text, tags]
+              properties:
+                expected_revision:
+                  type: integer
+                  minimum: 1
+                original_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                alt_text:
+                  type: string
+                  maxLength: 2000
+                tags:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 50
+      responses:
+        "200":
+          description: Updated searchable metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "409":
+          description: Revision conflict or archived asset
+    delete:
+      operationId: archiveMediaAsset
+      parameters:
+        - name: revision
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Asset hidden from search but retained for existing drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+  /api/v1/workspaces/{workspace_id}/media/assets/{asset_id}/composer-reference:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - $ref: "#/components/parameters/AssetID"
+    get:
+      operationId: resolveMediaForComposer
+      responses:
+        "200":
+          description: F6-compatible media metadata for new draft reuse
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [media]
+                properties:
+                  media:
+                    $ref: "#/components/schemas/ComposerMedia"
+        "409":
+          description: Asset is archived and cannot be newly reused
+components:
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    UploadID:
+      name: upload_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^upload_"
+    AssetID:
+      name: asset_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^media_"
+  schemas:
+    UploadTicket:
+      type: object
+      additionalProperties: false
+      required: [upload, authorization]
+      properties:
+        upload:
+          $ref: "#/components/schemas/Upload"
+        authorization:
+          type: object
+          additionalProperties: false
+          required: [method, url, headers, expires_at]
+          properties:
+            method:
+              const: PUT
+            url:
+              type: string
+              format: uri
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+            expires_at:
+              type: string
+              format: date-time
+    Upload:
+      type: object
+      required:
+        - id
+        - asset_id
+        - workspace_id
+        - created_by
+        - storage_key
+        - original_name
+        - declared_content_type
+        - reserved_size_bytes
+        - status
+        - expires_at
+        - created_at
+      properties:
+        id:
+          type: string
+        asset_id:
+          type: string
+        workspace_id:
+          type: string
+        created_by:
+          type: string
+        storage_key:
+          type: string
+        original_name:
+          type: string
+        declared_content_type:
+          type: string
+        reserved_size_bytes:
+          type: integer
+        status:
+          enum: [pending, completed, canceled]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    Asset:
+      allOf:
+        - $ref: "#/components/schemas/ComposerMedia"
+        - type: object
+          required:
+            - workspace_id
+            - created_by
+            - original_name
+            - checksum_sha256
+            - tags
+            - status
+            - revision
+            - created_at
+            - updated_at
+          properties:
+            workspace_id:
+              type: string
+            created_by:
+              type: string
+            original_name:
+              type: string
+            checksum_sha256:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+            alt_text:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            status:
+              enum: [ready, archived, purged]
+            revision:
+              type: integer
+              minimum: 1
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            archived_at:
+              type: string
+              format: date-time
+            purged_at:
+              type: string
+              format: date-time
+    ComposerMedia:
+      type: object
+      required: [id, storage_key, kind, content_type, size_bytes, width, height]
+      properties:
+        id:
+          type: string
+        storage_key:
+          type: string
+        kind:
+          enum: [image, video]
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        color_space:
+          type: string
+        video_codec:
+          type: string
+        audio_codec:
+          type: string
+        audio_sample_rate:
+          type: integer
+        frames_per_second:
+          type: number
+        video_bitrate:
+          type: integer
+        audio_bitrate:
+          type: integer
+        duration_seconds:
+          type: number
+        has_audio:
+          type: boolean
+        has_edit_list:
+          type: boolean
+        moov_before_media_data:
+          type: boolean
