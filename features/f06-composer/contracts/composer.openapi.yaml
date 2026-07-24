@@ -1,0 +1,350 @@
+openapi: 3.1.0
+info:
+  title: Postqron Composer API
+  version: 0.1.0
+paths:
+  /api/v1/workspaces/{workspace_id}/drafts:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+    get:
+      operationId: listComposerDrafts
+      responses:
+        '200':
+          description: Workspace drafts with current validation results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [drafts]
+                properties:
+                  drafts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DraftView'
+    post:
+      operationId: createComposerDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [content]
+              properties:
+                content:
+                  $ref: '#/components/schemas/DraftContent'
+      responses:
+        '201':
+          description: Draft created, whether complete or incomplete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftView'
+        '400':
+          $ref: '#/components/responses/RequestError'
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+    get:
+      operationId: getComposerDraft
+      responses:
+        '200':
+          description: Draft with current validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftView'
+        '404':
+          $ref: '#/components/responses/RequestError'
+    put:
+      operationId: updateComposerDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, content]
+              properties:
+                expected_revision:
+                  type: integer
+                  minimum: 1
+                content:
+                  $ref: '#/components/schemas/DraftContent'
+      responses:
+        '200':
+          description: Updated draft and validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftView'
+        '409':
+          $ref: '#/components/responses/RequestError'
+    delete:
+      operationId: deleteComposerDraft
+      parameters:
+        - name: revision
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '204':
+          description: Draft deleted
+        '409':
+          $ref: '#/components/responses/RequestError'
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/validate:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+    post:
+      operationId: validateComposerDraftForScheduling
+      responses:
+        '200':
+          description: Every destination is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [validation]
+                properties:
+                  validation:
+                    $ref: '#/components/schemas/ValidationReport'
+        '422':
+          description: Scheduling is blocked by one or more validation errors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, validation]
+                properties:
+                  error:
+                    $ref: '#/components/schemas/APIError'
+                  validation:
+                    $ref: '#/components/schemas/ValidationReport'
+components:
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    DraftID:
+      name: draft_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^draft_'
+  responses:
+    RequestError:
+      description: Client-safe request error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/APIError'
+  schemas:
+    DraftView:
+      type: object
+      additionalProperties: false
+      required: [draft, validation]
+      properties:
+        draft:
+          $ref: '#/components/schemas/Draft'
+        validation:
+          $ref: '#/components/schemas/ValidationReport'
+    Draft:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workspace_id
+        - created_by
+        - content
+        - revision
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        created_by:
+          type: string
+        content:
+          $ref: '#/components/schemas/DraftContent'
+        revision:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DraftContent:
+      type: object
+      additionalProperties: false
+      required: [text, media, destinations]
+      properties:
+        text:
+          type: string
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/Media'
+        destinations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Destination'
+    Media:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - storage_key
+        - kind
+        - content_type
+        - size_bytes
+        - width
+        - height
+      properties:
+        id:
+          type: string
+        storage_key:
+          type: string
+        kind:
+          enum: [image, video]
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        color_space:
+          type: string
+        video_codec:
+          type: string
+        audio_codec:
+          type: string
+        audio_sample_rate:
+          type: integer
+        frames_per_second:
+          type: number
+        video_bitrate:
+          type: integer
+        audio_bitrate:
+          type: integer
+        duration_seconds:
+          type: number
+        has_audio:
+          type: boolean
+        has_edit_list:
+          type: boolean
+        moov_before_media_data:
+          type: boolean
+    Destination:
+      type: object
+      additionalProperties: false
+      required: [id, channel_id, channel_type, format]
+      properties:
+        id:
+          type: string
+        channel_id:
+          type: string
+        channel_type:
+          enum: [facebook_page, instagram_professional]
+        format:
+          enum: [text, image, carousel, reel]
+        text_override:
+          type: [string, 'null']
+        media_ids:
+          type: [array, 'null']
+          items:
+            type: string
+    ValidationReport:
+      type: object
+      additionalProperties: false
+      required: [valid, errors, destinations]
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+        destinations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DestinationValidation'
+    DestinationValidation:
+      type: object
+      additionalProperties: false
+      required:
+        - destination_id
+        - channel_id
+        - channel_type
+        - format
+        - valid
+        - errors
+      properties:
+        destination_id:
+          type: string
+        channel_id:
+          type: string
+        channel_type:
+          enum: [facebook_page, instagram_professional]
+        format:
+          enum: [text, image, carousel, reel]
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required: [field, rule, code, message]
+      properties:
+        destination_id:
+          type: string
+        field:
+          type: string
+        rule:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    APIError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        field:
+          type: string
+        rule:
+          type: string
+        field_code:
+          type: string
+        field_message:
+          type: string
