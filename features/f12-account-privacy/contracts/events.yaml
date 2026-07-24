@@ -1,0 +1,53 @@
+asyncapi: 3.0.0
+info:
+  title: Postqron account privacy worker contracts
+  version: 0.1.0
+channels:
+  privacyExportRequested:
+    address: privacy.export.requested
+    messages:
+      exportRequested:
+        $ref: '#/components/messages/ExportRequested'
+  privacyDeletionDue:
+    address: privacy.deletion.due
+    messages:
+      deletionDue:
+        $ref: '#/components/messages/DeletionDue'
+operations:
+  generateExport:
+    action: receive
+    channel:
+      $ref: '#/channels/privacyExportRequested'
+    messages:
+      - $ref: '#/channels/privacyExportRequested/messages/exportRequested'
+  finalizeDeletion:
+    action: receive
+    channel:
+      $ref: '#/channels/privacyDeletionDue'
+    messages:
+      - $ref: '#/channels/privacyDeletionDue/messages/deletionDue'
+components:
+  messages:
+    ExportRequested:
+      payload:
+        type: object
+        additionalProperties: false
+        required: [request_id, account_id, scope]
+        properties:
+          request_id:
+            type: string
+          account_id:
+            type: string
+          scope:
+            type: string
+            enum: [account, workspace]
+          workspace_id:
+            type: string
+    DeletionDue:
+      payload:
+        type: object
+        additionalProperties: false
+        required: [request_id]
+        properties:
+          request_id:
+            type: string

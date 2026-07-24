@@ -1,0 +1,11 @@
+schema_version: 1
+id: account-privacy
+kind: api
+version: 0.1.0
+entrypoint: ./account.go
+dependencies:
+  - auth
+  - workspaces
+  - f10-entitlements
+migrations:
+  - ./migrations/000001_create_account_privacy.sql
