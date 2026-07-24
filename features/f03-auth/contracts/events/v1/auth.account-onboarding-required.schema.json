@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/events/v1/auth.account-onboarding-required.schema.json",
+  "title": "Auth account onboarding required",
+  "description": "Emitted atomically with a new account so F4 can create exactly one personal workspace and Owner membership.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "account_id",
+    "email",
+    "contract_country",
+    "personal_workspace_key",
+    "requested_role",
+    "idempotency_key",
+    "occurred_at"
+  ],
+  "properties": {
+    "account_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "email": {
+      "type": "string",
+      "format": "email"
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "contract_country": {
+      "const": "IT"
+    },
+    "personal_workspace_key": {
+      "type": "string",
+      "pattern": "^personal:.+$"
+    },
+    "requested_role": {
+      "const": "owner"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^auth-account:.+$"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
