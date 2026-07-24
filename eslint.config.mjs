@@ -33,4 +33,23 @@ export default tseslint.config(
       'semi': ['error', 'never'],
     },
   },
+  {
+    files: [
+      'features/f23-pwa/**/*.js',
+      'features/f23-pwa/**/*.mjs',
+    ],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        URL: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        self: 'readonly',
+      },
+    },
+    rules: {
+      'no-useless-assignment': 'off',
+      'semi': ['error', 'always'],
+    },
+  },
 )

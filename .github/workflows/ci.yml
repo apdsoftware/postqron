@@ -30,14 +30,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            features/*/go.sum
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
       - uses: hashicorp/setup-terraform@v3
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec eslint apps packages
-      - run: find apps services packages/runtime/go -name '*.go' -type f -print0 | xargs -0 gofmt -l | tee /tmp/gofmt-files && test ! -s /tmp/gofmt-files
+      - run: pnpm exec eslint apps packages features
+      - run: find apps services packages/runtime/go features -name '*.go' -type f -print0 | xargs -0 gofmt -l | tee /tmp/gofmt-files && test ! -s /tmp/gofmt-files
       - run: go vet ./services/api/... ./services/worker/... ./packages/runtime/go/...
+      - run: ./scripts/ci/for-each-feature-go-module.sh go vet ./...
       - run: terraform fmt -check -recursive infra/terraform
 
   test:
@@ -56,12 +58,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            features/*/go.sum
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @postqron/runtime test
       - run: go test -race ./services/api/... ./services/worker/... ./packages/runtime/go/...
+      - run: ./scripts/ci/for-each-feature-package.sh test
+      - run: ./scripts/ci/for-each-feature-go-module.sh go test -race -count=1 ./...
 
   build:
     name: Build
@@ -79,13 +84,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            features/*/go.sum
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
       - uses: hashicorp/setup-terraform@v3
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: ./scripts/ci/for-each-feature-package.sh typecheck
       - run: pnpm build
+      - run: ./scripts/ci/for-each-feature-package.sh build
       - run: go build ./services/api/cmd/api ./services/api/cmd/migrate ./services/worker/cmd/worker
       - run: terraform -chdir=infra/terraform/environments/staging init -backend=false
       - run: terraform -chdir=infra/terraform/environments/staging validate
@@ -121,12 +129,14 @@ jobs:
           - 5432:5432
     env:
       DATABASE_URL: postgres://postqron:postqron-ci@localhost:5432/postqron?sslmode=disable
+      POSTQRON_FEATURE_ROOTS: services/api/features:features
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            features/*/go.sum
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
@@ -134,6 +144,8 @@ jobs:
       - run: go run ./services/api/cmd/migrate
       - name: Migrations are idempotent
         run: go run ./services/api/cmd/migrate
+      - name: Feature PostgreSQL integration tests
+        run: ./scripts/ci/test-feature-integrations.sh
 
   security:
     name: Security
@@ -153,6 +165,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            features/*/go.sum
             packages/runtime/go/go.sum
             services/api/go.sum
             services/worker/go.sum
@@ -165,5 +178,6 @@ jobs:
         working-directory: services/api
       - run: govulncheck ./...
         working-directory: services/worker
+      - run: ./scripts/ci/for-each-feature-go-module.sh govulncheck ./...
       - run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
-      - run: gitleaks git --no-banner --redact .
+      - run: gitleaks git --no-banner --redact --config .gitleaks.toml .

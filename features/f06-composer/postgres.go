@@ -25,6 +25,7 @@ func (repository *PostgresRepository) Create(
 	ctx context.Context,
 	draft Draft,
 ) (Draft, error) {
+	draft.Content = contentForPostgres(draft.Content)
 	content, err := json.Marshal(draft.Content)
 	if err != nil {
 		return Draft{}, fmt.Errorf("encode draft content: %w", err)
@@ -117,6 +118,7 @@ func (repository *PostgresRepository) Update(
 	draft Draft,
 	expectedRevision int64,
 ) (Draft, error) {
+	draft.Content = contentForPostgres(draft.Content)
 	content, err := json.Marshal(draft.Content)
 	if err != nil {
 		return Draft{}, fmt.Errorf("encode draft content: %w", err)
@@ -149,6 +151,17 @@ func (repository *PostgresRepository) Update(
 		return updated, err
 	}
 	return Draft{}, repository.classifyMiss(ctx, draft.WorkspaceID, draft.ID)
+}
+
+func contentForPostgres(content DraftContent) DraftContent {
+	content = cloneContent(content)
+	if content.Media == nil {
+		content.Media = []Media{}
+	}
+	if content.Destinations == nil {
+		content.Destinations = []Destination{}
+	}
+	return content
 }
 
 func (repository *PostgresRepository) Delete(

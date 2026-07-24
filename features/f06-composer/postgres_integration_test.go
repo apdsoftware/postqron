@@ -40,6 +40,26 @@ func TestPostgresRepositoryIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if created.Content.Media == nil || created.Content.Destinations == nil {
+		t.Fatalf("created content must preserve empty arrays: %#v", created.Content)
+	}
+	var mediaType, destinationsType string
+	if err := pool.QueryRow(ctx, `
+		SELECT
+			jsonb_typeof(content -> 'media'),
+			jsonb_typeof(content -> 'destinations')
+		FROM f06_composer_drafts
+		WHERE id = $1
+	`, created.ID).Scan(&mediaType, &destinationsType); err != nil {
+		t.Fatal(err)
+	}
+	if mediaType != "array" || destinationsType != "array" {
+		t.Fatalf(
+			"stored content types = media %q, destinations %q",
+			mediaType,
+			destinationsType,
+		)
+	}
 	t.Cleanup(func() {
 		_ = repository.Delete(
 			context.Background(),
