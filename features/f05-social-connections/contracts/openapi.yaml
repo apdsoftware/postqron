@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: Postqron social connections API
+  version: 0.1.0
+  description: >
+    Owner-controlled Meta authorization, explicit resource selection,
+    connection state, reconnection, and revocation. Token material is never
+    part of this API.
+paths:
+  /api/v1/workspaces/{workspaceId}/social-authorizations:
+    post:
+      operationId: beginSocialAuthorization
+      summary: Start an Owner-authorized social OAuth flow
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider]
+              properties:
+                provider:
+                  $ref: "#/components/schemas/Provider"
+      responses:
+        "201":
+          description: One-time authorization created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Authorization"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/social-authorizations/callback:
+    get:
+      operationId: completeSocialAuthorization
+      summary: Exchange the provider code and return selectable resources
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Safe resource metadata awaiting explicit selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Selection"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/v1/workspaces/{workspaceId}/social-connections:
+    get:
+      operationId: listSocialConnections
+      summary: List safe social connection state
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Connections without credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Connection"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: selectSocialResource
+      summary: Explicitly select one discovered resource to connect or reconnect
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [selection_id, remote_id]
+              properties:
+                selection_id:
+                  type: string
+                remote_id:
+                  type: string
+      responses:
+        "201":
+          description: Resource connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        "200":
+          description: Existing resource explicitly reconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/v1/workspaces/{workspaceId}/social-connections/{connectionId}:
+    delete:
+      operationId: revokeSocialConnection
+      summary: Revoke locally, delete credentials, and revoke at Meta when safe
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Local connection revoked and credentials deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    session:
+      type: http
+      scheme: bearer
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Forbidden:
+      description: Owner permission is required for mutations
+    Error:
+      description: Stable retry-aware domain error
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [code, message, retryable]
+            properties:
+              code:
+                type: string
+              message:
+                type: string
+              retryable:
+                type: boolean
+  schemas:
+    Provider:
+      type: string
+      enum: [facebook_pages, instagram_professional]
+    Authorization:
+      type: object
+      additionalProperties: false
+      required: [authorization_url, expires_at]
+      properties:
+        authorization_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    Candidate:
+      type: object
+      additionalProperties: false
+      required:
+        [remote_id, resource_type, account_type, display_name, scopes]
+      properties:
+        remote_id:
+          type: string
+        resource_type:
+          type: string
+          enum: [facebook_page, instagram_professional]
+        account_type:
+          type: string
+          enum: [page, business, creator]
+        display_name:
+          type: string
+        handle:
+          type: string
+        picture_url:
+          type: string
+          format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+    Selection:
+      type: object
+      additionalProperties: false
+      required: [selection_id, provider, resources, expires_at]
+      properties:
+        selection_id:
+          type: string
+        provider:
+          $ref: "#/components/schemas/Provider"
+        resources:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Candidate"
+        expires_at:
+          type: string
+          format: date-time
+    Connection:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workspace_id
+        - provider
+        - remote_id
+        - resource_type
+        - account_type
+        - display_name
+        - scopes
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        provider:
+          $ref: "#/components/schemas/Provider"
+        remote_id:
+          type: string
+        resource_type:
+          type: string
+          enum: [facebook_page, instagram_professional]
+        account_type:
+          type: string
+          enum: [page, business, creator]
+        display_name:
+          type: string
+        handle:
+          type: string
+        picture_url:
+          type: string
+          format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [connected, reconnect_required, revoked]
+        reconnect_reason:
+          type: string
+        token_expires_at:
+          type: [string, "null"]
+          format: date-time
+        last_verified_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
