@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.example/contracts/webhook-event/2026-07-01",
+  "title": "Postqron webhook event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "version",
+    "workspace_id",
+    "occurred_at",
+    "data"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+([.][a-z0-9_]+)+$"
+    },
+    "version": {
+      "const": "2026-07-01"
+    },
+    "workspace_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "data": {
+      "type": "object",
+      "description": "Event-specific public data. Credential fields are forbidden by the producer."
+    }
+  }
+}

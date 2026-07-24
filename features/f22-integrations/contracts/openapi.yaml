@@ -1,0 +1,370 @@
+openapi: 3.1.0
+info:
+  title: Postqron Public Integrations API
+  version: 2026-07-01
+  description: >
+    Workspace-scoped API for CMS and automation integrations. Public resources
+    never expose OAuth credentials, social-provider tokens, or raw provider
+    responses.
+servers:
+  - url: https://api.postqron.example/api/public/v1
+    description: Replace with the environment's configured API origin.
+security:
+  - publicApiCredential: []
+paths:
+  /workspaces/{workspaceId}/posts:
+    get:
+      summary: List posts visible to the integration
+      operationId: listPublicPosts
+      security:
+        - publicApiCredential: []
+      x-postqron-required-scopes:
+        - posts:read
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A workspace-bound page of posts.
+          headers:
+            Postqron-API-Version:
+              $ref: "#/components/headers/APIVersion"
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
+                  next_cursor:
+                    type: string
+                    description: >
+                      Opaque, signed, workspace-bound cursor. Omitted on the
+                      final page and expires after 24 hours.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      summary: Create a post for later publication
+      operationId: createPublicPost
+      security:
+        - publicApiCredential: []
+      x-postqron-required-scopes:
+        - posts:write
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - text
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                scheduled_at:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+                  description: UTC instant, or null to create a draft.
+      responses:
+        "201":
+          description: Post created. An identical retry replays this response.
+          headers:
+            Postqron-API-Version:
+              $ref: "#/components/headers/APIVersion"
+            Idempotency-Replayed:
+              description: Present with value `true` on a replay.
+              schema:
+                type: string
+                const: "true"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The idempotency key was used with another request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                conflict:
+                  value:
+                    error:
+                      code: idempotency_conflict
+                      message: >
+                        The idempotency key was already used for a different
+                        request.
+        "413":
+          description: Request body exceeds 256 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+webhooks:
+  postqronEvent:
+    post:
+      summary: Receive a signed Postqron event
+      description: >
+        This path is supplied by the subscriber. Verify Postqron-Signature
+        against the exact raw body before parsing JSON, enforce a five-minute
+        timestamp tolerance, and deduplicate by the event id.
+      security: []
+      parameters:
+        - name: Postqron-Delivery-ID
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: Postqron-Event
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9_]+([.][a-z0-9_]+)+$"
+        - name: Postqron-Event-Version
+          in: header
+          required: true
+          schema:
+            type: string
+            const: "2026-07-01"
+        - name: Postqron-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9]{10,}$"
+        - name: Postqron-Signature
+          in: header
+          required: true
+          description: >
+            HMAC-SHA256 header `t=<unix-seconds>,v1=<lowercase-hex>`.
+          schema:
+            type: string
+            pattern: "^t=[0-9]+,v1=[0-9a-f]{64}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookEvent"
+      responses:
+        "200":
+          description: Event accepted, including an idempotent duplicate.
+        "204":
+          description: Event accepted with no response body.
+components:
+  securitySchemes:
+    publicApiCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: pq_live_<opaque>
+      description: >
+        Bearer-format integration credential hashed at rest, fixed to one
+        workspace, explicitly scoped, expiring, and revocable. It is not a
+        social-provider OAuth token. Required scopes are declared by each
+        operation's `x-postqron-required-scopes` extension.
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      description: Must match the workspace embedded in the credential.
+      schema:
+        type: string
+        format: uuid
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 2048
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >
+        Unique printable ASCII key retained for 24 hours. Reuse only for an
+        byte-identical retry of the same operation.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[!-~]+$"
+  headers:
+    APIVersion:
+      description: Dated public API contract version.
+      schema:
+        type: string
+        const: "2026-07-01"
+  schemas:
+    Post:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workspace_id
+        - text
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        status:
+          type: string
+          enum:
+            - draft
+            - scheduled
+            - publishing
+            - published
+            - failed
+            - canceled
+        scheduled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    WebhookEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - type
+        - version
+        - workspace_id
+        - occurred_at
+        - data
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        type:
+          type: string
+          pattern: "^[a-z0-9_]+([.][a-z0-9_]+)+$"
+        version:
+          type: string
+          const: "2026-07-01"
+        workspace_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: >
+            Versioned event data. Credential-like fields, OAuth/provider
+            tokens, authorization headers, cookies, passwords, and secrets are
+            forbidden recursively.
+          maxProperties: 100
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+  responses:
+    BadRequest:
+      description: Invalid JSON, pagination, field, or idempotency input.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthenticated:
+      description: Missing, malformed, expired, revoked, or unknown credential.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: >
+        Missing scope, workspace mismatch, inactive membership, or RBAC denial.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: Credential and scope rate limit exceeded.
+      headers:
+        Retry-After:
+          description: Whole seconds before another attempt.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unavailable:
+      description: A required server dependency is temporarily unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"

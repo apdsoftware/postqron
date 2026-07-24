@@ -1,0 +1,11 @@
+schema_version: 1
+id: integrations
+kind: api
+version: 0.1.0
+entrypoint: ./integrations.go
+dependencies:
+  - auth
+  - workspaces
+  - operations
+migrations:
+  - ./migrations/000001_create_integrations.sql
