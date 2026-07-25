@@ -50,6 +50,20 @@ const titles: Record<DocumentType, Record<LegalLocale, string>> = {
     fr: 'Politique relative aux cookies',
     de: 'Cookie-Richtlinie',
   },
+  dpa: {
+    en: 'Data Processing Agreement',
+    it: 'Accordo sul trattamento dei dati',
+    es: 'Acuerdo de tratamiento de datos',
+    fr: 'Accord de traitement des données',
+    de: 'Auftragsverarbeitungsvertrag',
+  },
+  subprocessors: {
+    en: 'Subprocessor registry',
+    it: 'Registro dei sub-responsabili',
+    es: 'Registro de subencargados',
+    fr: 'Registre des sous-traitants',
+    de: 'Unterauftragsverarbeiter-Register',
+  },
 }
 const blockedMessages: Record<LegalLocale, string> = {
   en: 'This legal document is not published because legal review is incomplete.',

@@ -1,10 +1,17 @@
 import {
+  DEFAULT_MARKET,
   isDocumentType,
+  isMarketCode,
   type DocumentType,
+  type MarketCode,
   type PublishedLegalDocument,
 } from './types.ts'
 import { LegalRepository } from './repository.ts'
 import { normalizeLegalLocale } from './validation.ts'
+
+function normalizeMarket(value: string | null): MarketCode {
+  return value !== null && isMarketCode(value) ? value : DEFAULT_MARKET
+}
 
 export interface LegalApiRequest {
   method: string
@@ -22,6 +29,8 @@ const DOCUMENT_ALIASES: Readonly<Record<string, DocumentType>> = Object.freeze({
   terms_it: 'terms',
   privacy_it: 'privacy',
   cookies_it: 'cookies',
+  dpa_it: 'dpa',
+  subprocessors: 'subprocessors',
 })
 
 function resolveDocument(value: string): DocumentType | undefined {
@@ -105,12 +114,13 @@ export function handleLegalApiRequest(
   }
 
   const locale = normalizeLegalLocale(url.searchParams.get('locale'))
+  const market = normalizeMarket(url.searchParams.get('market'))
   const at = request.now || new Date().toISOString()
   const decodedVersion = decodePathSegment(versionMatch?.[2])
   const published = currentMatch
-    ? repository.current(document, locale, at)
+    ? repository.current(document, locale, at, market)
     : decodedVersion
-      ? repository.version(document, decodedVersion, locale, at)
+      ? repository.version(document, decodedVersion, locale, at, market)
       : undefined
   if (!published) {
     return jsonResponse(404, {

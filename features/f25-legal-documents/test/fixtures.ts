@@ -28,6 +28,7 @@ async function artifact(
     locale,
     jurisdiction: 'IT',
     version,
+    status: 'approved',
     title: `Synthetic ${document} fixture`,
     controllerName: 'Fixture controller',
     contactEmail: 'legal@example.test',
@@ -36,6 +37,7 @@ async function artifact(
     approvalReference: `fixture-artifact-review:${document}:${locale}:${version}`,
     approvedAt,
     publishedAt,
+    proposedEffectiveDate: '2026-07-01',
     effectiveAt,
     changeType: 'material',
     revisionSummary: `Synthetic revision ${version}`,
@@ -102,5 +104,12 @@ export async function validReleaseInput(): Promise<LegalReleaseInput> {
       evidenceIds: releaseEvidence.map(item => item.id),
     })
   }
-  return { artifacts, evidence: allEvidence, releases }
+  return {
+    artifacts,
+    evidence: allEvidence,
+    releases,
+    marketAllowlist: [
+      { market: 'IT', status: 'active', approvalReference: 'fixture-market-review:IT' },
+    ],
+  }
 }

@@ -13,6 +13,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Document'
         - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/Market'
       responses:
         '200':
           description: Exact approved artifact selected from the effective release
@@ -32,6 +33,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Document'
         - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/Market'
         - name: version
           in: path
           required: true
@@ -56,7 +58,11 @@ components:
       in: path
       required: true
       schema:
-        enum: [terms, privacy, cookies, terms_it, privacy_it, cookies_it]
+        enum:
+          [
+            terms, privacy, cookies, dpa, subprocessors,
+            terms_it, privacy_it, cookies_it, dpa_it,
+          ]
     Locale:
       name: locale
       in: query
@@ -66,6 +72,17 @@ components:
       description: >-
         en, it, es, fr, or de, including regional tags. Unsupported or missing
         values explicitly fall back to en.
+    Market:
+      name: market
+      in: query
+      required: false
+      schema:
+        enum: [IT, SEE, GB, US, CA, AU, OTHER]
+        default: IT
+      description: >-
+        Market/jurisdiction code (D08 §1.3). Defaults to IT. A market with no
+        release in `active` state (D08 §3/§8/§12) never resolves a document,
+        regardless of the fail-closed bundle state.
   responses:
     ReleaseBlocked:
       description: Legal publication is blocked fail-closed
@@ -102,11 +119,12 @@ components:
         - approvalReference
         - approvedAt
         - publishedAt
+        - proposedEffectiveDate
         - effectiveAt
         - permanentUrl
       properties:
         document:
-          enum: [terms, privacy, cookies]
+          enum: [terms, privacy, cookies, dpa, subprocessors]
         locale:
           enum: [en, it, es, fr, de]
         requestedLocale:
@@ -114,7 +132,7 @@ components:
         fallbackUsed:
           type: boolean
         jurisdiction:
-          const: IT
+          enum: [IT, SEE, GB, US, CA, AU, OTHER]
         version:
           type: string
         content:
@@ -130,6 +148,9 @@ components:
         publishedAt:
           type: string
           format: date-time
+        proposedEffectiveDate:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
         effectiveAt:
           type: string
           format: date-time

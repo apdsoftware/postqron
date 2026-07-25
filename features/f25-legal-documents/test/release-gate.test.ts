@@ -12,7 +12,7 @@ test('the bundled release is empty and publication is fail-closed', async () => 
   assert.equal(audit.ready, false)
   assert.equal(
     audit.blockers.filter(item => item.code === 'missing_locale_document').length,
-    15,
+    25,
   )
   assert.equal(
     audit.blockers.filter(item => item.code === 'missing_evidence_kind').length,
@@ -101,4 +101,21 @@ test('a missing translation or changed byte blocks the complete release', async 
   const tamperedAudit = await auditLegalRelease(tampered)
   assert.equal(tamperedAudit.ready, false)
   assert.ok(tamperedAudit.blockers.some(item => item.code === 'digest_mismatch'))
+})
+
+test('a draft artifact referenced by a release blocks that release', async () => {
+  const input = await validReleaseInput()
+  const currentRelease = input.releases[1]
+  assert.ok(currentRelease)
+  const draftKey = currentRelease.artifacts[0]
+  assert.ok(draftKey)
+  const draftedArtifacts = input.artifacts.map(item =>
+    item.document === draftKey.document
+      && item.locale === draftKey.locale
+      && item.version === draftKey.version
+      ? { ...item, status: 'draft_pending_legal_review' as const }
+      : item)
+  const audit = await auditLegalRelease({ ...input, artifacts: draftedArtifacts })
+  assert.equal(audit.ready, false)
+  assert.ok(audit.blockers.some(item => item.code === 'draft_status_blocks_release'))
 })

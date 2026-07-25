@@ -49,6 +49,19 @@ test('approved fixture API exposes digest, locale, version, and history', async 
   assert.equal((historical.body as { version: string }).version, '0.9')
 })
 
+test('blocked API returns 503 for the dpa and subprocessors aliases too', async () => {
+  const repository = await LegalRepository.create(BUNDLED_LEGAL_RELEASE)
+  for (const url of [
+    '/api/v1/legal-documents/dpa_it/current?locale=it',
+    '/api/v1/legal-documents/subprocessors/current?locale=en',
+    '/api/v1/legal-documents/dpa/current?locale=en',
+  ]) {
+    const response = handleLegalApiRequest(repository, { method: 'GET', url, now })
+    assert.equal(response.status, 503)
+    assert.equal(response.headers['cache-control'], 'no-store')
+  }
+})
+
 test('API rejects writes and unknown versions', async () => {
   const repository = await LegalRepository.create(await validReleaseInput())
   const write = handleLegalApiRequest(repository, {

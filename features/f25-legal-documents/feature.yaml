@@ -24,6 +24,16 @@ web:
       file: ./pages/legal-document.vue
       visibility: public
       middleware: []
+    - name: legal-dpa
+      path: /legal/dpa
+      file: ./pages/legal-document.vue
+      visibility: public
+      middleware: []
+    - name: legal-subprocessors
+      path: /legal/subprocessors
+      file: ./pages/legal-document.vue
+      visibility: public
+      middleware: []
     - name: legal-document-version
       path: /legal/:document/:version
       file: ./pages/legal-document.vue

@@ -1,5 +1,6 @@
 import {
   DEFAULT_LEGAL_LOCALE,
+  DEFAULT_MARKET,
   LEGAL_LOCALES,
   type DocumentType,
   type GateAudit,
@@ -7,6 +8,7 @@ import {
   type LegalLocale,
   type LegalRelease,
   type LegalReleaseInput,
+  type MarketCode,
   type PublishedLegalDocument,
 } from './types.ts'
 import {
@@ -56,8 +58,9 @@ export class LegalRepository {
     document: DocumentType,
     requestedLocale: unknown,
     at = new Date().toISOString(),
+    market: MarketCode = DEFAULT_MARKET,
   ): PublishedLegalDocument | undefined {
-    const release = this.#effectiveReleases(at).at(-1)
+    const release = this.#effectiveReleases(at, market).at(-1)
     if (!release) {
       return undefined
     }
@@ -69,8 +72,9 @@ export class LegalRepository {
     version: string,
     requestedLocale: unknown,
     at = new Date().toISOString(),
+    market: MarketCode = DEFAULT_MARKET,
   ): PublishedLegalDocument | undefined {
-    const releases = this.#effectiveReleases(at)
+    const releases = this.#effectiveReleases(at, market)
     for (const release of [...releases].reverse()) {
       const selected = this.#fromRelease(release, document, requestedLocale, version)
       if (selected) {
@@ -84,9 +88,10 @@ export class LegalRepository {
     document: DocumentType,
     requestedLocale: unknown,
     at = new Date().toISOString(),
+    market: MarketCode = DEFAULT_MARKET,
   ): readonly PublishedLegalDocument[] {
     const versions = new Map<string, PublishedLegalDocument>()
-    for (const release of this.#effectiveReleases(at)) {
+    for (const release of this.#effectiveReleases(at, market)) {
       const artifact = this.#fromRelease(release, document, requestedLocale)
       if (artifact) {
         versions.set(artifact.version, artifact)
@@ -98,7 +103,7 @@ export class LegalRepository {
     )
   }
 
-  #effectiveReleases(at: string): readonly Readonly<LegalRelease>[] {
+  #effectiveReleases(at: string, market: MarketCode): readonly Readonly<LegalRelease>[] {
     if (!this.ready) {
       return []
     }
@@ -106,7 +111,8 @@ export class LegalRepository {
     if (Number.isNaN(instant.valueOf())) {
       return []
     }
-    return this.#releases.filter(release => new Date(release.effectiveAt) <= instant)
+    return this.#releases.filter(release =>
+      release.market === market && new Date(release.effectiveAt) <= instant)
   }
 
   #fromRelease(
