@@ -39,7 +39,7 @@ const es: CatalogShape<typeof en> = {
   'day.thu': 'Jue',
   'day.fri': 'Vie',
   'card1.channels': 'Instagram · LinkedIn',
-  'card1.title': 'Detrás de escena del nuevo proyecto',
+  'card1.title': 'Entre bastidores del nuevo proyecto',
   'card2.channels': 'Facebook',
   'card2.title': 'Tres consejos para trabajar mejor',
   'card.todayAt': 'Hoy, {time}',

@@ -65,7 +65,7 @@ const es: CatalogShape<typeof en> = {
   'hero.title': 'Un único flujo, desde la primera idea hasta la última comprobación.',
   'hero.lead': 'Menos pasos manuales, más visibilidad. Postqron acompaña el contenido sin ocultar decisiones, restricciones ni resultados.',
   'cap1.eyebrow': 'Planifica',
-  'cap1.title': 'El calendario editorial que te hace ver realmente por delante.',
+  'cap1.title': 'El calendario editorial que te permite ver de verdad lo que viene.',
   'cap1.copy': 'Contenido, canales, fechas y estados conviven en una vista ordenada. Puedes editar, duplicar, reprogramar o cancelar lo que aún no se ha publicado.',
   'cap1.point1': 'Fecha, hora y zona horaria explícitas',
   'cap1.point2': 'Vista por día y estado',

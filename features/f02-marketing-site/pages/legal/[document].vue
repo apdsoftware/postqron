@@ -64,7 +64,11 @@ useHead(computed(() => ({
 
 const { data, error, status, refresh } = await useFetch<PublishedLegalDocument>(
   `/api/legal/${slug}`,
-  { key: `legal-${slug}-${documentKey}` },
+  {
+    key: computed(() => `legal-${slug}-${documentKey}-${i18n.locale.value}`),
+    query: computed(() => ({ locale: i18n.locale.value })),
+    watch: [i18n.locale],
+  },
 )
 const document = computed(() => {
   if (!data.value) {

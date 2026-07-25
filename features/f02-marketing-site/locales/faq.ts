@@ -80,7 +80,7 @@ const fr: CatalogShape<typeof en> = {
   'q2.question': 'Que se passe-t-il lorsque j’atteins une limite du forfait ?',
   'q2.answer': 'Postqron ne supprime jamais de contenu ni de connexions. Il bloque uniquement la nouvelle action qui dépasse la limite et indique quelle capacité est épuisée.',
   'q3.question': 'Puis-je changer la date d’une publication déjà programmée ?',
-  'q3.answer': 'Oui, tant que la publication n’est pas encore en cours de publication, vous pouvez la modifier, la reprogrammer ou l’annuler.',
+  'q3.answer': 'Oui, tant qu’elle n’est pas encore en cours de publication, vous pouvez la modifier, la reprogrammer ou l’annuler.',
   'q4.question': 'Comment savoir si une publication a été publiée ?',
   'q4.answer': 'Chaque destination affiche son propre statut. En cas d’erreur, vous recevez une explication utile et pouvez intervenir sans créer de doublons.',
   'q5.question': 'Mes comptes sociaux restent-ils sous mon contrôle ?',
