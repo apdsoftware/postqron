@@ -4,8 +4,10 @@ locale: es
 version: "0.1"
 title: "Términos de Servicio de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: legal@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de revisión legal."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de r
 
 ## 1. Identidad del proveedor
 
-Los presentes Términos de Servicio son emitidos por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162), que opera bajo la marca APDSoftware como operador del servicio de programación de publicaciones en redes sociales Postqron ("Postqron", el "Servicio"). Estos datos de la entidad se han verificado mediante una fuente pública: https://mailronix.com/terms (consultada el 2026-07-25). Se puede contactar con la entidad en help@postqron.com y en https://apdsoftware.it.
+Los presentes Términos de Servicio son emitidos por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162, REA (registro de empresas italiano) BG 431224), que opera bajo la marca APDSoftware como operador del servicio de programación de publicaciones en redes sociales Postqron ("Postqron", el "Servicio"). Estos datos de la entidad se han verificado mediante una fuente pública: https://mailronix.com/terms (consultada el 2026-07-25). Se puede contactar con la entidad en help@postqron.com y en https://apdsoftware.it.
 
 ## 2. Ámbito y aceptación
 
@@ -64,7 +66,7 @@ El Propietario del espacio de trabajo puede cancelar una suscripción de pago di
 
 Nada en estos Términos limita el derecho de desistimiento legal reconocido a los consumidores conforme a la normativa aplicable de la Unión Europea e italiana en materia de protección de los consumidores, incluido el marco de la Directiva 2011/83/UE sobre los derechos de los consumidores. Dichos derechos legales siguen estando plenamente disponibles conforme a sus propias condiciones y plazos.
 
-Adicionalmente, y con independencia de cualquier derecho legal, Postqron ofrece voluntariamente a cada cliente un reembolso completo previa solicitud, formulada dentro de los 14 días naturales siguientes al primer cargo de pago del espacio de trabajo. Este reembolso voluntario puede utilizarse una sola vez por espacio de trabajo y, una vez concedido, pone fin de inmediato al plan de pago de ese espacio de trabajo. Esta oferta de reembolso voluntario es independiente y no sustituye ni limita ningún derecho de desistimiento legal del consumidor. Los consumidores residentes en la Unión Europea también pueden dirigir reclamaciones a la plataforma de Resolución de Litigios en Línea (ODR) de la UE, disponible en https://ec.europa.eu/consumers/odr.
+Adicionalmente, y con independencia de cualquier derecho legal, Postqron ofrece voluntariamente a cada cliente un reembolso completo previa solicitud, formulada dentro de los 14 días naturales siguientes al primer cargo de pago del espacio de trabajo. Este reembolso voluntario puede utilizarse una sola vez por espacio de trabajo y, una vez concedido, pone fin de inmediato al plan de pago de ese espacio de trabajo. Esta oferta de reembolso voluntario es independiente y no sustituye ni limita ningún derecho de desistimiento legal del consumidor. Los consumidores residentes en la Unión Europea también pueden dirigir reclamaciones al organismo nacional de resolución de litigios de consumo competente, incluido en el registro de la Comisión Europea disponible en https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (la plataforma de Resolución de Litigios en Línea de la UE fue clausurada por la Comisión Europea el 20 de julio de 2025 en virtud del Reglamento (UE) 2024/3228 y ya no admite reclamaciones; fuente consultada el 2026-07-25).
 
 ## 12. Impago
 
@@ -84,7 +86,7 @@ Estos Términos se rigen por la ley italiana. Para los consumidores, esta elecci
 
 ## 16. Reclamaciones y controversias
 
-Las reclamaciones relativas al Servicio pueden dirigirse a help@postqron.com. Los consumidores residentes en la Unión Europea también pueden someter controversias transfronterizas a la plataforma de Resolución de Litigios en Línea (ODR) de la UE, disponible en https://ec.europa.eu/consumers/odr, sin perjuicio de su derecho a acudir al tribunal competente.
+Las reclamaciones relativas al Servicio pueden dirigirse a help@postqron.com, o a legal@postqron.com para comunicaciones legales. Los consumidores residentes en la Unión Europea también pueden someter controversias transfronterizas al organismo nacional de resolución de litigios de consumo competente, incluido en el registro de la Comisión Europea disponible en https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (la plataforma de Resolución de Litigios en Línea de la UE fue clausurada por la Comisión Europea el 20 de julio de 2025 en virtud del Reglamento (UE) 2024/3228 y ya no admite reclamaciones; fuente consultada el 2026-07-25), sin perjuicio de su derecho a acudir al tribunal competente.
 
 ## 17. Cambios en estos Términos
 

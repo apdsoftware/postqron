@@ -4,8 +4,10 @@ locale: de
 version: "0.1"
 title: "Datenschutzerklärung von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Erster, von Grund auf neu erstellter Entwurf, ausstehende rechtliche Prüfung."
 ---
@@ -16,7 +18,7 @@ revisionSummary: "Erster, von Grund auf neu erstellter Entwurf, ausstehende rech
 
 ## 1. Verantwortlicher und Kontakt
 
-Diese Erklärung wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Verantwortliche für den Dienst Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und über https://apdsoftware.it. Es wurde kein Datenschutzbeauftragter bestellt. Für alle datenschutzbezogenen Fragen, Anfragen oder Beschwerden wenden Sie sich bitte an help@postqron.com.
+Diese Erklärung wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162, REA (italienische Handelsregisternummer) BG 431224) herausgegeben, die unter der Marke APDSoftware als Verantwortliche für den Dienst Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter privacy@postqron.com und über https://apdsoftware.it. Es wurde kein Datenschutzbeauftragter bestellt. Für alle datenschutzbezogenen Fragen, Anfragen oder Beschwerden wenden Sie sich bitte an privacy@postqron.com.
 
 ## 2. Kategorien der verarbeiteten personenbezogenen Daten
 
@@ -85,7 +87,7 @@ Postqron wendet unter anderem folgende technische und organisatorische Maßnahme
 
 ## 8. Rechte der betroffenen Personen
 
-Nach Maßgabe der in der DSGVO vorgesehenen Voraussetzungen haben betroffene Personen das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch gegen die Verarbeitung ihrer personenbezogenen Daten (Art. 15–21 DSGVO). Die meisten dieser Rechte können direkt über einen authentifizierten Export- oder Löschworkflow im Konto ausgeübt werden; andere können durch Kontaktaufnahme mit help@postqron.com ausgeübt werden.
+Nach Maßgabe der in der DSGVO vorgesehenen Voraussetzungen haben betroffene Personen das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch gegen die Verarbeitung ihrer personenbezogenen Daten (Art. 15–21 DSGVO). Die meisten dieser Rechte können direkt über einen authentifizierten Export- oder Löschworkflow im Konto ausgeübt werden; andere können durch Kontaktaufnahme mit privacy@postqron.com ausgeübt werden.
 
 Betroffene Personen haben zudem das Recht, Beschwerde bei einer Aufsichtsbehörde einzulegen. In Italien ist die zuständige Behörde der Garante per la protezione dei dati personali (https://www.garanteprivacy.it). Gemäß Art. 77 DSGVO kann eine betroffene Person auch bei der Aufsichtsbehörde ihres eigenen EU-Mitgliedstaats des gewöhnlichen Aufenthalts oder Arbeitsplatzes Beschwerde einlegen, sofern dieser von Italien abweicht.
 
@@ -95,7 +97,7 @@ Der Dienst ist Nutzern vorbehalten, die mindestens 18 Jahre alt sind, und wird P
 
 ## 10. Beschwerden und Governance des Datenschutzbeauftragten
 
-Datenschutzbezogene Anfragen und Beschwerden sind an help@postqron.com zu richten. Es wurde kein Datenschutzbeauftragter bestellt.
+Datenschutzbezogene Anfragen und Beschwerden sind an privacy@postqron.com zu richten. Es wurde kein Datenschutzbeauftragter bestellt.
 
 ## 11. Änderungen dieser Erklärung
 

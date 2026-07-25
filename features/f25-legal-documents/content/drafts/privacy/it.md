@@ -4,8 +4,10 @@ locale: it
 version: "0.1"
 title: "Informativa sulla privacy di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale."
 ---
@@ -16,7 +18,7 @@ revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale.
 
 ## 1. Titolare del trattamento e contatti
 
-La presente informativa è emessa da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale titolare del trattamento per il servizio Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo help@postqron.com e tramite https://apdsoftware.it. Non è stato nominato un Responsabile della protezione dei dati (DPO). Per qualsiasi domanda, richiesta o reclamo in materia di privacy è possibile scrivere a help@postqron.com.
+La presente informativa è emessa da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224), operante con il marchio APDSoftware quale titolare del trattamento per il servizio Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo privacy@postqron.com e tramite https://apdsoftware.it. Non è stato nominato un Responsabile della protezione dei dati (DPO). Per qualsiasi domanda, richiesta o reclamo in materia di privacy è possibile scrivere a privacy@postqron.com.
 
 ## 2. Categorie di dati personali trattati
 
@@ -85,7 +87,7 @@ Postqron applica, tra le altre, le seguenti misure tecniche e organizzative: cif
 
 ## 8. Diritti dell'interessato
 
-Alle condizioni previste dal GDPR, gli interessati hanno diritto di accedere, rettificare, cancellare, limitare il trattamento, ottenere la portabilità e opporsi al trattamento dei propri dati personali (artt. 15–21 GDPR). La maggior parte di questi diritti può essere esercitata direttamente tramite un flusso autenticato di esportazione o cancellazione all'interno dell'account; altri possono essere esercitati contattando help@postqron.com.
+Alle condizioni previste dal GDPR, gli interessati hanno diritto di accedere, rettificare, cancellare, limitare il trattamento, ottenere la portabilità e opporsi al trattamento dei propri dati personali (artt. 15–21 GDPR). La maggior parte di questi diritti può essere esercitata direttamente tramite un flusso autenticato di esportazione o cancellazione all'interno dell'account; altri possono essere esercitati contattando privacy@postqron.com.
 
 Gli interessati hanno inoltre il diritto di proporre reclamo a un'autorità di controllo. In Italia, l'autorità competente è il Garante per la protezione dei dati personali (https://www.garanteprivacy.it). Ai sensi dell'art. 77 GDPR, l'interessato può altresì proporre reclamo all'autorità di controllo del proprio Stato membro dell'UE di residenza abituale o di lavoro, se diverso dall'Italia.
 
@@ -95,7 +97,7 @@ Il Servizio è riservato a utenti che abbiano compiuto 18 anni di età e non è 
 
 ## 10. Reclami e governance del DPO
 
-Le richieste e i reclami in materia di privacy devono essere indirizzati a help@postqron.com. Non è stato nominato un Responsabile della protezione dei dati (DPO).
+Le richieste e i reclami in materia di privacy devono essere indirizzati a privacy@postqron.com. Non è stato nominato un Responsabile della protezione dei dati (DPO).
 
 ## 11. Modifiche alla presente informativa
 

@@ -4,8 +4,10 @@ locale: fr
 version: "0.1"
 title: "Politique relative aux cookies de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Premier projet technique rédigé de zéro, en attente de validation juridique."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Premier projet technique rédigé de zéro, en attente de vali
 
 ## 1. Qui publie cette politique
 
-La présente Politique relative aux cookies est publiée par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant qu'exploitant du service de planification pour les réseaux sociaux Postqron (« Postqron », « nous » ; informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et à l'adresse https://apdsoftware.it.
+La présente Politique relative aux cookies est publiée par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162, REA (registre des entreprises italien) BG 431224), exerçant sous la marque APDSoftware en tant qu'exploitant du service de planification pour les réseaux sociaux Postqron (« Postqron », « nous » ; informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse privacy@postqron.com et à l'adresse https://apdsoftware.it.
 
 ## 2. Ce que couvre cette politique
 
@@ -42,4 +44,4 @@ Lors de votre première visite, aucune technologie facultative n'est chargée av
 
 ## 6. Contact
 
-Pour toute question concernant cette Politique relative aux cookies, veuillez nous contacter à l'adresse help@postqron.com.
+Pour toute question concernant cette Politique relative aux cookies, veuillez nous contacter à l'adresse privacy@postqron.com.

@@ -4,8 +4,10 @@ locale: de
 version: "0.1"
 title: "Allgemeine Geschäftsbedingungen von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: legal@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Erster, von Grund auf neu erstellter technischer Entwurf, ausstehend rechtliche Prüfung."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Erster, von Grund auf neu erstellter technischer Entwurf, auss
 
 ## 1. Identität des Anbieters
 
-Diese Allgemeinen Geschäftsbedingungen werden von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Social-Media-Planungsdienstes Postqron („Postqron", der „Dienst") auftritt. Diese Angaben zur Rechtsperson wurden anhand einer öffentlichen Quelle verifiziert: https://mailronix.com/terms (abgerufen am 2026-07-25). Die Rechtsperson ist erreichbar unter help@postqron.com und unter https://apdsoftware.it.
+Diese Allgemeinen Geschäftsbedingungen werden von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162, REA (italienische Handelsregisternummer) BG 431224) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Social-Media-Planungsdienstes Postqron („Postqron", der „Dienst") auftritt. Diese Angaben zur Rechtsperson wurden anhand einer öffentlichen Quelle verifiziert: https://mailronix.com/terms (abgerufen am 2026-07-25). Die Rechtsperson ist erreichbar unter help@postqron.com und unter https://apdsoftware.it.
 
 ## 2. Geltungsbereich und Annahme
 
@@ -64,7 +66,7 @@ Der Inhaber des Arbeitsbereichs kann ein kostenpflichtiges Abonnement entweder d
 
 Nichts in diesen Bedingungen schränkt das gesetzliche Widerrufsrecht ein, das Verbrauchern nach geltendem Recht der Europäischen Union und Italiens zum Verbraucherschutz zusteht, einschließlich des Rahmens der Richtlinie 2011/83/EU über die Rechte der Verbraucher. Diese gesetzlichen Rechte bleiben nach ihren eigenen Bedingungen und Fristen uneingeschränkt verfügbar.
 
-Unabhängig davon und zusätzlich zu etwaigen gesetzlichen Rechten bietet Postqron jedem Kunden freiwillig eine vollständige Rückerstattung auf Anfrage an, sofern diese innerhalb von 14 Kalendertagen nach der ersten kostenpflichtigen Belastung des Arbeitsbereichs erfolgt. Diese freiwillige Rückerstattung kann pro Arbeitsbereich nur einmal in Anspruch genommen werden und beendet nach ihrer Gewährung unmittelbar den kostenpflichtigen Plan dieses Arbeitsbereichs. Dieses freiwillige Rückerstattungsangebot besteht unabhängig von einem etwaigen gesetzlichen Widerrufsrecht des Verbrauchers und ersetzt oder beschränkt dieses nicht. Verbraucher mit Wohnsitz in der Europäischen Union können Beschwerden zusätzlich an die EU-Plattform zur Online-Streitbeilegung (OS-Plattform) unter https://ec.europa.eu/consumers/odr richten.
+Unabhängig davon und zusätzlich zu etwaigen gesetzlichen Rechten bietet Postqron jedem Kunden freiwillig eine vollständige Rückerstattung auf Anfrage an, sofern diese innerhalb von 14 Kalendertagen nach der ersten kostenpflichtigen Belastung des Arbeitsbereichs erfolgt. Diese freiwillige Rückerstattung kann pro Arbeitsbereich nur einmal in Anspruch genommen werden und beendet nach ihrer Gewährung unmittelbar den kostenpflichtigen Plan dieses Arbeitsbereichs. Dieses freiwillige Rückerstattungsangebot besteht unabhängig von einem etwaigen gesetzlichen Widerrufsrecht des Verbrauchers und ersetzt oder beschränkt dieses nicht. Verbraucher mit Wohnsitz in der Europäischen Union können Beschwerden zusätzlich an die zuständige nationale Verbraucherschlichtungsstelle richten, die im Verzeichnis der Europäischen Kommission unter https://consumer-redress.ec.europa.eu/dispute-resolution-bodies aufgeführt ist (die EU-Plattform zur Online-Streitbeilegung wurde von der Europäischen Kommission am 20. Juli 2025 gemäß der Verordnung (EU) 2024/3228 eingestellt und nimmt keine Beschwerden mehr entgegen; Quelle abgerufen am 2026-07-25).
 
 ## 12. Zahlungsverzug
 
@@ -84,7 +86,7 @@ Diese Bedingungen unterliegen italienischem Recht. Für Verbraucher entzieht die
 
 ## 16. Beschwerden und Streitigkeiten
 
-Beschwerden bezüglich des Dienstes können an help@postqron.com gerichtet werden. Verbraucher mit Wohnsitz in der Europäischen Union können grenzüberschreitende Streitigkeiten außerdem der EU-Plattform zur Online-Streitbeilegung (OS-Plattform) unter https://ec.europa.eu/consumers/odr vorlegen, unbeschadet ihres Rechts, ein zuständiges Gericht anzurufen.
+Beschwerden bezüglich des Dienstes können an help@postqron.com oder, für rechtliche Mitteilungen, an legal@postqron.com gerichtet werden. Verbraucher mit Wohnsitz in der Europäischen Union können grenzüberschreitende Streitigkeiten außerdem der zuständigen nationalen Verbraucherschlichtungsstelle vorlegen, die im Verzeichnis der Europäischen Kommission unter https://consumer-redress.ec.europa.eu/dispute-resolution-bodies aufgeführt ist (die EU-Plattform zur Online-Streitbeilegung wurde von der Europäischen Kommission am 20. Juli 2025 gemäß der Verordnung (EU) 2024/3228 eingestellt und nimmt keine Beschwerden mehr entgegen; Quelle abgerufen am 2026-07-25), unbeschadet ihres Rechts, ein zuständiges Gericht anzurufen.
 
 ## 17. Änderungen dieser Bedingungen
 

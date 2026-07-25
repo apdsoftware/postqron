@@ -4,8 +4,10 @@ locale: de
 version: "0.1"
 title: "Auftragsverarbeitungsvertrag von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiber von Postqron (Marke APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Erster technischer Entwurf, ausstehende rechtliche Prüfung."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Erster technischer Entwurf, ausstehende rechtliche Prüfung."
 
 *Entwurfsversion 0.1 — ausstehende rechtliche Prüfung. Dieses Dokument beschreibt nach bestem Wissen und für interne Zwecke sowie zu Vorschauzwecken die Bedingungen der Datenverarbeitung, die zwischen Postqron und seinen Geschäftskunden gelten. Es handelt sich noch nicht um ein endgültiges rechtsverbindliches Dokument.*
 
-Dieser Auftragsverarbeitungsvertrag ("AVV") wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Dienstes Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und über https://apdsoftware.it.
+Dieser Auftragsverarbeitungsvertrag ("AVV") wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162, REA (italienische Handelsregisternummer) BG 431224) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Dienstes Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter privacy@postqron.com und über https://apdsoftware.it.
 
 ## 1. Vertragsparteien und Rollen
 
@@ -76,7 +78,7 @@ Postqron wählt seine eigene Infrastruktur und seine Unterauftragsverarbeiter mi
 
 ## 9. Unterstützung bei den Rechten betroffener Personen
 
-Unter Berücksichtigung der Art der Verarbeitung leistet Postqron dem Kunden angemessene technische und organisatorische Unterstützung bei der Erfüllung von dessen Pflicht, auf Anträge betroffener Personen zu reagieren, die ihre Rechte nach Kapitel III DSGVO ausüben (einschließlich Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch) in Bezug auf Kundeninhaltsdaten. Diese Unterstützung erfolgt in erster Linie über produktinterne Werkzeuge, mit denen der Kunde seine eigenen Inhalte verwalten und löschen kann, sowie erforderlichenfalls über den direkten Support unter help@postqron.com.
+Unter Berücksichtigung der Art der Verarbeitung leistet Postqron dem Kunden angemessene technische und organisatorische Unterstützung bei der Erfüllung von dessen Pflicht, auf Anträge betroffener Personen zu reagieren, die ihre Rechte nach Kapitel III DSGVO ausüben (einschließlich Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch) in Bezug auf Kundeninhaltsdaten. Diese Unterstützung erfolgt in erster Linie über produktinterne Werkzeuge, mit denen der Kunde seine eigenen Inhalte verwalten und löschen kann, sowie erforderlichenfalls über den direkten Support unter privacy@postqron.com.
 
 ## 10. Unterstützung bei Sicherheitspflichten und Datenschutz-Folgenabschätzungen
 

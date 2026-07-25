@@ -4,8 +4,10 @@ locale: de
 version: "0.1"
 title: "Cookie-Richtlinie von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiber von Postqron (Marke APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Erster von Grund auf neu erstellter technischer Entwurf, ausstehende rechtliche Prüfung."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Erster von Grund auf neu erstellter technischer Entwurf, ausst
 
 ## 1. Wer diese Richtlinie herausgibt
 
-Diese Cookie-Richtlinie wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Social-Media-Planungsdienstes Postqron („Postqron", „wir") auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und unter https://apdsoftware.it.
+Diese Cookie-Richtlinie wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162, REA (italienische Handelsregisternummer) BG 431224) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Social-Media-Planungsdienstes Postqron („Postqron", „wir") auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter privacy@postqron.com und unter https://apdsoftware.it.
 
 ## 2. Was diese Richtlinie abdeckt
 
@@ -42,4 +44,4 @@ Bei Ihrem ersten Besuch wird keine optionale Technologie geladen, bevor Sie eine
 
 ## 6. Kontakt
 
-Bei Fragen zu dieser Cookie-Richtlinie kontaktieren Sie uns bitte unter help@postqron.com.
+Bei Fragen zu dieser Cookie-Richtlinie kontaktieren Sie uns bitte unter privacy@postqron.com.

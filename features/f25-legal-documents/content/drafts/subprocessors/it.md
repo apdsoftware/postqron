@@ -4,15 +4,17 @@ locale: it
 version: "0.1"
 title: "Registro dei sub-responsabili di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale."
 ---
 
 ## Identità del fornitore
 
-Il presente registro è pubblicato da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale gestore di Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo help@postqron.com e tramite https://apdsoftware.it.
+Il presente registro è pubblicato da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224), operante con il marchio APDSoftware quale gestore di Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo privacy@postqron.com e tramite https://apdsoftware.it.
 
 ## Finalità del presente registro
 
@@ -35,7 +37,7 @@ L'aggiunta o la sostituzione di un sub-responsabile che tratterà dati relativi 
 
 ## Lacune note da risolvere prima della pubblicazione
 
-- **Mailronix / Apdsoftware di Carlo Zuffetti**: confermato che mailronix.com è gestito dalla stessa entità legale che gestisce Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; fonte: https://mailronix.com/terms, consultata il 2026-07-25). Trattandosi della medesima entità legale e non di una terza parte indipendente, non è un ordinario rapporto di sub-responsabile ai sensi dell'art. 28 GDPR — un'entità non può essere sub-responsabile di se stessa. La voce resta elencata in questo registro a fini di trasparenza sul luogo di trattamento/tecnologia utilizzata; la qualificazione giuridica precisa di questo flusso interno (ad esempio come luogo di trattamento interno anziché come sub-responsabile formale) sarà stabilita in sede di revisione legale.
+- **Mailronix / Apdsoftware di Carlo Zuffetti**: confermato che mailronix.com è gestito dalla stessa entità legale che gestisce Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224; fonte: https://mailronix.com/terms, consultata il 2026-07-25). Trattandosi della medesima entità legale e non di una terza parte indipendente, non è un ordinario rapporto di sub-responsabile ai sensi dell'art. 28 GDPR — un'entità non può essere sub-responsabile di se stessa. La voce resta elencata in questo registro a fini di trasparenza sul luogo di trattamento/tecnologia utilizzata; la qualificazione giuridica precisa di questo flusso interno (ad esempio come luogo di trattamento interno anziché come sub-responsabile formale) sarà stabilita in sede di revisione legale.
 - **Elenco dei sub-responsabili di Paddle** (dal Trust Center ufficiale, trust.paddle.com/subprocessors): Amazon Web Services (AWS, hosting cloud, Stati Uniti), Snowflake (analytics/business intelligence, UE - Irlanda), Onfido (verifica KYC/KYB, Stati Uniti), Salesforce (CRM, Stati Uniti), Cloudflare (sicurezza web e CDN, Stati Uniti), Google (strumenti di collaborazione e Google Analytics, Stati Uniti), Wiz (sicurezza cloud, Regno Unito), TokenEx (tokenizzazione dati, Stati Uniti), PayPal (pagamenti, Stati Uniti), Stripe (pagamenti, Stati Uniti). Il testo del DPA di Paddle rimanda inoltre a un link non aggiornato a un elenco legacy dei sub-responsabili ("learn.profitwell.com"), da chiarire con Paddle. Per l'elenco completo e aggiornato consultare trust.paddle.com/subprocessors.
 
 ## Sub-responsabili rimossi
@@ -44,4 +46,4 @@ Nessuno registrato alla data di questa revisione della bozza.
 
 ## Contatti
 
-Per domande relative al presente registro, o per obiezioni a un sub-responsabile elencato ai sensi dell'Accordo sul trattamento dei dati, scrivere a help@postqron.com.
+Per domande relative al presente registro, o per obiezioni a un sub-responsabile elencato ai sensi dell'Accordo sul trattamento dei dati, scrivere a privacy@postqron.com.

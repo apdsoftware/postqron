@@ -4,8 +4,10 @@ locale: en
 version: "0.1"
 title: "Postqron Terms of Service"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: legal@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Initial from-scratch technical draft pending legal review."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Initial from-scratch technical draft pending legal review."
 
 ## 1. Provider identity
 
-These Terms of Service are issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, the operator of the Postqron social-media-scheduling service ("Postqron", the "Service"). This entity information is verified via a public source: https://mailronix.com/terms (consulted 2026-07-25). The entity can be reached at help@postqron.com and at https://apdsoftware.it.
+These Terms of Service are issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162, REA (company registration number) BG 431224), trading as APDSoftware, the operator of the Postqron social-media-scheduling service ("Postqron", the "Service"). This entity information is verified via a public source: https://mailronix.com/terms (consulted 2026-07-25). The entity can be reached at help@postqron.com and at https://apdsoftware.it.
 
 ## 2. Scope and acceptance
 
@@ -64,7 +66,7 @@ The workspace Owner may cancel a paid subscription either directly within the Se
 
 Nothing in these Terms limits the statutory withdrawal (cooling-off) rights available to consumers under applicable European Union and Italian consumer-protection law, including the framework of Directive 2011/83/EU on consumer rights. Those statutory rights remain fully available according to their own conditions and time limits.
 
-Separately, and in addition to any statutory right, Postqron voluntarily offers every customer a full refund on request, made within 14 calendar days of the workspace's first paid charge. This voluntary refund may be used once per workspace and, once granted, immediately ends the paid plan for that workspace. This voluntary refund offer is separate from, and does not replace, limit or substitute, any statutory withdrawal right a consumer may hold. Consumers within the European Union may also refer complaints to the EU Online Dispute Resolution (ODR) platform at https://ec.europa.eu/consumers/odr.
+Separately, and in addition to any statutory right, Postqron voluntarily offers every customer a full refund on request, made within 14 calendar days of the workspace's first paid charge. This voluntary refund may be used once per workspace and, once granted, immediately ends the paid plan for that workspace. This voluntary refund offer is separate from, and does not replace, limit or substitute, any statutory withdrawal right a consumer may hold. Consumers within the European Union may also refer complaints to the competent national consumer dispute-resolution body, listed in the European Commission's register at https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (the EU Online Dispute Resolution platform was discontinued by the European Commission on 20 July 2025 under Regulation (EU) 2024/3228 and no longer accepts complaints; source consulted 2026-07-25).
 
 ## 12. Non-payment
 
@@ -84,7 +86,7 @@ These Terms are governed by Italian law. For consumers, this choice of law does 
 
 ## 16. Complaints and disputes
 
-Complaints regarding the Service may be addressed to help@postqron.com. Consumers resident in the European Union may additionally submit cross-border disputes to the EU Online Dispute Resolution (ODR) platform, available at https://ec.europa.eu/consumers/odr, without prejudice to their right to bring proceedings before a competent court.
+Complaints regarding the Service may be addressed to help@postqron.com, or to legal@postqron.com for legal notices. Consumers resident in the European Union may additionally submit cross-border disputes to the competent national consumer dispute-resolution body, listed in the European Commission's register at https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (the EU Online Dispute Resolution platform was discontinued by the European Commission on 20 July 2025 under Regulation (EU) 2024/3228 and no longer accepts complaints; source consulted 2026-07-25), without prejudice to their right to bring proceedings before a competent court.
 
 ## 17. Changes to these Terms
 

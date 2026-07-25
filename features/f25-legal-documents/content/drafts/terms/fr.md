@@ -4,8 +4,10 @@ locale: fr
 version: "0.1"
 title: "Conditions Générales d'Utilisation de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: legal@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Première version technique rédigée à partir de zéro, en attente de validation juridique."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Première version technique rédigée à partir de zéro, en a
 
 ## 1. Identité du prestataire
 
-Les présentes Conditions Générales d'Utilisation sont émises par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant qu'exploitant du service de planification de publications sur les réseaux sociaux Postqron (« Postqron », le « Service »). Ces informations relatives à l'entité ont été vérifiées via une source publique : https://mailronix.com/terms (consultée le 2026-07-25). L'entité est joignable à l'adresse help@postqron.com et sur https://apdsoftware.it.
+Les présentes Conditions Générales d'Utilisation sont émises par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162, REA (registre des entreprises italien) BG 431224), exerçant sous la marque APDSoftware en tant qu'exploitant du service de planification de publications sur les réseaux sociaux Postqron (« Postqron », le « Service »). Ces informations relatives à l'entité ont été vérifiées via une source publique : https://mailronix.com/terms (consultée le 2026-07-25). L'entité est joignable à l'adresse help@postqron.com et sur https://apdsoftware.it.
 
 ## 2. Champ d'application et acceptation
 
@@ -64,7 +66,7 @@ Le Propriétaire de l'espace de travail peut résilier un abonnement payant dire
 
 Aucune disposition des présentes Conditions ne limite le droit de rétractation légal dont bénéficient les consommateurs en vertu du droit applicable de l'Union européenne et du droit italien de protection des consommateurs, y compris le cadre de la Directive 2011/83/UE relative aux droits des consommateurs. Ces droits légaux demeurent pleinement disponibles selon leurs propres conditions et délais.
 
-Par ailleurs, et indépendamment de tout droit légal, Postqron offre volontairement à chaque client un remboursement intégral sur demande, formulée dans un délai de 14 jours calendaires suivant le premier prélèvement payant de l'espace de travail. Ce remboursement volontaire ne peut être utilisé qu'une seule fois par espace de travail et, une fois accordé, met fin immédiatement au plan payant de cet espace de travail. Cette offre de remboursement volontaire est distincte de tout droit de rétractation légal du consommateur, et ne le remplace ni ne le limite. Les consommateurs résidant dans l'Union européenne peuvent également porter leurs réclamations devant la plateforme de règlement en ligne des litiges (RLL) de l'UE, disponible à l'adresse https://ec.europa.eu/consumers/odr.
+Par ailleurs, et indépendamment de tout droit légal, Postqron offre volontairement à chaque client un remboursement intégral sur demande, formulée dans un délai de 14 jours calendaires suivant le premier prélèvement payant de l'espace de travail. Ce remboursement volontaire ne peut être utilisé qu'une seule fois par espace de travail et, une fois accordé, met fin immédiatement au plan payant de cet espace de travail. Cette offre de remboursement volontaire est distincte de tout droit de rétractation légal du consommateur, et ne le remplace ni ne le limite. Les consommateurs résidant dans l'Union européenne peuvent également porter leurs réclamations devant l'organisme national de règlement des litiges de consommation compétent, répertorié dans le registre de la Commission européenne disponible à l'adresse https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (la plateforme de règlement en ligne des litiges de l'UE a été fermée par la Commission européenne le 20 juillet 2025 en application du règlement (UE) 2024/3228 et n'accepte plus de réclamations ; source consultée le 2026-07-25).
 
 ## 12. Défaut de paiement
 
@@ -84,7 +86,7 @@ Les présentes Conditions sont régies par le droit italien. Pour les consommate
 
 ## 16. Réclamations et litiges
 
-Les réclamations relatives au Service peuvent être adressées à help@postqron.com. Les consommateurs résidant dans l'Union européenne peuvent également soumettre leurs litiges transfrontaliers à la plateforme de règlement en ligne des litiges (RLL) de l'UE, disponible à l'adresse https://ec.europa.eu/consumers/odr, sans préjudice de leur droit de saisir la juridiction compétente.
+Les réclamations relatives au Service peuvent être adressées à help@postqron.com, ou à legal@postqron.com pour les communications juridiques. Les consommateurs résidant dans l'Union européenne peuvent également soumettre leurs litiges transfrontaliers à l'organisme national de règlement des litiges de consommation compétent, répertorié dans le registre de la Commission européenne disponible à l'adresse https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (la plateforme de règlement en ligne des litiges de l'UE a été fermée par la Commission européenne le 20 juillet 2025 en application du règlement (UE) 2024/3228 et n'accepte plus de réclamations ; source consultée le 2026-07-25), sans préjudice de leur droit de saisir la juridiction compétente.
 
 ## 17. Modifications des présentes Conditions
 

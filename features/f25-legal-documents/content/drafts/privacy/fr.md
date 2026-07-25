@@ -4,8 +4,10 @@ locale: fr
 version: "0.1"
 title: "Politique de confidentialité de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation juridique."
 ---
@@ -16,7 +18,7 @@ revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation 
 
 ## 1. Responsable du traitement et contact
 
-Le présent avis est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant que responsable du traitement pour le service Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et via https://apdsoftware.it. Aucun délégué à la protection des données (DPD) n'a été désigné. Pour toute question, demande ou réclamation relative à la confidentialité, veuillez écrire à help@postqron.com.
+Le présent avis est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162, REA (registre des entreprises italien) BG 431224), exerçant sous la marque APDSoftware en tant que responsable du traitement pour le service Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse privacy@postqron.com et via https://apdsoftware.it. Aucun délégué à la protection des données (DPD) n'a été désigné. Pour toute question, demande ou réclamation relative à la confidentialité, veuillez écrire à privacy@postqron.com.
 
 ## 2. Catégories de données personnelles traitées
 
@@ -85,7 +87,7 @@ Postqron applique, entre autres, les mesures techniques et organisationnelles su
 
 ## 8. Droits des personnes concernées
 
-Sous réserve des conditions prévues par le RGPD, les personnes concernées disposent d'un droit d'accès, de rectification, d'effacement, de limitation du traitement, de portabilité et d'opposition au traitement de leurs données personnelles (art. 15 à 21 RGPD). La plupart de ces droits peuvent être exercés directement via un parcours authentifié d'exportation ou de suppression au sein du compte ; d'autres peuvent être exercés en contactant help@postqron.com.
+Sous réserve des conditions prévues par le RGPD, les personnes concernées disposent d'un droit d'accès, de rectification, d'effacement, de limitation du traitement, de portabilité et d'opposition au traitement de leurs données personnelles (art. 15 à 21 RGPD). La plupart de ces droits peuvent être exercés directement via un parcours authentifié d'exportation ou de suppression au sein du compte ; d'autres peuvent être exercés en contactant privacy@postqron.com.
 
 Les personnes concernées disposent également du droit d'introduire une réclamation auprès d'une autorité de contrôle. En Italie, l'autorité compétente est le Garante per la protezione dei dati personali (https://www.garanteprivacy.it). Conformément à l'art. 77 du RGPD, la personne concernée peut également introduire une réclamation auprès de l'autorité de contrôle de son propre État membre de l'UE de résidence habituelle ou de travail, si celui-ci diffère de l'Italie.
 
@@ -95,7 +97,7 @@ Le Service est réservé aux utilisateurs âgés de 18 ans ou plus et n'est pas 
 
 ## 10. Réclamations et gouvernance du DPD
 
-Les demandes et réclamations relatives à la confidentialité doivent être adressées à help@postqron.com. Aucun délégué à la protection des données (DPD) n'a été désigné.
+Les demandes et réclamations relatives à la confidentialité doivent être adressées à privacy@postqron.com. Aucun délégué à la protection des données (DPD) n'a été désigné.
 
 ## 11. Modifications du présent avis
 

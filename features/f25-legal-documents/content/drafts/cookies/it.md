@@ -4,8 +4,10 @@ locale: it
 version: "0.1"
 title: "Informativa sui Cookie di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revisione legale."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revision
 
 ## 1. Chi emette questa informativa
 
-La presente Informativa sui Cookie è emessa da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale gestore del servizio di pianificazione per i social media Postqron ("Postqron", "noi"; dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), contattabile all'indirizzo help@postqron.com e all'indirizzo https://apdsoftware.it.
+La presente Informativa sui Cookie è emessa da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224), operante con il marchio APDSoftware quale gestore del servizio di pianificazione per i social media Postqron ("Postqron", "noi"; dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), contattabile all'indirizzo privacy@postqron.com e all'indirizzo https://apdsoftware.it.
 
 ## 2. Cosa copre questa informativa
 
@@ -42,4 +44,4 @@ Alla tua prima visita, nessuna tecnologia opzionale viene caricata prima che tu 
 
 ## 6. Contatti
 
-Per domande su questa Informativa sui Cookie, contattaci all'indirizzo help@postqron.com.
+Per domande su questa Informativa sui Cookie, contattaci all'indirizzo privacy@postqron.com.

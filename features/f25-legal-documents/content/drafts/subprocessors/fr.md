@@ -4,15 +4,17 @@ locale: fr
 version: "0.1"
 title: "Registre des sous-traitants de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation juridique."
 ---
 
 ## Identité du fournisseur
 
-Le présent registre est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant qu'exploitant de Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et via https://apdsoftware.it.
+Le présent registre est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162, REA (registre des entreprises italien) BG 431224), exerçant sous la marque APDSoftware en tant qu'exploitant de Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse privacy@postqron.com et via https://apdsoftware.it.
 
 ## Objet du présent registre
 
@@ -44,4 +46,4 @@ Aucun enregistré à la date de cette révision du brouillon.
 
 ## Contact
 
-Toute question relative au présent registre, ou toute objection à un sous-traitant répertorié au titre de l'Accord de Traitement des Données, doit être adressée à help@postqron.com.
+Toute question relative au présent registre, ou toute objection à un sous-traitant répertorié au titre de l'Accord de Traitement des Données, doit être adressée à privacy@postqron.com.

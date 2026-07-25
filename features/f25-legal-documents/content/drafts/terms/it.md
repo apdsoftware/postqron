@@ -4,8 +4,10 @@ locale: it
 version: "0.1"
 title: "Termini di Servizio di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: legal@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revisione legale."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revision
 
 ## 1. Identità del fornitore
 
-I presenti Termini di Servizio sono emessi da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale gestore del servizio di programmazione di contenuti sui social media Postqron ("Postqron", il "Servizio"). Dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms (consultata il 2026-07-25). L'entità è contattabile all'indirizzo help@postqron.com e all'indirizzo https://apdsoftware.it.
+I presenti Termini di Servizio sono emessi da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224), operante con il marchio APDSoftware quale gestore del servizio di programmazione di contenuti sui social media Postqron ("Postqron", il "Servizio"). Dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms (consultata il 2026-07-25). L'entità è contattabile all'indirizzo help@postqron.com e all'indirizzo https://apdsoftware.it.
 
 ## 2. Ambito e accettazione
 
@@ -64,7 +66,7 @@ Il Proprietario del workspace può disdire un abbonamento a pagamento direttamen
 
 Nulla nei presenti Termini limita il diritto di recesso previsto dalla normativa applicabile dell'Unione Europea e italiana a tutela dei consumatori, incluso il quadro normativo della Direttiva 2011/83/UE sui diritti dei consumatori. Tali diritti di legge restano pienamente disponibili secondo le proprie condizioni e i propri termini temporali.
 
-Separatamente, e in aggiunta a qualsiasi diritto di legge, Postqron offre volontariamente a ciascun cliente un rimborso integrale su richiesta, formulata entro 14 giorni di calendario dal primo addebito a pagamento del workspace. Questo rimborso volontario può essere utilizzato una sola volta per workspace e, una volta concesso, pone immediatamente fine al piano a pagamento per quel workspace. Questa offerta di rimborso volontario è distinta e non sostituisce, né limita, alcun diritto di recesso di legge del consumatore. I consumatori residenti nell'Unione Europea possono inoltre rivolgere reclami alla piattaforma di Risoluzione delle Controversie Online (ODR) dell'UE, disponibile all'indirizzo https://ec.europa.eu/consumers/odr.
+Separatamente, e in aggiunta a qualsiasi diritto di legge, Postqron offre volontariamente a ciascun cliente un rimborso integrale su richiesta, formulata entro 14 giorni di calendario dal primo addebito a pagamento del workspace. Questo rimborso volontario può essere utilizzato una sola volta per workspace e, una volta concesso, pone immediatamente fine al piano a pagamento per quel workspace. Questa offerta di rimborso volontario è distinta e non sostituisce, né limita, alcun diritto di recesso di legge del consumatore. I consumatori residenti nell'Unione Europea possono inoltre rivolgere reclami all'organismo nazionale di risoluzione delle controversie dei consumatori competente, elencato nel registro della Commissione Europea all'indirizzo https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (la piattaforma di Risoluzione delle Controversie Online dell'UE è stata dismessa dalla Commissione Europea il 20 luglio 2025 ai sensi del Regolamento (UE) 2024/3228 e non accetta più reclami; fonte consultata il 2026-07-25).
 
 ## 12. Mancati pagamenti
 
@@ -84,7 +86,7 @@ I presenti Termini sono disciplinati dalla legge italiana. Per i consumatori, ta
 
 ## 16. Reclami e controversie
 
-I reclami relativi al Servizio possono essere indirizzati a help@postqron.com. I consumatori residenti nell'Unione Europea possono inoltre sottoporre controversie transfrontaliere alla piattaforma di Risoluzione delle Controversie Online (ODR) dell'UE, disponibile all'indirizzo https://ec.europa.eu/consumers/odr, fermo restando il diritto di adire il tribunale competente.
+I reclami relativi al Servizio possono essere indirizzati a help@postqron.com, oppure a legal@postqron.com per le comunicazioni legali. I consumatori residenti nell'Unione Europea possono inoltre sottoporre controversie transfrontaliere all'organismo nazionale di risoluzione delle controversie dei consumatori competente, elencato nel registro della Commissione Europea all'indirizzo https://consumer-redress.ec.europa.eu/dispute-resolution-bodies (la piattaforma di Risoluzione delle Controversie Online dell'UE è stata dismessa dalla Commissione Europea il 20 luglio 2025 ai sensi del Regolamento (UE) 2024/3228 e non accetta più reclami; fonte consultata il 2026-07-25), fermo restando il diritto di adire il tribunale competente.
 
 ## 17. Modifiche ai presenti Termini
 

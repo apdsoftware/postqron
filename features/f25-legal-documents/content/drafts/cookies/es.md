@@ -4,8 +4,10 @@ locale: es
 version: "0.1"
 title: "Política de Cookies de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de revisión legal."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de r
 
 ## 1. Quién emite esta política
 
-Esta Política de Cookies es emitida por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162), que opera bajo la marca APDSoftware como operador del servicio de programación de redes sociales Postqron ("Postqron", "nosotros"; datos de la entidad verificados mediante una fuente pública: https://mailronix.com/terms, consultada el 2026-07-25), disponible en help@postqron.com y en https://apdsoftware.it.
+Esta Política de Cookies es emitida por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162, REA (registro de empresas italiano) BG 431224), que opera bajo la marca APDSoftware como operador del servicio de programación de redes sociales Postqron ("Postqron", "nosotros"; datos de la entidad verificados mediante una fuente pública: https://mailronix.com/terms, consultada el 2026-07-25), disponible en privacy@postqron.com y en https://apdsoftware.it.
 
 ## 2. Qué cubre esta política
 
@@ -42,4 +44,4 @@ En tu primera visita, ninguna tecnología opcional se carga antes de que tomes u
 
 ## 6. Contacto
 
-Si tienes preguntas sobre esta Política de Cookies, contáctanos en help@postqron.com.
+Si tienes preguntas sobre esta Política de Cookies, contáctanos en privacy@postqron.com.

@@ -4,15 +4,17 @@ locale: en
 version: "0.1"
 title: "Postqron Subprocessor Registry"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Initial from-scratch technical draft pending legal review."
 ---
 
 ## Provider identity
 
-This registry is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, the operator of Postqron (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at help@postqron.com and https://apdsoftware.it.
+This registry is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162, REA (company registration number) BG 431224), trading as APDSoftware, the operator of Postqron (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at privacy@postqron.com and https://apdsoftware.it.
 
 ## Purpose of this registry
 
@@ -44,4 +46,4 @@ None recorded as of this draft's revision.
 
 ## Contact
 
-Questions about this registry, or objections to a listed subprocessor under the Data Processing Agreement, go to help@postqron.com.
+Questions about this registry, or objections to a listed subprocessor under the Data Processing Agreement, go to privacy@postqron.com.

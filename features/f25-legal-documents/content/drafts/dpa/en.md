@@ -4,8 +4,10 @@ locale: en
 version: "0.1"
 title: "Postqron Data Processing Agreement"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Initial from-scratch technical draft pending legal review."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Initial from-scratch technical draft pending legal review."
 
 *Draft version 0.1 — pending legal review. This document describes, in good faith and for internal and preview purposes, the data processing terms that apply between Postqron and its business customers. It is not yet a finalized legal instrument.*
 
-This Data Processing Agreement ("DPA") is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, operator of the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at help@postqron.com and via https://apdsoftware.it.
+This Data Processing Agreement ("DPA") is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162, REA (company registration number) BG 431224), trading as APDSoftware, operator of the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at privacy@postqron.com and via https://apdsoftware.it.
 
 ## 1. Parties and roles
 
@@ -76,7 +78,7 @@ Postqron selects its own infrastructure and sub-processors with an EU/EEA-first 
 
 ## 9. Assistance with data subject rights
 
-Taking into account the nature of the processing, Postqron provides the customer with reasonable technical and organizational assistance for the fulfilment of the customer's obligation to respond to requests from data subjects exercising their rights under Chapter III GDPR (including access, rectification, erasure, restriction of processing, data portability, and objection) with respect to Customer Content Data. This assistance is provided primarily through in-product tools that allow the customer to manage and delete its own content, and, where needed, through direct support available at help@postqron.com.
+Taking into account the nature of the processing, Postqron provides the customer with reasonable technical and organizational assistance for the fulfilment of the customer's obligation to respond to requests from data subjects exercising their rights under Chapter III GDPR (including access, rectification, erasure, restriction of processing, data portability, and objection) with respect to Customer Content Data. This assistance is provided primarily through in-product tools that allow the customer to manage and delete its own content, and, where needed, through direct support available at privacy@postqron.com.
 
 ## 10. Assistance with security obligations and data protection impact assessments
 

@@ -4,8 +4,10 @@ locale: es
 version: "0.1"
 title: "Acuerdo de Tratamiento de Datos de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de revisión legal."
 ---
@@ -14,7 +16,7 @@ revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de r
 
 *Versión de borrador 0.1 — pendiente de revisión legal. Este documento describe, de buena fe y con fines internos y de vista previa, los términos de tratamiento de datos que se aplican entre Postqron y sus clientes empresariales. Todavía no constituye un instrumento legal definitivo.*
 
-Este Acuerdo de Tratamiento de Datos ("ATD") es emitido por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162), que opera bajo la marca APDSoftware como operador del servicio Postqron (datos de la entidad verificados mediante una fuente pública: https://mailronix.com/terms, consultada el 2026-07-25), contactable en help@postqron.com y a través de https://apdsoftware.it.
+Este Acuerdo de Tratamiento de Datos ("ATD") es emitido por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162, REA (registro de empresas italiano) BG 431224), que opera bajo la marca APDSoftware como operador del servicio Postqron (datos de la entidad verificados mediante una fuente pública: https://mailronix.com/terms, consultada el 2026-07-25), contactable en privacy@postqron.com y a través de https://apdsoftware.it.
 
 ## 1. Partes y roles
 
@@ -76,7 +78,7 @@ Postqron selecciona su propia infraestructura y sus subencargados del tratamient
 
 ## 9. Asistencia con los derechos de los interesados
 
-Teniendo en cuenta la naturaleza del tratamiento, Postqron proporciona al cliente asistencia técnica y organizativa razonable para el cumplimiento de la obligación del cliente de responder a las solicitudes de los interesados que ejerzan sus derechos en virtud del Capítulo III del RGPD (incluidos el acceso, la rectificación, la supresión, la limitación del tratamiento, la portabilidad de los datos y la oposición) respecto de los Datos de Contenido del Cliente. Esta asistencia se presta principalmente mediante herramientas integradas en el producto que permiten al cliente gestionar y eliminar su propio contenido y, cuando sea necesario, a través de soporte directo disponible en help@postqron.com.
+Teniendo en cuenta la naturaleza del tratamiento, Postqron proporciona al cliente asistencia técnica y organizativa razonable para el cumplimiento de la obligación del cliente de responder a las solicitudes de los interesados que ejerzan sus derechos en virtud del Capítulo III del RGPD (incluidos el acceso, la rectificación, la supresión, la limitación del tratamiento, la portabilidad de los datos y la oposición) respecto de los Datos de Contenido del Cliente. Esta asistencia se presta principalmente mediante herramientas integradas en el producto que permiten al cliente gestionar y eliminar su propio contenido y, cuando sea necesario, a través de soporte directo disponible en privacy@postqron.com.
 
 ## 10. Asistencia con las obligaciones de seguridad y las evaluaciones de impacto relativas a la protección de datos
 

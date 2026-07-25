@@ -4,8 +4,10 @@ locale: en
 version: "0.1"
 title: "Postqron Privacy Policy"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
-contactEmail: help@postqron.com
+contactEmail: privacy@postqron.com
 status: draft_pending_legal_review
+jurisdiction: IT
+proposedEffectiveDate: "2026-09-01"
 changeType: material
 revisionSummary: "Initial from-scratch technical draft pending legal review."
 ---
@@ -16,7 +18,7 @@ revisionSummary: "Initial from-scratch technical draft pending legal review."
 
 ## 1. Controller and contact
 
-This notice is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, the controller for the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at help@postqron.com and via https://apdsoftware.it. No Data Protection Officer has been appointed. For all privacy-related questions, requests, or complaints, please use help@postqron.com.
+This notice is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162, REA (company registration number) BG 431224), trading as APDSoftware, the controller for the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at privacy@postqron.com and via https://apdsoftware.it. No Data Protection Officer has been appointed. For all privacy-related questions, requests, or complaints, please use privacy@postqron.com.
 
 ## 2. Categories of personal data processed
 
@@ -85,7 +87,7 @@ Postqron applies the following technical and organizational measures, among othe
 
 ## 8. Data subject rights
 
-Subject to the conditions set out in the GDPR, data subjects have the right to access, rectify, erase, restrict the processing of, port, and object to the processing of their personal data (Arts. 15–21 GDPR). Most of these rights can be exercised directly through an authenticated in-account export or deletion workflow; others may be exercised by contacting help@postqron.com.
+Subject to the conditions set out in the GDPR, data subjects have the right to access, rectify, erase, restrict the processing of, port, and object to the processing of their personal data (Arts. 15–21 GDPR). Most of these rights can be exercised directly through an authenticated in-account export or deletion workflow; others may be exercised by contacting privacy@postqron.com.
 
 Data subjects also have the right to lodge a complaint with a supervisory authority. In Italy, the competent authority is the Garante per la protezione dei dati personali (https://www.garanteprivacy.it). Under Art. 77 GDPR, a data subject may also lodge a complaint with the supervisory authority of their own EU member state of habitual residence or place of work, if different from Italy.
 
@@ -95,7 +97,7 @@ The Service is restricted to users aged 18 or over and is not offered to individ
 
 ## 10. Complaints and DPO governance
 
-Privacy-related requests and complaints should be directed to help@postqron.com. No Data Protection Officer has been appointed.
+Privacy-related requests and complaints should be directed to privacy@postqron.com. No Data Protection Officer has been appointed.
 
 ## 11. Changes to this notice
 
