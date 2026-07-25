@@ -1,10 +1,15 @@
 import {
   computed,
   useNuxtApp,
+  useRequestFetch,
   useRuntimeConfig,
   useState,
 } from '#imports'
-import { AppShellApi, type AppFetch } from './api.ts'
+import {
+  AppShellApi,
+  resolveAppShellApiBase,
+  type AppFetch,
+} from './api.ts'
 import type {
   AppBootstrap,
   AppSession,
@@ -54,9 +59,9 @@ export function useAppBootstrapState() {
 
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
-  const nuxtApp = useNuxtApp()
+  const requestFetch = useRequestFetch()
   return new AppShellApi(
-    String(config.public.apiBase),
-    nuxtApp.$fetch as unknown as AppFetch,
+    resolveAppShellApiBase(config, import.meta.server),
+    requestFetch as unknown as AppFetch,
   )
 }

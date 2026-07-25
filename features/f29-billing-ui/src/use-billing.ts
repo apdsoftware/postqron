@@ -1,6 +1,7 @@
 import {
   computed,
   useNuxtApp,
+  useRequestFetch,
   useRuntimeConfig,
   useState,
 } from '#imports'
@@ -42,10 +43,10 @@ export function useBillingI18n(): {
 
 export function useBillingApi(): BillingApi {
   const config = useRuntimeConfig()
-  const nuxtApp = useNuxtApp()
+  const requestFetch = useRequestFetch()
   return new BillingApi(
     String(config.public.apiBase),
-    nuxtApp.$fetch as unknown as BillingFetch,
+    requestFetch as unknown as BillingFetch,
   )
 }
 

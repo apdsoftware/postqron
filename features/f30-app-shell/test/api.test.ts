@@ -4,6 +4,7 @@ import {
   AppApiError,
   AppShellApi,
   normalizeAppApiError,
+  resolveAppShellApiBase,
   type AppFetch,
 } from '../components/core/api.ts'
 
@@ -26,6 +27,24 @@ const validSession = {
     role: 'owner',
   }],
 }
+
+test('API base resolution keeps private SSR and public browser origins separate', () => {
+  const config = {
+    apiBase: 'http://fixture-api.internal:8080',
+    public: {
+      apiBase: 'https://preview.postqron.test',
+    },
+  }
+
+  assert.equal(
+    resolveAppShellApiBase(config, true),
+    'http://fixture-api.internal:8080',
+  )
+  assert.equal(
+    resolveAppShellApiBase(config, false),
+    'https://preview.postqron.test',
+  )
+})
 
 test('session resolution forwards SSR cookie only to the configured API boundary', async () => {
   const calls: Array<{ path: string, options?: Readonly<Record<string, unknown>> }> = []

@@ -13,6 +13,16 @@ export type AppFetch = (
   options?: Readonly<Record<string, unknown>>,
 ) => Promise<unknown>
 
+export function resolveAppShellApiBase(
+  config: {
+    apiBase?: unknown
+    public: { apiBase?: unknown }
+  },
+  server: boolean,
+): string {
+  return String(server ? config.apiBase : config.public.apiBase)
+}
+
 export type AppApiErrorKind =
   | 'access-denied'
   | 'configuration'
