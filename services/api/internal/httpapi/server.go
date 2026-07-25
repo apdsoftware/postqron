@@ -19,31 +19,49 @@ type featureResponse struct {
 }
 
 type server struct {
-	features []featureruntime.Feature
-	host     *featurehost.Host
-	logger   *slog.Logger
-	version  string
+	authenticate func(http.Handler) http.Handler
+	features     []featureruntime.Feature
+	host         *featurehost.Host
+	logger       *slog.Logger
+	version      string
 }
 
 func New(features []featureruntime.Feature, version string, logger *slog.Logger) http.Handler {
 	api := &server{features: features, version: version, logger: logger}
+	handler, err := api.handler()
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+func NewWithHost(
+	host *featurehost.Host,
+	authenticate func(http.Handler) http.Handler,
+	version string,
+	logger *slog.Logger,
+) (http.Handler, error) {
+	api := &server{
+		authenticate: authenticate,
+		host:         host,
+		version:      version,
+		logger:       logger,
+	}
 	return api.handler()
 }
 
-func NewWithHost(host *featurehost.Host, version string, logger *slog.Logger) http.Handler {
-	api := &server{host: host, version: version, logger: logger}
-	return api.handler()
-}
-
-func (s *server) handler() http.Handler {
+func (s *server) handler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /api/v1/features", s.listFeatures)
 	if s.host != nil {
+		if err := s.host.MountAuthenticatedRoutes(mux, s.authenticate); err != nil {
+			return nil, err
+		}
 		mux.Handle("/api/v1/", s.host.PublicHandler())
 	}
-	return s.logging(mux)
+	return s.logging(mux), nil
 }
 
 func (s *server) health(writer http.ResponseWriter, _ *http.Request) {
@@ -87,7 +105,7 @@ func (s *server) listFeatures(writer http.ResponseWriter, _ *http.Request) {
 
 func (s *server) featureStatuses() []featurehost.Status {
 	if s.host != nil {
-		return s.host.Statuses()
+		return s.host.PublicStatuses()
 	}
 	statuses := make([]featurehost.Status, 0, len(s.features))
 	for _, feature := range s.features {

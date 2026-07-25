@@ -2,7 +2,9 @@ schema_version: 1
 id: admin-console
 kind: web
 version: 0.1.0
-entrypoint: ./runtime.ts
+entrypoints:
+  server: ./module.go
+  web: ./runtime.ts
 dependencies:
   - app-shell
   - auth
@@ -11,7 +13,30 @@ dependencies:
   - i18n
   - operations
   - workspaces
-migrations: []
+migrations:
+  - ./migrations/000001_create_admin_console.sql
+server:
+  routes:
+    - path: /admin/session
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/dashboard
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/search
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/workspaces/{workspace_id}/internal-plan
+      handler: Admin
+      methods: [PUT, DELETE]
+      visibility: private
+    - path: /admin/admins/{account_id}
+      handler: Admin
+      methods: [PUT, DELETE]
+      visibility: private
 web:
   routes:
     - name: admin-console
