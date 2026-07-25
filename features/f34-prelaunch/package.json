@@ -1,0 +1,20 @@
+{
+  "name": "@postqron/f34-prelaunch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:lighthouse": "node scripts/lighthouse.mjs",
+    "typecheck": "pnpm --dir ../../apps/web exec nuxt typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1",
+    "lighthouse": "13.4.1"
+  },
+  "peerDependencies": {
+    "nuxt": "^3.21.0",
+    "vue": "^3.5.0"
+  }
+}
