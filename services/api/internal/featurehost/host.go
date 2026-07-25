@@ -409,31 +409,6 @@ func (host *Host) Statuses() []Status {
 	return statuses
 }
 
-func (host *Host) PublicStatuses() []Status {
-	host.mu.RLock()
-	defer host.mu.RUnlock()
-	statuses := make([]Status, 0, len(host.features))
-	for _, hosted := range host.features {
-		if isPrivateOnly(hosted.feature.Manifest.Server.Routes) {
-			continue
-		}
-		statuses = append(statuses, hosted.status)
-	}
-	return statuses
-}
-
-func isPrivateOnly(routes []featureruntime.ServerRoute) bool {
-	if len(routes) == 0 {
-		return false
-	}
-	for _, route := range routes {
-		if route.Visibility == "public" {
-			return false
-		}
-	}
-	return true
-}
-
 func (host *Host) PublicHandler() http.Handler {
 	return host.publicMux
 }

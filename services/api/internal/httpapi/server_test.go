@@ -227,8 +227,8 @@ func TestPrivateRoutesUseOnlyTheExplicitAuthenticatedOverlay(t *testing.T) {
 		catalog,
 		httptest.NewRequest(http.MethodGet, "/api/v1/features", nil),
 	)
-	if strings.Contains(catalog.Body.String(), `"id":"admin"`) {
-		t.Fatalf("public feature catalog exposed private feature: %s", catalog.Body.String())
+	if !strings.Contains(catalog.Body.String(), `"id":"admin"`) {
+		t.Fatalf("feature inventory omitted private feature: %s", catalog.Body.String())
 	}
 
 	publicFallback := httptest.NewRecorder()

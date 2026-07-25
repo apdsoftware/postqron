@@ -105,7 +105,7 @@ func (s *server) listFeatures(writer http.ResponseWriter, _ *http.Request) {
 
 func (s *server) featureStatuses() []featurehost.Status {
 	if s.host != nil {
-		return s.host.PublicStatuses()
+		return s.host.Statuses()
 	}
 	statuses := make([]featurehost.Status, 0, len(s.features))
 	for _, feature := range s.features {
