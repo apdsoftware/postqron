@@ -8,27 +8,15 @@
 -- Fixes the production defect where F26's cookie-preferences API returned
 -- `503 cookie_policy_unavailable` because no approved `cookies_it` row
 -- existed in the runtime ledger, even though the corpus was approved.
-INSERT INTO compliance_legal_documents (
-    document_key,
-    jurisdiction,
-    locale,
-    version,
-    content_bytes,
-    digest_sha256,
-    content_status,
-    legal_approval_id,
-    approved_at,
-    published_at,
-    effective_at,
-    permanent_url,
-    current_url,
-    change_type
-) VALUES (
-    'cookies_it',
-    'IT',
-    'it-IT',
-    '0.1',
-    convert_to($cookies_it_v0_1_content$# Informativa sui Cookie di Postqron
+--
+-- `ON CONFLICT DO NOTHING` makes a re-run idempotent, but it must never
+-- silently mask a pre-existing row that diverges from the approved bundle
+-- (hand edit, corruption, a stale release, ...). So after the insert
+-- no-ops or succeeds, this block re-reads the row and fails the migration
+-- explicitly if any field does not match the bundle exactly.
+DO $$
+DECLARE
+  expected_content bytea := convert_to($cookies_it_v0_1_content$# Informativa sui Cookie di Postqron
 
 ## 1. Chi emette questa informativa
 
@@ -60,15 +48,70 @@ Alla tua prima visita, nessuna tecnologia opzionale viene caricata prima che tu 
 
 ## 6. Contatti
 
-Per domande su questa Informativa sui Cookie, contattaci all'indirizzo privacy@postqron.com.$cookies_it_v0_1_content$, 'UTF8'),
-    '9f6e657791afa9c0f54a448ffcdaf031cc244e218f2bbea27ed1d1563cf8bd33',
-    'approved',
-    'LEGAL-APPROVAL-2026-07-25-F25',
-    '2026-07-25T20:16:56.000Z',
-    '2026-07-25T20:16:56.000Z',
-    '2026-07-25T20:16:56.000Z',
-    '/api/v1/legal-documents/cookies_it/versions/0.1',
-    '/api/v1/legal-documents/cookies_it/current',
-    'material'
-)
-ON CONFLICT (document_key, jurisdiction, locale, version) DO NOTHING;
+Per domande su questa Informativa sui Cookie, contattaci all'indirizzo privacy@postqron.com.$cookies_it_v0_1_content$, 'UTF8');
+  actual compliance_legal_documents%ROWTYPE;
+BEGIN
+  INSERT INTO compliance_legal_documents (
+      document_key,
+      jurisdiction,
+      locale,
+      version,
+      content_bytes,
+      digest_sha256,
+      content_status,
+      legal_approval_id,
+      approved_at,
+      published_at,
+      effective_at,
+      permanent_url,
+      current_url,
+      change_type
+  ) VALUES (
+      'cookies_it',
+      'IT',
+      'it-IT',
+      '0.1',
+      expected_content,
+      '9f6e657791afa9c0f54a448ffcdaf031cc244e218f2bbea27ed1d1563cf8bd33',
+      'approved',
+      'LEGAL-APPROVAL-2026-07-25-F25',
+      '2026-07-25T20:16:56.000Z'::timestamptz,
+      '2026-07-25T20:16:56.000Z'::timestamptz,
+      '2026-07-25T20:16:56.000Z'::timestamptz,
+      '/api/v1/legal-documents/cookies_it/versions/0.1',
+      '/api/v1/legal-documents/cookies_it/current',
+      'material'
+  )
+  ON CONFLICT (document_key, jurisdiction, locale, version) DO NOTHING;
+
+  SELECT * INTO actual
+  FROM compliance_legal_documents
+  WHERE document_key = 'cookies_it'
+    AND jurisdiction = 'IT'
+    AND locale = 'it-IT'
+    AND version = '0.1';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      'cookies_it % seed migration: expected row is missing after insert',
+      '0.1';
+  END IF;
+
+  IF actual.content_bytes IS DISTINCT FROM expected_content
+    OR actual.digest_sha256 IS DISTINCT FROM '9f6e657791afa9c0f54a448ffcdaf031cc244e218f2bbea27ed1d1563cf8bd33'
+    OR actual.content_status IS DISTINCT FROM 'approved'
+    OR actual.legal_approval_id IS DISTINCT FROM 'LEGAL-APPROVAL-2026-07-25-F25'
+    OR actual.approved_at IS DISTINCT FROM '2026-07-25T20:16:56.000Z'::timestamptz
+    OR actual.published_at IS DISTINCT FROM '2026-07-25T20:16:56.000Z'::timestamptz
+    OR actual.effective_at IS DISTINCT FROM '2026-07-25T20:16:56.000Z'::timestamptz
+    OR actual.superseded_at IS NOT NULL
+    OR actual.permanent_url IS DISTINCT FROM '/api/v1/legal-documents/cookies_it/versions/0.1'
+    OR actual.current_url IS DISTINCT FROM '/api/v1/legal-documents/cookies_it/current'
+    OR actual.change_type IS DISTINCT FROM 'material'
+  THEN
+    RAISE EXCEPTION
+      'cookies_it % seed migration: an existing compliance_legal_documents row for cookies_it/IT/it-IT/% diverges from the F25-approved bundle (ref %); refusing to mask the conflict',
+      '0.1', '0.1', 'LEGAL-APPROVAL-2026-07-25-F25';
+  END IF;
+END;
+$$;

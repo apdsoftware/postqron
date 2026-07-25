@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -211,6 +212,127 @@ func TestNewCookiesItPolicyVersionInvalidatesPriorConsentOnTheRealLedger(t *test
 	if state.HasRecordedChoice || state.Analytics {
 		t.Fatalf("state after policy version bump = %+v, want the prior choice invalidated", state)
 	}
+}
+
+// TestSeedMigrationFailsClosedOnADivergentPreexistingRow proves that
+// ON CONFLICT DO NOTHING never masks a pre-existing cookies_it/0.1 row that
+// diverges from the F25-approved bundle: the migration must error instead of
+// silently leaving stale/hand-edited/corrupted data in place.
+func TestSeedMigrationFailsClosedOnADivergentPreexistingRow(t *testing.T) {
+	pool := cookiesLedgerSchemaPool(t)
+	ctx := context.Background()
+
+	const divergentDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO compliance_legal_documents (
+			document_key, jurisdiction, locale, version, content_bytes,
+			digest_sha256, content_status, legal_approval_id, approved_at,
+			published_at, effective_at, permanent_url, current_url, change_type
+		) VALUES (
+			'cookies_it', 'IT', 'it-IT', '0.1',
+			convert_to('a hand-edited or stale cookies_it document', 'UTF8'),
+			$1, 'approved', 'DIVERGENT-TEST-APPROVAL', now(), now(), now(),
+			'/legal/divergent', '/legal/divergent/current', 'non_material'
+		)`,
+		divergentDigest,
+	); err != nil {
+		t.Fatalf("seed a divergent pre-existing row: %v", err)
+	}
+
+	seed, err := os.ReadFile(cookiesItSeedMigrationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, execErr := transaction.Exec(ctx, string(seed))
+	if execErr == nil {
+		_ = transaction.Rollback(ctx)
+		t.Fatal("expected the seed migration to fail closed against a divergent pre-existing row, got nil error")
+	}
+	if err := transaction.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var rowCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM compliance_legal_documents
+		WHERE document_key = 'cookies_it' AND version = '0.1'`,
+	).Scan(&rowCount); err != nil {
+		t.Fatal(err)
+	}
+	if rowCount != 1 {
+		t.Fatalf(
+			"after the failed migration attempt: %d cookies_it/0.1 rows remain, want exactly 1 (the untouched divergent row)",
+			rowCount,
+		)
+	}
+	var storedDigest string
+	if err := pool.QueryRow(ctx, `
+		SELECT digest_sha256 FROM compliance_legal_documents
+		WHERE document_key = 'cookies_it' AND version = '0.1'`,
+	).Scan(&storedDigest); err != nil {
+		t.Fatal(err)
+	}
+	if storedDigest != divergentDigest {
+		t.Fatalf(
+			"stored digest = %q, want the untouched divergent digest %q (the migration must not have overwritten it)",
+			storedDigest, divergentDigest,
+		)
+	}
+}
+
+func cookiesLedgerSchemaPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	databaseURL := integrationDatabaseURL()
+	if databaseURL == "" {
+		t.Skip("set F26_DATABASE_URL or DATABASE_URL after applying the F13 and F26 migrations")
+	}
+	ctx := context.Background()
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schema := fmt.Sprintf("f26_ledger_reject_test_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+
+	ledgerMigration, err := os.ReadFile(filepath.Join(
+		"..", "f13-compliance", "migrations", "000001_create_compliance_ledger.sql",
+	))
+	if err != nil {
+		pool.Close()
+		admin.Close()
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(ledgerMigration)); err != nil {
+		pool.Close()
+		admin.Close()
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		pool.Close()
+		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+		admin.Close()
+	})
+	return pool
 }
 
 func openLedgerIntegrationDatabase(t *testing.T) *sql.DB {
