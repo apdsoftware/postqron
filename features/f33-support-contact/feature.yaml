@@ -1,0 +1,16 @@
+schema_version: 1
+id: support-contact
+kind: web
+version: 0.1.0
+entrypoint: ./pages/contatti.vue
+dependencies:
+  - i18n
+  - marketing-site
+migrations: []
+web:
+  routes:
+    - name: support-contact
+      path: /contatti
+      file: ./pages/contatti.vue
+      visibility: public
+      middleware: []
