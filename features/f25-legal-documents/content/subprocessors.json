@@ -54,21 +54,21 @@
       "note": "Cloudflare also states it complies with the EU-US Data Privacy Framework and is certified to the Global Cross-Border Privacy Rules system as additional transfer safeguards."
     },
     {
-      "legalName": "Not verified",
+      "legalName": "Apdsoftware di Carlo Zuffetti",
       "role": "subprocessor",
-      "service": "Transactional email delivery (account, security and service notifications)",
+      "service": "Transactional email delivery (mailronix.com; account, security and service notifications)",
       "purpose": "Send transactional email on Postqron's behalf",
       "dataCategories": ["recipient email address", "recipient name", "transactional message content"],
-      "countryOfEstablishment": "Not verified",
-      "countryOfProcessing": "Not verified",
-      "transferMechanism": "not_applicable",
-      "dpaReference": null,
-      "sourceUrl": "features/f14-email/contracts/mailronix-api-1.0.0.md",
+      "countryOfEstablishment": "Italy (Via C. Colombo 15, 24047 Treviglio (BG))",
+      "countryOfProcessing": "Germany (primary infrastructure on Hetzner; email delivery via AWS SES, Frankfurt), per mailronix.com's own published infrastructure statement",
+      "transferMechanism": "eea",
+      "dpaReference": "https://mailronix.com/terms (Data Processing Agreement stated to be an integral part of these Terms; no separate DPA URL published)",
+      "sourceUrl": "https://mailronix.com/terms",
       "sourceConsultedAt": "2026-07-25",
-      "sourceVerified": false,
+      "sourceVerified": true,
       "entryDate": "2026-07-25",
       "status": "active",
-      "note": "No official public company website, legal page, DPA or subprocessor list could be located for a real company operating as 'Mailronix' via primary-source research on 2026-07-25. This entry cannot be relied upon for legal publication until Postqron's vendor-management function confirms the exact contracting legal entity and supplies its official DPA and subprocessor documentation. Recorded as pending legal-review metadata; the sourceUrl above is Postqron's own internal API integration contract, not a public legal source."
+      "note": "mailronix.com/terms publicly states the operating entity as 'Apdsoftware di Carlo Zuffetti', Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, and that transaction descriptors 'può essere comune ad altri prodotti della stessa ditta' (may be shared with other products of the same firm) — consistent with 'APDSoftware' being the same brand referenced elsewhere in this corpus as Postqron's operator, though mailronix.com's own page does not name Postqron specifically. IMPORTANT: if Mailronix and Postqron are confirmed to be operated by the identical legal entity, this is not an arm's-length third-party sub-processor relationship in the ordinary sense — it is the same controller/processor using a separately branded internal system, which changes how Art. 28 GDPR applies (an entity cannot be its own sub-processor for data-protection purposes) and should be characterized precisely by counsel rather than left as an ordinary vendor entry. Retained under role 'subprocessor' here only as a placeholder classification pending that confirmation."
     },
     {
       "legalName": "Google LLC (Mountain View, California, USA); Google Ireland Limited (for EEA-relevant purposes)",
