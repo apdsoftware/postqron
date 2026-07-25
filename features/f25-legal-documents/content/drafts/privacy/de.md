@@ -91,7 +91,7 @@ Betroffene Personen haben zudem das Recht, Beschwerde bei einer Aufsichtsbehörd
 
 ## 9. Minderjährige
 
-Postqron sieht keine spezifische Mindestaltersanforderung für die Nutzung des Dienstes vor, unbeschadet der nach anwendbarem Recht erforderlichen Geschäftsfähigkeit zum Abschluss eines Vertrags.
+Der Dienst ist Nutzern vorbehalten, die mindestens 18 Jahre alt sind, und wird Personen unter 18 Jahren nicht angeboten, im Einklang mit der von Buffer angewandten Mindestaltersanforderung, dem als kommerzieller Vergleichsmaßstab herangezogenen vergleichbaren Dienst (Quelle: Buffer, Nutzungsbedingungen, Abschnitt 2 „Eligibility" — „You must be at least 18-years old to use the Service", https://buffer.com/legal/terms-of-use/year/2023, abgerufen am 2026-07-25).
 
 ## 10. Beschwerden und Governance des Datenschutzbeauftragten
 

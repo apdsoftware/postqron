@@ -88,21 +88,21 @@
       "note": "Google does not publish a dedicated DPA for Sign in with Google; the applicable terms are the general Google APIs Terms of Service and Google API Services User Data Policy. Google states it is certified to the EU-US and Swiss-US Data Privacy Frameworks and the UK Extension, and relies on Standard Contractual Clauses where DPF does not apply (https://policies.google.com/privacy/frameworks)."
     },
     {
-      "legalName": "Apple Inc.",
+      "legalName": "Apple Inc.; Apple Distribution International Limited (for EEA-relevant purposes)",
       "role": "independent_third_party",
       "service": "OAuth login (\"Sign in with Apple\")",
       "purpose": "Authenticate users who choose to sign in with their Apple ID",
       "dataCategories": ["email address (or Apple private relay email)", "name (first sign-in only, if shared)", "Apple account identifier"],
-      "countryOfEstablishment": "United States",
-      "countryOfProcessing": "Not verified; not stated on Apple's official Sign in with Apple pages",
+      "countryOfEstablishment": "United States (Apple Inc.); Ireland (Apple Distribution International Limited, Hollyhill Industrial Estate, Cork)",
+      "countryOfProcessing": "Ireland (Cork), for EEA-relevant processing by Apple Distribution International Limited",
       "transferMechanism": "not_applicable",
       "dpaReference": null,
-      "sourceUrl": "https://www.apple.com/legal/privacy/data/en/sign-in-with-apple/",
+      "sourceUrl": "https://www.apple.com/legal/privacy/data/en/sign-in-with-apple/; https://lei-ireland.ie/detailed-information/588229/54930027SQL2KPSDBM58/apple-distribution-international-limited/",
       "sourceConsultedAt": "2026-07-25",
       "sourceVerified": true,
       "entryDate": "2026-07-25",
       "status": "active",
-      "note": "No transfer-mechanism statement (SCCs, adequacy, DPF) was found on Apple's official Sign in with Apple pages as of the consultation date; Apple's general Privacy Policy at apple.com/privacy was not independently reviewed for this purpose and should be checked before publication."
+      "note": "No transfer-mechanism statement (SCCs, adequacy, DPF) was found on Apple's official Sign in with Apple pages as of the consultation date; Apple's general Privacy Policy at apple.com/privacy was not independently reviewed for this purpose and should be checked before publication. Apple Distribution International Limited's Cork, Ireland registration is confirmed via the Irish LEI register."
     },
     {
       "legalName": "Meta Platforms, Inc.; Meta Platforms Ireland Limited",
@@ -110,8 +110,8 @@
       "service": "OAuth login (\"Facebook Login\") and the customer's own connection to Facebook Pages / Instagram Professional as a publishing destination",
       "purpose": "Authenticate users who choose to sign in with Facebook, and let customers publish content to social accounts they connect and authorize themselves",
       "dataCategories": ["email address", "name", "profile picture", "Facebook/Instagram account identifier", "content the customer chooses to publish to their connected Page or Professional account"],
-      "countryOfEstablishment": "Ireland (Meta Platforms Ireland Limited, EEA transfers); United States (Meta Platforms, Inc.)",
-      "countryOfProcessing": "Not verified; no general storage-location statement found on Meta's official Platform Terms",
+      "countryOfEstablishment": "Ireland (Meta Platforms Ireland Limited, Block J, Serpentine Avenue, Dublin 4); United States (Meta Platforms, Inc.)",
+      "countryOfProcessing": "Ireland (Dublin), for EEA-relevant processing by Meta Platforms Ireland Limited",
       "transferMechanism": "scc",
       "dpaReference": null,
       "sourceUrl": "https://developers.facebook.com/terms/dfc_platform_terms/",

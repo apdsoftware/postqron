@@ -46,11 +46,11 @@ Chaque nouvel espace de travail éligible peut activer un essai de 14 jours du p
 
 ## 7. Paddle en tant que prestataire de paiement et Merchant of Record
 
-Paddle.com Market Limited (« Paddle ») est le prestataire de paiement exclusif pour tous les plans payants et agit en qualité de Merchant of Record pour ces transactions. Paddle vend l'abonnement à l'acheteur, encaisse le paiement, émet les documents fiscaux applicables (y compris les factures et reçus), et calcule, collecte et reverse la taxe sur la valeur ajoutée ou la taxe de vente applicable à la transaction. Postqron demeure seul responsable du Service en tant que tel, des droits associés à chaque plan, et du support client au niveau de l'application.
+Les abonnements sont vendus par l'intermédiaire de Paddle.com Market Ltd (ou de la société du groupe Paddle compétente), qui agit en tant que revendeur autorisé (Merchant of Record). Il en résulte que : (i) la transaction d'achat — débits, émission de la facture, application de la TVA, éventuels remboursements — intervient entre le Client et Paddle et est régie par les conditions et la politique de remboursement de Paddle ; (ii) la relation de service, régie par les présentes Conditions, intervient entre le Client et le Prestataire. En cas de conflit, les conditions de Paddle prévalent pour la partie transactionnelle, et les présentes Conditions prévalent pour la fourniture du Service.
 
 ## 8. Renouvellement
 
-Les plans payants se renouvellent automatiquement selon la périodicité choisie par le client (mensuelle ou annuelle), dès réception par Postqron d'une confirmation vérifiée de transaction complétée émise par Paddle pour le prélèvement de renouvellement correspondant.
+Les abonnements se renouvellent automatiquement à l'échéance de chaque période (mensuelle ou annuelle), sauf résiliation effectuée avant le renouvellement depuis le tableau de bord du Service ou via Paddle.
 
 ## 9. Montées et descentes de gamme
 
@@ -66,9 +66,9 @@ Aucune disposition des présentes Conditions ne limite le droit de rétractation
 
 Par ailleurs, et indépendamment de tout droit légal, Postqron offre volontairement à chaque client un remboursement intégral sur demande, formulée dans un délai de 14 jours calendaires suivant le premier prélèvement payant de l'espace de travail. Ce remboursement volontaire ne peut être utilisé qu'une seule fois par espace de travail et, une fois accordé, met fin immédiatement au plan payant de cet espace de travail. Cette offre de remboursement volontaire est distincte de tout droit de rétractation légal du consommateur, et ne le remplace ni ne le limite. Les consommateurs résidant dans l'Union européenne peuvent également porter leurs réclamations devant la plateforme de règlement en ligne des litiges (RLL) de l'UE, disponible à l'adresse https://ec.europa.eu/consumers/odr.
 
-## 12. Échecs de paiement et relances (dunning)
+## 12. Défaut de paiement
 
-En cas d'échec d'un paiement de renouvellement, l'abonnement concerné passe en statut d'impayé (past-due). Postqron applique un délai de grâce de 14 jours calendaires à compter de la date du premier échec de paiement, durant lequel le plan et les publications déjà planifiées continuent de fonctionner normalement. Si le paiement n'a pas été récupéré avec succès avant la fin du délai de grâce, l'espace de travail passe dans un état de restriction pour non-paiement : les données et ressources existantes sont conservées, mais la création de nouveaux canaux, membres et publications est bloquée, et les publications futures planifiées sont mises en pause. Cet état perdure jusqu'à la conclusion du propre processus de recouvrement de Paddle ; si le paiement n'est finalement pas récupéré, l'espace de travail revient au plan Start.
+En cas de défaut de paiement, le Prestataire peut suspendre les fonctionnalités du Service après un préavis raisonnable et, si le défaut de paiement persiste pendant plus de 30 jours, résilier le contrat.
 
 ## 13. Disponibilité du Service
 

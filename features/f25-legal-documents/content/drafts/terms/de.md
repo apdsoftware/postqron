@@ -46,11 +46,11 @@ Jeder berechtigte neue Arbeitsbereich kann eine 14-tägige, kartenlose Testphase
 
 ## 7. Paddle als Zahlungsdienstleister und Merchant of Record
 
-Paddle.com Market Limited („Paddle") ist der exklusive Zahlungsdienstleister für alle kostenpflichtigen Pläne und handelt für diese Transaktionen als Merchant of Record. Paddle verkauft das Abonnement an den Käufer, zieht die Zahlung ein, stellt die jeweils erforderlichen steuerlichen Dokumente aus (einschließlich Rechnungen und Quittungen) und berechnet, erhebt und führt die auf die Transaktion anwendbare Umsatzsteuer bzw. Verkaufssteuer ab. Postqron bleibt allein verantwortlich für den Dienst selbst, für die mit jedem Plan verbundenen Berechtigungen sowie für den Kundensupport auf Anwendungsebene.
+Abonnements werden über Paddle.com Market Ltd (oder die zuständige Paddle-Konzerngesellschaft) verkauft, die als autorisierter Wiederverkäufer (Merchant of Record) auftritt. Daraus folgt: (i) die Kauftransaktion — Abbuchungen, Rechnungsstellung, Anwendung der Umsatzsteuer, etwaige Rückerstattungen — erfolgt zwischen dem Kunden und Paddle und unterliegt den Bedingungen und der Rückerstattungsrichtlinie von Paddle; (ii) das Dienstverhältnis, das diesen Bedingungen unterliegt, besteht zwischen dem Kunden und dem Anbieter. Im Konfliktfall haben für den transaktionalen Teil die Bedingungen von Paddle Vorrang, für die Erbringung des Dienstes haben diese Bedingungen Vorrang.
 
 ## 8. Verlängerung
 
-Kostenpflichtige Pläne verlängern sich automatisch in dem vom Kunden gewählten Rhythmus (monatlich oder jährlich), sobald Postqron von Paddle eine verifizierte Bestätigung über den Abschluss der entsprechenden Verlängerungstransaktion erhält.
+Abonnements verlängern sich am Ende jeder Periode (monatlich oder jährlich) automatisch, sofern nicht vor der Verlängerung über das Dashboard des Dienstes oder über Paddle gekündigt wird.
 
 ## 9. Upgrades und Downgrades
 
@@ -66,9 +66,9 @@ Nichts in diesen Bedingungen schränkt das gesetzliche Widerrufsrecht ein, das V
 
 Unabhängig davon und zusätzlich zu etwaigen gesetzlichen Rechten bietet Postqron jedem Kunden freiwillig eine vollständige Rückerstattung auf Anfrage an, sofern diese innerhalb von 14 Kalendertagen nach der ersten kostenpflichtigen Belastung des Arbeitsbereichs erfolgt. Diese freiwillige Rückerstattung kann pro Arbeitsbereich nur einmal in Anspruch genommen werden und beendet nach ihrer Gewährung unmittelbar den kostenpflichtigen Plan dieses Arbeitsbereichs. Dieses freiwillige Rückerstattungsangebot besteht unabhängig von einem etwaigen gesetzlichen Widerrufsrecht des Verbrauchers und ersetzt oder beschränkt dieses nicht. Verbraucher mit Wohnsitz in der Europäischen Union können Beschwerden zusätzlich an die EU-Plattform zur Online-Streitbeilegung (OS-Plattform) unter https://ec.europa.eu/consumers/odr richten.
 
-## 12. Zahlungsausfälle und Mahnwesen (Dunning)
+## 12. Zahlungsverzug
 
-Schlägt eine Verlängerungszahlung fehl, wechselt das betroffene Abonnement in einen Status „überfällig" (past-due). Postqron gewährt eine Nachfrist von 14 Kalendertagen ab dem Datum der ersten fehlgeschlagenen Zahlung, während der der Plan und bereits geplante Veröffentlichungen normal weiterlaufen. Wird die Zahlung bis zum Ende der Nachfrist nicht erfolgreich eingezogen, wechselt der Arbeitsbereich in einen zahlungsbeschränkten Status: bestehende Daten und Ressourcen bleiben erhalten, jedoch werden das Anlegen neuer Kanäle, Mitglieder und Beiträge blockiert und künftige geplante Beiträge pausiert. Dieser Status bleibt bestehen, bis Paddles eigener Zahlungswiedereinzugsprozess abgeschlossen ist; wird die Zahlung letztlich nicht eingezogen, kehrt der Arbeitsbereich zum Start-Plan zurück.
+Bei Zahlungsverzug kann der Anbieter die Funktionen des Dienstes nach angemessener vorheriger Ankündigung aussetzen und, sofern der Zahlungsverzug länger als 30 Tage andauert, den Vertrag kündigen.
 
 ## 13. Verfügbarkeit des Dienstes
 

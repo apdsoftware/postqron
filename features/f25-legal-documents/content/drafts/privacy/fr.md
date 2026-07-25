@@ -91,7 +91,7 @@ Les personnes concernées disposent également du droit d'introduire une réclam
 
 ## 9. Mineurs
 
-Postqron n'impose pas d'exigence d'âge minimum spécifique pour l'utilisation du Service, sans préjudice de la capacité juridique à conclure un contrat requise par le droit applicable.
+Le Service est réservé aux utilisateurs âgés de 18 ans ou plus et n'est pas proposé aux personnes de moins de 18 ans, conformément à l'exigence d'âge minimum adoptée par Buffer, le service comparable utilisé comme référence commerciale (source : Buffer, Conditions Générales d'Utilisation, Section 2 « Eligibility » — « You must be at least 18-years old to use the Service », https://buffer.com/legal/terms-of-use/year/2023, consultée le 2026-07-25).
 
 ## 10. Réclamations et gouvernance du DPD
 

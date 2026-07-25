@@ -46,11 +46,11 @@ Each eligible new workspace may activate one 14-day, cardless trial of the Team-
 
 ## 7. Paddle as payment provider and Merchant of Record
 
-Paddle.com Market Limited ("Paddle") is the exclusive payment provider for all paid plans and acts as Merchant of Record for these transactions. Paddle sells the subscription to the buyer, collects payment, issues the applicable fiscal documentation (including invoices and receipts), and calculates, collects and remits value-added tax or applicable sales tax on the transaction. Postqron remains solely responsible for the Service itself, for the entitlements associated with each plan, and for application-level customer support.
+Subscriptions are sold through Paddle.com Market Ltd (or the relevant Paddle group company), which acts as the authorized reseller (Merchant of Record). As a result: (i) the purchase transaction — charges, invoicing, VAT application, and any refunds — takes place between the Customer and Paddle and is governed by Paddle's terms and refund policy; (ii) the service relationship, governed by these Terms, takes place between the Customer and the Provider. In the event of a conflict, Paddle's terms prevail for the transactional part, and these Terms prevail for the provision of the Service.
 
 ## 8. Renewal
 
-Paid plans renew automatically at the cadence selected by the customer (monthly or annual), upon Postqron's receipt of a verified transaction-completed confirmation from Paddle for the corresponding renewal charge.
+Subscriptions renew automatically at the end of each period (monthly or annual), unless cancelled before renewal via the Service dashboard or through Paddle.
 
 ## 9. Upgrades and downgrades
 
@@ -66,9 +66,9 @@ Nothing in these Terms limits the statutory withdrawal (cooling-off) rights avai
 
 Separately, and in addition to any statutory right, Postqron voluntarily offers every customer a full refund on request, made within 14 calendar days of the workspace's first paid charge. This voluntary refund may be used once per workspace and, once granted, immediately ends the paid plan for that workspace. This voluntary refund offer is separate from, and does not replace, limit or substitute, any statutory withdrawal right a consumer may hold. Consumers within the European Union may also refer complaints to the EU Online Dispute Resolution (ODR) platform at https://ec.europa.eu/consumers/odr.
 
-## 12. Payment failures and dunning
+## 12. Non-payment
 
-If a renewal payment fails, the affected subscription enters a past-due state. Postqron applies a grace period of 14 calendar days from the date of the first failed payment, during which the plan and any already-scheduled publications continue to operate normally. If payment has not been successfully recovered by the end of the grace period, the workspace enters a payment-restricted state: existing data and resources are retained, but creation of new channels, members and posts is blocked, and future scheduled posts are paused. This state persists until Paddle's own payment-recovery process concludes; if payment is ultimately not recovered, the workspace reverts to the Start plan.
+In the event of non-payment, the Provider may suspend the Service's functionality after reasonable prior notice and, if the non-payment continues for more than 30 days, terminate the agreement.
 
 ## 13. Service availability
 

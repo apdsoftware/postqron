@@ -46,11 +46,11 @@ Cada nuevo espacio de trabajo elegible puede activar una prueba de 14 días del 
 
 ## 7. Paddle como proveedor de pagos y Merchant of Record
 
-Paddle.com Market Limited ("Paddle") es el proveedor de pagos exclusivo para todos los planes de pago y actúa como Merchant of Record para dichas transacciones. Paddle vende la suscripción al comprador, cobra el pago, emite la documentación fiscal correspondiente (incluidas facturas y recibos), y calcula, recauda y remite el impuesto sobre el valor añadido o el impuesto sobre ventas aplicable a la transacción. Postqron sigue siendo el único responsable del Servicio en sí, de los derechos asociados a cada plan y de la atención al cliente a nivel de aplicación.
+Las suscripciones se venden a través de Paddle.com Market Ltd (o la sociedad del grupo Paddle correspondiente), que actúa como revendedor autorizado (Merchant of Record). En consecuencia: (i) la transacción de compra —cargos, emisión de factura, aplicación del IVA y posibles reembolsos— tiene lugar entre el Cliente y Paddle y se rige por los términos y la política de reembolsos de Paddle; (ii) la relación de servicio, regida por los presentes Términos, tiene lugar entre el Cliente y el Proveedor. En caso de conflicto, para la parte transaccional prevalecen los términos de Paddle, y para la prestación del Servicio prevalecen los presentes Términos.
 
 ## 8. Renovación
 
-Los planes de pago se renuevan automáticamente según la periodicidad elegida por el cliente (mensual o anual), previa recepción por parte de Postqron de una confirmación verificada de transacción completada emitida por Paddle para el correspondiente cargo de renovación.
+Las suscripciones se renuevan automáticamente al finalizar cada período (mensual o anual), salvo cancelación efectuada antes de la renovación desde el panel del Servicio o a través de Paddle.
 
 ## 9. Mejoras y reducciones de plan
 
@@ -66,9 +66,9 @@ Nada en estos Términos limita el derecho de desistimiento legal reconocido a lo
 
 Adicionalmente, y con independencia de cualquier derecho legal, Postqron ofrece voluntariamente a cada cliente un reembolso completo previa solicitud, formulada dentro de los 14 días naturales siguientes al primer cargo de pago del espacio de trabajo. Este reembolso voluntario puede utilizarse una sola vez por espacio de trabajo y, una vez concedido, pone fin de inmediato al plan de pago de ese espacio de trabajo. Esta oferta de reembolso voluntario es independiente y no sustituye ni limita ningún derecho de desistimiento legal del consumidor. Los consumidores residentes en la Unión Europea también pueden dirigir reclamaciones a la plataforma de Resolución de Litigios en Línea (ODR) de la UE, disponible en https://ec.europa.eu/consumers/odr.
 
-## 12. Impagos y gestión de cobros (dunning)
+## 12. Impago
 
-Si falla un pago de renovación, la suscripción afectada pasa a un estado de pago vencido (past-due). Postqron aplica un período de gracia de 14 días naturales desde la fecha del primer pago fallido, durante el cual el plan y las publicaciones ya programadas continúan funcionando con normalidad. Si el pago no se recupera con éxito antes de que finalice el período de gracia, el espacio de trabajo pasa a un estado de restricción por impago: los datos y recursos existentes se conservan, pero se bloquea la creación de nuevos canales, miembros y publicaciones, y las publicaciones futuras programadas quedan en pausa. Este estado se mantiene hasta que concluya el propio proceso de recuperación de pago de Paddle; si finalmente no se recupera el pago, el espacio de trabajo vuelve al plan Start.
+En caso de impago, el Proveedor podrá suspender las funciones del Servicio tras un preaviso razonable y, si el impago persiste durante más de 30 días, resolver el contrato.
 
 ## 13. Disponibilidad del servicio
 

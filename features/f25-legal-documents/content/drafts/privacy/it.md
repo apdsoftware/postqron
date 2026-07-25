@@ -91,7 +91,7 @@ Gli interessati hanno inoltre il diritto di proporre reclamo a un'autorità di c
 
 ## 9. Minori
 
-Postqron non impone un requisito di età minima specifico per l'utilizzo del Servizio, fermo restando il possesso della capacità legale di stipulare un contratto ai sensi della legge applicabile.
+Il Servizio è riservato a utenti che abbiano compiuto 18 anni di età e non è offerto a persone minori di 18 anni, in linea con il requisito di età minima adottato da Buffer, il servizio comparabile usato come riferimento commerciale (fonte: Buffer, Termini di Servizio, Sezione 2 "Eligibility" — "You must be at least 18-years old to use the Service", https://buffer.com/legal/terms-of-use/year/2023, consultata il 2026-07-25).
 
 ## 10. Reclami e governance del DPO
 

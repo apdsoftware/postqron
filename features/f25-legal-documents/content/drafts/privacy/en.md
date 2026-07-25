@@ -91,7 +91,7 @@ Data subjects also have the right to lodge a complaint with a supervisory author
 
 ## 9. Minors
 
-Postqron does not impose a specific minimum-age requirement for use of the Service, without prejudice to the legal capacity to enter into a contract required under applicable law.
+The Service is restricted to users aged 18 or over and is not offered to individuals under the age of 18, aligned with the minimum-age requirement adopted by Buffer, the comparable service used as a commercial benchmark (source: Buffer, Terms of Service, Section 2 "Eligibility" — "You must be at least 18-years old to use the Service", https://buffer.com/legal/terms-of-use/year/2023, consulted 2026-07-25).
 
 ## 10. Complaints and DPO governance
 
