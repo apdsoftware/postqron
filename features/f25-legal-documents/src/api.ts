@@ -22,6 +22,8 @@ const DOCUMENT_ALIASES: Readonly<Record<string, DocumentType>> = Object.freeze({
   terms_it: 'terms',
   privacy_it: 'privacy',
   cookies_it: 'cookies',
+  dpa_it: 'dpa',
+  subprocessors: 'subprocessors',
 })
 
 function resolveDocument(value: string): DocumentType | undefined {

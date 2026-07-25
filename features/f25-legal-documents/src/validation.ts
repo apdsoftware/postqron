@@ -3,6 +3,7 @@ import {
   DOCUMENT_TYPES,
   LEGAL_LOCALES,
   REQUIRED_EVIDENCE_KINDS,
+  isArtifactStatus,
   type GateAudit,
   type GateBlocker,
   type LegalArtifact,
@@ -15,8 +16,17 @@ import {
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/u
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/u
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
+// "TODO" is checked case-sensitively and separately from the rest of this
+// pattern because its lowercase form ("todo") is an ordinary Spanish and
+// Italian word ("all"/"every") that appears constantly in real legal prose;
+// a case-insensitive match would flag legitimate multilingual content.
 const DRAFTING_MARKER_PATTERN =
-  /\b(?:todo|tbd|lorem ipsum|placeholder|insert here|da definire|à définir|por definir|zu definieren)\b/iu
+  /\b(?:tbd|lorem ipsum|placeholder|insert here|da definire|à définir|por definir|zu definieren)\b/iu
+const UPPERCASE_TODO_PATTERN = /\bTODO\b/u
+
+export function hasDraftingMarker(value: string): boolean {
+  return DRAFTING_MARKER_PATTERN.test(value) || UPPERCASE_TODO_PATTERN.test(value)
+}
 
 export function artifactKey(
   reference: Pick<LegalArtifactReference, 'document' | 'locale' | 'version'>,
@@ -93,6 +103,9 @@ async function auditArtifact(
   if (artifact.jurisdiction !== 'IT') {
     blocker(blockers, 'invalid_jurisdiction', `${path}.jurisdiction`, 'IT is required')
   }
+  if (!isArtifactStatus(artifact.status)) {
+    blocker(blockers, 'invalid_status', `${path}.status`, 'a recognized artifact status is required')
+  }
   if (!EMAIL_PATTERN.test(artifact.contactEmail)) {
     blocker(blockers, 'invalid_contact', `${path}.contactEmail`, 'a public email is required')
   }
@@ -104,7 +117,7 @@ async function auditArtifact(
   ] as const) {
     if (!value.trim()) {
       blocker(blockers, 'missing_metadata', `${path}.${field}`, `${field} is required`)
-    } else if (DRAFTING_MARKER_PATTERN.test(value)) {
+    } else if (hasDraftingMarker(value)) {
       blocker(blockers, 'drafting_marker', `${path}.${field}`, `${field} is not final`)
     }
   }
@@ -115,7 +128,7 @@ async function auditArtifact(
       `${path}.content`,
       'approved content must contain at least 500 characters',
     )
-  } else if (DRAFTING_MARKER_PATTERN.test(artifact.content)) {
+  } else if (hasDraftingMarker(artifact.content)) {
     blocker(blockers, 'drafting_marker', `${path}.content`, 'content is not final')
   }
   if (!DIGEST_PATTERN.test(artifact.digestSha256)) {
@@ -203,6 +216,14 @@ function auditRelease(
     } else if (artifact.digestSha256 !== reference.digestSha256) {
       blocker(blockers, 'release_digest_mismatch', referencePath, 'release digest is not exact')
     } else {
+      if (artifact.status !== 'approved') {
+        blocker(
+          blockers,
+          'draft_status_blocks_release',
+          referencePath,
+          'a draft artifact cannot be served as approved or current',
+        )
+      }
       if (new Date(artifact.approvedAt) > new Date(release.approvedAt)) {
         blocker(
           blockers,

@@ -1,10 +1,13 @@
-export const DOCUMENT_TYPES = ['terms', 'privacy', 'cookies'] as const
+export const DOCUMENT_TYPES = ['terms', 'privacy', 'cookies', 'dpa', 'subprocessors'] as const
 export type DocumentType = typeof DOCUMENT_TYPES[number]
 
 export const LEGAL_LOCALES = ['en', 'it', 'es', 'fr', 'de'] as const
 export type LegalLocale = typeof LEGAL_LOCALES[number]
 
 export const DEFAULT_LEGAL_LOCALE: LegalLocale = 'en'
+
+export const ARTIFACT_STATUSES = ['draft_pending_legal_review', 'approved'] as const
+export type ArtifactStatus = typeof ARTIFACT_STATUSES[number]
 
 export const REQUIRED_EVIDENCE_KINDS = [
   'controller_identity',
@@ -25,6 +28,7 @@ export interface LegalArtifact {
   locale: LegalLocale
   jurisdiction: 'IT'
   version: string
+  status: ArtifactStatus
   title: string
   controllerName: string
   contactEmail: string
@@ -36,6 +40,11 @@ export interface LegalArtifact {
   effectiveAt: string
   changeType: ChangeType
   revisionSummary: string
+}
+
+export function isArtifactStatus(value: unknown): value is ArtifactStatus {
+  return typeof value === 'string'
+    && (ARTIFACT_STATUSES as readonly string[]).includes(value)
 }
 
 export interface LegalEvidence {

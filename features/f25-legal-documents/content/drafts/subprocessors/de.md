@@ -1,0 +1,49 @@
+---
+document: subprocessors
+locale: de
+version: "0.1"
+title: "Postqron-Verzeichnis der Unterauftragsverarbeiter"
+controllerName: "APDSoftware — Betreiberin von Postqron"
+contactEmail: help@postqron.com
+status: draft_pending_legal_review
+changeType: material
+revisionSummary: "Erster von Grund auf erstellter Entwurf, in Erwartung der rechtlichen Prüfung."
+---
+
+## Identität des Anbieters
+
+Dieses Verzeichnis wird von APDSoftware, der Betreiberin von Postqron, herausgegeben, erreichbar unter help@postqron.com und über https://apdsoftware.it. Die vollständige Firmenbezeichnung, der Sitz und die Umsatzsteuer-Identifikationsnummer der registrierten vertragsschließenden Rechtsperson werden als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt sind.
+
+## Zweck dieses Verzeichnisses
+
+Dies ist das öffentliche, regelmäßig aktualisierte Verzeichnis der Unterauftragsverarbeiter und sonstigen Dritten, die Postqron zur Erbringung seines Dienstes einbindet; es wird in den Nutzungsbedingungen, der Datenschutzerklärung und der Auftragsverarbeitungsvereinbarung referenziert, anstatt dort dupliziert zu werden. Es unterscheidet Anbieter, die als unsere Unterauftragsverarbeiter im Sinne von Artikel 28 DSGVO handeln (Verarbeitung personenbezogener Daten auf Weisung von Postqron), von unabhängigen Dritten (wie OAuth-Identitätsanbietern), die für den von ihnen ausgeführten Schritt des Dienstes als eigene Verantwortliche handeln. Jeder nachstehende Eintrag beruht ausschließlich auf primären, offiziellen Quellen, die per URL zitiert werden, samt Datum, an dem die jeweilige Quelle abgerufen wurde. Konnte eine Tatsache nicht anhand einer offiziellen Quelle verifiziert werden, wird diese Lücke ausdrücklich angegeben, anstatt sie zu füllen.
+
+Die Hinzufügung oder Ersetzung eines Unterauftragsverarbeiters, der Kundeninhaltsdaten verarbeiten wird, folgt dem in der Auftragsverarbeitungsvereinbarung beschriebenen Benachrichtigungs- und Widerspruchsverfahren: eine Vorankündigung von mindestens 30 Tagen an die Workspace-Owner, ein Kanal zur Erhebung eines begründeten Widerspruchs sowie die Aussetzung der Aktivierung für einen widersprechenden Kunden bis zur Klärung des Widerspruchs. Sobald ein Anbieter ausgeschieden ist, wird unterhalb der aktiven Tabelle ein Verlauf der entfernten Anbieter geführt.
+
+## Aktive Unterauftragsverarbeiter und Dritte
+
+| Firmenbezeichnung | Rolle | Dienstleistung | Datenkategorien | Niederlassung | Verarbeitungsort | Übermittlungsmechanismus | Verweis auf die Auftragsverarbeitungsvereinbarung | Quelle (abgerufen am 2026-07-25) |
+|---|---|---|---|---|---|---|---|---|
+| Paddle.com Market Limited (vertragsschließende Einheit); Paddle.com Inc. (Auftragsverarbeiter gemäß Vereinbarung); Paddle Payments Limited; Paddle.com Canada Ltd | Unterauftragsverarbeiter | Zahlungsabwicklung und Rechnungsstellung als Merchant of Record | Rechnungskontaktdaten; Metadaten zu Abonnement/Transaktion | Vereinigtes Königreich; Irland; Vereinigte Staaten; Kanada | Von Paddle nicht offengelegt; kann von jeder Konzerngesellschaft von Paddle verarbeitet werden | Standardvertragsklauseln | [Nachtrag zur Auftragsverarbeitung von Paddle](https://www.paddle.com/legal/data-processing-addendum) | [Auftragsverarbeitungsvereinbarung von Paddle](https://www.paddle.com/legal/data-processing-addendum) |
+| Hetzner Online GmbH | Unterauftragsverarbeiter | Cloud-Hosting-Infrastruktur (Rechenleistung, Speicher, Backups) | Kontodaten; Workspace- und Inhaltsdaten; verschlüsselte Backups | Deutschland | Europäische Union/EWR, wenn ein EU-Serverstandort gewählt wird, entsprechend der EU/EWR-vorrangigen Hosting-Präferenz von Postqron | Verarbeitung in der EU/im EWR (keine Drittlandübermittlung bei Nutzung eines EU-Standorts) | [Auftragsverarbeitungsvertrag (DPA) von Hetzner](https://www.hetzner.com/AV/DPA_en.pdf) | [Auftragsverarbeitungsvereinbarung von Hetzner](https://www.hetzner.com/AV/DPA_en.pdf) |
+| Cloudflare, Inc. | Unterauftragsverarbeiter | DNS, CDN, Edge-Netzwerk und TLS-Terminierung | Netzwerk- und Verkehrsmetadaten; IP-Adressen | Vereinigte Staaten | Globales Edge-Netzwerk; kann je nach konfigurierten Diensten außerhalb des EWR, der Schweiz und des Vereinigten Königreichs verarbeiten | Standardvertragsklauseln (zudem zertifiziert nach EU-US Data Privacy Framework und Global CBPR) | [Kunden-Auftragsverarbeitungsvereinbarung von Cloudflare](https://www.cloudflare.com/cloudflare-customer-dpa/) | [Auftragsverarbeitungsvereinbarung von Cloudflare](https://www.cloudflare.com/cloudflare-customer-dpa/) |
+| Nicht verifiziert („Mailronix") | Unterauftragsverarbeiter | Versand transaktionaler E-Mails (Konto-, Sicherheits- und Servicebenachrichtigungen) | E-Mail-Adresse des Empfängers; Name des Empfängers; Inhalt der transaktionalen Nachricht | Nicht verifiziert | Nicht verifiziert | Nicht anwendbar — keine verifizierte Quelle | Nicht verfügbar | Nur interner API-Vertrag (`features/f14-email/contracts/mailronix-api-1.0.0.md`); keine öffentliche Rechtsquelle |
+| Google LLC; Google Ireland Limited | Unabhängiger Dritter | OAuth-Anmeldung („Mit Google anmelden") | E-Mail-Adresse; Anzeigename; Profilbild; Google-Kontokennung | Vereinigte Staaten; Irland | Global | EU-US und Swiss-US Data Privacy Framework; Standardvertragsklauseln, soweit das Framework nicht anwendbar ist | Nicht anwendbar — keine eigene Auftragsverarbeitungsvereinbarung für diese Funktion veröffentlicht | [Nutzungsbedingungen der Google APIs](https://developers.google.com/terms) |
+| Apple Inc. | Unabhängiger Dritter | OAuth-Anmeldung („Mit Apple anmelden") | E-Mail-Adresse (oder private Apple-Weiterleitungs-E-Mail); Name (nur bei erster Anmeldung); Apple-Kontokennung | Vereinigte Staaten | Nicht verifiziert | Nicht verifiziert | Nicht anwendbar — keine eigene Auftragsverarbeitungsvereinbarung für diese Funktion veröffentlicht | [Mit Apple anmelden & Datenschutz](https://www.apple.com/legal/privacy/data/en/sign-in-with-apple/) |
+| Meta Platforms, Inc.; Meta Platforms Ireland Limited | Unabhängiger Dritter | OAuth-Anmeldung („Facebook Login") sowie die eigene Verknüpfung des Kunden mit Facebook-Seiten / Instagram Professional als Veröffentlichungsziel | E-Mail-Adresse; Name; Profilbild; Facebook-/Instagram-Kontokennung; Inhalte, die der Kunde auf sein verknüpftes Konto zu veröffentlichen wählt | Irland; Vereinigte Staaten | Nicht verifiziert | Standardvertragsklauseln; Meta Platforms, Inc. zudem nach Data Privacy Framework zertifiziert | Nicht anwendbar — keine eigene Auftragsverarbeitungsvereinbarung für diese Funktion veröffentlicht | [Meta-Plattformbedingungen](https://developers.facebook.com/terms/dfc_platform_terms/) |
+| LinkedIn Corporation; LinkedIn Ireland Unlimited Company | Unabhängiger Dritter | OAuth-Anmeldung („Mit LinkedIn anmelden") | E-Mail-Adresse; Name; Profilbild; LinkedIn-Kontokennung | Vereinigte Staaten; Irland | Vereinigte Staaten | Standardvertragsklauseln; LinkedIn Corporation zudem nach Data Privacy Framework zertifiziert | Nur als Querverweis — die Business-Development-Auftragsverarbeitungsvereinbarung von LinkedIn wird aus dessen API-Nutzungsbedingungen verlinkt, benennt diese Funktion jedoch nicht ausdrücklich | [API-Nutzungsbedingungen von LinkedIn](https://www.linkedin.com/legal/l/api-terms-of-use) |
+
+## Bekannte Lücken, die vor der Veröffentlichung zu klären sind
+
+- **„Mailronix" konnte nicht verifiziert werden.** Durch Recherche in Primärquellen konnte keine offizielle Unternehmenswebsite, Rechtsseite, Auftragsverarbeitungsvereinbarung oder Unterauftragsverarbeiter-Liste für ein reales, unter diesem Namen tätiges Unternehmen ermittelt werden. Dieser Eintrag kann erst als freigegeben veröffentlicht werden, wenn die Lieferantenmanagement-Funktion von Postqron die genaue vertragsschließende Rechtsperson bestätigt und deren offizielle Unterlagen vorlegt.
+- **Die Angaben zum Verarbeitungsort bei Apple und Meta** wurden auf den geprüften offiziellen Seiten nicht gefunden und bedürfen vor der Veröffentlichung einer direkten Bestätigung.
+- **Die Anwendbarkeit der Business-Development-Auftragsverarbeitungsvereinbarung von LinkedIn speziell auf die OAuth-Anmeldung** wird lediglich aus einem Querverweis abgeleitet und sollte direkt mit LinkedIn oder dem Rechtsberater bestätigt werden.
+- **Die Unterauftragsverarbeiter-Liste des Trust Centers von Paddle** (eine per JavaScript gerenderte Seite) konnte durch automatisierte Recherche nicht gelesen werden, und ihr Inhalt ist nicht unabhängig verifiziert; der Text der Auftragsverarbeitungsvereinbarung selbst verweist zudem auf einen veralteten Link zu einer früheren Unterauftragsverarbeiter-Liste, der mit Paddle geklärt werden sollte.
+
+## Entfernte Unterauftragsverarbeiter
+
+Zum Zeitpunkt dieser Entwurfsrevision keine verzeichnet.
+
+## Kontakt
+
+Fragen zu diesem Verzeichnis oder Widersprüche gegen einen aufgeführten Unterauftragsverarbeiter im Rahmen der Auftragsverarbeitungsvereinbarung richten Sie bitte an help@postqron.com.

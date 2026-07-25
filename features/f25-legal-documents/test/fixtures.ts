@@ -28,6 +28,7 @@ async function artifact(
     locale,
     jurisdiction: 'IT',
     version,
+    status: 'approved',
     title: `Synthetic ${document} fixture`,
     controllerName: 'Fixture controller',
     contactEmail: 'legal@example.test',
