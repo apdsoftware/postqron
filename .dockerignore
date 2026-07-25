@@ -1,0 +1,11 @@
+.git
+.context
+.DS_Store
+**/.cache
+**/.nuxt
+**/.output
+**/coverage
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example

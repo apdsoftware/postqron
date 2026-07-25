@@ -75,13 +75,7 @@ func Discover(roots ...string) ([]Feature, error) {
 		}
 	}
 
-	if _, err := ResolveOrder(features); err != nil {
-		return nil, err
-	}
-	slices.SortFunc(features, func(left, right Feature) int {
-		return compare(left.Manifest.ID, right.Manifest.ID)
-	})
-	return features, nil
+	return ResolveOrder(features)
 }
 
 func readFeature(manifestPath string) (Feature, error) {
@@ -215,6 +209,27 @@ func ResolveOrder(features []Feature) ([]Feature, error) {
 		}
 	}
 	return ordered, nil
+}
+
+// FilterKind selects executable features for a host while preserving the
+// dependency order produced by Discover. Discovery must happen before
+// filtering so dependencies owned by another host kind are still validated.
+func FilterKind(features []Feature, kinds ...string) ([]Feature, error) {
+	requested := make(map[string]struct{}, len(kinds))
+	for _, kind := range kinds {
+		if _, ok := validKinds[kind]; !ok {
+			return nil, fmt.Errorf("unknown feature kind %q", kind)
+		}
+		requested[kind] = struct{}{}
+	}
+
+	filtered := make([]Feature, 0, len(features))
+	for _, feature := range features {
+		if _, ok := requested[feature.Manifest.Kind]; ok {
+			filtered = append(filtered, feature)
+		}
+	}
+	return filtered, nil
 }
 
 func compare(left, right string) int {

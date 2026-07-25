@@ -2,12 +2,19 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { discoverFeatures, resolveFeatureOrder, type DiscoveredFeature } from '../src/index.js'
+import {
+  discoverFeatures,
+  filterFeaturesByKind,
+  resolveFeatureOrder,
+  type DiscoveredFeature,
+  type FeatureKind,
+} from '../src/index.js'
 
 async function createFeature(
   root: string,
   id: string,
   dependencies: string[] = [],
+  kind: FeatureKind = 'web',
 ): Promise<void> {
   const directory = join(root, id)
   await mkdir(directory, { recursive: true })
@@ -17,7 +24,7 @@ async function createFeature(
     [
       'schema_version: 1',
       `id: ${id}`,
-      'kind: web',
+      `kind: ${kind}`,
       'version: 0.1.0',
       'entrypoint: ./entry.ts',
       `dependencies: [${dependencies.join(', ')}]`,
@@ -71,5 +78,24 @@ describe('discoverFeatures', () => {
         feature('first', ['second']),
         feature('second', ['first']),
       ])).toThrow('feature dependency cycle')
+  })
+
+  it('returns dependency order and filters host kinds without reordering', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    await createFeature(root, 'api-child', ['web-foundation'], 'api')
+    await createFeature(root, 'web-foundation')
+    await createFeature(root, 'worker-child', ['api-child'], 'worker')
+
+    const features = await discoverFeatures([root])
+
+    expect(features.map(feature => feature.manifest.id)).toEqual([
+      'web-foundation',
+      'api-child',
+      'worker-child',
+    ])
+    expect(
+      filterFeaturesByKind(features, ['api', 'worker'])
+        .map(feature => feature.manifest.id),
+    ).toEqual(['api-child', 'worker-child'])
   })
 })

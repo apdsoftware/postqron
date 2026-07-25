@@ -15,7 +15,8 @@
     "lint": "eslint apps packages && go vet ./services/api/... ./services/worker/... ./packages/runtime/go/...",
     "migrations:check": "go run ./services/api/cmd/migrate --check",
     "prepare": "pnpm --filter @postqron/web prepare",
-    "test": "pnpm --filter @postqron/runtime test && go test ./services/api/... ./services/worker/... ./packages/runtime/go/...",
+    "test": "pnpm --filter @postqron/runtime test && pnpm test:runtime-bundle && go test ./services/api/... ./services/worker/... ./packages/runtime/go/...",
+    "test:runtime-bundle": "./scripts/runtime/test-feature-bundle.sh",
     "typecheck": "pnpm --filter @postqron/web typecheck && pnpm --filter @postqron/runtime typecheck"
   },
   "devDependencies": {

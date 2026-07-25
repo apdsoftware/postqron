@@ -20,7 +20,13 @@ func main() {
 
 	roots := filepath.SplitList(*rootsFlag)
 	if *rootsFlag == "" {
-		roots = filepath.SplitList(envOrDefault("POSTQRON_FEATURE_ROOTS", "services/api/features"))
+		roots = filepath.SplitList(envOrDefault(
+			"POSTQRON_FEATURE_ROOTS",
+			strings.Join(
+				[]string{"services/api/features", "features"},
+				string(os.PathListSeparator),
+			),
+		))
 	}
 	features, err := featureruntime.Discover(roots...)
 	exitOnError(err)
