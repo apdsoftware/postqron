@@ -1,0 +1,86 @@
+name: Launch Readiness
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Optional go-live preview URL for the checked-out SHA
+        required: false
+        type: string
+      prelaunch_url:
+        description: Optional pre-launch-enabled preview URL for the same SHA
+        required: false
+        type: string
+      fixture_url:
+        description: Optional isolated non-production fixture API URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch-readiness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launch-readiness:
+    name: Launch readiness gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GO_VERSION: "1.26.5"
+      NODE_VERSION: "24"
+      PNPM_VERSION: "11.12.0"
+      LAUNCH_BASE_URL: ${{ inputs.base_url }}
+      LAUNCH_PRELAUNCH_URL: ${{ inputs.prelaunch_url }}
+      LAUNCH_FIXTURE_URL: ${{ inputs.fixture_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            features/f10-entitlements/go.sum
+            features/f14-email/go.mod
+            features/f31-admin-console/go.mod
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install independent launch suite
+        run: pnpm --dir tests/e2e/launch-readiness install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --dir tests/e2e/launch-readiness exec playwright install --with-deps chromium
+      - name: Run launch-readiness gate
+        run: pnpm --dir tests/e2e/launch-readiness test
+      - name: Audit diagnostics for credentials and PII
+        if: always()
+        run: pnpm --dir tests/e2e/launch-readiness audit:artifacts
+      - name: Publish requirement matrix
+        if: always()
+        run: |
+          report=tests/e2e/launch-readiness/artifacts/launch-readiness-report.md
+          if [[ -f "$report" ]]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '## Launch readiness\n\nReport generation failed.\n' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Upload private diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/e2e/launch-readiness/artifacts
+            tests/e2e/launch-readiness/manual-checklist.md
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "LR-PRELAUNCH",
+    "description": "Pre-launch on/off, fail-closed negative guard and non-404 routing"
+  },
+  {
+    "id": "LR-LEGAL",
+    "description": "Public legal URLs respond successfully"
+  },
+  {
+    "id": "LR-CONSENT",
+    "description": "Consent defaults deny and supports accept, reject and revoke"
+  },
+  {
+    "id": "LR-APP",
+    "description": "Anonymous and authenticated /app paths exist and never return 404"
+  },
+  {
+    "id": "LR-PADDLE",
+    "description": "Competitive catalog, Paddle sandbox checkout, signed webhook, entitlement and portal"
+  },
+  {
+    "id": "LR-ADMIN",
+    "description": "Normal users receive 403; allowlisted admin action is audited"
+  },
+  {
+    "id": "LR-SUPPORT",
+    "description": "Support mailto and contact page are available"
+  },
+  {
+    "id": "LR-WCAG",
+    "description": "Critical launch surfaces have no serious or critical automated WCAG violations"
+  },
+  {
+    "id": "LR-SECURITY",
+    "description": "Fixtures, browser diagnostics and artifacts contain no real credentials or PII"
+  },
+  {
+    "id": "LR-ANALYTICS",
+    "description": "No analytics request occurs before explicit analytics consent"
+  },
+  {
+    "id": "LR-I18N",
+    "description": "Accept-Language and URL/profile/cookie precedence, English fallback and language changes"
+  },
+  {
+    "id": "LR-LOCALE-MATRIX",
+    "description": "en/it/es/fr/de matrix covers public, app, admin, consent, pricing, pre-launch and email rendering"
+  },
+  {
+    "id": "LR-EMAIL",
+    "description": "Transactional events use the F14 Mailronix boundary and render every locale"
+  },
+  {
+    "id": "LR-NEGATIVE",
+    "description": "Every critical security and launch guard has an explicit failing-path assertion"
+  }
+]

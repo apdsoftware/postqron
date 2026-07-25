@@ -1,0 +1,210 @@
+import AxeBuilder from '@axe-core/playwright'
+import { createHmac } from 'node:crypto'
+import { expect, test } from '@playwright/test'
+import {
+  covers,
+  fixtureBaseURL,
+  fixtureReset,
+  locales,
+  localized,
+  offBaseURL,
+  session,
+} from '../helpers.ts'
+
+test.beforeEach(async () => {
+  await fixtureReset()
+})
+
+test('/app supports anonymous and authenticated paths without 404', async ({
+  browser,
+  page,
+}, testInfo) => {
+  covers(testInfo, 'LR-APP', 'LR-NEGATIVE')
+
+  const anonymous = await page.goto(`${offBaseURL}/app`)
+  expect(anonymous?.status()).toBe(200)
+  await expect(page.locator('.auth-intro h1')).toBeVisible()
+
+  const guarded = await page.goto(`${offBaseURL}/app/home`)
+  expect(guarded?.status()).toBe(200)
+  await expect(page.getByRole('main')).toBeVisible()
+
+  const authenticated = await browser.newContext()
+  await session(authenticated, 'authenticated')
+  const authenticatedPage = await authenticated.newPage()
+  const response = await authenticatedPage.goto(`${offBaseURL}/app/home`)
+  expect(response?.status()).toBe(200)
+  await expect(authenticatedPage).toHaveURL(/\/app\/home$/u)
+  await expect(authenticatedPage.getByRole('main')).toBeVisible()
+  await authenticated.close()
+})
+
+test('normal admin access is 403 while allowlisted mutation is audited', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  const normal = await browser.newContext()
+  await session(normal, 'normal')
+  const normalPage = await normal.newPage()
+  const forbidden = await normalPage.goto(`${offBaseURL}/admin`)
+  expect(forbidden?.status()).toBe(403)
+  await normal.close()
+
+  const admin = await browser.newContext()
+  await session(admin, 'admin')
+  const adminPage = await admin.newPage()
+  const allowed = await adminPage.goto(`${offBaseURL}/admin`)
+  expect(allowed?.status()).toBe(200)
+  await expect(adminPage.getByRole('heading', { level: 1 })).toBeVisible()
+  await adminPage.getByRole('button', { name: /assign/iu }).click()
+  await adminPage.getByLabel(/reason/iu).fill('Approved launch fixture action')
+  await adminPage.getByRole('checkbox').check()
+  await adminPage.getByRole('button', { name: /confirm operation/iu }).click()
+  await expect(adminPage.getByText('internal_plan.assign')).toBeVisible()
+  await expect(adminPage.getByText('Approved launch fixture action')).toBeVisible()
+  await admin.close()
+})
+
+test('Paddle sandbox checkout stays pending until signed webhook, then opens portal', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-PADDLE', 'LR-NEGATIVE')
+  const context = await browser.newContext()
+  await session(context, 'authenticated')
+  const page = await context.newPage()
+  await page.addInitScript(() => {
+    let callback: ((event: { name: string }) => void) | undefined
+    const fixturePaddle = {
+      Environment: { set: (_environment: 'sandbox') => {} },
+      Initialize: (options: {
+        eventCallback(event: { name: string }): void
+      }) => {
+        callback = options.eventCallback
+      },
+      Update: (options: {
+        eventCallback(event: { name: string }): void
+      }) => {
+        callback = options.eventCallback
+      },
+      Checkout: {
+        open: (_options: unknown) => {
+          setTimeout(() => callback?.({ name: 'checkout.completed' }), 20)
+        },
+      },
+    }
+    Object.defineProperty(globalThis, 'Paddle', {
+      value: fixturePaddle,
+      configurable: true,
+    })
+  })
+
+  await page.goto(
+    `${offBaseURL}/app/billing/checkout?plan=pro&interval=monthly&quantity=10`,
+  )
+  await expect(page.getByText(/processing|elaborazione|procesando|traitement|verarbeitet/iu))
+    .toBeVisible()
+
+  const timestamp = 1_753_444_800
+  const event = JSON.stringify({
+    event_id: 'evt_fixture',
+    event_type: 'transaction.completed',
+    data: { plan: 'pro' },
+  })
+  const signature = createHmac(
+    'sha256',
+    'postqron-launch-fixture-signing-key-v1',
+  ).update(`${timestamp}:${event}`).digest('hex')
+
+  const rejected = await fetch(
+    `${fixtureBaseURL}/api/v1/billing/paddle/webhook`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'paddle-signature': `ts=${timestamp};h1=${'0'.repeat(64)}`,
+      },
+      body: event,
+    },
+  )
+  expect(rejected.status).toBe(400)
+
+  const accepted = await fetch(
+    `${fixtureBaseURL}/api/v1/billing/paddle/webhook`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'paddle-signature': `ts=${timestamp};h1=${signature}`,
+      },
+      body: event,
+    },
+  )
+  expect(accepted.status).toBe(200)
+  await expect(page.getByText(/confirmed|confermato|confirmado|confirmé|bestätigt/iu))
+    .toBeVisible({ timeout: 35_000 })
+
+  await page.route('https://customer-portal.paddle.com/**', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<title>Fixture customer portal</title>',
+    }))
+  await page.goto(`${offBaseURL}/app/billing`)
+  await page.getByRole('button', { name: /portal/iu }).click()
+  await expect(page).toHaveURL(/customer-portal\.paddle\.com\/fixture/u)
+  await context.close()
+})
+
+test('five-locale app and admin routes render without missing keys', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-LOCALE-MATRIX', 'LR-I18N')
+
+  for (const locale of locales) {
+    const appContext = await browser.newContext()
+    await session(appContext, 'authenticated')
+    const appPage = await appContext.newPage()
+    const appResponse = await appPage.goto(
+      `${offBaseURL}${localized(locale, '/app/home')}`,
+    )
+    expect(appResponse?.status(), `${locale} app`).toBe(200)
+    await expect(appPage.locator('html')).toHaveAttribute('lang', locale)
+    await expect(appPage.locator('body')).not.toContainText(/MISSING|I18N_/u)
+    await appContext.close()
+
+    const adminContext = await browser.newContext()
+    await session(adminContext, 'admin')
+    const adminPage = await adminContext.newPage()
+    const adminResponse = await adminPage.goto(
+      `${offBaseURL}${localized(locale, '/admin')}`,
+    )
+    expect(adminResponse?.status(), `${locale} admin`).toBe(200)
+    await expect(adminPage.locator('html')).toHaveAttribute('lang', locale)
+    await expect(adminPage.locator('body')).not.toContainText(/MISSING|I18N_/u)
+    await adminContext.close()
+  }
+})
+
+test('authenticated app and admin pass serious and critical WCAG checks', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-WCAG')
+
+  for (const [role, path] of [
+    ['authenticated', '/app/home'],
+    ['admin', '/admin'],
+  ] as const) {
+    const context = await browser.newContext()
+    await session(context, role)
+    const page = await context.newPage()
+    await page.goto(`${offBaseURL}${path}`)
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+      .analyze()
+    const blocking = results.violations.filter(violation =>
+      violation.impact === 'serious' || violation.impact === 'critical')
+    expect(blocking, path).toEqual([])
+    await context.close()
+  }
+})
