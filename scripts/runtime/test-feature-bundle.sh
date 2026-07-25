@@ -164,3 +164,5 @@ fi
 
 POSTQRON_FEATURE_ROOTS="$repository_root/services/api/features:$bundle" \
   go run "$repository_root/services/api/cmd/migrate" --check
+
+"$repository_root/scripts/runtime/test-api-process.sh"
