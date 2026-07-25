@@ -15,6 +15,40 @@ test('all five app catalogs contain the exact same keys', () => {
   }
 })
 
+test('all primary app routes declare a localized non-empty document title', async () => {
+  const routes = {
+    app: '../pages/app.vue',
+    callback: '../pages/oauth-callback.vue',
+    onboarding: '../pages/onboarding.vue',
+    home: '../pages/home.vue',
+    feature: '../pages/feature-slot.vue',
+  } as const
+  const sources = await Promise.all(
+    Object.values(routes).map(path =>
+      readFile(new URL(path, import.meta.url), 'utf8')),
+  )
+
+  for (const [index, route] of Object.keys(routes).entries()) {
+    assert.match(sources[index], /useHead\(computed\(\(\) => \(\{/u)
+    assert.match(
+      sources[index],
+      new RegExp(`title: t\\('documentTitle\\.${route}'\\)`, 'u'),
+    )
+  }
+
+  for (const [index, locale] of APP_SHELL_LOCALES.entries()) {
+    for (const route of Object.keys(routes)) {
+      const key = `documentTitle.${route}` as keyof typeof APP_SHELL_CATALOGS.en
+      const title = APP_SHELL_CATALOGS[locale][key]
+      assert.notEqual(title.trim(), '', `${locale}.${key}`)
+      assert.match(title, / — Postqron$/u, `${locale}.${key}`)
+      if (index > 0) {
+        assert.notEqual(title, APP_SHELL_CATALOGS.en[key], `${locale}.${key}`)
+      }
+    }
+  }
+})
+
 test('manifest discovers public entry, callback, private routes, and no central registry', async () => {
   const manifest = await readFile(
     new URL('../feature.yaml', import.meta.url),

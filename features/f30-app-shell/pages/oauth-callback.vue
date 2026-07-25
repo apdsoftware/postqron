@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import {
+  computed,
   definePageMeta,
   navigateTo,
   onMounted,
   ref,
+  useHead,
   useRoute,
 } from '#imports'
 import {
@@ -23,6 +25,10 @@ const api = useAppShellApi()
 const { t } = useAppShellI18n()
 const failed = ref(false)
 const locale = localeFromAppPath(route.fullPath)
+
+useHead(computed(() => ({
+  title: t('documentTitle.callback'),
+})))
 
 function queryString(value: unknown): string {
   return typeof value === 'string' ? value : ''
