@@ -199,6 +199,70 @@ func TestMailronixTimeoutIsRetryable(t *testing.T) {
 	}
 }
 
+func TestMailronixRejectsInvalidPayloadAndUnsafeSecretBeforeNetwork(t *testing.T) {
+	requests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		requests++
+		response.WriteHeader(http.StatusAccepted)
+		_, _ = response.Write([]byte(
+			`{"status":"queued","email_log_id":"9c4e2f1a-7d3b-4a5e-8f6c-1b2a3d4e5f6a"}`,
+		))
+	}))
+	defer server.Close()
+	server.Client().Timeout = time.Second
+
+	valid := RenderedMessage{
+		Channel:   ChannelTransactional,
+		Recipient: Recipient{Email: "person@example.test"},
+		Subject:   "Subject", HTML: "<p>Body</p>", Text: "Body",
+	}
+	for name, mutate := range map[string]func(*RenderedMessage){
+		"channel":   func(message *RenderedMessage) { message.Channel = "marketing" },
+		"recipient": func(message *RenderedMessage) { message.Recipient.Email = "invalid" },
+		"subject":   func(message *RenderedMessage) { message.Subject = " " },
+		"body": func(message *RenderedMessage) {
+			message.HTML = ""
+			message.Text = ""
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, err := NewMailronixClient(
+				mailronixTestConfig(server.URL+"/email/send"),
+				server.Client(),
+				mapSecrets{"MAILRONIX_TRANSACTIONAL_API_KEY": "mrx_live_secret"},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			message := valid
+			mutate(&message)
+			if _, err := client.Send(context.Background(), message); err == nil {
+				t.Fatal("Send() accepted an invalid rendered message")
+			}
+		})
+	}
+
+	client, err := NewMailronixClient(
+		mailronixTestConfig(server.URL+"/email/send"),
+		server.Client(),
+		mapSecrets{"MAILRONIX_TRANSACTIONAL_API_KEY": " mrx_live_secret\n"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Send(context.Background(), valid)
+	failure, ok := err.(*MailronixError)
+	if !ok || failure.Code != "secret_unavailable" || failure.Retryable {
+		t.Fatalf("unsafe API key error = %#v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("invalid input reached Mailronix %d times", requests)
+	}
+}
+
 func TestFakeSenderCannotReachRealRecipients(t *testing.T) {
 	sender := &FakeSender{}
 	message := RenderedMessage{
@@ -211,6 +275,10 @@ func TestFakeSenderCannotReachRealRecipients(t *testing.T) {
 	message.Recipient.Email = "person@gmail.com"
 	if _, err := sender.Send(context.Background(), message); err == nil {
 		t.Fatal("fake sender accepted a real recipient")
+	}
+	message.Recipient.Email = "Person <person@example.test>"
+	if _, err := sender.Send(context.Background(), message); err == nil {
+		t.Fatal("fake sender accepted a display-name address")
 	}
 	if len(sender.Messages()) != 1 {
 		t.Fatalf("captured messages = %d", len(sender.Messages()))

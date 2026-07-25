@@ -78,7 +78,8 @@ func NewMailronixClient(
 ) (*MailronixClient, error) {
 	endpoint, err := url.ParseRequestURI(config.Endpoint)
 	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" ||
-		endpoint.Path != "/email/send" || endpoint.RawQuery != "" {
+		endpoint.Path != "/email/send" || endpoint.RawQuery != "" ||
+		endpoint.Fragment != "" || endpoint.User != nil {
 		return nil, errors.New("Mailronix endpoint must be an absolute HTTPS /email/send URL")
 	}
 	if config.ContractVersion != MailronixContractVersion {
@@ -109,14 +110,14 @@ func (client *MailronixClient) Send(
 	ctx context.Context,
 	message RenderedMessage,
 ) (ProviderReceipt, error) {
-	if message.Channel != ChannelTransactional {
-		return ProviderReceipt{}, ErrInvalidChannel
+	if err := validateRenderedMessage(message); err != nil {
+		return ProviderReceipt{}, err
 	}
 	if err := client.allowRequest(); err != nil {
 		return ProviderReceipt{}, err
 	}
 	apiKey, err := client.secrets.Secret(ctx, client.config.APIKeySecret)
-	if err != nil || !strings.HasPrefix(strings.TrimSpace(apiKey), "mrx_live_") {
+	if err != nil || !validMailronixAPIKey(apiKey) {
 		failure := &MailronixError{
 			Code: "secret_unavailable", Retryable: err != nil,
 			Detail: "Mailronix credentials are unavailable or invalid",
@@ -193,10 +194,11 @@ func (client *MailronixClient) Send(
 func (client *MailronixClient) allowRequest() error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
-	if client.circuitOpenTo.After(client.now()) {
+	now := client.now()
+	if client.circuitOpenTo.After(now) {
 		return &MailronixError{
 			Code: "circuit_open", Retryable: true,
-			RetryAfter: client.circuitOpenTo.Sub(client.now()),
+			RetryAfter: client.circuitOpenTo.Sub(now),
 			Detail:     "Mailronix delivery circuit is temporarily open",
 		}
 	}
@@ -296,6 +298,35 @@ func mailAddress(value string) (string, error) {
 	return parsed.Address, nil
 }
 
+func validateRenderedMessage(message RenderedMessage) error {
+	if message.Channel != ChannelTransactional {
+		return ErrInvalidChannel
+	}
+	if _, err := mailAddress(message.Recipient.Email); err != nil {
+		return ErrInvalidRecipient
+	}
+	if strings.TrimSpace(message.Subject) == "" ||
+		strings.TrimSpace(message.HTML) == "" && strings.TrimSpace(message.Text) == "" {
+		return ErrInvalidMessage
+	}
+	return nil
+}
+
+func validMailronixAPIKey(value string) bool {
+	if !strings.HasPrefix(value, "mrx_live_") || len(value) == len("mrx_live_") {
+		return false
+	}
+	// The official contract does not specify a narrower token alphabet. Reject
+	// whitespace, control bytes, and non-ASCII bytes that are unsafe in an HTTP
+	// Authorization header without inventing additional provider constraints.
+	for index := range len(value) {
+		if value[index] <= 0x20 || value[index] >= 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // FakeSender is the only supported sender for tests and local development. It
 // refuses non-reserved recipient domains so it cannot deliver real email.
 type FakeSender struct {
@@ -307,11 +338,11 @@ func (sender *FakeSender) Send(
 	_ context.Context,
 	message RenderedMessage,
 ) (ProviderReceipt, error) {
-	address, err := mail.ParseAddress(message.Recipient.Email)
+	address, err := mailAddress(message.Recipient.Email)
 	if err != nil {
 		return ProviderReceipt{}, ErrInvalidRecipient
 	}
-	domain := strings.ToLower(strings.SplitN(address.Address, "@", 2)[1])
+	domain := strings.ToLower(strings.SplitN(address, "@", 2)[1])
 	if domain != "example.test" && !strings.HasSuffix(domain, ".example.test") &&
 		domain != "example.invalid" && !strings.HasSuffix(domain, ".example.invalid") {
 		return ProviderReceipt{}, errors.New("fake sender refuses real recipient domains")
