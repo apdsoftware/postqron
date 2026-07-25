@@ -8,11 +8,15 @@ the stack through systemd and Docker Compose.
 
 GitHub environments named `staging` and `production` isolate approvals,
 variables, and secrets. The Deploy workflow is manual and serial per
-environment. Images use the commit SHA; no mutable `latest` tag is deployed.
+environment. It exposes a `provision` operation for the first infrastructure
+apply and a `release` operation for application delivery. Images use the commit
+SHA; no mutable `latest` tag is deployed.
 
 Required GitHub environment variables:
 
-- `ADMIN_CIDRS_JSON`: JSON list of restricted SSH source CIDRs.
+- `ADMIN_CIDRS_JSON`: non-empty JSON list of controlled administrative SSH
+  source CIDRs. The workflow temporarily adds its current runner IPv4 as a
+  `/32` and removes it in an `always()` cleanup step.
 - `API_DOMAIN` and `APP_DOMAIN`.
 - `CLOUDFLARE_ZONE_ID`.
 - `DEPLOYMENT_SSH_PUBLIC_KEY`.
@@ -38,15 +42,22 @@ is stored in Git.
 2. Create separate least-privilege provider tokens per environment.
 3. Generate one deployment SSH key pair per environment. Store only the public
    key as a GitHub variable.
-4. Set `ADMIN_CIDRS_JSON` to the delivery runner or controlled bastion ranges.
-5. Run the Deploy workflow for `staging`.
-6. Record the server host key in `SSH_KNOWN_HOSTS` after verifying it through the
-   Hetzner console.
-7. Re-run delivery and verify both health endpoints through Cloudflare.
+4. Set `ADMIN_CIDRS_JSON` to controlled administrator or bastion ranges. Do not
+   add the shared GitHub-hosted runner ranges or expose SSH to the internet.
+5. Run the Deploy workflow with the `provision` operation. It applies Terraform,
+   records the server IP in the workflow summary, and does not attempt SSH.
+6. From a source allowed by `ADMIN_CIDRS_JSON`, scan the Ed25519 host key. Compare
+   its fingerprint with `/etc/ssh/ssh_host_ed25519_key.pub` through the Hetzner
+   console before storing the complete known-hosts line in
+   `SSH_KNOWN_HOSTS`.
+7. Run the workflow with the `release` operation and verify both health
+   endpoints through Cloudflare.
 
 Cloud-init installs Docker, creates an unprivileged `postqron` deployment user,
 and grants only the systemd restart commands required by delivery. The server
-does not receive provider or Terraform credentials.
+does not receive provider or Terraform credentials. Terraform apply and SSH run
+on the same GitHub runner, so only that runner's validated ephemeral `/32` is
+temporarily admitted by the firewall.
 
 ## Rollback and migration safety
 
