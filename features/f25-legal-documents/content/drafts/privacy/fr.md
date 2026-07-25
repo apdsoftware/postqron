@@ -5,16 +5,16 @@ version: "0.1"
 title: "Politique de confidentialité de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation juridique."
+revisionSummary: "Approuvé après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25) ; version 0.1 publiée."
 ---
 
 # Politique de confidentialité de Postqron
 
-*Brouillon version 0.1 — en attente de validation juridique. Ce document décrit, de bonne foi et à des fins internes et de prévisualisation, la manière dont Postqron traite les données personnelles. Il ne constitue pas encore un document juridique définitif.*
+*Version 0.1 — approuvée après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25). Ce document décrit la manière dont Postqron traite les données personnelles.*
 
 ## 1. Responsable du traitement et contact
 
@@ -30,7 +30,7 @@ Postqron traite les catégories de données personnelles suivantes dans le cadre
 - **Données d'identité OAuth** : lorsqu'un utilisateur se connecte via Google, Apple, Facebook ou LinkedIn, Postqron reçoit l'adresse e-mail, le nom d'affichage, l'image d'avatar et l'identifiant de compte fournis par ce fournisseur, utilisés uniquement pour créer et authentifier le compte.
 - **Métadonnées de facturation** : formule d'abonnement, quantités de sièges ou d'usage, et statut de facturation au niveau de l'espace de travail, visibles par Postqron. Les données complètes de l'instrument de paiement (numéros de carte, coordonnées bancaires et données similaires) sont conservées exclusivement par Paddle, agissant en tant que Merchant of Record, et ne sont pas détenues par Postqron.
 - **Journaux d'utilisation et d'audit de sécurité** : enregistrements des actions effectuées au sein du service, générés à des fins de sécurité, de responsabilisation et de dépannage.
-- **Cookies et technologies similaires** : les catégories nécessaires, préférences, analytiques et marketing peuvent être utilisées. L'inventaire complet et à jour des cookies est tenu dans la Politique de cookies distincte de Postqron et n'est pas dupliqué ici. À la date du présent brouillon, seuls les cookies « nécessaires » sont activement utilisés.
+- **Cookies et technologies similaires** : les catégories nécessaires, préférences, analytiques et marketing peuvent être utilisées. L'inventaire complet et à jour des cookies est tenu dans la Politique de cookies distincte de Postqron et n'est pas dupliqué ici. À la date de cette version, seuls les cookies « nécessaires » sont activement utilisés.
 
 ## 3. Finalités et bases juridiques
 

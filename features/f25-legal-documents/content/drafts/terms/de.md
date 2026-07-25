@@ -5,11 +5,11 @@ version: "0.1"
 title: "Allgemeine Geschäftsbedingungen von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
 contactEmail: legal@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Erster, von Grund auf neu erstellter technischer Entwurf, ausstehend rechtliche Prüfung."
+revisionSummary: "Nach externer rechtlicher Prüfung genehmigt (Ref. LEGAL-APPROVAL-2026-07-25-F25); Version 0.1 veröffentlicht."
 ---
 
 # Allgemeine Geschäftsbedingungen von Postqron
@@ -74,7 +74,7 @@ Bei Zahlungsverzug kann der Anbieter die Funktionen des Dienstes nach angemessen
 
 ## 13. Verfügbarkeit des Dienstes
 
-Postqron strebt ein hohes, aber nicht absolutes Verfügbarkeitsniveau seiner Anwendung und der zugrunde liegenden APIs an und wendet wirtschaftlich angemessene Anstrengungen zur Aufrechterhaltung der Zuverlässigkeit des Dienstes an. Geplante Wartungsfenster können gelegentlich auftreten. Dieser Entwurf garantiert Kunden vertraglich keine bestimmte Verfügbarkeitsquote (Uptime). Postqron kann für eigene Zwecke interne betriebliche Verfügbarkeitsziele führen; diese stellen keine kundenseitige Dienstgütevereinbarung (SLA) dar und begründen keine vertraglichen Ansprüche.
+Postqron strebt ein hohes, aber nicht absolutes Verfügbarkeitsniveau seiner Anwendung und der zugrunde liegenden APIs an und wendet wirtschaftlich angemessene Anstrengungen zur Aufrechterhaltung der Zuverlässigkeit des Dienstes an. Geplante Wartungsfenster können gelegentlich auftreten. Diese Bedingungen garantieren Kunden vertraglich keine bestimmte Verfügbarkeitsquote (Uptime). Postqron kann für eigene Zwecke interne betriebliche Verfügbarkeitsziele führen; diese stellen keine kundenseitige Dienstgütevereinbarung (SLA) dar und begründen keine vertraglichen Ansprüche.
 
 ## 14. Haftung
 

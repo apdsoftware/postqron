@@ -5,11 +5,11 @@ version: "0.1"
 title: "Postqron Terms of Service"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: legal@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Initial from-scratch technical draft pending legal review."
+revisionSummary: "Approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25); version 0.1 published."
 ---
 
 # Postqron Terms of Service
@@ -74,7 +74,7 @@ In the event of non-payment, the Provider may suspend the Service's functionalit
 
 ## 13. Service availability
 
-Postqron targets a high, but not absolute, level of availability for its application and underlying APIs, and applies commercially reasonable efforts to maintain the reliability of the Service. Scheduled maintenance windows may occur from time to time. This draft does not contractually guarantee any specific uptime percentage to customers. Postqron may maintain internal operational availability targets for its own purposes; these are not a consumer-facing service level agreement and do not create contractual rights.
+Postqron targets a high, but not absolute, level of availability for its application and underlying APIs, and applies commercially reasonable efforts to maintain the reliability of the Service. Scheduled maintenance windows may occur from time to time. These Terms do not contractually guarantee any specific uptime percentage to customers. Postqron may maintain internal operational availability targets for its own purposes; these are not a consumer-facing service level agreement and do not create contractual rights.
 
 ## 14. Liability
 

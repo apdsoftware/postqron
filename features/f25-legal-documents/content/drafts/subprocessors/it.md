@@ -5,11 +5,11 @@ version: "0.1"
 title: "Registro dei sub-responsabili di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale."
+revisionSummary: "Approvato in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25); pubblicazione versione 0.1."
 ---
 
 ## Identità del fornitore
@@ -35,14 +35,14 @@ L'aggiunta o la sostituzione di un sub-responsabile che tratterà dati relativi 
 | Meta Platforms, Inc.; Meta Platforms Ireland Limited | Terza parte indipendente | Accesso OAuth ("Facebook Login") e la connessione del cliente stesso a Pagine Facebook / Instagram Professional come destinazione di pubblicazione | Indirizzo email; nome; immagine del profilo; identificativo dell'account Facebook/Instagram; contenuti che il cliente sceglie di pubblicare sul proprio account collegato | Irlanda (Dublino); Stati Uniti | Irlanda (Dublino), per il trattamento rilevante nel SEE da parte di Meta Platforms Ireland Limited | Clausole contrattuali standard; Meta Platforms, Inc. è inoltre certificata Data Privacy Framework | Non applicabile — nessun DPA dedicato pubblicato per questa funzionalità | [Termini della piattaforma Meta](https://developers.facebook.com/terms/dfc_platform_terms/) |
 | LinkedIn Corporation; LinkedIn Ireland Unlimited Company | Terza parte indipendente | Accesso OAuth ("Accedi con LinkedIn") | Indirizzo email; nome; immagine del profilo; identificativo dell'account LinkedIn | Stati Uniti; Irlanda | Stati Uniti | Clausole contrattuali standard; LinkedIn Corporation è inoltre certificata Data Privacy Framework | Confermato non applicabile — il DPA di LinkedIn, inteso in senso stretto come accordo Titolare-Responsabile ai sensi dell'art. 28 GDPR, non si applica all'utilizzo del login OAuth ("Accedi con LinkedIn") | [Termini di utilizzo delle API di LinkedIn](https://www.linkedin.com/legal/l/api-terms-of-use) |
 
-## Lacune note da risolvere prima della pubblicazione
+## Note mantenute a fini di trasparenza
 
-- **Mailronix / Apdsoftware di Carlo Zuffetti**: confermato che mailronix.com è gestito dalla stessa entità legale che gestisce Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224; fonte: https://mailronix.com/terms, consultata il 2026-07-25). Trattandosi della medesima entità legale e non di una terza parte indipendente, non è un ordinario rapporto di sub-responsabile ai sensi dell'art. 28 GDPR — un'entità non può essere sub-responsabile di se stessa. La voce resta elencata in questo registro a fini di trasparenza sul luogo di trattamento/tecnologia utilizzata; la qualificazione giuridica precisa di questo flusso interno (ad esempio come luogo di trattamento interno anziché come sub-responsabile formale) sarà stabilita in sede di revisione legale.
+- **Mailronix / Apdsoftware di Carlo Zuffetti**: confermato che mailronix.com è gestito dalla stessa entità legale che gestisce Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224; fonte: https://mailronix.com/terms, consultata il 2026-07-25). Trattandosi della medesima entità legale e non di una terza parte indipendente, non è un ordinario rapporto di sub-responsabile ai sensi dell'art. 28 GDPR — un'entità non può essere sub-responsabile di se stessa. La voce resta elencata in questo registro a fini di trasparenza sul luogo di trattamento/tecnologia utilizzata. È stata esaminata nell'ambito dell'approvazione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25): Postqron considera questo flusso interno come un luogo di trattamento interno, non come un rapporto di sub-responsabile ai sensi dell'art. 28 GDPR.
 - **Elenco dei sub-responsabili di Paddle** (dal Trust Center ufficiale, trust.paddle.com/subprocessors): Amazon Web Services (AWS, hosting cloud, Stati Uniti), Snowflake (analytics/business intelligence, UE - Irlanda), Onfido (verifica KYC/KYB, Stati Uniti), Salesforce (CRM, Stati Uniti), Cloudflare (sicurezza web e CDN, Stati Uniti), Google (strumenti di collaborazione e Google Analytics, Stati Uniti), Wiz (sicurezza cloud, Regno Unito), TokenEx (tokenizzazione dati, Stati Uniti), PayPal (pagamenti, Stati Uniti), Stripe (pagamenti, Stati Uniti). Il testo del DPA di Paddle rimanda inoltre a un link non aggiornato a un elenco legacy dei sub-responsabili ("learn.profitwell.com"), da chiarire con Paddle. Per l'elenco completo e aggiornato consultare trust.paddle.com/subprocessors.
 
 ## Sub-responsabili rimossi
 
-Nessuno registrato alla data di questa revisione della bozza.
+Nessuno registrato alla data di questa versione.
 
 ## Contatti
 

@@ -7,8 +7,14 @@ import {
 } from '../src/index.ts'
 import { validReleaseInput } from './fixtures.ts'
 
-test('the bundled release is empty and publication is fail-closed', async () => {
-  const audit = await auditLegalRelease(BUNDLED_LEGAL_RELEASE)
+test('an empty input is fail-closed', async () => {
+  const emptyInput = {
+    artifacts: [],
+    evidence: [],
+    releases: [],
+    marketAllowlist: [],
+  }
+  const audit = await auditLegalRelease(emptyInput)
   assert.equal(audit.ready, false)
   assert.equal(
     audit.blockers.filter(item => item.code === 'missing_locale_document').length,
@@ -20,12 +26,25 @@ test('the bundled release is empty and publication is fail-closed', async () => 
   )
   assert.equal(audit.blockers[0]?.code, 'missing_release')
 
-  const repository = await LegalRepository.create(BUNDLED_LEGAL_RELEASE)
+  const repository = await LegalRepository.create(emptyInput)
   assert.equal(repository.ready, false)
   assert.equal(
     repository.current('terms', 'it', '2026-07-25T12:30:00.000Z'),
     undefined,
   )
+})
+
+test('the bundled release is complete, approved, and publication succeeds', async () => {
+  const audit = await auditLegalRelease(BUNDLED_LEGAL_RELEASE)
+  assert.equal(audit.ready, true)
+  assert.deepEqual(audit.blockers, [])
+
+  const repository = await LegalRepository.create(BUNDLED_LEGAL_RELEASE)
+  assert.equal(repository.ready, true)
+  const current = repository.current('terms', 'it', '2026-07-30T00:00:00.000Z')
+  assert.equal(current?.version, '0.1')
+  assert.equal(current?.locale, 'it')
+  assert.equal(current?.approvalReference, 'LEGAL-APPROVAL-2026-07-25-F25')
 })
 
 test('a complete synthetic bundle exposes current and immutable history', async () => {

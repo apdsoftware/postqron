@@ -100,12 +100,19 @@ test('non-GET requests are rejected fail-closed regardless of release state', as
   assert.equal(response.headers.allow, 'GET')
 })
 
-test('with an empty BUNDLED_LEGAL_RELEASE the proxy stays fail-closed: 503, no-store, no draft content', async () => {
+test('with an empty repository the proxy stays fail-closed: 503, no-store, no draft content', async () => {
+  const repository = await LegalRepository.create({
+    artifacts: [],
+    evidence: [],
+    releases: [],
+    marketAllowlist: [],
+  })
   const response = await handleLegalProxyRequest({
     method: 'GET',
     slug: 'termini',
     locale: 'it',
     now,
+    repository,
   })
 
   assert.equal(response.status, 503)
@@ -115,6 +122,22 @@ test('with an empty BUNDLED_LEGAL_RELEASE the proxy stays fail-closed: 503, no-s
     'legal_release_blocked',
   )
   assert.doesNotMatch(JSON.stringify(response.body), /content/iu)
+})
+
+test('the real BUNDLED_LEGAL_RELEASE resolves the approved F25 release without a fixture repository', async () => {
+  const response = await handleLegalProxyRequest({
+    method: 'GET',
+    slug: 'termini',
+    locale: 'it',
+    market: 'IT',
+    now: '2026-07-30T00:00:00.000Z',
+  })
+
+  assert.equal(response.status, 200)
+  const body = response.body as { document: string, locale: string, version: string }
+  assert.equal(body.document, 'terms')
+  assert.equal(body.locale, 'it')
+  assert.equal(body.version, '0.1')
 })
 
 test('an F25 approved release body survives the client-side parser with content, version, and fallback metadata intact', async () => {

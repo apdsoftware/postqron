@@ -5,11 +5,11 @@ version: "0.1"
 title: "Registre des sous-traitants de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation juridique."
+revisionSummary: "Approuvé après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25) ; version 0.1 publiée."
 ---
 
 ## Identité du fournisseur
@@ -35,14 +35,14 @@ L'ajout ou le remplacement d'un sous-traitant qui traitera des données de conte
 | Meta Platforms, Inc. ; Meta Platforms Ireland Limited | Tiers indépendant | Connexion OAuth (« Facebook Login ») et la connexion propre du client à des Pages Facebook / Instagram Professionnel comme destination de publication | Adresse e-mail ; nom ; photo de profil ; identifiant du compte Facebook/Instagram ; contenu que le client choisit de publier sur son compte connecté | Irlande (Dublin) ; États-Unis | Irlande (Dublin), pour le traitement relevant de l'EEE par Meta Platforms Ireland Limited | Clauses contractuelles types ; Meta Platforms, Inc. également certifiée Data Privacy Framework | Sans objet — aucun accord de traitement des données dédié publié pour cette fonctionnalité | [Conditions de la Plateforme Meta](https://developers.facebook.com/terms/dfc_platform_terms/) |
 | LinkedIn Corporation ; LinkedIn Ireland Unlimited Company | Tiers indépendant | Connexion OAuth (« Se connecter avec LinkedIn ») | Adresse e-mail ; nom ; photo de profil ; identifiant du compte LinkedIn | États-Unis ; Irlande | États-Unis | Clauses contractuelles types ; LinkedIn Corporation également certifiée Data Privacy Framework | Confirmé non applicable — l'accord de traitement des données de LinkedIn, au sens strict d'un accord responsable-sous-traitant au titre de l'article 28 du RGPD, ne s'applique pas à l'utilisation de la connexion OAuth (« Se connecter avec LinkedIn ») | [Conditions d'utilisation de l'API LinkedIn](https://www.linkedin.com/legal/l/api-terms-of-use) |
 
-## Lacunes connues à résoudre avant publication
+## Notes conservées à des fins de transparence
 
-- **Mailronix / Apdsoftware di Carlo Zuffetti** : confirmé que mailronix.com est exploité par la même entité juridique qui exploite Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162 ; source : https://mailronix.com/terms, consultée le 2026-07-25). S'agissant de la même entité juridique et non d'un tiers indépendant, il ne s'agit pas d'une relation de sous-traitance ordinaire au sens de l'article 28 du RGPD — une entité ne peut pas être son propre sous-traitant. Cette entrée reste répertoriée ici à des fins de transparence sur le lieu de traitement/la technologie utilisée ; la qualification juridique précise de ce flux interne (par exemple en tant que lieu de traitement interne plutôt que sous-traitant formel) reste à définir lors de la révision juridique.
+- **Mailronix / Apdsoftware di Carlo Zuffetti** : confirmé que mailronix.com est exploité par la même entité juridique qui exploite Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162 ; source : https://mailronix.com/terms, consultée le 2026-07-25). S'agissant de la même entité juridique et non d'un tiers indépendant, il ne s'agit pas d'une relation de sous-traitance ordinaire au sens de l'article 28 du RGPD — une entité ne peut pas être son propre sous-traitant. Cette entrée reste répertoriée ici à des fins de transparence sur le lieu de traitement/la technologie utilisée. Elle a été examinée dans le cadre de l'approbation juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25) : Postqron considère ce flux interne comme un lieu de traitement interne, et non comme une relation de sous-traitance au sens de l'article 28 du RGPD.
 - **Liste des sous-traitants de Paddle** (issue du Trust Center officiel, trust.paddle.com/subprocessors) : Amazon Web Services (AWS, hébergement cloud, États-Unis), Snowflake (analytique/business intelligence, UE - Irlande), Onfido (gestion des risques KYC/KYB, États-Unis), Salesforce (CRM, États-Unis), Cloudflare (sécurité web et CDN, États-Unis), Google (outils de collaboration et Google Analytics, États-Unis), Wiz (sécurité cloud, Royaume-Uni), TokenEx (tokenisation des données, États-Unis), PayPal (paiements, États-Unis), Stripe (paiements, États-Unis). Le texte de l'accord de traitement des données de Paddle renvoie par ailleurs vers un lien obsolète vers une ancienne liste de sous-traitants (« learn.profitwell.com »), à clarifier auprès de Paddle. Pour la liste complète et à jour, consulter directement trust.paddle.com/subprocessors.
 
 ## Sous-traitants retirés
 
-Aucun enregistré à la date de cette révision du brouillon.
+Aucun enregistré à la date de cette version.
 
 ## Contact
 
