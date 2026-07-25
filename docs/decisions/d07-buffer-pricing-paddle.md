@@ -400,23 +400,29 @@ non si altera la fattura storica e non si mantengono crediti paralleli solo nel
 database Postqron. L'entitlement cambia soltanto dopo lo stato Paddle
 applicabile o un comando amministrativo idempotente correlato alla adjustment.
 
-### Insoluti e grace period
+### Insoluti e sospensione
 
 Il primo rinnovo fallito porta la sottoscrizione a `past_due` e avvia il dunning
-Paddle. Il **grace period Postqron è di 14 giorni solari** dal primo fallimento:
+Paddle. In coerenza con la Sezione 12 dei Termini di Servizio (Postqron
+issue #85/#122): in caso di mancato pagamento, il Fornitore può sospendere le
+funzioni del Servizio dopo un ragionevole preavviso e, persistendo
+l'inadempimento per oltre **30 giorni solari** dal primo fallimento, risolvere
+il contratto.
 
-- durante i giorni 0–14 piano e pubblicazioni continuano, mentre Paddle gestisce
-  retry e notifiche di recupero;
-- non si estende il grace period in seguito a ulteriori tentativi falliti;
-- un pagamento recuperato ripristina `active` senza cambiare il piano;
-- allo scadere, se il pagamento non è recuperato, il workspace entra in
-  `payment_restricted`: dati e risorse restano, ma nuovi canali, membri e post
-  sono bloccati e i post futuri sono messi in pausa;
-- quando Paddle conclude il recupero cancellando la sottoscrizione, il workspace
-  passa a Start; una diversa azione terminale richiede configurazione e
-  approvazione esplicite.
+- dal primo fallimento fino alla sospensione, piano e pubblicazioni continuano,
+  mentre Paddle gestisce retry e notifiche di recupero secondo la propria
+  configurazione di dunning;
+- un pagamento recuperato in qualsiasi momento prima della risoluzione
+  ripristina `active` senza cambiare il piano;
+- la sospensione applicata dal Fornitore, una volta dato il ragionevole
+  preavviso, blocca la creazione di nuovi canali, membri e post e mette in
+  pausa i post futuri già programmati; dati e risorse esistenti restano
+  conservati (stato `payment_restricted`);
+- decorsi 30 giorni solari dal primo mancato pagamento senza recupero, il
+  Fornitore può risolvere il contratto: il workspace passa al piano Start; una
+  diversa azione terminale richiede configurazione e approvazione esplicite.
 
-Il periodo di recupero Paddle deve essere configurato in modo coerente con
+Il periodo di dunning Paddle deve essere configurato in modo coerente con
 queste soglie. I webhook Paddle determinano lo stato finanziario; un job locale
 non inventa esiti di pagamento.
 
