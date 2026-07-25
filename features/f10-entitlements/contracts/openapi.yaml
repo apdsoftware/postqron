@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Postqron entitlements API
-  version: 0.2.0
+  version: 0.3.0
 paths:
   /api/v1/billing/plans:
     get:
@@ -231,6 +231,12 @@ components:
           enum: [monthly, annual]
         state:
           type: string
+          description: >-
+            `past_due` remains operational during the 30-day Paddle dunning
+            window anchored to the first failed renewal. `payment_restricted`
+            is entered only after a verified Paddle paused event following
+            prior notice. `canceled` reflects a verified Paddle cancellation
+            and exposes the Start plan.
           enum:
             - trialing
             - active

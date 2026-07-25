@@ -154,7 +154,9 @@ func TestPaddleTransactionCompletedIsVerifiedDeduplicatedAndOrdered(t *testing.T
 	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusNoContent || len(store.events) != 2 {
+	if response.Code != http.StatusNoContent || len(store.events) != 2 ||
+		!store.events[1].ApplyState ||
+		store.events[1].State != StatePaymentRestricted {
 		t.Fatalf("older delivery status=%d events=%#v", response.Code, store.events)
 	}
 }
