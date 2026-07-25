@@ -23,8 +23,13 @@ test('pre-launch redirects incomplete routes to the selected locale', () => {
   }
 })
 
-test('landing, legal, support, infrastructure and authorized admin entry remain allowed', () => {
+test('login, callback, landing, support, infrastructure and admin remain allowed', () => {
   for (const path of [
+    '/app',
+    '/app?return_to=%2Fadmin',
+    '/it/app',
+    '/de/app/oauth/callback',
+    '/fr/app/oauth/callback?code=opaque&state=opaque',
     '/en/prelaunch',
     '/it/prelaunch/access',
     '/es/legal/privacy',
@@ -48,6 +53,26 @@ test('landing, legal, support, infrastructure and authorized admin entry remain 
     assert.deepEqual(
       prelaunchRouteDecision({ enabled: true, locale: 'en', url: path }),
       { action: 'allow' },
+      path,
+    )
+  }
+})
+
+test('pre-launch allows only the exact app login and OAuth callback routes', () => {
+  for (const path of [
+    '/app/',
+    '/app/home',
+    '/app/onboarding',
+    '/app/oauth',
+    '/app/oauth/callback/extra',
+    '/it/app/home',
+    '/de/app/onboarding',
+    '/fr/app/oauth/callback/extra',
+  ]) {
+    assert.equal(isExplicitlyAllowedPath(path), false, path)
+    assert.deepEqual(
+      prelaunchRouteDecision({ enabled: true, locale: 'it', url: path }),
+      { action: 'redirect', location: '/it/prelaunch' },
       path,
     )
   }

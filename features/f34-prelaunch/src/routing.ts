@@ -14,6 +14,8 @@ const localizedPrefix = new RegExp(
 )
 
 const exactAllowedPaths = new Set([
+  '/app',
+  '/app/oauth/callback',
   '/contatti',
   '/prelaunch',
   '/prelaunch/access',

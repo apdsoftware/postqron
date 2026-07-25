@@ -2,7 +2,6 @@ import {
   abortNavigation,
   createError,
   navigateTo,
-  useRequestHeaders,
 } from '#imports'
 import {
   normalizeAdminApiError,
@@ -14,12 +13,15 @@ import {
 } from '../core/use-admin.ts'
 
 export default defineNuxtRouteMiddleware(async (to) => {
+  if (import.meta.server) {
+    return
+  }
+
+  const sessionState = useAdminSessionState()
+  sessionState.value = undefined
   try {
-    const headers = import.meta.server
-      ? useRequestHeaders(['cookie'])
-      : undefined
-    const session = await useAdminApi().session(headers)
-    useAdminSessionState().value = session
+    const session = await useAdminApi().session()
+    sessionState.value = session
     return
   } catch (error) {
     const decision = adminGuardDecision({
