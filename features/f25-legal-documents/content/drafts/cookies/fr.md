@@ -5,11 +5,11 @@ version: "0.1"
 title: "Politique relative aux cookies de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Premier projet technique rédigé de zéro, en attente de validation juridique."
+revisionSummary: "Approuvé après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25) ; version 0.1 publiée."
 ---
 
 # Politique relative aux cookies de Postqron

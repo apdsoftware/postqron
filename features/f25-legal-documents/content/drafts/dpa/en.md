@@ -5,16 +5,16 @@ version: "0.1"
 title: "Postqron Data Processing Agreement"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Initial from-scratch technical draft pending legal review."
+revisionSummary: "Approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25); version 0.1 published."
 ---
 
 # Postqron Data Processing Agreement
 
-*Draft version 0.1 — pending legal review. This document describes, in good faith and for internal and preview purposes, the data processing terms that apply between Postqron and its business customers. It is not yet a finalized legal instrument.*
+*Version 0.1 — approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25). This document describes the data processing terms that apply between Postqron and its business customers.*
 
 This Data Processing Agreement ("DPA") is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162, REA (company registration number) BG 431224), trading as APDSoftware, operator of the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at privacy@postqron.com and via https://apdsoftware.it.
 
@@ -106,4 +106,4 @@ Postqron makes available to the customer the information reasonably necessary to
 
 ---
 
-*This document is a technical draft prepared ahead of formal legal counsel review. It is intended to describe, in substance and in good faith, the data processing terms Postqron intends to offer to business customers, and is not a finalized or binding legal instrument until superseded by a reviewed and published version.*
+*This document is the binding legal instrument between Postqron and its business customers governing data processing, following the external legal approval recorded under reference LEGAL-APPROVAL-2026-07-25-F25.*

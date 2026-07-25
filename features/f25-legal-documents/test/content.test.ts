@@ -10,7 +10,7 @@ test('every draft artifact parses with a matching path, digest, and status', asy
   for (const artifact of artifacts) {
     assert.equal(artifact.jurisdiction, 'IT')
     assert.equal(artifact.version, '0.1')
-    assert.equal(artifact.status, 'draft_pending_legal_review')
+    assert.equal(artifact.status, 'approved')
     assert.match(artifact.digestSha256, /^[a-f0-9]{64}$/u)
     assert.equal(await sha256(artifact.content), artifact.digestSha256)
     assert.ok(artifact.content.length >= 500, `${artifact.document}:${artifact.locale} is too short`)

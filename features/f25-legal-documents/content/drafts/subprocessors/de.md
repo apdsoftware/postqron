@@ -5,11 +5,11 @@ version: "0.1"
 title: "Postqron-Verzeichnis der Unterauftragsverarbeiter"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Erster von Grund auf erstellter Entwurf, in Erwartung der rechtlichen Prüfung."
+revisionSummary: "Nach externer rechtlicher Prüfung genehmigt (Ref. LEGAL-APPROVAL-2026-07-25-F25); Version 0.1 veröffentlicht."
 ---
 
 ## Identität des Anbieters
@@ -35,14 +35,14 @@ Die Hinzufügung oder Ersetzung eines Unterauftragsverarbeiters, der Kundeninhal
 | Meta Platforms, Inc.; Meta Platforms Ireland Limited | Unabhängiger Dritter | OAuth-Anmeldung („Facebook Login") sowie die eigene Verknüpfung des Kunden mit Facebook-Seiten / Instagram Professional als Veröffentlichungsziel | E-Mail-Adresse; Name; Profilbild; Facebook-/Instagram-Kontokennung; Inhalte, die der Kunde auf sein verknüpftes Konto zu veröffentlichen wählt | Irland (Dublin); Vereinigte Staaten | Irland (Dublin), für die EWR-relevante Verarbeitung durch Meta Platforms Ireland Limited | Standardvertragsklauseln; Meta Platforms, Inc. zudem nach Data Privacy Framework zertifiziert | Nicht anwendbar — keine eigene Auftragsverarbeitungsvereinbarung für diese Funktion veröffentlicht | [Meta-Plattformbedingungen](https://developers.facebook.com/terms/dfc_platform_terms/) |
 | LinkedIn Corporation; LinkedIn Ireland Unlimited Company | Unabhängiger Dritter | OAuth-Anmeldung („Mit LinkedIn anmelden") | E-Mail-Adresse; Name; Profilbild; LinkedIn-Kontokennung | Vereinigte Staaten; Irland | Vereinigte Staaten | Standardvertragsklauseln; LinkedIn Corporation zudem nach Data Privacy Framework zertifiziert | Bestätigt nicht anwendbar — die Auftragsverarbeitungsvereinbarung von LinkedIn im engeren Sinne einer Verantwortlicher-Auftragsverarbeiter-Vereinbarung nach Art. 28 DSGVO findet auf die Nutzung der OAuth-Anmeldung („Mit LinkedIn anmelden") keine Anwendung | [API-Nutzungsbedingungen von LinkedIn](https://www.linkedin.com/legal/l/api-terms-of-use) |
 
-## Bekannte Lücken, die vor der Veröffentlichung zu klären sind
+## Zu Transparenzzwecken festgehaltene Hinweise
 
-- **Mailronix / Apdsoftware di Carlo Zuffetti**: Bestätigt, dass mailronix.com von derselben Rechtsperson betrieben wird, die auch Postqron betreibt, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25). Da es sich um dieselbe Rechtsperson und nicht um einen unabhängigen Dritten handelt, liegt kein gewöhnliches Auftragsverarbeitungsverhältnis im Sinne von Art. 28 DSGVO vor — eine Stelle kann nicht ihr eigener Unterauftragsverarbeiter sein. Dieser Eintrag bleibt zu Transparenzzwecken hinsichtlich des Verarbeitungsorts/der genutzten Technologie im Verzeichnis aufgeführt; die genaue rechtliche Einordnung dieses internen Datenflusses (z. B. als interner Verarbeitungsort statt als förmlicher Unterauftragsverarbeiter) ist im Rahmen der rechtlichen Prüfung noch festzulegen.
+- **Mailronix / Apdsoftware di Carlo Zuffetti**: Bestätigt, dass mailronix.com von derselben Rechtsperson betrieben wird, die auch Postqron betreibt, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25). Da es sich um dieselbe Rechtsperson und nicht um einen unabhängigen Dritten handelt, liegt kein gewöhnliches Auftragsverarbeitungsverhältnis im Sinne von Art. 28 DSGVO vor — eine Stelle kann nicht ihr eigener Unterauftragsverarbeiter sein. Dieser Eintrag bleibt zu Transparenzzwecken hinsichtlich des Verarbeitungsorts/der genutzten Technologie im Verzeichnis aufgeführt. Er wurde im Rahmen der externen rechtlichen Genehmigung (Ref. LEGAL-APPROVAL-2026-07-25-F25) geprüft: Postqron behandelt diesen internen Datenfluss als internen Verarbeitungsort, nicht als förmliches Unterauftragsverarbeitungsverhältnis im Sinne von Art. 28 DSGVO.
 - **Unterauftragsverarbeiter-Liste von Paddle** (aus dem offiziellen Trust Center, trust.paddle.com/subprocessors): Amazon Web Services (AWS, Cloud-Hosting, Vereinigte Staaten), Snowflake (Analytics/Business Intelligence, EU - Irland), Onfido (KYC/KYB-Risikomanagement, Vereinigte Staaten), Salesforce (CRM, Vereinigte Staaten), Cloudflare (Web-Sicherheit und CDN, Vereinigte Staaten), Google (Kollaborationstools und Google Analytics, Vereinigte Staaten), Wiz (Cloud-Sicherheit, Vereinigtes Königreich), TokenEx (Datentokenisierung, Vereinigte Staaten), PayPal (Zahlungen, Vereinigte Staaten), Stripe (Zahlungen, Vereinigte Staaten). Der Text der Auftragsverarbeitungsvereinbarung von Paddle verweist zudem auf einen veralteten Link zu einer früheren Unterauftragsverarbeiter-Liste („learn.profitwell.com"), der mit Paddle geklärt werden sollte. Für die vollständige, aktuelle Liste siehe direkt trust.paddle.com/subprocessors.
 
 ## Entfernte Unterauftragsverarbeiter
 
-Zum Zeitpunkt dieser Entwurfsrevision keine verzeichnet.
+Zum Zeitpunkt dieser Version keine verzeichnet.
 
 ## Kontakt
 

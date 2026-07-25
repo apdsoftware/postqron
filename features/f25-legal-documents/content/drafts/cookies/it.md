@@ -5,11 +5,11 @@ version: "0.1"
 title: "Informativa sui Cookie di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revisione legale."
+revisionSummary: "Approvato in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25); pubblicazione versione 0.1."
 ---
 
 # Informativa sui Cookie di Postqron
@@ -24,7 +24,7 @@ Questa informativa spiega come vengono utilizzati cookie, l'archiviazione locale
 
 ## 3. Inventario dei cookie
 
-La tabella seguente elenca ogni cookie, elemento di local storage e script di terze parti attualmente in uso da Postqron. Questo inventario è esaustivo alla versione della bozza indicata sopra.
+La tabella seguente elenca ogni cookie, elemento di local storage e script di terze parti attualmente in uso da Postqron. Questo inventario è esaustivo alla versione indicata sopra.
 
 | Nome | Impostato da | Categoria | Finalità | Durata | Prima/terza parte |
 |---|---|---|---|---|---|
@@ -36,7 +36,7 @@ La tabella seguente elenca ogni cookie, elemento di local storage e script di te
 
 ## 4. Nessun tracciante di analitica, preferenze o marketing ad oggi
 
-Alla data di questa bozza, Postqron non imposta né carica alcun cookie, pixel, SDK o script nelle categorie **preferenze**, **analitici** o **marketing**. Queste categorie esistono all'interno del meccanismo di consenso per un possibile uso futuro, sono strettamente opt-in e attualmente presentano zero traccianti registrati. Nulla viene tracciato, misurato o utilizzato per finalità di targeting al loro interno oggi. Qualora ciò cambiasse, l'inventario della Sezione 3 sarà aggiornato e agli utenti verrà richiesta una nuova scelta di consenso prima che venga caricata qualsiasi nuova tecnologia non essenziale.
+Alla data di questa versione, Postqron non imposta né carica alcun cookie, pixel, SDK o script nelle categorie **preferenze**, **analitici** o **marketing**. Queste categorie esistono all'interno del meccanismo di consenso per un possibile uso futuro, sono strettamente opt-in e attualmente presentano zero traccianti registrati. Nulla viene tracciato, misurato o utilizzato per finalità di targeting al loro interno oggi. Qualora ciò cambiasse, l'inventario della Sezione 3 sarà aggiornato e agli utenti verrà richiesta una nuova scelta di consenso prima che venga caricata qualsiasi nuova tecnologia non essenziale.
 
 ## 5. Le tue scelte
 

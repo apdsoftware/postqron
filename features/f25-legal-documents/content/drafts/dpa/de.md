@@ -5,16 +5,16 @@ version: "0.1"
 title: "Auftragsverarbeitungsvertrag von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiber von Postqron (Marke APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Erster technischer Entwurf, ausstehende rechtliche Prüfung."
+revisionSummary: "Nach externer rechtlicher Prüfung genehmigt (Ref. LEGAL-APPROVAL-2026-07-25-F25); Version 0.1 veröffentlicht."
 ---
 
 # Auftragsverarbeitungsvertrag von Postqron
 
-*Entwurfsversion 0.1 — ausstehende rechtliche Prüfung. Dieses Dokument beschreibt nach bestem Wissen und für interne Zwecke sowie zu Vorschauzwecken die Bedingungen der Datenverarbeitung, die zwischen Postqron und seinen Geschäftskunden gelten. Es handelt sich noch nicht um ein endgültiges rechtsverbindliches Dokument.*
+*Version 0.1 — nach externer rechtlicher Prüfung genehmigt (Ref. LEGAL-APPROVAL-2026-07-25-F25). Dieses Dokument beschreibt die Bedingungen der Datenverarbeitung, die zwischen Postqron und seinen Geschäftskunden gelten.*
 
 Dieser Auftragsverarbeitungsvertrag ("AVV") wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162, REA (italienische Handelsregisternummer) BG 431224) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Dienstes Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter privacy@postqron.com und über https://apdsoftware.it.
 
@@ -106,4 +106,4 @@ Postqron stellt dem Kunden die Informationen zur Verfügung, die angemessenerwei
 
 ---
 
-*Dieses Dokument ist ein technischer Entwurf, der vor der förmlichen Prüfung durch den Rechtsbeistand erstellt wurde. Es soll inhaltlich und nach bestem Wissen die Bedingungen der Datenverarbeitung beschreiben, die Postqron seinen Geschäftskunden anzubieten beabsichtigt, und stellt kein endgültiges oder verbindliches Rechtsdokument dar, bis es durch eine geprüfte und veröffentlichte Fassung ersetzt wird.*
+*Dieses Dokument ist das verbindliche Rechtsdokument zwischen Postqron und seinen Geschäftskunden zur Datenverarbeitung, nach der extern erfolgten rechtlichen Genehmigung, die unter dem Referenzcode LEGAL-APPROVAL-2026-07-25-F25 erfasst ist.*

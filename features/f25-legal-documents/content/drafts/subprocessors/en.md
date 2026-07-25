@@ -5,11 +5,11 @@ version: "0.1"
 title: "Postqron Subprocessor Registry"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Initial from-scratch technical draft pending legal review."
+revisionSummary: "Approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25); version 0.1 published."
 ---
 
 ## Provider identity
@@ -35,14 +35,14 @@ Adding or replacing a subprocessor that will process customer content data follo
 | Meta Platforms, Inc.; Meta Platforms Ireland Limited | Independent third party | OAuth login ("Facebook Login") and the customer's own connection to Facebook Pages / Instagram Professional as a publishing destination | Email address; name; profile picture; Facebook/Instagram account identifier; content the customer chooses to publish to their connected account | Ireland (Dublin); United States | Ireland (Dublin), for EEA-relevant processing by Meta Platforms Ireland Limited | Standard Contractual Clauses; Meta Platforms, Inc. also Data Privacy Framework certified | Not applicable — no dedicated DPA published for this feature | [Meta Platform Terms](https://developers.facebook.com/terms/dfc_platform_terms/) |
 | LinkedIn Corporation; LinkedIn Ireland Unlimited Company | Independent third party | OAuth login ("Sign in with LinkedIn") | Email address; name; profile picture; LinkedIn account identifier | United States; Ireland | United States | Standard Contractual Clauses; LinkedIn Corporation also Data Privacy Framework certified | Confirmed not applicable — LinkedIn's Data Processing Agreement, in the strict sense of a controller-processor agreement under Art. 28 GDPR, does not apply to the use of OAuth login ("Sign In with LinkedIn") | [LinkedIn API Terms of Use](https://www.linkedin.com/legal/l/api-terms-of-use) |
 
-## Known gaps requiring resolution before publication
+## Notes retained for transparency
 
-- **Mailronix / Apdsoftware di Carlo Zuffetti**: confirmed that mailronix.com is operated by the same legal entity that operates Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; source: https://mailronix.com/terms, consulted 2026-07-25). Because this is the same legal entity, not an independent third party, this is not an ordinary arm's-length subprocessor relationship under Art. 28 GDPR — an entity cannot be its own sub-processor. This entry remains listed here for transparency of the processing location/technology used; the precise legal characterization of this internal data flow (e.g. as an internal processing location rather than a formal subprocessor) remains to be finalized during legal review.
+- **Mailronix / Apdsoftware di Carlo Zuffetti**: confirmed that mailronix.com is operated by the same legal entity that operates Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; source: https://mailronix.com/terms, consulted 2026-07-25). Because this is the same legal entity, not an independent third party, this is not an ordinary arm's-length subprocessor relationship under Art. 28 GDPR — an entity cannot be its own sub-processor. This entry remains listed here for transparency of the processing location/technology used. It was reviewed as part of the external legal approval (ref. LEGAL-APPROVAL-2026-07-25-F25): Postqron treats this internal data flow as an internal processing location, not a formal Art. 28 GDPR sub-processor relationship.
 - **Paddle's sub-processor list** (from the official Trust Center, trust.paddle.com/subprocessors): Amazon Web Services (AWS, cloud hosting, United States), Snowflake (analytics/business intelligence, EU - Ireland), Onfido (KYC/KYB risk management, United States), Salesforce (CRM, United States), Cloudflare (web security and CDN, United States), Google (collaboration tools and Google Analytics, United States), Wiz (cloud security, United Kingdom), TokenEx (data tokenization, United States), PayPal (payments, United States), Stripe (payments, United States). Paddle's DPA text separately references an outdated legacy sub-processor list link ("learn.profitwell.com") that should be clarified with Paddle. For the complete, current list, consult trust.paddle.com/subprocessors directly.
 
 ## Removed subprocessors
 
-None recorded as of this draft's revision.
+None recorded as of this version.
 
 ## Contact
 

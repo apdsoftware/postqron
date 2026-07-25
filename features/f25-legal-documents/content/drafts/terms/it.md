@@ -5,11 +5,11 @@ version: "0.1"
 title: "Termini di Servizio di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: legal@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revisione legale."
+revisionSummary: "Approvato in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25); pubblicazione versione 0.1."
 ---
 
 # Termini di Servizio di Postqron
@@ -74,7 +74,7 @@ In caso di mancato pagamento, il Fornitore può sospendere le funzioni del Servi
 
 ## 13. Disponibilità del servizio
 
-Postqron persegue un livello elevato, ma non assoluto, di disponibilità della propria applicazione e delle API sottostanti, e adotta sforzi ragionevoli dal punto di vista commerciale per mantenere l'affidabilità del Servizio. Possono verificarsi periodicamente finestre di manutenzione programmata. La presente bozza non garantisce contrattualmente ai clienti alcuna percentuale specifica di uptime. Postqron può mantenere obiettivi interni di disponibilità operativa per propri fini interni; questi non costituiscono un accordo sul livello di servizio (SLA) rivolto ai clienti e non generano diritti contrattuali.
+Postqron persegue un livello elevato, ma non assoluto, di disponibilità della propria applicazione e delle API sottostanti, e adotta sforzi ragionevoli dal punto di vista commerciale per mantenere l'affidabilità del Servizio. Possono verificarsi periodicamente finestre di manutenzione programmata. I presenti Termini non garantiscono contrattualmente ai clienti alcuna percentuale specifica di uptime. Postqron può mantenere obiettivi interni di disponibilità operativa per propri fini interni; questi non costituiscono un accordo sul livello di servizio (SLA) rivolto ai clienti e non generano diritti contrattuali.
 
 ## 14. Responsabilità
 

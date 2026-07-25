@@ -5,11 +5,11 @@ version: "0.1"
 title: "Cookie-Richtlinie von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiber von Postqron (Marke APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Erster von Grund auf neu erstellter technischer Entwurf, ausstehende rechtliche Prüfung."
+revisionSummary: "Nach externer rechtlicher Prüfung genehmigt (Ref. LEGAL-APPROVAL-2026-07-25-F25); Version 0.1 veröffentlicht."
 ---
 
 # Cookie-Richtlinie von Postqron
@@ -24,7 +24,7 @@ Diese Richtlinie erläutert, wie Cookies, lokaler Browser-Speicher (Local Storag
 
 ## 3. Cookie-Verzeichnis
 
-Die folgende Tabelle listet jedes Cookie, jedes Local-Storage-Element und jedes Drittanbieter-Skript auf, das derzeit von Postqron verwendet wird. Dieses Verzeichnis ist zum Zeitpunkt der oben angegebenen Version dieses Entwurfs vollständig.
+Die folgende Tabelle listet jedes Cookie, jedes Local-Storage-Element und jedes Drittanbieter-Skript auf, das derzeit von Postqron verwendet wird. Dieses Verzeichnis ist zum Zeitpunkt der oben angegebenen Version vollständig.
 
 | Name | Gesetzt von | Kategorie | Zweck | Dauer | Erst-/Drittanbieter |
 |---|---|---|---|---|---|
@@ -36,7 +36,7 @@ Die folgende Tabelle listet jedes Cookie, jedes Local-Storage-Element und jedes 
 
 ## 4. Derzeit keine Analyse-, Präferenz- oder Marketing-Tracker
 
-Zum Zeitpunkt dieses Entwurfs setzt oder lädt Postqron kein Cookie, keinen Pixel, kein SDK und kein Skript in den Kategorien **Präferenzen**, **Analyse** oder **Marketing**. Diese Kategorien bestehen im Einwilligungsmechanismus für eine mögliche künftige Nutzung, sind strikt opt-in und weisen derzeit null registrierte Tracker auf. Es wird darin heute nichts erfasst, gemessen oder für Zielgruppenansprache genutzt. Sollte sich dies ändern, wird das Verzeichnis in Abschnitt 3 aktualisiert, und Nutzer werden vor dem Laden jeder neuen nicht essenziellen Technologie um eine erneute Einwilligungsentscheidung gebeten.
+Zum Zeitpunkt dieser Version setzt oder lädt Postqron kein Cookie, keinen Pixel, kein SDK und kein Skript in den Kategorien **Präferenzen**, **Analyse** oder **Marketing**. Diese Kategorien bestehen im Einwilligungsmechanismus für eine mögliche künftige Nutzung, sind strikt opt-in und weisen derzeit null registrierte Tracker auf. Es wird darin heute nichts erfasst, gemessen oder für Zielgruppenansprache genutzt. Sollte sich dies ändern, wird das Verzeichnis in Abschnitt 3 aktualisiert, und Nutzer werden vor dem Laden jeder neuen nicht essenziellen Technologie um eine erneute Einwilligungsentscheidung gebeten.
 
 ## 5. Ihre Wahlmöglichkeiten
 

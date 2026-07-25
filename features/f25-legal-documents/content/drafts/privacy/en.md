@@ -5,16 +5,16 @@ version: "0.1"
 title: "Postqron Privacy Policy"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Initial from-scratch technical draft pending legal review."
+revisionSummary: "Approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25); version 0.1 published."
 ---
 
 # Postqron Privacy Policy
 
-*Draft version 0.1 — pending legal review. This document describes, in good faith and for internal and preview purposes, how Postqron processes personal data. It is not yet a finalized legal instrument.*
+*Version 0.1 — approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25). This document describes how Postqron processes personal data.*
 
 ## 1. Controller and contact
 
@@ -30,7 +30,7 @@ Postqron processes the following categories of personal data in connection with 
 - **OAuth identity data**: where a user signs in through Google, Apple, Facebook, or LinkedIn, Postqron receives the email address, display name, avatar image, and provider account identifier supplied by that provider, used solely to create and authenticate the account.
 - **Billing metadata**: plan tier, seat or usage quantities, and workspace-level billing status visible to Postqron. Full payment instrument data (card numbers, bank details, and similar) is held exclusively by Paddle, acting as Merchant of Record, and is not held by Postqron.
 - **Usage and security audit logs**: records of actions taken within the service, generated for security, accountability, and troubleshooting purposes.
-- **Cookies and similar technologies**: necessary, preferences, analytics, and marketing categories may be used. The full, current inventory of cookies is maintained in the separate Postqron Cookie Policy and is not duplicated here. As of this draft, only "necessary" cookies are in active use.
+- **Cookies and similar technologies**: necessary, preferences, analytics, and marketing categories may be used. The full, current inventory of cookies is maintained in the separate Postqron Cookie Policy and is not duplicated here. As of this version, only "necessary" cookies are in active use.
 
 ## 3. Purposes and legal bases
 

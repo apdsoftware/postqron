@@ -23,10 +23,9 @@ interface I18nRuntime {
 
 export function useAdminApi(): AdminApi {
   const config = useRuntimeConfig()
-  const nuxtApp = useNuxtApp()
   return new AdminApi(
     String(config.public.apiBase),
-    nuxtApp.$fetch as unknown as AdminFetch,
+    globalThis.$fetch as unknown as AdminFetch,
   )
 }
 

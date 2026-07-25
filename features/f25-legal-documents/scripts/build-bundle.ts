@@ -1,0 +1,146 @@
+// Regenerates `src/bundle.ts` from the approved corpus in `content/drafts/**`
+// and the verified provider evidence in `content/subprocessors.json`,
+// following the external legal approval recorded under reference
+// LEGAL-APPROVAL-2026-07-25-F25 (https://github.com/apdsoftware/postqron/issues/134#issuecomment-5080412206).
+//
+// Run with: node --experimental-strip-types scripts/build-bundle.ts
+//
+// The generated `src/bundle.ts` embeds the release as a plain JSON literal so
+// it stays free of Node's `fs`/`path`/`url` built-ins, which must never reach
+// the browser bundle (see `src/content.ts`). Do not hand-edit the generated
+// file; change this script or the source corpus and regenerate instead.
+
+import { writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { loadDraftArtifacts } from '../src/content.ts'
+import type { LegalEvidence, LegalRelease, LegalReleaseInput } from '../src/types.ts'
+
+const featureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+const RELEASE_APPROVAL_REFERENCE = 'LEGAL-APPROVAL-2026-07-25-F25'
+const RELEASE_APPROVED_AT = '2026-07-25T20:16:56.000Z'
+const RELEASE_PUBLISHED_AT = '2026-07-25T20:16:56.000Z'
+const RELEASE_EFFECTIVE_AT = '2026-07-25T20:16:56.000Z'
+const EVIDENCE_VERIFIED_AT = '2026-07-25T00:00:00.000Z'
+
+const EVIDENCE: readonly LegalEvidence[] = Object.freeze([
+  {
+    id: 'controller-identity:apdsoftware:2026-07-25',
+    kind: 'controller_identity',
+    reference: 'Apdsoftware di Carlo Zuffetti — Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224',
+    sourceUrl: 'https://mailronix.com/terms',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'cookie-inventory:postqron:2026-07-25',
+    kind: 'cookie_inventory',
+    reference: 'Cookie/local-storage inventory derived from features/f03-auth/http.go, features/f26-cookie-consent-api/http.go, features/f36-i18n/src/cookie.ts and features/f02-marketing-site/components/CookiePreferences.vue',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'retention-schedule:d05:2026-07-25',
+    kind: 'retention_schedule',
+    reference: 'docs/decisions/d05-data-operations.md — Policy di retention',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'postqron-dpa:v0.1:2026-07-25',
+    kind: 'postqron_dpa',
+    reference: 'Postqron Data Processing Agreement v0.1, released under LEGAL-APPROVAL-2026-07-25-F25 (this release)',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'mailronix-dpa:2026-07-25',
+    kind: 'mailronix_dpa',
+    reference: 'Mailronix (operated by Apdsoftware di Carlo Zuffetti) Terms, which state the DPA is an integral part of those Terms',
+    sourceUrl: 'https://mailronix.com/terms',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'mailronix-subprocessors:2026-07-25',
+    kind: 'mailronix_subprocessors',
+    reference: 'Postqron subprocessor registry — features/f25-legal-documents/content/subprocessors.json',
+    sourceUrl: 'https://mailronix.com/terms',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'mailronix-transfers:2026-07-25',
+    kind: 'mailronix_transfers',
+    reference: 'Mailronix processing location: Germany (Hetzner infrastructure; email delivery via AWS SES, Frankfurt) — EEA transfer mechanism, no third-country transfer',
+    sourceUrl: 'https://mailronix.com/terms',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+  {
+    id: 'paddle-terms:2026-07-25',
+    kind: 'paddle_terms',
+    reference: 'Paddle Data Processing Addendum',
+    sourceUrl: 'https://www.paddle.com/legal/data-processing-addendum',
+    verifiedAt: EVIDENCE_VERIFIED_AT,
+  },
+])
+
+async function buildReleaseInput(): Promise<LegalReleaseInput> {
+  const artifacts = await loadDraftArtifacts({
+    approvalReference: RELEASE_APPROVAL_REFERENCE,
+    approvedAt: RELEASE_APPROVED_AT,
+    publishedAt: RELEASE_PUBLISHED_AT,
+    effectiveAt: RELEASE_EFFECTIVE_AT,
+  })
+
+  const release: LegalRelease = {
+    id: 'release-2026-07-25-F25-0.1',
+    market: 'IT',
+    version: '0.1',
+    fallbackLocale: 'en',
+    approvalReference: RELEASE_APPROVAL_REFERENCE,
+    approvedAt: RELEASE_APPROVED_AT,
+    effectiveAt: RELEASE_EFFECTIVE_AT,
+    artifacts: artifacts.map(item => ({
+      document: item.document,
+      locale: item.locale,
+      version: item.version,
+      digestSha256: item.digestSha256,
+    })),
+    evidenceIds: EVIDENCE.map(item => item.id),
+  }
+
+  return {
+    artifacts,
+    evidence: EVIDENCE,
+    releases: [release],
+    marketAllowlist: [
+      { market: 'IT', status: 'active', approvalReference: RELEASE_APPROVAL_REFERENCE },
+    ],
+  }
+}
+
+function renderBundle(input: LegalReleaseInput): string {
+  const payload = JSON.stringify(input, null, 2)
+  return `import { LegalRepository } from './repository.ts'
+import type { LegalReleaseInput } from './types.ts'
+
+// Generated by \`node --experimental-strip-types scripts/build-bundle.ts\`
+// from the approved corpus in \`content/drafts/**\` and the verified provider
+// evidence in \`content/subprocessors.json\`, following the external legal
+// approval recorded under reference LEGAL-APPROVAL-2026-07-25-F25
+// (https://github.com/apdsoftware/postqron/issues/134#issuecomment-5080412206).
+// Digests are computed mechanically from the corpus; do not hand-edit this
+// file — change the source corpus or the generation script and regenerate.
+export const BUNDLED_LEGAL_RELEASE: LegalReleaseInput = Object.freeze(
+${payload} as LegalReleaseInput,
+)
+
+let repositoryPromise: Promise<LegalRepository> | undefined
+
+export function loadBundledRepository(): Promise<LegalRepository> {
+  repositoryPromise ??= LegalRepository.create(BUNDLED_LEGAL_RELEASE)
+  return repositoryPromise
+}
+`
+}
+
+const input = await buildReleaseInput()
+const output = renderBundle(input)
+await writeFile(resolve(featureRoot, 'src/bundle.ts'), output, 'utf8')
+console.warn(`wrote ${input.artifacts.length} artifacts, ${input.evidence.length} evidence records, ${input.releases.length} release(s) to src/bundle.ts`)

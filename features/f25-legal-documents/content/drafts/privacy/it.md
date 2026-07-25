@@ -5,16 +5,16 @@ version: "0.1"
 title: "Informativa sulla privacy di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale."
+revisionSummary: "Approvato in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25); pubblicazione versione 0.1."
 ---
 
 # Informativa sulla privacy di Postqron
 
-*Bozza versione 0.1 — in attesa di revisione legale. Questo documento descrive, in buona fede e a fini interni e di anteprima, come Postqron tratta i dati personali. Non costituisce ancora un documento legale definitivo.*
+*Versione 0.1 — approvata in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25). Questo documento descrive come Postqron tratta i dati personali.*
 
 ## 1. Titolare del trattamento e contatti
 
@@ -30,7 +30,7 @@ Postqron tratta le seguenti categorie di dati personali in relazione al servizio
 - **Dati identificativi OAuth**: quando l'utente accede tramite Google, Apple, Facebook o LinkedIn, Postqron riceve l'indirizzo email, il nome visualizzato, l'immagine avatar e l'identificativo dell'account fornito da tale provider, utilizzati esclusivamente per creare e autenticare l'account.
 - **Metadati di fatturazione**: piano tariffario, quantità di posti o di utilizzo e stato di fatturazione a livello di workspace visibili a Postqron. I dati completi dello strumento di pagamento (numeri di carta, coordinate bancarie e simili) sono conservati esclusivamente da Paddle, che agisce come Merchant of Record, e non sono detenuti da Postqron.
 - **Log di utilizzo e di sicurezza**: registrazioni delle azioni svolte all'interno del servizio, generate a fini di sicurezza, accountability e risoluzione dei problemi.
-- **Cookie e tecnologie simili**: possono essere utilizzate le categorie necessari, preferenze, analitici e marketing. L'inventario completo e aggiornato dei cookie è mantenuto nella separata Cookie Policy di Postqron e non è duplicato qui. Alla data della presente bozza, sono attivi solo i cookie "necessari".
+- **Cookie e tecnologie simili**: possono essere utilizzate le categorie necessari, preferenze, analitici e marketing. L'inventario completo e aggiornato dei cookie è mantenuto nella separata Cookie Policy di Postqron e non è duplicato qui. Alla data della presente versione, sono attivi solo i cookie "necessari".
 
 ## 3. Finalità e basi giuridiche
 
