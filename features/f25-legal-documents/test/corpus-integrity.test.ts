@@ -7,16 +7,36 @@ import { hasDraftingMarker } from '../src/index.ts'
 import { loadDraftArtifacts } from '../src/content.ts'
 
 const featureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const repoRoot = resolve(featureRoot, '../..')
 
-// The real, code-verified cookie/local-storage names Postqron sets. This list
-// must be kept in sync with the source files cited below; it is the
-// authoritative cross-check against the Cookie Policy's inventory.
-const KNOWN_COOKIE_NAMES = [
-  '__Host-postqron_session', // features/f03-auth/http.go, features/f26-cookie-consent-api/http.go
-  '__Host-postqron_cookie_subject', // features/f26-cookie-consent-api/http.go
-  'postqron_locale', // features/f36-i18n/src/cookie.ts
-  'postqron.cookie-choice', // features/f02-marketing-site/components/CookiePreferences.vue (local storage)
+// Cookie/local-storage names are derived from the actual source files that
+// set them, instead of being hand-copied into a static list here — so this
+// cross-check cannot silently drift from the real implementation.
+const COOKIE_NAME_SOURCES = [
+  'features/f03-auth/http.go',
+  'features/f26-cookie-consent-api/http.go',
+  'features/f36-i18n/src/cookie.ts',
+  'features/f02-marketing-site/components/CookiePreferences.vue',
 ]
+
+// Matches quoted string literals that look like a Postqron cookie or
+// storage key name (e.g. `SessionCookieName = "__Host-postqron_session"`,
+// `name: 'postqron_locale'`, `STORAGE_KEY = 'postqron.cookie-choice'`).
+const COOKIE_LITERAL_PATTERN = /["'`]((?:__Host-)?postqron[\w.-]*)["'`]/gu
+
+async function deriveKnownCookieNames(): Promise<string[]> {
+  const names = new Set<string>()
+  for (const relativePath of COOKIE_NAME_SOURCES) {
+    const raw = await readFile(resolve(repoRoot, relativePath), 'utf8')
+    for (const match of raw.matchAll(COOKIE_LITERAL_PATTERN)) {
+      const name = match[1]
+      if (name) {
+        names.add(name)
+      }
+    }
+  }
+  return [...names].sort()
+}
 
 // Third-party tracker names that must never appear in the Cookie Policy,
 // since no such tracker is registered anywhere in the codebase.
@@ -46,11 +66,19 @@ test('no draft file contains a drafting marker or the deleted F13 placeholder te
 })
 
 test('the Cookie Policy mentions every real cookie and no invented tracker', async () => {
+  const knownCookieNames = await deriveKnownCookieNames()
+  // Sanity check: if source extraction ever finds nothing, fail loudly
+  // instead of silently degrading this cross-check into a no-op.
+  assert.ok(
+    knownCookieNames.length >= 4,
+    `expected to derive at least 4 cookie/storage names from ${COOKIE_NAME_SOURCES.join(', ')}, got ${knownCookieNames.length}`,
+  )
+
   const artifacts = await loadDraftArtifacts()
   const cookiePolicies = artifacts.filter(item => item.document === 'cookies')
   assert.equal(cookiePolicies.length, 5)
   for (const artifact of cookiePolicies) {
-    for (const name of KNOWN_COOKIE_NAMES) {
+    for (const name of knownCookieNames) {
       assert.ok(
         artifact.content.includes(name),
         `${artifact.locale} cookie policy is missing real cookie ${name}`,
