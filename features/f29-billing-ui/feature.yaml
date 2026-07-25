@@ -1,0 +1,25 @@
+schema_version: 1
+id: billing-ui
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies:
+  - app-shell
+  - f10-entitlements
+  - i18n
+  - marketing-site
+migrations: []
+web:
+  routes:
+    - name: app-billing
+      path: /app/billing
+      file: ./pages/billing.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-billing-checkout
+      path: /app/billing/checkout
+      file: ./pages/checkout.vue
+      visibility: private
+      middleware: [app-session]
+  plugins:
+    - ./runtime.ts

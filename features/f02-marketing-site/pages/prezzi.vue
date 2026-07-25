@@ -1,36 +1,58 @@
 <script setup lang="ts">
 import {
+  computed,
   useFetch,
   useHead,
+  useRoute,
   useRuntimeConfig,
   useSeoMeta,
 } from '#imports'
-import { computed } from 'vue'
 import PlanCatalog from '~/components/PlanCatalog.vue'
-import { parsePublicCatalog } from '~/src/catalog'
+import {
+  localeFromPath,
+  localizePath,
+  parsePublicCatalog,
+  pricingCopy,
+} from '~/src/catalog'
 
 const config = useRuntimeConfig()
-const title = 'Prezzi e piani — Postqron'
-const description = 'Tre piani chiari per freelance, professionisti e piccoli team. Confronta membri, canali e post programmati.'
-const canonical = `${config.public.siteUrl}/prezzi`
+const route = useRoute()
+const locale = computed(() => localeFromPath(route.fullPath))
+const copy = computed(() => pricingCopy(locale.value))
+const canonical = computed(() =>
+  `${String(config.public.siteUrl).replace(/\/+$/u, '')}${localizePath(locale.value, '/prezzi')}`)
 
 useSeoMeta({
-  title,
-  description,
-  ogTitle: title,
-  ogDescription: description,
-  ogUrl: canonical,
-  ogImage: `${config.public.siteUrl}/og.png`,
+  title: () => copy.value.seoTitle,
+  description: () => copy.value.seoDescription,
+  ogTitle: () => copy.value.seoTitle,
+  ogDescription: () => copy.value.seoDescription,
+  ogUrl: () => canonical.value,
+  ogImage: () => `${String(config.public.siteUrl).replace(/\/+$/u, '')}/og.png`,
   twitterCard: 'summary_large_image',
 })
-useHead({ link: [{ rel: 'canonical', href: canonical }] })
+useHead(() => ({
+  link: [
+    { rel: 'canonical', href: canonical.value },
+    ...(['en', 'it', 'es', 'fr', 'de'] as const).map(language => ({
+      rel: 'alternate',
+      hreflang: language,
+      href: `${String(config.public.siteUrl).replace(/\/+$/u, '')}${localizePath(language, '/prezzi')}`,
+    })),
+    {
+      rel: 'alternate',
+      hreflang: 'x-default',
+      href: `${String(config.public.siteUrl).replace(/\/+$/u, '')}/prezzi`,
+    },
+  ],
+}))
 
 const {
   data: rawCatalog,
   error,
   refresh,
   status,
-} = await useFetch('/api/plans', { key: 'public-plan-catalog' })
+} = await useFetch('/api/plans', { key: 'public-plan-catalog-d07-v1' })
 
 const catalog = computed(() => {
   if (!rawCatalog.value) {
@@ -48,13 +70,10 @@ const catalog = computed(() => {
   <div>
     <section class="page-hero page-hero--centered content-wrap">
       <p class="eyebrow">
-        Prezzi
+        {{ copy.eyebrow }}
       </p>
-      <h1>Scegli lo spazio giusto per il tuo lavoro.</h1>
-      <p>
-        Piani leggibili, capacità esplicite e una prova Pro di 14 giorni.
-        Puoi decidere dopo aver visto Postqron nel tuo flusso reale.
-      </p>
+      <h1>{{ copy.heroTitle }}</h1>
+      <p>{{ copy.heroDescription }}</p>
     </section>
 
     <section class="pricing-section content-wrap">
@@ -65,38 +84,38 @@ const catalog = computed(() => {
       <div
         v-else
         class="catalog-state"
-        role="status"
+        :role="error ? 'alert' : 'status'"
+        aria-live="polite"
       >
         <h2>
-          {{ status === 'pending' ? 'Caricamento dei piani…' : 'Prezzi momentaneamente non disponibili' }}
+          {{ status === 'pending' ? copy.loading : copy.unavailable }}
         </h2>
-        <p v-if="error">
-          Non mostriamo valori non aggiornati. Riprova tra poco per consultare il
-          catalogo ufficiale.
+        <p v-if="error || status !== 'pending'">
+          {{ copy.unavailableDetail }}
         </p>
         <button
-          v-if="error"
+          v-if="error || status !== 'pending'"
           class="pq-button pq-button--secondary"
           type="button"
           @click="() => refresh()"
         >
-          Riprova
+          {{ copy.retry }}
         </button>
       </div>
     </section>
 
     <section class="pricing-note content-wrap">
-      <h2>Tutti i piani includono</h2>
+      <h2>{{ copy.includedTitle }}</h2>
       <ul>
-        <li>Calendario editoriale</li>
-        <li>Bozze e programmazione</li>
-        <li>Stato delle pubblicazioni</li>
-        <li>Controlli privacy e sicurezza</li>
+        <li>{{ copy.includedCalendar }}</li>
+        <li>{{ copy.includedDrafts }}</li>
+        <li>{{ copy.includedStatus }}</li>
+        <li>{{ copy.includedPrivacy }}</li>
       </ul>
       <p>
-        Hai ancora dubbi?
-        <NuxtLink to="/faq">
-          Consulta le domande frequenti.
+        {{ copy.faqPrompt }}
+        <NuxtLink :to="localizePath(locale, '/faq')">
+          {{ copy.faqLink }}
         </NuxtLink>
       </p>
     </section>
