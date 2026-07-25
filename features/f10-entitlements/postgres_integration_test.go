@@ -60,8 +60,8 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		}(index)
 	}
 	wait.Wait()
-	if accepted.Load() != 15 {
-		t.Fatalf("accepted reservations = %d, want Pro limit 15", accepted.Load())
+	if accepted.Load() != 10 {
+		t.Fatalf("accepted reservations = %d, want Team trial limit 10", accepted.Load())
 	}
 
 	overview, err := service.GetOverview(ctx, workspaceID)
@@ -69,8 +69,19 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	channels := usageFor(t, overview, ResourceChannels)
-	if channels.Used != 15 || channels.Remaining != 0 || channels.OverLimit {
+	if channels.Used != 10 || channels.Remaining != 0 || channels.OverLimit {
 		t.Fatalf("channel usage after concurrency = %#v", channels)
+	}
+	members := usageFor(t, overview, ResourceMembers)
+	if members.Limit != 15 {
+		t.Fatalf("Team trial member limit = %#v, want 15", members.Limit)
+	}
+	publications := usageFor(t, overview, ResourceScheduledPublications)
+	if publications.Limit != 500 {
+		t.Fatalf(
+			"Team trial scheduled-publication limit = %#v, want 500",
+			publications.Limit,
+		)
 	}
 
 	for index := 0; index < 30; index++ {
@@ -88,14 +99,14 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := usageFor(t, overview, ResourceChannels).Used; got != 15 {
-		t.Fatalf("usage after idempotent replay = %d, want 15", got)
+	if got := usageFor(t, overview, ResourceChannels).Used; got != 10 {
+		t.Fatalf("usage after idempotent replay = %d, want 10", got)
 	}
 
 	if _, err := pool.Exec(
 		ctx,
 		`UPDATE f10_workspace_billing
-		    SET plan_code = 'start', updated_at = $2
+		    SET plan_code = 'start', channel_quantity = 3, updated_at = $2
 		  WHERE workspace_id = $1`,
 		workspaceID,
 		now.Add(2*time.Hour),
@@ -107,7 +118,7 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	channels = usageFor(t, overview, ResourceChannels)
-	if channels.Used != 15 || channels.Remaining != 0 || !channels.OverLimit {
+	if channels.Used != 10 || channels.Remaining != 0 || !channels.OverLimit {
 		t.Fatalf("downgrade did not preserve overage: %#v", channels)
 	}
 
@@ -118,7 +129,7 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		1,
 		"disconnect:channel-00",
 	)
-	if err != nil || !release.Accepted || release.Usage.Used != 14 {
+	if err != nil || !release.Accepted || release.Usage.Used != 9 {
 		t.Fatalf("release during overage = %#v, %v", release, err)
 	}
 	denied, err := service.Reserve(
@@ -131,7 +142,7 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if denied.Accepted || denied.Code != "limit_reached" || denied.Usage.Used != 14 {
+	if denied.Accepted || denied.Code != "limit_reached" || denied.Usage.Used != 9 {
 		t.Fatalf("over-limit addition = %#v", denied)
 	}
 
@@ -184,40 +195,24 @@ func testBillingLifecycle(
 	t.Helper()
 	ctx := context.Background()
 	registration := CheckoutRegistration{
-		SessionID:   "cs_test_f10",
-		WorkspaceID: workspaceID,
-		Plan:        PlanTeam,
-		Interval:    IntervalAnnual,
-		ExpiresAt:   now.Add(time.Hour),
-		CreatedAt:   now,
+		SessionID:      "txn_00000000000000000000000001",
+		WorkspaceID:    workspaceID,
+		Plan:           PlanTeam,
+		Interval:       IntervalAnnual,
+		Channels:       25,
+		CatalogVersion: CatalogVersion,
+		Items: []PaddleItem{
+			{PriceID: "pri_00000000000000000000000010", Quantity: 10},
+			{PriceID: "pri_00000000000000000000000011", Quantity: 15},
+		},
+		ExpiresAt: now.Add(time.Hour),
+		CreatedAt: now,
 	}
 	if err := store.RegisterCheckout(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RegisterCheckout(ctx, registration); err != nil {
 		t.Fatalf("idempotent checkout registration: %v", err)
-	}
-	first, err := store.CompleteCheckout(
-		ctx,
-		"evt_checkout_f10",
-		now.Add(time.Minute),
-		registration.SessionID,
-		"cus_f10",
-		"sub_f10",
-	)
-	if err != nil || !first {
-		t.Fatalf("first checkout completion = %v, %v", first, err)
-	}
-	first, err = store.CompleteCheckout(
-		ctx,
-		"evt_checkout_f10",
-		now.Add(time.Minute),
-		registration.SessionID,
-		"cus_f10",
-		"sub_f10",
-	)
-	if err != nil || first {
-		t.Fatalf("replayed checkout completion = %v, %v", first, err)
 	}
 	var stateBeforePayment BillingState
 	if err := pool.QueryRow(
@@ -235,14 +230,17 @@ func testBillingLifecycle(
 
 	paid := BillingEvent{
 		ID:             "evt_paid_f10",
-		Type:           "invoice.paid",
-		CreatedAt:      now.Add(2 * time.Minute),
+		Type:           "transaction.completed",
+		OccurredAt:     now.Add(2 * time.Minute),
 		WorkspaceID:    workspaceID,
 		Plan:           PlanTeam,
 		Interval:       IntervalAnnual,
+		Channels:       25,
 		State:          StateActive,
 		CustomerID:     "cus_f10",
 		SubscriptionID: "sub_f10",
+		TransactionID:  registration.SessionID,
+		ApplyState:     true,
 		Period: Period{
 			Start: now,
 			End:   now.AddDate(1, 0, 0),
@@ -259,10 +257,11 @@ func testBillingLifecycle(
 
 	stale := paid
 	stale.ID = "evt_stale_f10"
-	stale.CreatedAt = now.Add(90 * time.Second)
+	stale.OccurredAt = now.Add(90 * time.Second)
 	stale.State = StatePaymentRestricted
 	stale.Plan = PlanStart
 	stale.Interval = IntervalMonthly
+	stale.Channels = 3
 	result, err = store.ApplyBillingEvent(ctx, stale)
 	if err != nil || !result.FirstDelivery || result.StateChanged {
 		t.Fatalf("stale event = %#v, %v", result, err)
@@ -288,6 +287,41 @@ func testBillingLifecycle(
 	}
 	if binding.Plan != PlanTeam || binding.Interval != IntervalAnnual {
 		t.Fatalf("stale event changed checkout binding: %#v", binding)
+	}
+
+	failed := paid
+	failed.ID = "evt_failed_f10"
+	failed.Type = "transaction.payment_failed"
+	failed.OccurredAt = now.Add(3 * time.Minute)
+	failed.State = StatePastDue
+	if result, err = store.ApplyBillingEvent(ctx, failed); err != nil ||
+		!result.StateChanged {
+		t.Fatalf("first payment failure = %#v, %v", result, err)
+	}
+	retried := failed
+	retried.ID = "evt_failed_again_f10"
+	retried.OccurredAt = now.Add(24 * time.Hour)
+	if _, err = store.ApplyBillingEvent(ctx, retried); err != nil {
+		t.Fatal(err)
+	}
+	var firstFailure, graceEnds time.Time
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT first_payment_failed_at, grace_ends_at
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&firstFailure, &graceEnds); err != nil {
+		t.Fatal(err)
+	}
+	wantFailure := now.Add(3 * time.Minute)
+	if !firstFailure.Equal(wantFailure) ||
+		!graceEnds.Equal(wantFailure.Add(14*24*time.Hour)) {
+		t.Fatalf("grace = %s..%s, want anchored at %s", firstFailure, graceEnds, wantFailure)
+	}
+	affected, err := store.RestrictExpiredGracePeriods(ctx, graceEnds)
+	if err != nil || affected != 1 {
+		t.Fatalf("expired grace restriction = %d, %v", affected, err)
 	}
 }
 
@@ -350,15 +384,27 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 
-	migration, err := os.ReadFile(filepath.Join(
-		"migrations",
+	for _, name := range []string{
 		"000001_create_entitlements.sql",
+		"000002_paddle_d07.sql",
+	} {
+		migration, err := os.ReadFile(filepath.Join("migrations", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	paddleMigration, err := os.ReadFile(filepath.Join(
+		"migrations",
+		"000002_paddle_d07.sql",
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatal(err)
+	if _, err := pool.Exec(ctx, string(paddleMigration)); err != nil {
+		t.Fatalf("idempotent Paddle migration replay: %v", err)
 	}
 
 	t.Cleanup(func() {

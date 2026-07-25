@@ -2,6 +2,7 @@ package entitlements
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -25,7 +26,7 @@ func (store *SQLStore) ProvisionTrial(
 		startedAt.UTC(),
 	).Scan(&created)
 	if err != nil {
-		return false, fmt.Errorf("provision one-time Pro trial: %w", err)
+		return false, fmt.Errorf("provision one-time Team trial: %w", err)
 	}
 	return created, nil
 }
@@ -34,19 +35,25 @@ func (store *SQLStore) RegisterCheckout(
 	ctx context.Context,
 	registration CheckoutRegistration,
 ) error {
+	items, err := json.Marshal(registration.Items)
+	if err != nil {
+		return fmt.Errorf("encode Paddle checkout items: %w", err)
+	}
 	var matches bool
-	err := store.db.QueryRow(ctx, `
-		SELECT f10_register_checkout($1, $2, $3, $4, $5, $6)
+	err = store.db.QueryRow(ctx, `
+		SELECT f10_register_checkout($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		registration.SessionID,
 		registration.WorkspaceID,
 		registration.Plan,
 		registration.Interval,
+		registration.Channels,
+		registration.CatalogVersion,
+		items,
 		registration.ExpiresAt,
-		registration.CreatedAt,
 	).Scan(&matches)
 	if err != nil {
-		return fmt.Errorf("register checkout: %w", err)
+		return fmt.Errorf("register Paddle transaction: %w", err)
 	}
 	if !matches {
 		return ErrEventConflict
@@ -54,57 +61,91 @@ func (store *SQLStore) RegisterCheckout(
 	return nil
 }
 
-func (store *SQLStore) CompleteCheckout(
+func (store *SQLStore) ResolveTransaction(
 	ctx context.Context,
-	eventID string,
-	createdAt time.Time,
-	sessionID string,
-	customerID string,
-	subscriptionID string,
-) (bool, error) {
-	var firstDelivery bool
+	transactionID string,
+) (BillingBinding, error) {
+	var (
+		binding BillingBinding
+		items   []byte
+	)
 	err := store.db.QueryRow(ctx, `
-		SELECT f10_complete_checkout($1, $2, $3, $4, $5)
-	`,
-		eventID,
-		createdAt,
-		sessionID,
-		customerID,
-		subscriptionID,
-	).Scan(&firstDelivery)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, ErrInvalidCheckout
-		}
-		return false, fmt.Errorf("complete checkout: %w", err)
+		SELECT checkout.workspace_id,
+		       checkout.plan_code,
+		       checkout.billing_interval,
+		       checkout.channel_quantity,
+		       coalesce(checkout.customer_id, ''),
+		       coalesce(checkout.subscription_id, ''),
+		       checkout.session_id,
+		       checkout.expected_items,
+		       coalesce(billing.provider_period_start, checkout.created_at),
+		       coalesce(billing.provider_period_end, checkout.expires_at)
+		  FROM f10_checkout_sessions AS checkout
+		  LEFT JOIN f10_workspace_billing AS billing
+		    ON billing.workspace_id = checkout.workspace_id
+		 WHERE checkout.session_id = $1
+		   AND checkout.expires_at > now()
+	`, transactionID).Scan(
+		&binding.WorkspaceID,
+		&binding.Plan,
+		&binding.Interval,
+		&binding.Channels,
+		&binding.CustomerID,
+		&binding.SubscriptionID,
+		&binding.TransactionID,
+		&items,
+		&binding.Period.Start,
+		&binding.Period.End,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BillingBinding{}, ErrInvalidCheckout
 	}
-	return firstDelivery, nil
+	if err != nil {
+		return BillingBinding{}, fmt.Errorf("resolve Paddle transaction: %w", err)
+	}
+	if err := json.Unmarshal(items, &binding.ExpectedItems); err != nil {
+		return BillingBinding{}, fmt.Errorf("decode expected Paddle items: %w", err)
+	}
+	return binding, nil
 }
 
 func (store *SQLStore) ResolveSubscription(
 	ctx context.Context,
 	subscriptionID string,
 ) (BillingBinding, error) {
-	var binding BillingBinding
+	var (
+		binding BillingBinding
+		items   []byte
+	)
 	err := store.db.QueryRow(ctx, `
-		SELECT checkout.workspace_id,
-		       checkout.plan_code,
-		       checkout.billing_interval,
-		       checkout.customer_id,
-		       checkout.subscription_id,
-		       coalesce(billing.provider_period_start, checkout.completed_at),
-		       coalesce(billing.provider_period_end, checkout.expires_at)
-		  FROM f10_checkout_sessions AS checkout
-		  LEFT JOIN f10_workspace_billing AS billing
-		    ON billing.workspace_id = checkout.workspace_id
-		 WHERE checkout.subscription_id = $1
-		   AND checkout.completed_at IS NOT NULL
+		SELECT billing.workspace_id,
+		       billing.plan_code,
+		       billing.billing_interval,
+		       billing.channel_quantity,
+		       billing.paddle_customer_id,
+		       billing.paddle_subscription_id,
+		       coalesce(checkout.session_id, ''),
+		       coalesce(checkout.expected_items, '[]'::jsonb),
+		       billing.provider_period_start,
+		       billing.provider_period_end
+		  FROM f10_workspace_billing AS billing
+		  LEFT JOIN LATERAL (
+		      SELECT session_id, expected_items
+		        FROM f10_checkout_sessions
+		       WHERE subscription_id = billing.paddle_subscription_id
+		       ORDER BY completed_at DESC NULLS LAST, created_at DESC
+		       LIMIT 1
+		  ) AS checkout ON true
+		 WHERE billing.paddle_subscription_id = $1
 	`, subscriptionID).Scan(
 		&binding.WorkspaceID,
 		&binding.Plan,
 		&binding.Interval,
+		&binding.Channels,
 		&binding.CustomerID,
 		&binding.SubscriptionID,
+		&binding.TransactionID,
+		&items,
 		&binding.Period.Start,
 		&binding.Period.End,
 	)
@@ -112,7 +153,10 @@ func (store *SQLStore) ResolveSubscription(
 		return BillingBinding{}, ErrUnknownSubscription
 	}
 	if err != nil {
-		return BillingBinding{}, fmt.Errorf("resolve Stripe subscription: %w", err)
+		return BillingBinding{}, fmt.Errorf("resolve Paddle subscription: %w", err)
+	}
+	if err := json.Unmarshal(items, &binding.ExpectedItems); err != nil {
+		return BillingBinding{}, fmt.Errorf("decode expected Paddle items: %w", err)
 	}
 	return binding, nil
 }
@@ -125,43 +169,79 @@ func (store *SQLStore) ApplyBillingEvent(
 	err := store.db.QueryRow(ctx, `
 		SELECT first_delivery, state_changed
 		  FROM f10_apply_billing_event(
-		       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+		       $1, $2, $3, $4, $5, $6, $7, $8,
+		       $9, $10, $11, $12, $13, $14
 		  )
 	`,
 		event.ID,
 		event.Type,
-		event.CreatedAt,
+		event.OccurredAt,
 		event.WorkspaceID,
 		event.Plan,
 		event.Interval,
+		event.Channels,
 		event.State,
 		event.CustomerID,
 		event.SubscriptionID,
+		event.TransactionID,
 		event.Period.Start,
 		event.Period.End,
+		event.ApplyState,
 	).Scan(&result.FirstDelivery, &result.StateChanged)
 	if err != nil {
-		return BillingEventResult{}, fmt.Errorf("apply billing event: %w", err)
+		return BillingEventResult{}, fmt.Errorf("apply Paddle billing event: %w", err)
 	}
 	return result, nil
 }
 
-func (store *SQLStore) BillingCustomerID(
+func (store *SQLStore) BillingBinding(
 	ctx context.Context,
 	workspaceID string,
-) (string, error) {
-	var customerID string
+) (BillingBinding, error) {
+	var binding BillingBinding
 	err := store.db.QueryRow(ctx, `
-		SELECT stripe_customer_id
+		SELECT workspace_id,
+		       plan_code,
+		       billing_interval,
+		       channel_quantity,
+		       paddle_customer_id,
+		       paddle_subscription_id,
+		       provider_period_start,
+		       provider_period_end
 		  FROM f10_workspace_billing
 		 WHERE workspace_id = $1
-		   AND stripe_customer_id IS NOT NULL
-	`, workspaceID).Scan(&customerID)
+		   AND paddle_customer_id IS NOT NULL
+		   AND paddle_subscription_id IS NOT NULL
+	`, workspaceID).Scan(
+		&binding.WorkspaceID,
+		&binding.Plan,
+		&binding.Interval,
+		&binding.Channels,
+		&binding.CustomerID,
+		&binding.SubscriptionID,
+		&binding.Period.Start,
+		&binding.Period.End,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrEntitlementUnavailable
+		return BillingBinding{}, ErrEntitlementUnavailable
 	}
 	if err != nil {
-		return "", fmt.Errorf("resolve Stripe customer: %w", err)
+		return BillingBinding{}, fmt.Errorf("resolve Paddle customer: %w", err)
 	}
-	return customerID, nil
+	return binding, nil
+}
+
+func (store *SQLStore) RestrictExpiredGracePeriods(
+	ctx context.Context,
+	now time.Time,
+) (int64, error) {
+	var affected int64
+	if err := store.db.QueryRow(
+		ctx,
+		"SELECT f10_restrict_expired_grace($1)",
+		now.UTC(),
+	).Scan(&affected); err != nil {
+		return 0, fmt.Errorf("restrict expired Paddle grace periods: %w", err)
+	}
+	return affected, nil
 }

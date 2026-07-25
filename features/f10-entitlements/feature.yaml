@@ -1,9 +1,10 @@
 schema_version: 1
 id: f10-entitlements
 kind: api
-version: 0.1.0
+version: 0.2.0
 entrypoint: ./entitlements.go
 dependencies:
   - platform
 migrations:
   - ./migrations/000001_create_entitlements.sql
+  - ./migrations/000002_paddle_d07.sql
