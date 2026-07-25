@@ -1,0 +1,22 @@
+schema_version: 1
+id: cookie-consent-api
+kind: api
+version: 0.1.0
+entrypoint: ./module.go
+dependencies:
+  - auth
+  - compliance
+  - legal-documents
+migrations:
+  - ./migrations/000001_create_cookie_consent_ledger.sql
+required: false
+server:
+  routes:
+    - path: /cookie-preferences
+      handler: CookiePreferences
+      methods: [GET, PUT, DELETE]
+      visibility: public
+    - path: /cookie-preferences/export
+      handler: CookiePreferencesExport
+      methods: [GET]
+      visibility: public
