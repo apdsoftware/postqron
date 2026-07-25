@@ -1,0 +1,184 @@
+openapi: 3.1.0
+info:
+  title: Postqron cookie preference API
+  version: 0.1.0
+paths:
+  /api/v1/cookie-preferences:
+    get:
+      summary: Read the effective preferences for this browser or account
+      responses:
+        '200':
+          description: Optional categories are false when no current choice exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookiePreferences'
+        '503':
+          description: No approved current Cookie Policy is available
+    put:
+      summary: Replace the three optional category choices
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CookiePreferenceInput'
+      responses:
+        '200':
+          description: Choice saved, or the identical retry replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookiePreferences'
+        '400':
+          description: Unknown fields, invalid provenance, or malformed input
+        '409':
+          description: Policy changed or idempotency key conflicts
+        '503':
+          description: No approved current Cookie Policy is available
+    delete:
+      summary: Exercise erasure by unlinking the subject from retained evidence
+      responses:
+        '204':
+          description: Current choice and subject mapping erased
+  /api/v1/cookie-preferences/export:
+    get:
+      summary: Export current preferences and retained consent evidence
+      responses:
+        '200':
+          description: Portable JSON export without session tokens or direct identifiers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookiePreferenceExport'
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+  schemas:
+    CookiePreferenceInput:
+      type: object
+      additionalProperties: false
+      required: [policy_version, source, preferences, analytics, marketing]
+      properties:
+        policy_version:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+        source:
+          type: string
+          enum: [banner, preferences_center, account]
+        preferences:
+          type: boolean
+        analytics:
+          type: boolean
+        marketing:
+          type: boolean
+    CookiePreferences:
+      type: object
+      additionalProperties: false
+      required:
+        - necessary
+        - preferences
+        - analytics
+        - marketing
+        - has_recorded_choice
+        - policy_version
+        - policy_digest_sha256
+        - selected_at
+        - expires_at
+        - revision
+      properties:
+        necessary:
+          const: true
+        preferences:
+          type: boolean
+        analytics:
+          type: boolean
+        marketing:
+          type: boolean
+        has_recorded_choice:
+          type: boolean
+        policy_version:
+          type: string
+        policy_digest_sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        selected_at:
+          type: [string, 'null']
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        source:
+          type: string
+          enum: [banner, preferences_center, account]
+        revision:
+          type: integer
+          minimum: 0
+    ConsentEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - category
+        - action
+        - enabled
+        - policy_version
+        - policy_digest_sha256
+        - occurred_at
+        - source
+        - idempotency_key
+        - retention_until
+        - preference_revision
+      properties:
+        event_id:
+          type: string
+        category:
+          type: string
+          enum: [preferences, analytics, marketing]
+        action:
+          type: string
+          enum: [granted, rejected, withdrawn]
+        enabled:
+          type: boolean
+        policy_version:
+          type: string
+        policy_digest_sha256:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+        idempotency_key:
+          type: string
+        retention_until:
+          type: string
+          format: date-time
+        preference_revision:
+          type: integer
+    CookiePreferenceExport:
+      type: object
+      additionalProperties: false
+      required: [generated_at, subject_kind, current, evidence]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        subject_kind:
+          type: string
+          enum: [pseudonymous_browser, authenticated_account]
+        current:
+          $ref: '#/components/schemas/CookiePreferences'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsentEvidence'
