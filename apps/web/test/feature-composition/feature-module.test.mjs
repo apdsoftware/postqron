@@ -163,14 +163,26 @@ test('serves a discovered fixture through a generated Nuxt route', {
     'pages/fixture.vue': [
       '<script setup lang="ts">',
       "definePageMeta({ layout: 'fixture' })",
+      "const routeSession = useState<string>('fixture-route-session', () => 'missing')",
+      "const { data } = await useAsyncData('fixture-data', async () => routeSession.value)",
       '</script>',
-      '<template><main>runtime fixture reached <FixtureCard /></main></template>',
+      '<template><main>runtime fixture reached <FixtureCard /> <strong>{{ data }}</strong></main></template>',
       '',
     ].join('\n'),
     'layouts/fixture.vue': '<template><div data-fixture-layout><slot /></div></template>\n',
     'components/FixtureCard.vue': '<template><span>component active</span></template>\n',
     'plugins/fixture.ts': 'export default defineNuxtPlugin(() => {})\n',
-    'middleware/fixture-auth.ts': 'export default defineNuxtRouteMiddleware(() => {})\n',
+    'middleware/fixture-auth.ts': [
+      'export default defineNuxtRouteMiddleware(async (to) => {',
+      "  const cookie = useRequestHeaders(['cookie']).cookie",
+      "  if (!cookie?.includes('fixture_session=authenticated')) {",
+      "    return navigateTo('/fixture-sign-in', { redirectCode: 302 })",
+      '  }',
+      '  await Promise.resolve()',
+      "  useState<string>('fixture-route-session').value = `middleware:${to.fullPath}`",
+      '})',
+      '',
+    ].join('\n'),
   }
   for (const [path, source] of Object.entries(files)) {
     const target = join(directory, path)
@@ -238,15 +250,32 @@ test('serves a discovered fixture through a generated Nuxt route', {
     }
   })
 
-  const response = await waitForResponse(
-    `http://127.0.0.1:${port}/runtime-fixture`,
+  const deepLink = `http://127.0.0.1:${port}`
+    + '/runtime-fixture?plan=pro&interval=monthly&quantity=10'
+  const unauthenticated = await waitForResponse(
+    deepLink,
     server,
+    { redirect: 'manual' },
+  )
+  assert.equal(unauthenticated.status, 302)
+  assert.equal(unauthenticated.headers.get('location'), '/fixture-sign-in')
+
+  const response = await waitForResponse(
+    deepLink,
+    server,
+    {
+      headers: { cookie: 'fixture_session=authenticated' },
+      redirect: 'manual',
+    },
   )
   assert.equal(response.status, 200)
   const html = await response.text()
   assert.match(html, /runtime fixture reached/)
   assert.match(html, /component active/)
   assert.match(html, /data-fixture-layout/)
+  assert.match(html, /middleware:\/runtime-fixture\?plan=pro/)
+  assert.match(html, /interval=monthly/)
+  assert.match(html, /quantity=10/)
 })
 
 async function availablePort() {
@@ -263,14 +292,14 @@ async function availablePort() {
   return address.port
 }
 
-async function waitForResponse(url, server) {
+async function waitForResponse(url, server, options) {
   let lastError
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (server.exitCode !== null) {
       throw new Error(`Nuxt fixture server exited with code ${server.exitCode}`)
     }
     try {
-      return await globalThis.fetch(url)
+      return await globalThis.fetch(url, options)
     } catch (error) {
       lastError = error
       await new Promise(resolve => globalThis.setTimeout(resolve, 100))
