@@ -17,7 +17,19 @@
       "sourceVerified": true,
       "entryDate": "2026-07-25",
       "status": "active",
-      "note": "Paddle also acts as Merchant of Record and independent seller for the payment transaction itself (see the Terms of Service); this registry entry covers Paddle's role in processing Postqron account/billing data, not Paddle's own capacity as MoR contracting party to the end customer. Paddle's DPA text references a legacy sub-processor list page ('learn.profitwell.com') that appears outdated; Paddle's Trust Center sub-processor list (https://trust.paddle.com/subprocessors) could not be read by automated fetch and its contents are not independently verified."
+      "subprocessorsOfPaddle": [
+        { "name": "Amazon Web Services (AWS)", "purpose": "Cloud hosting for Paddle's SaaS platform", "location": "United States" },
+        { "name": "Snowflake", "purpose": "Data cloud powering Paddle's analytics and business intelligence", "location": "European Union (Ireland)" },
+        { "name": "Onfido", "purpose": "Risk management for KYC/KYB verification", "location": "United States" },
+        { "name": "Salesforce", "purpose": "CRM for customer relationship management", "location": "United States" },
+        { "name": "Cloudflare", "purpose": "Web security and CDN (DDoS protection, WAF, DNS management)", "location": "United States" },
+        { "name": "Google", "purpose": "Collaboration/productivity tools and Google Analytics", "location": "United States" },
+        { "name": "Wiz", "purpose": "Cloud security platform", "location": "United Kingdom" },
+        { "name": "TokenEx", "purpose": "Data tokenization", "location": "United States" },
+        { "name": "PayPal", "purpose": "Payment services", "location": "United States" },
+        { "name": "Stripe", "purpose": "Payment services", "location": "United States" }
+      ],
+      "note": "Paddle also acts as Merchant of Record and independent seller for the payment transaction itself (see the Terms of Service); this registry entry covers Paddle's role in processing Postqron account/billing data, not Paddle's own capacity as MoR contracting party to the end customer. Paddle's DPA text separately references a legacy sub-processor list page ('learn.profitwell.com') that appears outdated. Paddle's own sub-processor list, as reported directly from Paddle's Trust Center (https://trust.paddle.com/subprocessors) rather than independently re-fetched by automated research, is recorded in 'subprocessorsOfPaddle' above; consult trust.paddle.com/subprocessors directly for the current, authoritative, and complete list before publication."
     },
     {
       "legalName": "Hetzner Online GmbH",
@@ -136,7 +148,7 @@
       "sourceVerified": true,
       "entryDate": "2026-07-25",
       "status": "active",
-      "note": "LinkedIn's API Terms of Use cross-reference the LinkedIn Data Processing Agreement for Business Development Agreements (BD DPA) as governing personal information processed under those terms; the BD DPA's own text does not explicitly name OAuth/Sign in with LinkedIn as in-scope, so this applicability is by cross-reference only and not independently confirmed. LinkedIn Corporation is also certified to the EU-US Data Privacy Framework."
+      "note": "Confirmed: LinkedIn's Data Processing Agreement, in the strict sense of a controller-processor agreement under Art. 28 GDPR, does not apply to the use of OAuth login (\"Sign In with LinkedIn\"). LinkedIn's API Terms of Use cross-reference the LinkedIn Data Processing Agreement for Business Development Agreements (BD DPA), but that instrument governs LinkedIn's business-development/partner data flows, not the OAuth authentication feature used here. LinkedIn Corporation is separately certified to the EU-US Data Privacy Framework, which remains the relevant transfer mechanism for this feature."
     }
   ]
 }
