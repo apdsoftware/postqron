@@ -11,6 +11,7 @@ import {
   localizeUrl,
 } from '../../f36-i18n/src/index.ts'
 import { usePrelaunch } from '../runtime.ts'
+import { PRELAUNCH_CATALOGS } from '../src/catalogs.ts'
 
 definePageMeta({ layout: 'prelaunch' })
 
@@ -43,6 +44,7 @@ useHead(computed(() => ({
       rel: 'alternate',
       hreflang: locale,
       href: `${siteUrl}${localizeUrl(locale, '/prelaunch')}`,
+      title: PRELAUNCH_CATALOGS[locale]['landing.title'],
     })),
     {
       rel: 'alternate',
