@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { useRoute, useRuntimeConfig } from '#imports'
+import { computed, useRoute, useRuntimeConfig } from '#imports'
 import PqLogo from '../../f01-brand/components/PqLogo.vue'
+import { useMarketingSiteI18n } from '../locales/runtime.ts'
 
 const config = useRuntimeConfig()
 const route = useRoute()
-const navigation = [
-  { label: 'Funzionalità', to: '/funzionalita' },
-  { label: 'Prezzi', to: '/prezzi' },
-  { label: 'FAQ', to: '/faq' },
-]
+const i18n = useMarketingSiteI18n()
+
+const navigation = computed(() => [
+  { label: i18n.translate('marketing-nav.links.features'), to: i18n.localize('/funzionalita') },
+  { label: i18n.translate('marketing-nav.links.pricing'), to: i18n.localize('/prezzi') },
+  { label: i18n.translate('marketing-nav.links.faq'), to: i18n.localize('/faq') },
+])
 
 const isCurrent = (to: string) => route.path === to
 </script>
@@ -18,15 +21,15 @@ const isCurrent = (to: string) => route.path === to
     <div class="site-header__inner content-wrap">
       <NuxtLink
         class="site-header__brand"
-        to="/"
-        aria-label="Postqron, home"
+        :to="i18n.localize('/')"
+        :aria-label="i18n.translate('marketing-nav.brand.homeLabel')"
       >
         <PqLogo />
       </NuxtLink>
 
       <nav
         class="site-header__desktop"
-        aria-label="Navigazione principale"
+        :aria-label="i18n.translate('marketing-nav.nav.primaryLabel')"
       >
         <NuxtLink
           v-for="item in navigation"
@@ -38,20 +41,22 @@ const isCurrent = (to: string) => route.path === to
         </NuxtLink>
       </nav>
 
+      <PostqronLanguageSwitcher class="site-header__language" />
+
       <a
         class="pq-button site-header__cta"
         :href="config.public.appUrl"
       >
-        Inizia ora
+        {{ i18n.translate('marketing-nav.cta.start') }}
       </a>
 
       <details class="site-header__mobile">
-        <summary aria-label="Apri il menu">
+        <summary :aria-label="i18n.translate('marketing-nav.menu.openLabel')">
           <span aria-hidden="true" />
           <span aria-hidden="true" />
           <span aria-hidden="true" />
         </summary>
-        <nav aria-label="Navigazione mobile">
+        <nav :aria-label="i18n.translate('marketing-nav.nav.mobileLabel')">
           <NuxtLink
             v-for="item in navigation"
             :key="item.to"
@@ -60,7 +65,8 @@ const isCurrent = (to: string) => route.path === to
           >
             {{ item.label }}
           </NuxtLink>
-          <a :href="config.public.appUrl">Inizia ora</a>
+          <a :href="config.public.appUrl">{{ i18n.translate('marketing-nav.cta.start') }}</a>
+          <PostqronLanguageSwitcher />
         </nav>
       </details>
     </div>

@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { useHead, useRuntimeConfig, useSeoMeta } from '#imports'
+import { computed, useHead, useRuntimeConfig, useSeoMeta } from '#imports'
+import { SUPPORTED_LOCALES, localizeUrl } from '../../f36-i18n/src/index.ts'
+import { useMarketingSiteI18n } from '~/locales/runtime.ts'
 
 const config = useRuntimeConfig()
-const title = 'Funzionalità — Postqron'
-const description = 'Dalla bozza al calendario e all’esito di pubblicazione: scopri come Postqron semplifica la gestione dei contenuti social.'
-const canonical = `${config.public.siteUrl}/funzionalita`
+const i18n = useMarketingSiteI18n()
+const t = (key: string) => i18n.translate(`marketing-features.${key}`)
+
+const siteUrl = String(config.public.siteUrl).replace(/\/+$/u, '')
+const title = computed(() => t('seo.title'))
+const description = computed(() => t('seo.description'))
+const canonicalPath = computed(() => i18n.localize('/funzionalita'))
+const canonical = computed(() => `${siteUrl}${canonicalPath.value}`)
 
 useSeoMeta({
   title,
@@ -12,43 +19,56 @@ useSeoMeta({
   ogTitle: title,
   ogDescription: description,
   ogUrl: canonical,
-  ogImage: `${config.public.siteUrl}/og.png`,
+  ogImage: `${siteUrl}/og.png`,
   twitterCard: 'summary_large_image',
 })
-useHead({ link: [{ rel: 'canonical', href: canonical }] })
+useHead(computed(() => ({
+  link: [
+    { rel: 'canonical', href: canonical.value },
+    ...SUPPORTED_LOCALES.map(locale => ({
+      rel: 'alternate',
+      hreflang: locale,
+      href: `${siteUrl}${localizeUrl(locale, '/funzionalita')}`,
+    })),
+    {
+      rel: 'alternate',
+      hreflang: 'x-default',
+      href: `${siteUrl}/funzionalita`,
+    },
+  ],
+})))
 
-const capabilities = [
+const capabilities = computed(() => [
   {
-    eyebrow: 'Pianifica',
-    title: 'Il calendario editoriale che ti fa vedere davvero avanti.',
-    copy: 'Contenuti, canali, date e stati convivono in una vista ordinata. Puoi modificare, duplicare, riprogrammare o annullare ciò che non è ancora partito.',
-    points: ['Data, ora e fuso orario espliciti', 'Vista per giorno e stato', 'Modifiche prima della pubblicazione'],
+    eyebrow: t('cap1.eyebrow'),
+    title: t('cap1.title'),
+    copy: t('cap1.copy'),
+    points: [t('cap1.point1'), t('cap1.point2'), t('cap1.point3')],
   },
   {
-    eyebrow: 'Crea',
-    title: 'Scrivi una volta, adatta con consapevolezza.',
-    copy: 'Il composer raccoglie testo, media e destinazioni. Prima di programmare, Postqron segnala i vincoli specifici dei canali selezionati.',
-    points: ['Bozze sempre recuperabili', 'Validazione per ogni canale', 'Media e testo nello stesso flusso'],
+    eyebrow: t('cap2.eyebrow'),
+    title: t('cap2.title'),
+    copy: t('cap2.copy'),
+    points: [t('cap2.point1'), t('cap2.point2'), t('cap2.point3')],
   },
   {
-    eyebrow: 'Controlla',
-    title: 'L’esito non resta nascosto in una coda.',
-    copy: 'Ogni contenuto mostra uno stato comprensibile. Se una pubblicazione fallisce, trovi una causa utile e puoi riprovare in modo controllato.',
-    points: ['Stati chiari e coerenti', 'Nessuna pubblicazione duplicata', 'Avvisi quando serve intervenire'],
+    eyebrow: t('cap3.eyebrow'),
+    title: t('cap3.title'),
+    copy: t('cap3.copy'),
+    points: [t('cap3.point1'), t('cap3.point2'), t('cap3.point3')],
   },
-]
+])
 </script>
 
 <template>
   <div>
     <section class="page-hero content-wrap">
       <p class="eyebrow">
-        Funzionalità
+        {{ t('hero.eyebrow') }}
       </p>
-      <h1>Un flusso unico, dalla prima idea all’ultimo controllo.</h1>
+      <h1>{{ t('hero.title') }}</h1>
       <p>
-        Meno passaggi manuali, più visibilità. Postqron accompagna il contenuto
-        senza nascondere scelte, vincoli o risultati.
+        {{ t('hero.lead') }}
       </p>
     </section>
 
@@ -88,14 +108,14 @@ const capabilities = [
     <section class="cta-band content-wrap">
       <div>
         <p class="eyebrow">
-          Inizia dal prossimo contenuto
+          {{ t('ctaBand.eyebrow') }}
         </p>
-        <h2>Costruisci un calendario più leggibile.</h2>
+        <h2>{{ t('ctaBand.title') }}</h2>
       </div>
       <a
         class="pq-button"
         :href="config.public.appUrl"
-      >Inizia ora</a>
+      >{{ t('ctaBand.cta') }}</a>
     </section>
   </div>
 </template>

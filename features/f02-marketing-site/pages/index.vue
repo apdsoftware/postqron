@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { useHead, useRuntimeConfig, useSeoMeta } from '#imports'
+import { computed, useHead, useRuntimeConfig, useSeoMeta } from '#imports'
+import { SUPPORTED_LOCALES, localizeUrl } from '../../f36-i18n/src/index.ts'
 import FeatureCard from '~/components/FeatureCard.vue'
 import PlannerPreview from '~/components/PlannerPreview.vue'
+import { useMarketingSiteI18n } from '~/locales/runtime.ts'
 
 const config = useRuntimeConfig()
-const title = 'Postqron — I tuoi contenuti social, finalmente in ordine'
-const description = 'Pianifica, programma e controlla i contenuti social da un unico spazio chiaro, pensato per professionisti, creator e piccoli team.'
-const canonical = `${config.public.siteUrl}/`
+const i18n = useMarketingSiteI18n()
+const t = (key: string, params?: Record<string, string | number>) =>
+  i18n.translate(`marketing-home.${key}`, params)
+
+const siteUrl = String(config.public.siteUrl).replace(/\/+$/u, '')
+const title = computed(() => t('seo.title'))
+const description = computed(() => t('seo.description'))
+const canonicalPath = computed(() => i18n.localize('/'))
+const canonical = computed(() => `${siteUrl}${canonicalPath.value}`)
 
 useSeoMeta({
   title,
@@ -15,14 +23,26 @@ useSeoMeta({
   ogDescription: description,
   ogType: 'website',
   ogUrl: canonical,
-  ogImage: `${config.public.siteUrl}/og.png`,
+  ogImage: `${siteUrl}/og.png`,
   twitterCard: 'summary_large_image',
   twitterTitle: title,
   twitterDescription: description,
-  twitterImage: `${config.public.siteUrl}/og.png`,
+  twitterImage: `${siteUrl}/og.png`,
 })
-useHead({
-  link: [{ rel: 'canonical', href: canonical }],
+useHead(computed(() => ({
+  link: [
+    { rel: 'canonical', href: canonical.value },
+    ...SUPPORTED_LOCALES.map(locale => ({
+      rel: 'alternate',
+      hreflang: locale,
+      href: `${siteUrl}${localizeUrl(locale, '/')}`,
+    })),
+    {
+      rel: 'alternate',
+      hreflang: 'x-default',
+      href: `${siteUrl}/`,
+    },
+  ],
   script: [{
     type: 'application/ld+json',
     innerHTML: JSON.stringify({
@@ -31,29 +51,29 @@ useHead({
       name: 'Postqron',
       applicationCategory: 'BusinessApplication',
       operatingSystem: 'Web',
-      description,
-      url: canonical,
+      description: description.value,
+      url: canonical.value,
     }),
   }],
-})
+})))
 
-const features = [
+const features = computed(() => [
   {
     number: '01',
-    title: 'Un calendario che parla chiaro',
-    copy: 'Vedi cosa uscirà, dove e quando. Sposta, modifica o annulla un contenuto senza perdere il filo.',
+    title: t('feature1.title'),
+    copy: t('feature1.copy'),
   },
   {
     number: '02',
-    title: 'Un contenuto, più canali',
-    copy: 'Prepara il post una volta, scegli le destinazioni e correggi subito ciò che non rispetta le regole del canale.',
+    title: t('feature2.title'),
+    copy: t('feature2.copy'),
   },
   {
     number: '03',
-    title: 'Esiti sempre visibili',
-    copy: 'Sai quando un post è programmato, in pubblicazione, pubblicato o richiede il tuo intervento.',
+    title: t('feature3.title'),
+    copy: t('feature3.copy'),
   },
-]
+])
 </script>
 
 <template>
@@ -62,27 +82,26 @@ const features = [
       <div class="content-wrap hero-section__grid">
         <div class="hero-section__copy">
           <p class="eyebrow">
-            Più chiarezza. Meno schede aperte.
+            {{ t('hero.eyebrow') }}
           </p>
-          <h1>I tuoi contenuti social, finalmente in ordine.</h1>
+          <h1>{{ t('hero.title') }}</h1>
           <p class="hero-section__lead">
-            Postqron rende chiaro cosa verrà pubblicato, dove e quando. Da un
-            solo spazio, senza rincorrere fogli, promemoria e bozze sparse.
+            {{ t('hero.lead') }}
           </p>
           <div class="hero-section__actions">
             <a
               class="pq-button"
               :href="config.public.appUrl"
-            >Inizia ora</a>
+            >{{ t('hero.ctaPrimary') }}</a>
             <NuxtLink
               class="pq-button pq-button--secondary"
-              to="/funzionalita"
+              :to="i18n.localize('/funzionalita')"
             >
-              Scopri come funziona
+              {{ t('hero.ctaSecondary') }}
             </NuxtLink>
           </div>
           <p class="hero-section__note">
-            Prova Pro per 14 giorni. Decidi con calma.
+            {{ t('hero.note') }}
           </p>
         </div>
         <PlannerPreview />
@@ -91,25 +110,24 @@ const features = [
 
     <section
       class="trust-strip"
-      aria-label="Pensato per il tuo modo di lavorare"
+      :aria-label="t('trustStrip.ariaLabel')"
     >
       <div class="content-wrap">
-        <span>Per freelance</span>
-        <span>Per creator</span>
-        <span>Per piccoli team</span>
-        <span>Privacy by design</span>
+        <span>{{ t('trustStrip.freelance') }}</span>
+        <span>{{ t('trustStrip.creators') }}</span>
+        <span>{{ t('trustStrip.teams') }}</span>
+        <span>{{ t('trustStrip.privacy') }}</span>
       </div>
     </section>
 
     <section class="section-block content-wrap">
       <div class="section-heading">
         <p class="eyebrow">
-          Tutto sotto controllo
+          {{ t('features.eyebrow') }}
         </p>
-        <h2>Il lavoro editoriale torna a essere semplice.</h2>
+        <h2>{{ t('features.title') }}</h2>
         <p>
-          Postqron mette ordine tra idee, canali e scadenze, così puoi dedicare
-          più tempo ai contenuti e meno alla loro gestione.
+          {{ t('features.lead') }}
         </p>
       </div>
       <div class="feature-grid">
@@ -124,9 +142,9 @@ const features = [
       </div>
       <NuxtLink
         class="text-link"
-        to="/funzionalita"
+        :to="i18n.localize('/funzionalita')"
       >
-        Esplora tutte le funzionalità <span aria-hidden="true">→</span>
+        {{ t('features.exploreLink') }} <span aria-hidden="true">→</span>
       </NuxtLink>
     </section>
 
@@ -134,30 +152,30 @@ const features = [
       <div class="content-wrap workflow">
         <div class="section-heading">
           <p class="eyebrow">
-            Dal pensiero alla pubblicazione
+            {{ t('workflow.eyebrow') }}
           </p>
-          <h2>Tre passaggi, nessuna sorpresa.</h2>
+          <h2>{{ t('workflow.title') }}</h2>
         </div>
         <ol class="workflow__steps">
           <li>
             <span>1</span>
             <div>
-              <h3>Collega i canali</h3>
-              <p>Scegli gli account che vuoi gestire e mantieni sempre chiari permessi e stato.</p>
+              <h3>{{ t('step1.title') }}</h3>
+              <p>{{ t('step1.copy') }}</p>
             </div>
           </li>
           <li>
             <span>2</span>
             <div>
-              <h3>Prepara e programma</h3>
-              <p>Scrivi, aggiungi i media, seleziona data, ora e fuso orario.</p>
+              <h3>{{ t('step2.title') }}</h3>
+              <p>{{ t('step2.copy') }}</p>
             </div>
           </li>
           <li>
             <span>3</span>
             <div>
-              <h3>Controlla l’esito</h3>
-              <p>Segui ogni pubblicazione e intervieni rapidamente se qualcosa non va.</p>
+              <h3>{{ t('step3.title') }}</h3>
+              <p>{{ t('step3.copy') }}</p>
             </div>
           </li>
         </ol>
@@ -167,14 +185,14 @@ const features = [
     <section class="cta-band content-wrap">
       <div>
         <p class="eyebrow">
-          Il prossimo post può essere più semplice
+          {{ t('ctaBand.eyebrow') }}
         </p>
-        <h2>Porta ordine nel tuo calendario editoriale.</h2>
+        <h2>{{ t('ctaBand.title') }}</h2>
       </div>
       <a
         class="pq-button"
         :href="config.public.appUrl"
-      >Prova Postqron</a>
+      >{{ t('ctaBand.cta') }}</a>
     </section>
   </div>
 </template>
