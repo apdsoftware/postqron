@@ -63,10 +63,10 @@ export default defineNuxtConfig({
           name: route.name,
           path: route.path,
           file: route.file,
-          middleware: route.middleware,
           meta: {
             featureId: route.featureId,
             featureVisibility: route.visibility,
+            middleware: route.middleware,
           },
         })
       }

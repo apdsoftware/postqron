@@ -45,6 +45,23 @@ test('all five admin catalogs are complete and retain technical identifiers', ()
   }
 })
 
+test('admin route declares a localized non-empty document title', async () => {
+  const page = await readFile(
+    new URL('../pages/admin.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(page, /useHead\(computed\(\(\) => \(\{/u)
+  assert.match(page, /title: t\('document\.title'\)/u)
+
+  const titles = SUPPORTED_LOCALES.map((locale) => {
+    const title = ADMIN_CATALOGS[locale]['document.title']
+    assert.notEqual(title.trim(), '', `${locale}.document.title`)
+    assert.match(title, /Postqron$/u, `${locale}.document.title`)
+    return title
+  })
+  assert.equal(new Set(titles).size, SUPPORTED_LOCALES.length)
+})
+
 test('admin UI exposes accessible en/de confirmations and never requests secrets', async () => {
   const [page, layout, api, useAdmin] = await Promise.all([
     readFile(new URL('../pages/admin.vue', import.meta.url), 'utf8'),
