@@ -3,7 +3,7 @@ document: dpa
 locale: fr
 version: "0.1"
 title: "Accord de Traitement des Données de Postqron"
-controllerName: "APDSoftware — exploitant de Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Premier projet technique rédigé de novo, en attente de relec
 
 *Version provisoire 0.1 — en attente de relecture juridique. Ce document décrit, de bonne foi et à des fins internes et de prévisualisation, les conditions de traitement des données applicables entre Postqron et ses clients professionnels. Il ne constitue pas encore un instrument juridique finalisé.*
 
-Le présent Accord de Traitement des Données (« ATD ») est émis par APDSoftware, exploitant du service Postqron, joignable à l'adresse help@postqron.com et via le site https://apdsoftware.it. La dénomination sociale complète, le siège social et le numéro de TVA de l'entité contractante enregistrée sont enregistrés comme métadonnées en attente de validation juridique et seront indiqués ici dès leur confirmation.
+Le présent Accord de Traitement des Données (« ATD ») est émis par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant qu'exploitant du service Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et via le site https://apdsoftware.it.
 
 ## 1. Parties et rôles
 

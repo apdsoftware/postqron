@@ -3,7 +3,7 @@ document: privacy
 locale: it
 version: "0.1"
 title: "Informativa sulla privacy di Postqron"
-controllerName: "APDSoftware — gestore di Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -16,7 +16,7 @@ revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale.
 
 ## 1. Titolare del trattamento e contatti
 
-La presente informativa è emessa da APDSoftware, gestore del servizio Postqron, raggiungibile all'indirizzo help@postqron.com e tramite https://apdsoftware.it. La denominazione legale completa, la sede legale e la partita IVA dell'entità titolare del trattamento, nonché l'eventuale nomina di un Responsabile della protezione dei dati (DPO) e i relativi contatti, sono registrati come metadati in attesa di revisione legale e saranno qui indicati non appena confermati dal consulente. Per qualsiasi domanda, richiesta o reclamo in materia di privacy, nel frattempo è possibile scrivere a help@postqron.com.
+La presente informativa è emessa da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale titolare del trattamento per il servizio Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo help@postqron.com e tramite https://apdsoftware.it. L'eventuale nomina di un Responsabile della protezione dei dati (DPO) e i relativi contatti sono registrati come metadati in attesa di revisione legale e saranno qui indicati non appena confermati dal consulente. Per qualsiasi domanda, richiesta o reclamo in materia di privacy, nel frattempo è possibile scrivere a help@postqron.com.
 
 ## 2. Categorie di dati personali trattati
 

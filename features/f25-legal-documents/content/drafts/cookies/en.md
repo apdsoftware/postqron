@@ -3,7 +3,7 @@ document: cookies
 locale: en
 version: "0.1"
 title: "Postqron Cookie Policy"
-controllerName: "APDSoftware — operator of Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Initial from-scratch technical draft pending legal review."
 
 ## 1. Who issues this policy
 
-This Cookie Policy is issued by APDSoftware, operator of the Postqron social-media-scheduling service ("Postqron", "we", "us"), reachable at help@postqron.com and https://apdsoftware.it. The registered contracting entity's full legal name, registered office, and VAT number are recorded as pending legal-review metadata and will be disclosed here once confirmed.
+This Cookie Policy is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, operator of the Postqron social-media-scheduling service ("Postqron", "we", "us"; entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at help@postqron.com and https://apdsoftware.it.
 
 ## 2. What this policy covers
 

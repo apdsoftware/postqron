@@ -3,7 +3,7 @@ document: terms
 locale: it
 version: "0.1"
 title: "Termini di Servizio di Postqron"
-controllerName: "APDSoftware — gestore di Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revision
 
 ## 1. Identità del fornitore
 
-I presenti Termini di Servizio sono emessi da APDSoftware, gestore del servizio di programmazione di contenuti sui social media Postqron ("Postqron", il "Servizio"). APDSoftware è contattabile all'indirizzo help@postqron.com e all'indirizzo https://apdsoftware.it. La denominazione legale completa dell'entità contraente registrata, la sede legale e la partita IVA sono registrati come metadati in attesa di revisione legale e saranno qui indicati non appena confermati dal consulente.
+I presenti Termini di Servizio sono emessi da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale gestore del servizio di programmazione di contenuti sui social media Postqron ("Postqron", il "Servizio"). Dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms (consultata il 2026-07-25). L'entità è contattabile all'indirizzo help@postqron.com e all'indirizzo https://apdsoftware.it.
 
 ## 2. Ambito e accettazione
 
@@ -80,7 +80,7 @@ Nella misura massima consentita dalla legge inderogabile applicabile, la respons
 
 ## 15. Legge applicabile e foro competente
 
-I presenti Termini sono disciplinati dalla legge italiana. Per i consumatori, tale scelta di legge non li priva della protezione garantita dalle disposizioni inderogabili della legge del paese di residenza abituale, ove le norme applicabili dell'Unione Europea sui contratti transfrontalieri con i consumatori (in particolare il Regolamento Roma I) lo prevedano. Per le controversie che coinvolgono un consumatore, il foro competente è quello del luogo di residenza del consumatore, come determinato dalla legge applicabile. Per le controversie tra Postqron e un cliente impresa (B2B), sono competenti i tribunali del foro della sede legale dell'entità contraente, che costituisce parte dei metadati sull'identità del gestore in attesa di conferma descritti alla Sezione 1 e sarà confermata non appena disponibile.
+I presenti Termini sono disciplinati dalla legge italiana. Per i consumatori, tale scelta di legge non li priva della protezione garantita dalle disposizioni inderogabili della legge del paese di residenza abituale, ove le norme applicabili dell'Unione Europea sui contratti transfrontalieri con i consumatori (in particolare il Regolamento Roma I) lo prevedano. Per le controversie che coinvolgono un consumatore, il foro competente è quello del luogo di residenza del consumatore, come determinato dalla legge applicabile. Per le controversie tra Postqron e un cliente impresa (B2B), sono competenti i tribunali del foro della sede legale dell'entità contraente, Apdsoftware di Carlo Zuffetti, con sede in Via C. Colombo 15, 24047 Treviglio (BG), Italia (fonte: https://mailronix.com/terms, consultata il 2026-07-25); l'esatta articolazione del foro competente, incluse eventuali sezioni specializzate in materia di impresa, resta soggetta a conferma da parte del consulente legale.
 
 ## 16. Reclami e controversie
 

@@ -3,7 +3,7 @@ document: subprocessors
 locale: it
 version: "0.1"
 title: "Registro dei sub-responsabili di Postqron"
-controllerName: "APDSoftware — gestore di Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -12,7 +12,7 @@ revisionSummary: "Bozza iniziale redatta da zero, in attesa di revisione legale.
 
 ## Identità del fornitore
 
-Il presente registro è pubblicato da APDSoftware, gestore di Postqron, raggiungibile all'indirizzo help@postqron.com e tramite https://apdsoftware.it. La denominazione legale completa, la sede legale e la partita IVA dell'entità contraente registrata sono registrati come metadati in attesa di revisione legale e saranno qui indicati non appena confermati dal consulente.
+Il presente registro è pubblicato da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale gestore di Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo help@postqron.com e tramite https://apdsoftware.it.
 
 ## Finalità del presente registro
 

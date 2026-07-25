@@ -3,7 +3,7 @@ document: terms
 locale: fr
 version: "0.1"
 title: "Conditions Générales d'Utilisation de Postqron"
-controllerName: "APDSoftware — exploitant de Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Première version technique rédigée à partir de zéro, en a
 
 ## 1. Identité du prestataire
 
-Les présentes Conditions Générales d'Utilisation sont émises par APDSoftware, exploitant du service de planification de publications sur les réseaux sociaux Postqron (« Postqron », le « Service »). APDSoftware est joignable à l'adresse help@postqron.com et sur https://apdsoftware.it. La dénomination sociale complète de l'entité contractante enregistrée, son siège social et son numéro de TVA sont enregistrés comme métadonnées en attente de validation juridique et seront indiqués ici dès leur confirmation.
+Les présentes Conditions Générales d'Utilisation sont émises par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant qu'exploitant du service de planification de publications sur les réseaux sociaux Postqron (« Postqron », le « Service »). Ces informations relatives à l'entité ont été vérifiées via une source publique : https://mailronix.com/terms (consultée le 2026-07-25). L'entité est joignable à l'adresse help@postqron.com et sur https://apdsoftware.it.
 
 ## 2. Champ d'application et acceptation
 
@@ -80,7 +80,7 @@ Dans toute la mesure permise par la loi impérative applicable, la responsabilit
 
 ## 15. Droit applicable et juridiction compétente
 
-Les présentes Conditions sont régies par le droit italien. Pour les consommateurs, ce choix de loi ne les prive pas de la protection que leur assurent les dispositions impératives de la loi de leur pays de résidence habituelle, lorsque les règles applicables de l'Union européenne relatives aux contrats transfrontaliers avec les consommateurs (en particulier le Règlement Rome I) le prévoient. Pour les litiges impliquant un consommateur, la juridiction compétente est celle du lieu de résidence du consommateur, tel que déterminé par le droit applicable. Pour les litiges entre Postqron et un client professionnel (B2B), les juridictions compétentes sont celles du ressort du siège social de l'entité contractante, lequel fait partie des métadonnées d'identité de l'exploitant en attente de confirmation décrites à la Section 1 et sera confirmé dès qu'il sera disponible.
+Les présentes Conditions sont régies par le droit italien. Pour les consommateurs, ce choix de loi ne les prive pas de la protection que leur assurent les dispositions impératives de la loi de leur pays de résidence habituelle, lorsque les règles applicables de l'Union européenne relatives aux contrats transfrontaliers avec les consommateurs (en particulier le Règlement Rome I) le prévoient. Pour les litiges impliquant un consommateur, la juridiction compétente est celle du lieu de résidence du consommateur, tel que déterminé par le droit applicable. Pour les litiges entre Postqron et un client professionnel (B2B), les juridictions compétentes sont celles du ressort du siège social de l'entité contractante, Apdsoftware di Carlo Zuffetti, dont le siège est à Via C. Colombo 15, 24047 Treviglio (BG), Italie (source : https://mailronix.com/terms, consultée le 2026-07-25) ; la détermination exacte de la juridiction compétente, y compris toute chambre spécialisée en matière commerciale, reste soumise à confirmation par le conseil juridique.
 
 ## 16. Réclamations et litiges
 

@@ -3,7 +3,7 @@ document: subprocessors
 locale: fr
 version: "0.1"
 title: "Registre des sous-traitants de Postqron"
-controllerName: "APDSoftware — exploitant de Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -12,7 +12,7 @@ revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation 
 
 ## Identité du fournisseur
 
-Le présent registre est publié par APDSoftware, exploitant de Postqron, joignable à l'adresse help@postqron.com et via https://apdsoftware.it. La dénomination sociale complète, le siège social et le numéro de TVA de l'entité contractante enregistrée sont enregistrés comme métadonnées en attente de validation juridique et seront indiqués ici dès leur confirmation.
+Le présent registre est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant qu'exploitant de Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et via https://apdsoftware.it.
 
 ## Objet du présent registre
 

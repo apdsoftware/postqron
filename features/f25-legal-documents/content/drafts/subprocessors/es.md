@@ -3,7 +3,7 @@ document: subprocessors
 locale: es
 version: "0.1"
 title: "Registro de subencargados de Postqron"
-controllerName: "APDSoftware — operador de Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -12,7 +12,7 @@ revisionSummary: "Borrador inicial redactado desde cero, pendiente de revisión 
 
 ## Identidad del proveedor
 
-Este registro es emitido por APDSoftware, operador de Postqron, contactable en help@postqron.com y a través de https://apdsoftware.it. La denominación social completa, el domicilio social y el número de identificación fiscal de la entidad contratante registrada se registran como metadatos pendientes de revisión legal y se indicarán aquí en cuanto se confirmen.
+Este registro es emitido por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162), que opera bajo la marca APDSoftware como operador de Postqron (datos de la entidad verificados mediante una fuente pública: https://mailronix.com/terms, consultada el 2026-07-25), contactable en help@postqron.com y a través de https://apdsoftware.it.
 
 ## Finalidad de este registro
 

@@ -3,7 +3,7 @@ document: dpa
 locale: it
 version: "0.1"
 title: "Accordo sul Trattamento dei Dati di Postqron"
-controllerName: "APDSoftware — gestore di Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revision
 
 *Bozza versione 0.1 — in attesa di revisione legale. Il presente documento descrive, in buona fede e a fini interni e di anteprima, i termini di trattamento dei dati applicabili tra Postqron e i propri clienti aziendali. Non costituisce ancora uno strumento giuridico definitivo.*
 
-Il presente Accordo sul Trattamento dei Dati ("DPA") è emesso da APDSoftware, gestore del servizio Postqron, raggiungibile all'indirizzo help@postqron.com e tramite il sito https://apdsoftware.it. La denominazione sociale completa, la sede legale e la partita IVA dell'entità contraente registrata sono registrati come metadati in attesa di revisione legale e saranno qui indicati non appena confermati dal consulente.
+Il presente Accordo sul Trattamento dei Dati ("DPA") è emesso da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162), operante con il marchio APDSoftware quale gestore del servizio Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo help@postqron.com e tramite il sito https://apdsoftware.it.
 
 ## 1. Parti e ruoli
 

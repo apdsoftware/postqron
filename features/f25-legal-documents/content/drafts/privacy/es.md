@@ -3,7 +3,7 @@ document: privacy
 locale: es
 version: "0.1"
 title: "Política de privacidad de Postqron"
-controllerName: "APDSoftware — operador de Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -16,7 +16,7 @@ revisionSummary: "Borrador inicial redactado desde cero, pendiente de revisión 
 
 ## 1. Responsable del tratamiento y contacto
 
-Este aviso es emitido por APDSoftware, operador del servicio Postqron, contactable en help@postqron.com y a través de https://apdsoftware.it. La denominación social completa, el domicilio social y el número de identificación fiscal de la entidad responsable del tratamiento, junto con la eventual designación de un Delegado de Protección de Datos (DPD) y sus datos de contacto, se registran como metadatos pendientes de revisión legal y se indicarán aquí en cuanto se confirmen. Mientras tanto, para cualquier consulta, solicitud o reclamación relacionada con la privacidad, puede escribirse a help@postqron.com.
+Este aviso es emitido por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162), que opera bajo la marca APDSoftware como responsable del tratamiento del servicio Postqron (datos de la entidad verificados mediante una fuente pública: https://mailronix.com/terms, consultada el 2026-07-25), contactable en help@postqron.com y a través de https://apdsoftware.it. Si se ha designado un Delegado de Protección de Datos (DPD), y sus datos de contacto en tal caso, se registran como metadatos pendientes de revisión legal y se indicarán aquí en cuanto se confirmen. Mientras tanto, para cualquier consulta, solicitud o reclamación relacionada con la privacidad, puede escribirse a help@postqron.com.
 
 ## 2. Categorías de datos personales tratados
 

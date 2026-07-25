@@ -3,7 +3,7 @@ document: terms
 locale: es
 version: "0.1"
 title: "Términos de Servicio de Postqron"
-controllerName: "APDSoftware — operador de Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de r
 
 ## 1. Identidad del proveedor
 
-Los presentes Términos de Servicio son emitidos por APDSoftware, operador del servicio de programación de publicaciones en redes sociales Postqron ("Postqron", el "Servicio"). Se puede contactar con APDSoftware en help@postqron.com y en https://apdsoftware.it. La denominación legal completa de la entidad contratante registrada, su domicilio social y su identificador de IVA se registran como metadatos pendientes de revisión legal y se indicarán aquí en cuanto se confirmen.
+Los presentes Términos de Servicio son emitidos por Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, N.I.F./IVA 03835250162), que opera bajo la marca APDSoftware como operador del servicio de programación de publicaciones en redes sociales Postqron ("Postqron", el "Servicio"). Estos datos de la entidad se han verificado mediante una fuente pública: https://mailronix.com/terms (consultada el 2026-07-25). Se puede contactar con la entidad en help@postqron.com y en https://apdsoftware.it.
 
 ## 2. Ámbito y aceptación
 
@@ -80,7 +80,7 @@ En la medida máxima permitida por la legislación imperativa aplicable, la resp
 
 ## 15. Ley aplicable y jurisdicción
 
-Estos Términos se rigen por la ley italiana. Para los consumidores, esta elección de ley no les priva de la protección que les otorgan las disposiciones imperativas de la ley de su país de residencia habitual, cuando así lo prevean las normas aplicables de la Unión Europea sobre contratos transfronterizos con consumidores (en particular, el Reglamento Roma I). Para las controversias que involucren a un consumidor, el tribunal competente es el del lugar de residencia del consumidor, según lo determine la ley aplicable. Para las controversias entre Postqron y un cliente empresa (B2B), son competentes los tribunales del domicilio social de la entidad contratante, que forma parte de los metadatos de identidad del operador pendientes de confirmación descritos en la Sección 1 y se confirmará en cuanto esté disponible.
+Estos Términos se rigen por la ley italiana. Para los consumidores, esta elección de ley no les priva de la protección que les otorgan las disposiciones imperativas de la ley de su país de residencia habitual, cuando así lo prevean las normas aplicables de la Unión Europea sobre contratos transfronterizos con consumidores (en particular, el Reglamento Roma I). Para las controversias que involucren a un consumidor, el tribunal competente es el del lugar de residencia del consumidor, según lo determine la ley aplicable. Para las controversias entre Postqron y un cliente empresa (B2B), son competentes los tribunales del domicilio social de la entidad contratante, Apdsoftware di Carlo Zuffetti, con domicilio en Via C. Colombo 15, 24047 Treviglio (BG), Italia (fuente: https://mailronix.com/terms, consultada el 2026-07-25); la determinación exacta del tribunal competente, incluida cualquier sección especializada en materia mercantil, sigue pendiente de confirmación por parte del asesor legal.
 
 ## 16. Reclamaciones y controversias
 

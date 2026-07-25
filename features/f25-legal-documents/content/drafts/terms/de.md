@@ -3,7 +3,7 @@ document: terms
 locale: de
 version: "0.1"
 title: "Allgemeine Geschäftsbedingungen von Postqron"
-controllerName: "APDSoftware — Betreiberin von Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Erster, von Grund auf neu erstellter technischer Entwurf, auss
 
 ## 1. Identität des Anbieters
 
-Diese Allgemeinen Geschäftsbedingungen werden von APDSoftware herausgegeben, der Betreiberin des Social-Media-Planungsdienstes Postqron („Postqron", der „Dienst"). APDSoftware ist erreichbar unter help@postqron.com und unter https://apdsoftware.it. Der vollständige rechtliche Name der registrierten Vertragspartei, ihr Firmensitz und ihre Umsatzsteuer-Identifikationsnummer werden als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt sind.
+Diese Allgemeinen Geschäftsbedingungen werden von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Social-Media-Planungsdienstes Postqron („Postqron", der „Dienst") auftritt. Diese Angaben zur Rechtsperson wurden anhand einer öffentlichen Quelle verifiziert: https://mailronix.com/terms (abgerufen am 2026-07-25). Die Rechtsperson ist erreichbar unter help@postqron.com und unter https://apdsoftware.it.
 
 ## 2. Geltungsbereich und Annahme
 
@@ -80,7 +80,7 @@ Im nach zwingendem geltendem Recht größtmöglich zulässigen Umfang beschränk
 
 ## 15. Anwendbares Recht und Gerichtsstand
 
-Diese Bedingungen unterliegen italienischem Recht. Für Verbraucher entzieht diese Rechtswahl ihnen nicht den Schutz, den ihnen die zwingenden Bestimmungen des Rechts ihres Staates des gewöhnlichen Aufenthalts gewähren, soweit die anwendbaren Vorschriften der Europäischen Union über grenzüberschreitende Verbraucherverträge (insbesondere die Rom-I-Verordnung) dies vorsehen. Für Streitigkeiten unter Beteiligung eines Verbrauchers ist das nach anwendbarem Recht zuständige Gericht dasjenige seines Wohnsitzes. Für Streitigkeiten zwischen Postqron und einem Geschäftskunden (B2B) sind die Gerichte am Sitz der Vertragspartei zuständig, der Teil der in Abschnitt 1 beschriebenen, noch ausstehenden Metadaten zur Identität der Betreiberin ist und bestätigt wird, sobald sie vorliegen.
+Diese Bedingungen unterliegen italienischem Recht. Für Verbraucher entzieht diese Rechtswahl ihnen nicht den Schutz, den ihnen die zwingenden Bestimmungen des Rechts ihres Staates des gewöhnlichen Aufenthalts gewähren, soweit die anwendbaren Vorschriften der Europäischen Union über grenzüberschreitende Verbraucherverträge (insbesondere die Rom-I-Verordnung) dies vorsehen. Für Streitigkeiten unter Beteiligung eines Verbrauchers ist das nach anwendbarem Recht zuständige Gericht dasjenige seines Wohnsitzes. Für Streitigkeiten zwischen Postqron und einem Geschäftskunden (B2B) sind die Gerichte am Sitz der Vertragspartei zuständig, Apdsoftware di Carlo Zuffetti, mit Sitz in Via C. Colombo 15, 24047 Treviglio (BG), Italien (Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25); die genaue Bestimmung des zuständigen Gerichts, einschließlich einer etwaigen spezialisierten Handelskammer, bleibt der Bestätigung durch den Rechtsberater vorbehalten.
 
 ## 16. Beschwerden und Streitigkeiten
 

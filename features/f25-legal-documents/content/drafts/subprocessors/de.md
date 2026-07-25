@@ -3,7 +3,7 @@ document: subprocessors
 locale: de
 version: "0.1"
 title: "Postqron-Verzeichnis der Unterauftragsverarbeiter"
-controllerName: "APDSoftware — Betreiberin von Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -12,7 +12,7 @@ revisionSummary: "Erster von Grund auf erstellter Entwurf, in Erwartung der rech
 
 ## Identität des Anbieters
 
-Dieses Verzeichnis wird von APDSoftware, der Betreiberin von Postqron, herausgegeben, erreichbar unter help@postqron.com und über https://apdsoftware.it. Die vollständige Firmenbezeichnung, der Sitz und die Umsatzsteuer-Identifikationsnummer der registrierten vertragsschließenden Rechtsperson werden als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt sind.
+Dieses Verzeichnis wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Betreiberin von Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und über https://apdsoftware.it.
 
 ## Zweck dieses Verzeichnisses
 

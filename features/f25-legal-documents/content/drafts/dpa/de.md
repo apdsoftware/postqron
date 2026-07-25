@@ -3,7 +3,7 @@ document: dpa
 locale: de
 version: "0.1"
 title: "Auftragsverarbeitungsvertrag von Postqron"
-controllerName: "APDSoftware — Betreiber von Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — Betreiber von Postqron (Marke APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Erster technischer Entwurf, ausstehende rechtliche Prüfung."
 
 *Entwurfsversion 0.1 — ausstehende rechtliche Prüfung. Dieses Dokument beschreibt nach bestem Wissen und für interne Zwecke sowie zu Vorschauzwecken die Bedingungen der Datenverarbeitung, die zwischen Postqron und seinen Geschäftskunden gelten. Es handelt sich noch nicht um ein endgültiges rechtsverbindliches Dokument.*
 
-Dieser Auftragsverarbeitungsvertrag ("AVV") wird von APDSoftware herausgegeben, dem Betreiber des Dienstes Postqron, erreichbar unter help@postqron.com und über https://apdsoftware.it. Der vollständige rechtliche Name der registrierten Vertragspartei, ihr eingetragener Geschäftssitz und ihre Umsatzsteuer-Identifikationsnummer werden als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt sind.
+Dieser Auftragsverarbeitungsvertrag ("AVV") wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Betreiberin des Dienstes Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und über https://apdsoftware.it.
 
 ## 1. Vertragsparteien und Rollen
 

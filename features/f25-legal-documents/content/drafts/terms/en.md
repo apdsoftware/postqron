@@ -3,7 +3,7 @@ document: terms
 locale: en
 version: "0.1"
 title: "Postqron Terms of Service"
-controllerName: "APDSoftware — operator of Postqron"
+controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: help@postqron.com
 status: draft_pending_legal_review
 changeType: material
@@ -14,7 +14,7 @@ revisionSummary: "Initial from-scratch technical draft pending legal review."
 
 ## 1. Provider identity
 
-These Terms of Service are issued by APDSoftware, the operator of the Postqron social-media-scheduling service ("Postqron", the "Service"). APDSoftware can be reached at help@postqron.com and at https://apdsoftware.it. The registered contracting entity's full legal name, registered office and VAT identifier are recorded as pending legal-review metadata and will be disclosed here once confirmed.
+These Terms of Service are issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, the operator of the Postqron social-media-scheduling service ("Postqron", the "Service"). This entity information is verified via a public source: https://mailronix.com/terms (consulted 2026-07-25). The entity can be reached at help@postqron.com and at https://apdsoftware.it.
 
 ## 2. Scope and acceptance
 
@@ -80,7 +80,7 @@ To the maximum extent permitted by applicable mandatory law, Postqron's liabilit
 
 ## 15. Governing law and jurisdiction
 
-These Terms are governed by Italian law. For consumers, this choice of law does not deprive them of the protection afforded by mandatory provisions of the law of their country of habitual residence, where applicable European Union rules on cross-border consumer contracts (in particular the Rome I Regulation) so provide. For disputes involving a consumer, the competent court is that of the consumer's place of residence, as determined under applicable law. For disputes between Postqron and a business customer (B2B), the competent courts are those of the venue of the contracting entity's registered office, which forms part of the pending controller-identity metadata described in Section 1 and will be confirmed once available.
+These Terms are governed by Italian law. For consumers, this choice of law does not deprive them of the protection afforded by mandatory provisions of the law of their country of habitual residence, where applicable European Union rules on cross-border consumer contracts (in particular the Rome I Regulation) so provide. For disputes involving a consumer, the competent court is that of the consumer's place of residence, as determined under applicable law. For disputes between Postqron and a business customer (B2B), the competent courts are those of the venue of the contracting entity's registered office — Apdsoftware di Carlo Zuffetti, registered at Via C. Colombo 15, 24047 Treviglio (BG), Italy (source: https://mailronix.com/terms, consulted 2026-07-25); the precise determination of the competent court, including any specialized business-court venue, remains subject to confirmation by legal counsel.
 
 ## 16. Complaints and disputes
 
