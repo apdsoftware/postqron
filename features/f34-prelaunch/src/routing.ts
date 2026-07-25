@@ -19,9 +19,19 @@ const exactAllowedPaths = new Set([
   '/prelaunch/access',
 ])
 
+// Each entry is an explicit, individually justified API surface — never a
+// blanket "/api" wildcard. A wildcard would silently exempt any future
+// same-origin product API (e.g. publishing, social connections, billing)
+// from the pre-launch gate the moment it exists, which violates the
+// requirement that only necessary APIs stay reachable, explicitly.
 const allowedPrefixes = [
   '/admin',
-  '/api',
+  '/api/cookie-preferences',
+  '/api/features',
+  '/api/health',
+  '/api/legal',
+  '/api/v1/admin',
+  '/api/v1/prelaunch',
   '/brand',
   '/healthz',
   '/legal',

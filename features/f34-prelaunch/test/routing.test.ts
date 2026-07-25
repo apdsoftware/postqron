@@ -31,6 +31,13 @@ test('landing, legal, support, infrastructure and authorized admin entry remain 
     '/fr/contatti',
     '/de/admin',
     '/api/v1/prelaunch/status',
+    '/api/v1/prelaunch/access-requests',
+    '/api/v1/admin/session',
+    '/api/v1/admin/dashboard',
+    '/api/legal/terms',
+    '/api/cookie-preferences',
+    '/api/features',
+    '/api/health',
     '/healthz',
     '/_nuxt/app.js',
     '/brand/logo-primary.svg',
@@ -41,6 +48,26 @@ test('landing, legal, support, infrastructure and authorized admin entry remain 
     assert.deepEqual(
       prelaunchRouteDecision({ enabled: true, locale: 'en', url: path }),
       { action: 'allow' },
+      path,
+    )
+  }
+})
+
+test('the API allowlist is explicit, not a wildcard: unrelated product APIs stay gated', () => {
+  for (const path of [
+    '/api/plans',
+    '/api/v1/publishing',
+    '/api/v1/social-connections',
+    '/api/v1/entitlements',
+    '/api/v1/workspaces',
+    '/api/v1/scheduling',
+    '/api/v1/analytics',
+    '/it/api/v1/publishing',
+  ]) {
+    assert.equal(isExplicitlyAllowedPath(path), false, path)
+    assert.deepEqual(
+      prelaunchRouteDecision({ enabled: true, locale: 'it', url: path }),
+      { action: 'redirect', location: '/it/prelaunch' },
       path,
     )
   }
