@@ -23,7 +23,8 @@ web:
     - name: admin-console
       file: ./layouts/admin-console.vue
   components: []
-  plugins: []
+  plugins:
+    - ./runtime.ts
   middleware:
     - name: admin-access
       file: ./middleware/admin-access.ts

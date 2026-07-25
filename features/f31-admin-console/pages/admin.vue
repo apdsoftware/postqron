@@ -15,7 +15,10 @@ import {
   useAdminSessionState,
 } from '../core/use-admin.ts'
 
-definePageMeta({ layout: 'admin-console' })
+definePageMeta({
+  layout: 'admin-console',
+  middleware: 'admin-access',
+})
 
 const api = useAdminApi()
 const session = useAdminSessionState()
