@@ -153,8 +153,7 @@ export async function discoverFeatures(roots: string[]): Promise<DiscoveredFeatu
     }
   }
 
-  resolveFeatureOrder(features)
-  return features.sort((left, right) => left.manifest.id.localeCompare(right.manifest.id))
+  return resolveFeatureOrder(features)
 }
 
 export function resolveFeatureOrder(features: DiscoveredFeature[]): DiscoveredFeature[] {
@@ -190,4 +189,12 @@ export function resolveFeatureOrder(features: DiscoveredFeature[]): DiscoveredFe
     visit(feature)
   }
   return ordered
+}
+
+export function filterFeaturesByKind(
+  features: DiscoveredFeature[],
+  kinds: FeatureKind[],
+): DiscoveredFeature[] {
+  const requested = new Set(kinds)
+  return features.filter(feature => requested.has(feature.manifest.kind))
 }

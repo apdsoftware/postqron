@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
-    "prepare": "nuxt prepare",
-    "typecheck": "nuxt typecheck"
+    "build": "node ../../features/f02-marketing-site/scripts/link-workspace-runtime.mjs && nuxt prepare --cwd ../../features/f02-marketing-site && nuxt build",
+    "dev": "node ../../features/f02-marketing-site/scripts/link-workspace-runtime.mjs && nuxt prepare --cwd ../../features/f02-marketing-site && nuxt dev",
+    "prepare": "node ../../features/f02-marketing-site/scripts/link-workspace-runtime.mjs && nuxt prepare --cwd ../../features/f02-marketing-site && nuxt prepare",
+    "typecheck": "node ../../features/f02-marketing-site/scripts/link-workspace-runtime.mjs && nuxt prepare --cwd ../../features/f02-marketing-site && nuxt typecheck"
   },
   "dependencies": {
     "@postqron/runtime": "workspace:*",

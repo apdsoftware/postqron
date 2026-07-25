@@ -1,5 +1,5 @@
 import { delimiter, resolve } from 'node:path'
-import { discoverFeatures } from '@postqron/runtime'
+import { discoverFeatures, filterFeaturesByKind } from '@postqron/runtime'
 import { defineNitroPlugin, useRuntimeConfig } from 'nitropack/runtime'
 
 export default defineNitroPlugin(async (nitroApp) => {
@@ -8,7 +8,8 @@ export default defineNitroPlugin(async (nitroApp) => {
   const roots = configuredRoots
     .split(delimiter)
     .map(root => resolve(process.cwd(), root))
-  const features = await discoverFeatures(roots)
+  const discovered = await discoverFeatures(roots)
+  const features = filterFeaturesByKind(discovered, ['web'])
 
   nitroApp.hooks.hook('request', (event) => {
     event.context.features = features.map(feature => ({

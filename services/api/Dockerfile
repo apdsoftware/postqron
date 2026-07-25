@@ -1,6 +1,7 @@
 FROM golang:1.26-alpine AS build
 
 WORKDIR /workspace
+RUN apk add --no-cache bash
 COPY go.work ./
 COPY packages/runtime/go/go.mod packages/runtime/go/go.sum packages/runtime/go/
 COPY services/api/go.mod services/api/go.sum services/api/
@@ -9,8 +10,11 @@ RUN go mod download -C services/api
 
 COPY packages/runtime/go packages/runtime/go
 COPY services/api services/api
+COPY features features
+COPY scripts/runtime scripts/runtime
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./services/api/cmd/api \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./services/api/cmd/migrate
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./services/api/cmd/migrate \
+    && ./scripts/runtime/bundle-features.sh features /out/features
 
 FROM alpine:3.23 AS runtime
 
@@ -18,10 +22,11 @@ RUN addgroup -S postqron && adduser -S -G postqron postqron
 WORKDIR /app
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
-COPY services/api/features ./features
+COPY --from=build /out/features ./features
+COPY services/api/features ./foundation
 
 USER postqron
 EXPOSE 8080
 ENV API_ADDR=:8080
-ENV POSTQRON_FEATURE_ROOTS=/app/features
+ENV POSTQRON_FEATURE_ROOTS=/app/foundation:/app/features
 CMD ["api"]

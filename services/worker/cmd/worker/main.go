@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,10 +18,15 @@ var version = "dev"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	roots := filepath.SplitList(envOrDefault("POSTQRON_FEATURE_ROOTS", "services/worker/features"))
-	features, err := featureruntime.Discover(roots...)
+	roots := filepath.SplitList(envOrDefault("POSTQRON_FEATURE_ROOTS", defaultFeatureRoots()))
+	discovered, err := featureruntime.Discover(roots...)
 	if err != nil {
 		logger.Error("discover worker features", "error", err)
+		os.Exit(1)
+	}
+	features, err := featureruntime.FilterKind(discovered, "worker")
+	if err != nil {
+		logger.Error("filter worker features", "error", err)
 		os.Exit(1)
 	}
 
@@ -32,7 +38,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	logger.Info("worker started", "features", len(features), "version", version)
+	logger.Info(
+		"worker started",
+		"discovered_features", len(discovered),
+		"features", len(features),
+		"version", version,
+	)
 
 	worker := runner.New(features, interval, logger)
 	if os.Getenv("WORKER_RUN_ONCE") == "1" {
@@ -48,4 +59,11 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func defaultFeatureRoots() string {
+	return strings.Join(
+		[]string{"services/worker/features", "services/api/features", "features"},
+		string(os.PathListSeparator),
+	)
 }

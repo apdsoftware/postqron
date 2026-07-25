@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,8 +27,12 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
-	roots := featureRoots("POSTQRON_FEATURE_ROOTS", "services/api/features")
-	features, err := featureruntime.Discover(roots...)
+	roots := featureRoots("POSTQRON_FEATURE_ROOTS", defaultFeatureRoots())
+	discovered, err := featureruntime.Discover(roots...)
+	if err != nil {
+		return err
+	}
+	features, err := featureruntime.FilterKind(discovered, "api")
 	if err != nil {
 		return err
 	}
@@ -47,7 +52,13 @@ func run(logger *slog.Logger) error {
 
 	errs := make(chan error, 1)
 	go func() {
-		logger.Info("api listening", "address", address, "features", len(features), "version", version)
+		logger.Info(
+			"api listening",
+			"address", address,
+			"discovered_features", len(discovered),
+			"features", len(features),
+			"version", version,
+		)
 		errs <- server.ListenAndServe()
 	}()
 
@@ -67,6 +78,13 @@ func run(logger *slog.Logger) error {
 func featureRoots(key, fallback string) []string {
 	value := envOrDefault(key, fallback)
 	return filepath.SplitList(value)
+}
+
+func defaultFeatureRoots() string {
+	return strings.Join(
+		[]string{"services/api/features", "features"},
+		string(os.PathListSeparator),
+	)
 }
 
 func envOrDefault(key, fallback string) string {

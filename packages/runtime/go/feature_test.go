@@ -59,7 +59,44 @@ migrations: []
 	}
 }
 
+func TestDiscoverReturnsDependencyOrderAndFilterKindPreservesIt(t *testing.T) {
+	root := t.TempDir()
+	writeFeatureWithKind(t, root, "api-child", "api", []string{"web-foundation"})
+	writeFeatureWithKind(t, root, "web-foundation", "web", nil)
+	writeFeatureWithKind(t, root, "worker-child", "worker", []string{"api-child"})
+
+	features, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := featureIDs(features); strings.Join(got, ",") != "web-foundation,api-child,worker-child" {
+		t.Fatalf("Discover() order = %v", got)
+	}
+
+	filtered, err := FilterKind(features, "api", "worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := featureIDs(filtered); strings.Join(got, ",") != "api-child,worker-child" {
+		t.Fatalf("FilterKind() = %v", got)
+	}
+}
+
+func TestFilterKindRejectsUnknownKind(t *testing.T) {
+	if _, err := FilterKind(nil, "cron"); err == nil {
+		t.Fatal("FilterKind() accepted an unknown kind")
+	}
+}
+
 func writeFeature(t *testing.T, root, id string, dependencies []string) {
+	writeFeatureWithKind(t, root, id, "api", dependencies)
+}
+
+func writeFeatureWithKind(
+	t *testing.T,
+	root, id, kind string,
+	dependencies []string,
+) {
 	t.Helper()
 	directory := filepath.Join(root, id)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
@@ -70,7 +107,7 @@ func writeFeature(t *testing.T, root, id string, dependencies []string) {
 	}
 	source := "schema_version: 1\n" +
 		"id: " + id + "\n" +
-		"kind: api\n" +
+		"kind: " + kind + "\n" +
 		"version: 0.1.0\n" +
 		"entrypoint: ./entry.go\n" +
 		"dependencies: [" + strings.Join(dependencies, ", ") + "]\n" +
@@ -78,4 +115,12 @@ func writeFeature(t *testing.T, root, id string, dependencies []string) {
 	if err := os.WriteFile(filepath.Join(directory, "feature.yaml"), []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func featureIDs(features []Feature) []string {
+	ids := make([]string, 0, len(features))
+	for _, feature := range features {
+		ids = append(ids, feature.Manifest.ID)
+	}
+	return ids
 }

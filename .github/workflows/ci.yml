@@ -64,6 +64,7 @@ jobs:
             services/worker/go.sum
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @postqron/runtime test
+      - run: pnpm test:runtime-bundle
       - run: go test -race ./services/api/... ./services/worker/... ./packages/runtime/go/...
       - run: ./scripts/ci/for-each-feature-package.sh test
       - run: ./scripts/ci/for-each-feature-go-module.sh go test -race -count=1 ./...
@@ -109,6 +110,8 @@ jobs:
           WEB_IMAGE: ghcr.io/apdsoftware/postqron-web:test
           WORKER_IMAGE: ghcr.io/apdsoftware/postqron-worker:test
         run: docker compose -f infra/deploy/compose.yaml config --quiet
+      - name: Runtime image smoke tests
+        run: ./scripts/runtime/smoke-images.sh
 
   migrations:
     name: Migrations
