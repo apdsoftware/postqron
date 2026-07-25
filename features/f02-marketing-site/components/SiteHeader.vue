@@ -72,3 +72,30 @@ const isCurrent = (to: string) => route.path === to
     </div>
   </header>
 </template>
+
+<style scoped>
+@media (max-width: 48rem) {
+  .site-header__language {
+    display: none;
+  }
+
+  .site-header__mobile {
+    justify-self: end;
+  }
+
+  .site-header__mobile nav :deep(.postqron-language-switcher) {
+    padding: var(--pq-space-3) var(--pq-space-5);
+  }
+
+  .site-header__mobile nav :deep(.postqron-language-switcher__list) {
+    gap: var(--pq-space-2) var(--pq-space-3);
+  }
+
+  .site-header__mobile nav :deep(.postqron-language-switcher a) {
+    min-height: var(--pq-size-target-min);
+    padding: 0;
+    color: var(--pq-color-text);
+    background: transparent;
+  }
+}
+</style>

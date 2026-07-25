@@ -83,7 +83,10 @@ useHead(computed(() => ({
       >
         <summary>
           <span>{{ item.question }}</span>
-          <span aria-hidden="true">+</span>
+          <span
+            class="faq-list__icon"
+            aria-hidden="true"
+          >+</span>
         </summary>
         <p>{{ item.answer }}</p>
       </details>
@@ -103,3 +106,10 @@ useHead(computed(() => ({
     </section>
   </div>
 </template>
+
+<style scoped>
+.faq-list__icon {
+  flex: 0 0 auto;
+  margin-inline: 0.25rem;
+}
+</style>
