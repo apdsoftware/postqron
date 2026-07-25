@@ -1,6 +1,7 @@
 import { defineCatalogs } from '../../f36-i18n/src/catalog.ts'
 
 const en = {
+  'document.title': 'Admin console — Postqron',
   'shell.skip': 'Skip to admin content',
   'shell.navigation': 'Administration navigation',
   'shell.console': 'Admin console',
@@ -57,6 +58,7 @@ export type AdminMessageKey = keyof typeof en
 type AdminCatalog = Readonly<Record<AdminMessageKey, string>>
 
 const it: AdminCatalog = {
+  'document.title': 'Console di amministrazione — Postqron',
   'shell.skip': 'Vai al contenuto amministrativo',
   'shell.navigation': 'Navigazione amministrazione',
   'shell.console': 'Console admin',
@@ -110,6 +112,7 @@ const it: AdminCatalog = {
 }
 
 const es: AdminCatalog = {
+  'document.title': 'Consola de administración — Postqron',
   'shell.skip': 'Ir al contenido administrativo',
   'shell.navigation': 'Navegación de administración',
   'shell.console': 'Consola de administración',
@@ -163,6 +166,7 @@ const es: AdminCatalog = {
 }
 
 const fr: AdminCatalog = {
+  'document.title': 'Console d’administration — Postqron',
   'shell.skip': 'Aller au contenu administratif',
   'shell.navigation': 'Navigation de l’administration',
   'shell.console': 'Console d’administration',
@@ -216,6 +220,7 @@ const fr: AdminCatalog = {
 }
 
 const de: AdminCatalog = {
+  'document.title': 'Administrationskonsole — Postqron',
   'shell.skip': 'Zum Administrationsinhalt springen',
   'shell.navigation': 'Administrationsnavigation',
   'shell.console': 'Admin-Konsole',

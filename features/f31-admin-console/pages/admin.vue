@@ -3,6 +3,7 @@ import {
   computed,
   definePageMeta,
   ref,
+  useHead,
   useRequestHeaders,
 } from '#imports'
 import { AdminApiError, normalizeAdminApiError } from '../core/api.ts'
@@ -36,6 +37,10 @@ const selected = ref<EntitlementSummary>()
 const action = ref<'assign' | 'revoke'>('assign')
 const reason = ref('')
 const confirmed = ref(false)
+
+useHead(computed(() => ({
+  title: t('document.title'),
+})))
 
 const canSubmit = computed(() =>
   confirmed.value && reason.value.trim().length >= 8 && !saving.value)
