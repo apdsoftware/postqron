@@ -1,0 +1,29 @@
+schema_version: 1
+id: admin-console
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies:
+  - app-shell
+  - auth
+  - f10-entitlements
+  - f11-internal-plan
+  - i18n
+  - operations
+  - workspaces
+migrations: []
+web:
+  routes:
+    - name: admin-console
+      path: /admin
+      file: ./pages/admin.vue
+      visibility: private
+      middleware: [admin-access]
+  layouts:
+    - name: admin-console
+      file: ./layouts/admin-console.vue
+  components: []
+  plugins: []
+  middleware:
+    - name: admin-access
+      file: ./middleware/admin-access.ts
