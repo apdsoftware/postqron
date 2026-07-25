@@ -1,0 +1,14 @@
+{
+  "name": "@postqron/f25-legal-documents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "nuxt": "^3.21.0",
+    "vue": "^3.5.0"
+  }
+}

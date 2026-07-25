@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: Postqron legal documents
+  version: 1.0.0
+  description: >-
+    Publication contract for immutable, legally approved documents. Until a
+    complete legal release is installed, every document request returns 503
+    and no legal content.
+paths:
+  /api/v1/legal-documents/{document}/current:
+    get:
+      summary: Resolve the current approved document
+      parameters:
+        - $ref: '#/components/parameters/Document'
+        - $ref: '#/components/parameters/Locale'
+      responses:
+        '200':
+          description: Exact approved artifact selected from the effective release
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishedDocument'
+        '503':
+          $ref: '#/components/responses/ReleaseBlocked'
+  /api/v1/legal-documents/{document}/versions/{version}:
+    get:
+      summary: Retrieve an approved historical version
+      parameters:
+        - $ref: '#/components/parameters/Document'
+        - $ref: '#/components/parameters/Locale'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+      responses:
+        '200':
+          description: Exact approved historical artifact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishedDocument'
+        '404':
+          description: No effective release contains the requested version
+        '503':
+          $ref: '#/components/responses/ReleaseBlocked'
+components:
+  parameters:
+    Document:
+      name: document
+      in: path
+      required: true
+      schema:
+        enum: [terms, privacy, cookies, terms_it, privacy_it, cookies_it]
+    Locale:
+      name: locale
+      in: query
+      required: false
+      schema:
+        type: string
+      description: >-
+        en, it, es, fr, or de, including regional tags. Unsupported or missing
+        values explicitly fall back to en.
+  responses:
+    ReleaseBlocked:
+      description: Legal publication is blocked fail-closed
+      headers:
+        Cache-Control:
+          schema:
+            const: no-store
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message]
+                properties:
+                  code:
+                    const: legal_release_blocked
+                  message:
+                    type: string
+  schemas:
+    PublishedDocument:
+      type: object
+      required:
+        - document
+        - locale
+        - requestedLocale
+        - fallbackUsed
+        - jurisdiction
+        - version
+        - content
+        - digestSha256
+        - approvalReference
+        - approvedAt
+        - publishedAt
+        - effectiveAt
+        - permanentUrl
+      properties:
+        document:
+          enum: [terms, privacy, cookies]
+        locale:
+          enum: [en, it, es, fr, de]
+        requestedLocale:
+          enum: [en, it, es, fr, de]
+        fallbackUsed:
+          type: boolean
+        jurisdiction:
+          const: IT
+        version:
+          type: string
+        content:
+          type: string
+        digestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        approvalReference:
+          type: string
+        approvedAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+        effectiveAt:
+          type: string
+          format: date-time
+        permanentUrl:
+          type: string

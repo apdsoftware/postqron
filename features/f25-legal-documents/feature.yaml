@@ -1,0 +1,31 @@
+schema_version: 1
+id: legal-documents
+kind: web
+version: 0.1.0
+entrypoint: ./pages/legal-document.vue
+dependencies:
+  - i18n
+  - marketing-site
+migrations: []
+web:
+  routes:
+    - name: legal-terms
+      path: /legal/terms
+      file: ./pages/legal-document.vue
+      visibility: public
+      middleware: []
+    - name: legal-privacy
+      path: /legal/privacy
+      file: ./pages/legal-document.vue
+      visibility: public
+      middleware: []
+    - name: legal-cookies
+      path: /legal/cookies
+      file: ./pages/legal-document.vue
+      visibility: public
+      middleware: []
+    - name: legal-document-version
+      path: /legal/:document/:version
+      file: ./pages/legal-document.vue
+      visibility: public
+      middleware: []

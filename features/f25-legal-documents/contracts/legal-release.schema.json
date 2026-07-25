@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://postqron.com/schemas/legal-release-v1.json",
+  "title": "Postqron legal release bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifacts",
+    "evidence",
+    "releases"
+  ],
+  "properties": {
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "releases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/release"
+      }
+    }
+  },
+  "$defs": {
+    "utcInstant": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document",
+        "locale",
+        "jurisdiction",
+        "version",
+        "title",
+        "controllerName",
+        "contactEmail",
+        "content",
+        "digestSha256",
+        "approvalReference",
+        "approvedAt",
+        "publishedAt",
+        "effectiveAt",
+        "changeType",
+        "revisionSummary"
+      ],
+      "properties": {
+        "document": {
+          "enum": [
+            "terms",
+            "privacy",
+            "cookies"
+          ]
+        },
+        "locale": {
+          "enum": [
+            "en",
+            "it",
+            "es",
+            "fr",
+            "de"
+          ]
+        },
+        "jurisdiction": {
+          "const": "IT"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contactEmail": {
+          "type": "string",
+          "format": "email"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 500
+        },
+        "digestSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "approvalReference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approvedAt": {
+          "$ref": "#/$defs/utcInstant"
+        },
+        "publishedAt": {
+          "$ref": "#/$defs/utcInstant"
+        },
+        "effectiveAt": {
+          "$ref": "#/$defs/utcInstant"
+        },
+        "changeType": {
+          "enum": [
+            "material",
+            "non_material"
+          ]
+        },
+        "revisionSummary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "reference",
+        "verifiedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "controller_identity",
+            "cookie_inventory",
+            "retention_schedule",
+            "postqron_dpa",
+            "mailronix_dpa",
+            "mailronix_subprocessors",
+            "mailronix_transfers",
+            "paddle_terms"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "verifiedAt": {
+          "$ref": "#/$defs/utcInstant"
+        }
+      }
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document",
+        "locale",
+        "version",
+        "digestSha256"
+      ],
+      "properties": {
+        "document": {
+          "enum": [
+            "terms",
+            "privacy",
+            "cookies"
+          ]
+        },
+        "locale": {
+          "enum": [
+            "en",
+            "it",
+            "es",
+            "fr",
+            "de"
+          ]
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "digestSha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "market",
+        "version",
+        "fallbackLocale",
+        "approvalReference",
+        "approvedAt",
+        "effectiveAt",
+        "artifacts",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "market": {
+          "const": "IT"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "fallbackLocale": {
+          "const": "en"
+        },
+        "approvalReference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approvedAt": {
+          "$ref": "#/$defs/utcInstant"
+        },
+        "effectiveAt": {
+          "$ref": "#/$defs/utcInstant"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 15,
+          "maxItems": 15,
+          "items": {
+            "$ref": "#/$defs/artifactReference"
+          }
+        },
+        "evidenceIds": {
+          "type": "array",
+          "minItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
