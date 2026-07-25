@@ -2,6 +2,8 @@ package featurehost
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"io"
 	"log/slog"
@@ -68,7 +70,7 @@ server:
 	}
 	registry := NewRegistry()
 	if err := registry.Register(
-		"./server.go",
+		"fixture",
 		func(
 			_ context.Context,
 			_ featureruntime.Feature,
@@ -80,7 +82,8 @@ server:
 	); err != nil {
 		t.Fatal(err)
 	}
-	host, err := New(features, registry, testDependencies(), nil)
+	dependencies := testDependencies()
+	host, err := New(features, registry, dependencies, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +106,54 @@ server:
 	if module.starts != 1 {
 		t.Fatalf("module starts = %d, want 1", module.starts)
 	}
-	if received.Database == nil || received.Logger == nil || received.Clock == nil {
+	if received.PostgreSQL == nil || received.Logger == nil || received.Clock == nil {
 		t.Fatalf("factory did not receive explicit dependencies: %+v", received)
+	}
+	if received.PostgreSQL != dependencies.PostgreSQL {
+		t.Fatal("factory did not receive the host PostgreSQL connection")
 	}
 	if statuses := host.Statuses(); len(statuses) != 1 || statuses[0].State != StateActive {
 		t.Fatalf("statuses = %+v", statuses)
+	}
+}
+
+func TestMissingFactoryMakesRequiredFeatureNotReady(t *testing.T) {
+	required := testFeature("required", "/required", "public", true)
+	host, err := New(
+		[]featureruntime.Feature{required},
+		NewRegistry(),
+		testDependencies(),
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	err = host.Ready(context.Background())
+	if err == nil ||
+		!strings.Contains(err.Error(), `required feature "required"`) ||
+		!strings.Contains(err.Error(), "no factory registered") {
+		t.Fatalf("Ready() error = %v, want missing required factory", err)
+	}
+}
+
+func TestRegistryUsesFeatureIDsAndRejectsDuplicates(t *testing.T) {
+	registry := NewRegistry()
+	factory := lifecycleFactory("fixture", &[]string{})
+	if err := registry.Register("fixture", factory); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register("fixture", factory); err == nil ||
+		!strings.Contains(err.Error(), "duplicate feature factory") {
+		t.Fatalf("duplicate Register() error = %v", err)
+	}
+	if err := registry.Register("", factory); err == nil {
+		t.Fatal("Register() accepted an empty feature id")
+	}
+	if err := NewRegistry().Register("fixture", nil); err == nil {
+		t.Fatal("Register() accepted a nil factory")
 	}
 }
 
@@ -129,7 +175,7 @@ func TestRouteCollisionBlocksHostCreation(t *testing.T) {
 func TestPrivateRouteRequiresExplicitAuthenticatedChannel(t *testing.T) {
 	feature := testFeature("admin", "/admin", "private", true)
 	registry := NewRegistry()
-	if err := registry.Register("./server.go", func(
+	if err := registry.Register("admin", func(
 		context.Context,
 		featureruntime.Feature,
 		Dependencies,
@@ -194,7 +240,7 @@ func TestReadinessFailsForRequiredModuleOrMigration(t *testing.T) {
 	required := testFeature("required", "/required", "public", true)
 	optional := testFeature("optional", "/optional", "public", false)
 	registry := NewRegistry()
-	if err := registry.Register("./server.go", func(
+	factory := func(
 		_ context.Context,
 		feature featureruntime.Feature,
 		_ Dependencies,
@@ -206,8 +252,11 @@ func TestReadinessFailsForRequiredModuleOrMigration(t *testing.T) {
 			module.readyError = errors.New("optional unavailable")
 		}
 		return module, nil
-	}); err != nil {
-		t.Fatal(err)
+	}
+	for _, featureID := range []string{"required", "optional"} {
+		if err := registry.Register(featureID, factory); err != nil {
+			t.Fatal(err)
+		}
 	}
 	migrations := &fakeMigrations{
 		readyErrors: map[string]error{"required": errors.New("migration pending")},
@@ -238,10 +287,10 @@ func TestReadinessFailsForRequiredModuleOrMigration(t *testing.T) {
 func TestLifecycleStopsActiveModulesInReverseOrder(t *testing.T) {
 	var events []string
 	registry := NewRegistry()
-	if err := registry.Register("./first.go", lifecycleFactory("first", &events)); err != nil {
+	if err := registry.Register("first", lifecycleFactory("first", &events)); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Register("./second.go", lifecycleFactory("second", &events)); err != nil {
+	if err := registry.Register("second", lifecycleFactory("second", &events)); err != nil {
 		t.Fatal(err)
 	}
 	first := testFeature("first", "", "public", true)
@@ -310,10 +359,10 @@ func testFeature(
 
 func testDependencies() Dependencies {
 	return Dependencies{
-		Database: struct{}{},
-		Config:   map[string]string{"environment": "test"},
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Clock:    func() time.Time { return time.Unix(1, 0).UTC() },
+		PostgreSQL: sql.OpenDB(testConnector{}),
+		Config:     map[string]string{"environment": "test"},
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Clock:      func() time.Time { return time.Unix(1, 0).UTC() },
 	}
 }
 
@@ -359,7 +408,7 @@ type fakeMigrations struct {
 func (migrations *fakeMigrations) Apply(
 	_ context.Context,
 	feature featureruntime.Feature,
-	_ any,
+	_ *sql.DB,
 ) error {
 	return migrations.applyErrors[feature.Manifest.ID]
 }
@@ -367,7 +416,23 @@ func (migrations *fakeMigrations) Apply(
 func (migrations *fakeMigrations) Ready(
 	_ context.Context,
 	feature featureruntime.Feature,
-	_ any,
+	_ *sql.DB,
 ) error {
 	return migrations.readyErrors[feature.Manifest.ID]
+}
+
+type testConnector struct{}
+
+func (testConnector) Connect(context.Context) (driver.Conn, error) {
+	return nil, errors.New("test database must not be opened")
+}
+
+func (testConnector) Driver() driver.Driver {
+	return testDriver{}
+}
+
+type testDriver struct{}
+
+func (testDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("test database must not be opened")
 }

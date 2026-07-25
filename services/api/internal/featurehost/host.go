@@ -2,6 +2,7 @@ package featurehost
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,14 +18,17 @@ import (
 type Clock func() time.Time
 
 type Dependencies struct {
-	Database any
-	Config   map[string]string
-	Logger   *slog.Logger
-	Clock    Clock
+	// Database is retained for metadata-only hosts created by older callers.
+	// Executable server factories must use the typed PostgreSQL dependency.
+	Database   any
+	PostgreSQL *sql.DB
+	Config     map[string]string
+	Logger     *slog.Logger
+	Clock      Clock
 }
 
 func (dependencies Dependencies) validate() error {
-	if dependencies.Database == nil {
+	if dependencies.Database == nil && dependencies.PostgreSQL == nil {
 		return errors.New("feature database dependency is required")
 	}
 	if dependencies.Config == nil {
@@ -60,17 +64,17 @@ func NewRegistry() *Registry {
 	return &Registry{factories: make(map[string]Factory)}
 }
 
-func (registry *Registry) Register(entrypoint string, factory Factory) error {
-	if entrypoint == "" {
-		return errors.New("feature factory entrypoint is required")
+func (registry *Registry) Register(featureID string, factory Factory) error {
+	if featureID == "" {
+		return errors.New("feature factory id is required")
 	}
 	if factory == nil {
-		return fmt.Errorf("feature factory for %q is nil", entrypoint)
+		return fmt.Errorf("feature factory for %q is nil", featureID)
 	}
-	if _, exists := registry.factories[entrypoint]; exists {
-		return fmt.Errorf("duplicate feature factory for entrypoint %q", entrypoint)
+	if _, exists := registry.factories[featureID]; exists {
+		return fmt.Errorf("duplicate feature factory for %q", featureID)
 	}
-	registry.factories[entrypoint] = factory
+	registry.factories[featureID] = factory
 	return nil
 }
 
@@ -80,7 +84,7 @@ func (registry *Registry) load(
 	dependencies Dependencies,
 ) (Module, error) {
 	entrypoint := feature.Manifest.ServerEntrypoint()
-	if factory, ok := registry.factories[entrypoint]; ok {
+	if factory, ok := registry.factories[feature.Manifest.ID]; ok {
 		module, err := factory(ctx, feature, dependencies)
 		if err != nil {
 			return nil, fmt.Errorf("instantiate feature %q: %w", feature.Manifest.ID, err)
@@ -102,8 +106,8 @@ func (registry *Registry) load(
 }
 
 type MigrationManager interface {
-	Apply(context.Context, featureruntime.Feature, any) error
-	Ready(context.Context, featureruntime.Feature, any) error
+	Apply(context.Context, featureruntime.Feature, *sql.DB) error
+	Ready(context.Context, featureruntime.Feature, *sql.DB) error
 }
 
 type ValidatedMigrations struct{}
@@ -111,7 +115,7 @@ type ValidatedMigrations struct{}
 func (ValidatedMigrations) Apply(
 	context.Context,
 	featureruntime.Feature,
-	any,
+	*sql.DB,
 ) error {
 	return nil
 }
@@ -119,7 +123,7 @@ func (ValidatedMigrations) Apply(
 func (ValidatedMigrations) Ready(
 	context.Context,
 	featureruntime.Feature,
-	any,
+	*sql.DB,
 ) error {
 	return nil
 }
@@ -269,7 +273,11 @@ func (host *Host) Start(ctx context.Context) error {
 		if hosted.module == nil {
 			continue
 		}
-		if err := host.migrations.Apply(ctx, hosted.feature, host.dependencies.Database); err != nil {
+		if err := host.migrations.Apply(
+			ctx,
+			hosted.feature,
+			host.dependencies.PostgreSQL,
+		); err != nil {
 			host.setError(hosted, fmt.Errorf("apply migrations: %w", err))
 			continue
 		}
@@ -370,7 +378,7 @@ func (host *Host) Ready(ctx context.Context) error {
 		if err := host.migrations.Ready(
 			ctx,
 			hosted.feature,
-			host.dependencies.Database,
+			host.dependencies.PostgreSQL,
 		); err != nil {
 			failures = append(
 				failures,

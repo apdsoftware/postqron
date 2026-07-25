@@ -282,7 +282,10 @@ docker build -f "$repository_root/apps/web/Dockerfile" -t "$web_image" "$reposit
 docker build -f "$repository_root/services/api/Dockerfile" -t "$api_image" "$repository_root"
 docker build -f "$repository_root/services/worker/Dockerfile" -t "$worker_image" "$repository_root"
 
-docker run -d --name "$api_container" "$api_image" >/dev/null
+docker run -d \
+  --name "$api_container" \
+  -e DATABASE_URL=postgres://unused:unused@127.0.0.1:1/unused?sslmode=disable \
+  "$api_image" >/dev/null
 wait_for_http "$api_container" "http://127.0.0.1:8080/healthz"
 api_catalog=$(container_fetch "$api_container" "http://127.0.0.1:8080/api/v1/features")
 assert_contains "$api_catalog" '"id":"platform"'
