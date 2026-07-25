@@ -6,3 +6,4 @@ entrypoint: ./src/index.ts
 dependencies: []
 migrations:
   - ./migrations/000001_create_compliance_ledger.sql
+  - ./migrations/000002_seed_cookies_it_release.sql
