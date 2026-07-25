@@ -69,8 +69,10 @@ function cta(plan: PublicPlan): string {
 }
 
 function href(plan: PublicPlan): string {
+  const quantity = plan.purchasable ? channels.value : plan.limits.channels
+  const runtimeIntent = `${config.public.appUrl}?plan=${plan.code}&interval=${interval.value}&quantity=${quantity}`
   return purchaseHref(
-    String(config.public.appUrl),
+    runtimeIntent,
     locale.value,
     plan,
     interval.value,
