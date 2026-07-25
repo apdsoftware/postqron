@@ -1,0 +1,181 @@
+openapi: 3.1.0
+info:
+  title: Postqron private administration console
+  version: 0.1.0
+  description: Private-channel contract. It must never be mounted on the public API mux.
+servers:
+  - url: https://admin.internal
+paths:
+  /api/v1/admin/session:
+    get:
+      operationId: resolveAdminSession
+      security:
+        - productSession: []
+      responses:
+        '200':
+          description: Verified and server-allowlisted administrator session.
+        '401':
+          description: Session is missing or expired.
+        '403':
+          description: Verified email, allowlist, or active administrator check failed.
+  /api/v1/admin/dashboard:
+    get:
+      operationId: getAdminDashboard
+      security:
+        - productSession: []
+      responses:
+        '200':
+          description: Minimal service health, entitlement, and recent audit projection.
+        '403':
+          description: Administration is forbidden without disclosing dashboard data.
+  /api/v1/admin/search:
+    get:
+      operationId: searchAdminSubjects
+      security:
+        - productSession: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 120
+      responses:
+        '200':
+          description: Minimal user and workspace results without secrets or payment data.
+        '403':
+          description: Administration is forbidden without performing the search.
+  /api/v1/admin/workspaces/{workspace_id}/internal-plan:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+    put:
+      operationId: assignAdminInternalPlan
+      security:
+        - productSession: []
+          csrfToken: []
+          recentReauth: []
+          idempotencyKey: []
+      requestBody:
+        $ref: '#/components/requestBodies/ConfirmedReason'
+      responses:
+        '200':
+          description: F11 assignment accepted and immutably audited.
+        '403':
+          description: Server authorization or CSRF check failed.
+  /api/v1/admin/admins/{account_id}:
+    parameters:
+      - name: account_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+    put:
+      operationId: addConfiguredAdministrator
+      description: The target email must also be present in the server allowlist.
+      security:
+        - productSession: []
+          csrfToken: []
+          recentReauth: []
+          idempotencyKey: []
+      requestBody:
+        $ref: '#/components/requestBodies/ConfirmedAdminReason'
+      responses:
+        '200':
+          description: Administrator activation accepted and immutably audited.
+        '403':
+          description: Target is not server-configured or authorization failed.
+    delete:
+      operationId: removeConfiguredAdministrator
+      security:
+        - productSession: []
+          csrfToken: []
+          recentReauth: []
+          idempotencyKey: []
+      requestBody:
+        $ref: '#/components/requestBodies/ConfirmedAdminReason'
+      responses:
+        '200':
+          description: Administrator removal accepted and immutably audited.
+        '403':
+          description: Target is not server-configured or authorization failed.
+    delete:
+      operationId: revokeAdminInternalPlan
+      security:
+        - productSession: []
+          csrfToken: []
+          recentReauth: []
+          idempotencyKey: []
+      requestBody:
+        $ref: '#/components/requestBodies/ConfirmedReason'
+      responses:
+        '200':
+          description: F11 revocation accepted and immutably audited.
+        '403':
+          description: Server authorization or CSRF check failed.
+components:
+  securitySchemes:
+    productSession:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+    recentReauth:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
+      description: The server validates authenticated_at against the re-authentication window.
+    idempotencyKey:
+      type: apiKey
+      in: header
+      name: Idempotency-Key
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+  requestBodies:
+    ConfirmedReason:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [confirmed, reason]
+            properties:
+              confirmed:
+                const: true
+              reason:
+                type: string
+                minLength: 8
+                maxLength: 500
+    ConfirmedAdminReason:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [confirmed, email, reason]
+            properties:
+              confirmed:
+                const: true
+              email:
+                type: string
+                format: email
+              reason:
+                type: string
+                minLength: 8
+                maxLength: 500
