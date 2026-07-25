@@ -1,0 +1,11 @@
+schema_version: 1
+id: i18n
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies: []
+migrations: []
+required: true
+web:
+  plugins:
+    - ./runtime.ts
