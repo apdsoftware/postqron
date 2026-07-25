@@ -70,6 +70,14 @@ describe('discoverFeatures', () => {
         entrypoint: './entry.ts',
         dependencies,
         migrations: [],
+        server: { routes: [] },
+        web: {
+          routes: [],
+          layouts: [],
+          components: [],
+          plugins: [],
+          middleware: [],
+        },
       },
     })
 
@@ -97,5 +105,72 @@ describe('discoverFeatures', () => {
       filterFeaturesByKind(features, ['api', 'worker'])
         .map(feature => feature.manifest.id),
     ).toEqual(['api-child', 'worker-child'])
+  })
+
+  it('validates and discovers a feature shared by server and web hosts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    const directory = join(root, 'fixture')
+    await mkdir(join(directory, 'pages'), { recursive: true })
+    await mkdir(join(directory, 'layouts'), { recursive: true })
+    await mkdir(join(directory, 'components'), { recursive: true })
+    await mkdir(join(directory, 'plugins'), { recursive: true })
+    await mkdir(join(directory, 'middleware'), { recursive: true })
+    await Promise.all([
+      writeFile(join(directory, 'server.go'), 'package fixture\n'),
+      writeFile(join(directory, 'runtime.ts'), 'export default {}\n'),
+      writeFile(join(directory, 'pages', 'fixture.vue'), '<template>fixture</template>\n'),
+      writeFile(join(directory, 'layouts', 'default.vue'), '<template><slot /></template>\n'),
+      writeFile(join(directory, 'components', 'Fixture.vue'), '<template>fixture</template>\n'),
+      writeFile(join(directory, 'plugins', 'fixture.ts'), 'export default {}\n'),
+      writeFile(join(directory, 'middleware', 'auth.ts'), 'export default {}\n'),
+    ])
+    await writeFile(
+      join(directory, 'feature.yaml'),
+      [
+        'schema_version: 1',
+        'id: fixture',
+        'kind: api',
+        'version: 0.1.0',
+        'entrypoints:',
+        '  server: ./server.go',
+        '  web: ./runtime.ts',
+        'dependencies: []',
+        'migrations: []',
+        'server:',
+        '  routes:',
+        '    - path: /fixture',
+        '      handler: fixture',
+        '      methods: [GET]',
+        '      visibility: public',
+        'web:',
+        '  routes:',
+        '    - name: fixture',
+        '      path: /fixture',
+        '      file: ./pages/fixture.vue',
+        '      visibility: private',
+        '      middleware: [auth]',
+        '  layouts:',
+        '    - name: default',
+        '      file: ./layouts/default.vue',
+        '  components: [./components]',
+        '  plugins: [./plugins/fixture.ts]',
+        '  middleware:',
+        '    - name: auth',
+        '      file: ./middleware/auth.ts',
+        '',
+      ].join('\n'),
+    )
+
+    const features = await discoverFeatures([root])
+    expect(features).toHaveLength(1)
+    const feature = features[0]!
+
+    expect(filterFeaturesByKind([feature], ['api'])).toEqual([feature])
+    expect(filterFeaturesByKind([feature], ['web'])).toEqual([feature])
+    expect(feature.manifest.web.routes[0]).toMatchObject({
+      path: '/fixture',
+      visibility: 'private',
+      middleware: ['auth'],
+    })
   })
 })

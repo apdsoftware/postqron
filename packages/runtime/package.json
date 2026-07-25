@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test ../../apps/web/test/feature-composition/feature-module.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

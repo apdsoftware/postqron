@@ -7,27 +7,43 @@ import (
 	"time"
 
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
+	"github.com/apdsoftware/postqron/services/api/internal/featurehost"
 )
 
 type featureResponse struct {
 	ID      string `json:"id"`
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
 }
 
 type server struct {
 	features []featureruntime.Feature
+	host     *featurehost.Host
 	logger   *slog.Logger
 	version  string
 }
 
 func New(features []featureruntime.Feature, version string, logger *slog.Logger) http.Handler {
 	api := &server{features: features, version: version, logger: logger}
+	return api.handler()
+}
+
+func NewWithHost(host *featurehost.Host, version string, logger *slog.Logger) http.Handler {
+	api := &server{host: host, version: version, logger: logger}
+	return api.handler()
+}
+
+func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", api.health)
-	mux.HandleFunc("GET /readyz", api.ready)
-	mux.HandleFunc("GET /api/v1/features", api.listFeatures)
-	return api.logging(mux)
+	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /readyz", s.ready)
+	mux.HandleFunc("GET /api/v1/features", s.listFeatures)
+	if s.host != nil {
+		mux.Handle("/api/v1/", s.host.PublicHandler())
+	}
+	return s.logging(mux)
 }
 
 func (s *server) health(writer http.ResponseWriter, _ *http.Request) {
@@ -38,23 +54,51 @@ func (s *server) health(writer http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *server) ready(writer http.ResponseWriter, _ *http.Request) {
+func (s *server) ready(writer http.ResponseWriter, request *http.Request) {
+	if s.host != nil {
+		if err := s.host.Ready(request.Context()); err != nil {
+			writeJSON(writer, http.StatusServiceUnavailable, map[string]any{
+				"status": "not_ready",
+				"error":  err.Error(),
+			})
+			return
+		}
+	}
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"status":   "ready",
-		"features": len(s.features),
+		"features": len(s.featureStatuses()),
 	})
 }
 
 func (s *server) listFeatures(writer http.ResponseWriter, _ *http.Request) {
-	response := make([]featureResponse, 0, len(s.features))
-	for _, feature := range s.features {
+	statuses := s.featureStatuses()
+	response := make([]featureResponse, 0, len(statuses))
+	for _, status := range statuses {
 		response = append(response, featureResponse{
-			ID:      feature.Manifest.ID,
-			Kind:    feature.Manifest.Kind,
-			Version: feature.Manifest.Version,
+			ID:      status.ID,
+			Kind:    status.Kind,
+			Version: status.Version,
+			Status:  string(status.State),
+			Error:   status.Error,
 		})
 	}
 	writeJSON(writer, http.StatusOK, response)
+}
+
+func (s *server) featureStatuses() []featurehost.Status {
+	if s.host != nil {
+		return s.host.Statuses()
+	}
+	statuses := make([]featurehost.Status, 0, len(s.features))
+	for _, feature := range s.features {
+		statuses = append(statuses, featurehost.Status{
+			ID:      feature.Manifest.ID,
+			Kind:    feature.Manifest.Kind,
+			Version: feature.Manifest.Version,
+			State:   featurehost.StateActive,
+		})
+	}
+	return statuses
 }
 
 func (s *server) logging(next http.Handler) http.Handler {

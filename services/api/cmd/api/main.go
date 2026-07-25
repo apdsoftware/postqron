@@ -13,6 +13,7 @@ import (
 	"time"
 
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
+	"github.com/apdsoftware/postqron/services/api/internal/featurehost"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 )
 
@@ -38,9 +39,30 @@ func run(logger *slog.Logger) error {
 	}
 
 	address := envOrDefault("API_ADDR", ":8080")
+	host, err := featurehost.New(
+		features,
+		featurehost.NewRegistry(),
+		featurehost.Dependencies{
+			Database: struct{}{},
+			Config: map[string]string{
+				"address": address,
+				"version": version,
+			},
+			Logger: logger,
+			Clock:  time.Now,
+		},
+		featurehost.ValidatedMigrations{},
+	)
+	if err != nil {
+		return err
+	}
+	if err := host.Start(context.Background()); err != nil {
+		return err
+	}
+
 	server := &http.Server{
 		Addr:              address,
-		Handler:           httpapi.New(features, version, logger),
+		Handler:           httpapi.NewWithHost(host, version, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -62,17 +84,21 @@ func run(logger *slog.Logger) error {
 		errs <- server.ListenAndServe()
 	}()
 
+	var serverErr error
 	select {
 	case err := <-errs:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+		if !errors.Is(err, http.ErrServerClosed) {
+			serverErr = err
 		}
-		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return server.Shutdown(shutdownCtx)
+		serverErr = server.Shutdown(shutdownCtx)
+		cancel()
 	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return errors.Join(serverErr, host.Stop(stopCtx))
 }
 
 func featureRoots(key, fallback string) []string {
