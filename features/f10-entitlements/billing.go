@@ -17,14 +17,18 @@ type CheckoutRequest struct {
 	AccountID      string
 	Plan           PlanCode
 	Interval       BillingInterval
+	Channels       int64
 	IdempotencyKey string
 }
 
 type ProviderCheckoutRequest struct {
 	WorkspaceID    string
-	PriceID        string
-	SuccessURL     string
-	CancelURL      string
+	Items          []PaddleItem
+	CheckoutURL    string
+	CatalogVersion string
+	Plan           PlanCode
+	Interval       BillingInterval
+	Channels       int64
 	IdempotencyKey string
 }
 
@@ -39,12 +43,15 @@ type CheckoutProvider interface {
 }
 
 type CheckoutRegistration struct {
-	SessionID   string
-	WorkspaceID string
-	Plan        PlanCode
-	Interval    BillingInterval
-	ExpiresAt   time.Time
-	CreatedAt   time.Time
+	SessionID      string
+	WorkspaceID    string
+	Plan           PlanCode
+	Interval       BillingInterval
+	Channels       int64
+	CatalogVersion string
+	Items          []PaddleItem
+	ExpiresAt      time.Time
+	CreatedAt      time.Time
 }
 
 type CheckoutStore interface {
@@ -52,21 +59,19 @@ type CheckoutStore interface {
 }
 
 type CheckoutService struct {
-	authorizer OwnerAuthorizer
-	provider   CheckoutProvider
-	store      CheckoutStore
-	prices     StripePrices
-	successURL string
-	cancelURL  string
-	now        func() time.Time
+	authorizer  OwnerAuthorizer
+	provider    CheckoutProvider
+	store       CheckoutStore
+	catalog     PaddleCatalog
+	checkoutURL string
+	now         func() time.Time
 }
 
 var (
 	ErrOwnerRequired       = errors.New("workspace owner permission is required")
-	ErrInvalidReturnURL    = errors.New("checkout return URL must be absolute HTTPS")
-	ErrMissingStripePrice  = errors.New("Stripe price is not configured")
-	ErrInvalidCheckout     = errors.New("invalid checkout session")
-	ErrUnknownSubscription = errors.New("unknown Stripe subscription")
+	ErrInvalidReturnURL    = errors.New("billing URL must be absolute HTTPS")
+	ErrInvalidCheckout     = errors.New("invalid Paddle transaction")
+	ErrUnknownSubscription = errors.New("unknown Paddle subscription")
 	ErrEventConflict       = errors.New("provider event conflicts with recorded data")
 )
 
@@ -74,24 +79,22 @@ func NewCheckoutService(
 	authorizer OwnerAuthorizer,
 	provider CheckoutProvider,
 	store CheckoutStore,
-	prices StripePrices,
-	successURL string,
-	cancelURL string,
+	catalog PaddleCatalog,
+	checkoutURL string,
 ) (*CheckoutService, error) {
-	if !absoluteHTTPS(successURL) || !absoluteHTTPS(cancelURL) {
+	if !absoluteHTTPS(checkoutURL) {
 		return nil, ErrInvalidReturnURL
 	}
-	if err := prices.Validate(); err != nil {
+	if err := catalog.Validate(); err != nil {
 		return nil, err
 	}
 	return &CheckoutService{
-		authorizer: authorizer,
-		provider:   provider,
-		store:      store,
-		prices:     prices,
-		successURL: successURL,
-		cancelURL:  cancelURL,
-		now:        time.Now,
+		authorizer:  authorizer,
+		provider:    provider,
+		store:       store,
+		catalog:     catalog,
+		checkoutURL: checkoutURL,
+		now:         time.Now,
 	}, nil
 }
 
@@ -108,11 +111,18 @@ func (service *CheckoutService) Create(
 	if request.IdempotencyKey == "" || len(request.IdempotencyKey) > 255 {
 		return CheckoutSession{}, ErrInvalidIdempotencyKey
 	}
-	if _, err := PublicPlanByCode(request.Plan); err != nil {
+	plan, err := PublicPlanByCode(request.Plan)
+	if err != nil {
 		return CheckoutSession{}, err
+	}
+	if !plan.Purchasable {
+		return CheckoutSession{}, ErrFreePlan
 	}
 	if !validInterval(request.Interval) {
 		return CheckoutSession{}, ErrInvalidInterval
+	}
+	if request.Channels < 1 || request.Channels > plan.Limits.Channels {
+		return CheckoutSession{}, ErrInvalidChannels
 	}
 	owner, err := service.authorizer.IsOwner(ctx, request.WorkspaceID, request.AccountID)
 	if err != nil {
@@ -121,33 +131,38 @@ func (service *CheckoutService) Create(
 	if !owner {
 		return CheckoutSession{}, ErrOwnerRequired
 	}
-
-	priceID, ok := service.prices.PriceID(request.Plan, request.Interval)
-	if !ok {
-		return CheckoutSession{}, ErrMissingStripePrice
+	items, err := service.catalog.ExpectedItems(request.Plan, request.Interval, request.Channels)
+	if err != nil {
+		return CheckoutSession{}, err
 	}
 	session, err := service.provider.CreateCheckout(ctx, ProviderCheckoutRequest{
 		WorkspaceID:    request.WorkspaceID,
-		PriceID:        priceID,
-		SuccessURL:     service.successURL,
-		CancelURL:      service.cancelURL,
+		Items:          items,
+		CheckoutURL:    service.checkoutURL,
+		CatalogVersion: CatalogVersion,
+		Plan:           request.Plan,
+		Interval:       request.Interval,
+		Channels:       request.Channels,
 		IdempotencyKey: request.IdempotencyKey,
 	})
 	if err != nil {
-		return CheckoutSession{}, fmt.Errorf("create Stripe Checkout session: %w", err)
+		return CheckoutSession{}, fmt.Errorf("create Paddle transaction: %w", err)
 	}
 	if session.ID == "" || !absoluteHTTPS(session.URL) || session.ExpiresAt.IsZero() {
 		return CheckoutSession{}, ErrInvalidCheckout
 	}
 	if err := service.store.RegisterCheckout(ctx, CheckoutRegistration{
-		SessionID:   session.ID,
-		WorkspaceID: request.WorkspaceID,
-		Plan:        request.Plan,
-		Interval:    request.Interval,
-		ExpiresAt:   session.ExpiresAt.UTC(),
-		CreatedAt:   service.now().UTC(),
+		SessionID:      session.ID,
+		WorkspaceID:    request.WorkspaceID,
+		Plan:           request.Plan,
+		Interval:       request.Interval,
+		Channels:       request.Channels,
+		CatalogVersion: CatalogVersion,
+		Items:          items,
+		ExpiresAt:      session.ExpiresAt.UTC(),
+		CreatedAt:      service.now().UTC(),
 	}); err != nil {
-		return CheckoutSession{}, fmt.Errorf("register Stripe Checkout session: %w", err)
+		return CheckoutSession{}, fmt.Errorf("register Paddle transaction: %w", err)
 	}
 	return session, nil
 }
@@ -161,22 +176,29 @@ type BillingBinding struct {
 	WorkspaceID    string
 	Plan           PlanCode
 	Interval       BillingInterval
+	Channels       int64
 	CustomerID     string
 	SubscriptionID string
+	TransactionID  string
+	ExpectedItems  []PaddleItem
 	Period         Period
 }
 
 type BillingEvent struct {
-	ID             string
-	Type           string
-	CreatedAt      time.Time
-	WorkspaceID    string
-	Plan           PlanCode
-	Interval       BillingInterval
-	State          BillingState
-	CustomerID     string
-	SubscriptionID string
-	Period         Period
+	ID              string
+	Type            string
+	OccurredAt      time.Time
+	WorkspaceID     string
+	Plan            PlanCode
+	Interval        BillingInterval
+	Channels        int64
+	State           BillingState
+	CustomerID      string
+	SubscriptionID  string
+	TransactionID   string
+	Period          Period
+	ApplyState      bool
+	PaymentFailedAt *time.Time
 }
 
 type BillingEventResult struct {
@@ -185,14 +207,7 @@ type BillingEventResult struct {
 }
 
 type BillingStore interface {
-	CompleteCheckout(
-		context.Context,
-		string,
-		time.Time,
-		string,
-		string,
-		string,
-	) (bool, error)
+	ResolveTransaction(context.Context, string) (BillingBinding, error)
 	ResolveSubscription(context.Context, string) (BillingBinding, error)
 	ApplyBillingEvent(context.Context, BillingEvent) (BillingEventResult, error)
 }
@@ -205,7 +220,7 @@ type PortalRequest struct {
 
 type ProviderPortalRequest struct {
 	CustomerID     string
-	ReturnURL      string
+	SubscriptionID string
 	IdempotencyKey string
 }
 
@@ -218,31 +233,25 @@ type PortalProvider interface {
 }
 
 type PortalStore interface {
-	BillingCustomerID(context.Context, string) (string, error)
+	BillingBinding(context.Context, string) (BillingBinding, error)
 }
 
 type PortalService struct {
 	authorizer OwnerAuthorizer
 	provider   PortalProvider
 	store      PortalStore
-	returnURL  string
 }
 
 func NewPortalService(
 	authorizer OwnerAuthorizer,
 	provider PortalProvider,
 	store PortalStore,
-	returnURL string,
-) (*PortalService, error) {
-	if !absoluteHTTPS(returnURL) {
-		return nil, ErrInvalidReturnURL
-	}
+) *PortalService {
 	return &PortalService{
 		authorizer: authorizer,
 		provider:   provider,
 		store:      store,
-		returnURL:  returnURL,
-	}, nil
+	}
 }
 
 func (service *PortalService) Create(
@@ -265,17 +274,17 @@ func (service *PortalService) Create(
 	if !owner {
 		return PortalSession{}, ErrOwnerRequired
 	}
-	customerID, err := service.store.BillingCustomerID(ctx, request.WorkspaceID)
+	binding, err := service.store.BillingBinding(ctx, request.WorkspaceID)
 	if err != nil {
 		return PortalSession{}, err
 	}
 	session, err := service.provider.CreatePortal(ctx, ProviderPortalRequest{
-		CustomerID:     customerID,
-		ReturnURL:      service.returnURL,
+		CustomerID:     binding.CustomerID,
+		SubscriptionID: binding.SubscriptionID,
 		IdempotencyKey: request.IdempotencyKey,
 	})
 	if err != nil {
-		return PortalSession{}, fmt.Errorf("create Stripe Customer Portal session: %w", err)
+		return PortalSession{}, fmt.Errorf("create Paddle customer portal session: %w", err)
 	}
 	if !absoluteHTTPS(session.URL) {
 		return PortalSession{}, ErrInvalidCheckout

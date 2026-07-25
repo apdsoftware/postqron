@@ -69,7 +69,6 @@ var (
 	ErrInvalidIdempotencyKey  = errors.New("idempotency key is required")
 	ErrInvalidAmount          = errors.New("amount must be greater than zero")
 	ErrUnknownResource        = errors.New("unknown quota resource")
-	ErrPublicationRelease     = errors.New("scheduled publication quota is never released")
 	ErrEntitlementUnavailable = errors.New("entitlement is unavailable")
 )
 
@@ -106,9 +105,6 @@ func (service *Service) Release(
 ) (UsageDecision, error) {
 	if amount <= 0 {
 		return UsageDecision{}, ErrInvalidAmount
-	}
-	if resource == ResourceScheduledPublications {
-		return UsageDecision{}, ErrPublicationRelease
 	}
 	return service.apply(ctx, workspaceID, resource, -amount, idempotencyKey)
 }

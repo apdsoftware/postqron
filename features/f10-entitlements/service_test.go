@@ -167,20 +167,6 @@ func TestServiceRejectsInvalidCommandsBeforeStore(t *testing.T) {
 			},
 			want: ErrInvalidIdempotencyKey,
 		},
-		{
-			name: "publication release",
-			call: func(service *Service) error {
-				_, err := service.Release(
-					context.Background(),
-					"workspace",
-					ResourceScheduledPublications,
-					1,
-					"key",
-				)
-				return err
-			},
-			want: ErrPublicationRelease,
-		},
 	}
 
 	for _, test := range tests {

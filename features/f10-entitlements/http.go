@@ -54,7 +54,7 @@ func NewHTTPHandler(
 		"POST /api/v1/workspaces/{workspace_id}/billing/portal",
 		handler.createPortal,
 	)
-	mux.Handle("POST /api/v1/billing/stripe/webhook", webhook)
+	mux.Handle("POST /api/v1/billing/paddle/webhook", webhook)
 	return mux
 }
 
@@ -98,9 +98,10 @@ func (handler *HTTPHandler) createPortal(
 
 func (handler *HTTPHandler) plans(writer http.ResponseWriter, _ *http.Request) {
 	writeEntitlementJSON(writer, http.StatusOK, map[string]any{
-		"provider": "stripe",
-		"currency": "EUR",
-		"plans":    PublicPlans(),
+		"provider":        "paddle",
+		"catalog_version": CatalogVersion,
+		"currency":        "EUR",
+		"plans":           PublicPlans(),
 	})
 }
 
@@ -140,6 +141,7 @@ func (handler *HTTPHandler) createCheckout(
 	var payload struct {
 		Plan           PlanCode        `json:"plan"`
 		Interval       BillingInterval `json:"interval"`
+		Channels       int64           `json:"channels"`
 		IdempotencyKey string          `json:"idempotency_key"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16<<10))
@@ -153,6 +155,7 @@ func (handler *HTTPHandler) createCheckout(
 		AccountID:      accountID,
 		Plan:           payload.Plan,
 		Interval:       payload.Interval,
+		Channels:       payload.Channels,
 		IdempotencyKey: payload.IdempotencyKey,
 	})
 	if err != nil {
@@ -161,6 +164,8 @@ func (handler *HTTPHandler) createCheckout(
 			writeEntitlementError(writer, http.StatusForbidden, "owner_required")
 		case errors.Is(err, ErrUnknownPlan),
 			errors.Is(err, ErrInvalidInterval),
+			errors.Is(err, ErrInvalidChannels),
+			errors.Is(err, ErrFreePlan),
 			errors.Is(err, ErrInvalidIdempotencyKey):
 			writeEntitlementError(writer, http.StatusBadRequest, "invalid_request")
 		default:

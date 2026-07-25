@@ -2,61 +2,111 @@ package entitlements
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestPublicCatalogMatchesD03(t *testing.T) {
+func testPaddleCatalog() PaddleCatalog {
+	catalog := make(PaddleCatalog, 12)
+	index := 1
+	for planIndex, plan := range []PlanCode{PlanPro, PlanTeam} {
+		productID := fmt.Sprintf("pro_%026d", planIndex+1)
+		publicPlan, _ := PublicPlanByCode(plan)
+		for _, interval := range []BillingInterval{IntervalMonthly, IntervalAnnual} {
+			for tierIndex, tier := range []PriceTierCode{TierOne, TierTwo, TierThree} {
+				amount := publicPlan.PriceTiers[tierIndex].Monthly.AmountCents
+				if interval == IntervalAnnual {
+					amount = publicPlan.PriceTiers[tierIndex].Annual.AmountCents
+				}
+				key := PaddlePriceKey{Plan: plan, Interval: interval, Tier: tier}
+				catalog[key] = PaddlePriceMapping{
+					Plan:            plan,
+					Interval:        interval,
+					Tier:            tier,
+					ProductID:       productID,
+					PriceID:         fmt.Sprintf("pri_%026d", index),
+					UnitAmountCents: amount,
+				}
+				index++
+			}
+		}
+	}
+	return catalog
+}
+
+func TestPublicCatalogMatchesD07(t *testing.T) {
 	plans := PublicPlans()
 	if len(plans) != 3 {
 		t.Fatalf("PublicPlans() returned %d plans, want 3", len(plans))
 	}
-
-	expected := []PublicPlan{
-		{
-			Code: PlanStart,
-			Name: "Start",
-			Prices: PlanPrices{
-				Monthly: Money{AmountCents: 900, Currency: "EUR"},
-				Annual:  Money{AmountCents: 9000, Currency: "EUR"},
-			},
-			Limits: PlanLimits{
-				Members:               1,
-				Channels:              5,
-				ScheduledPublications: 100,
-			},
-		},
-		{
-			Code: PlanPro,
-			Name: "Pro",
-			Prices: PlanPrices{
-				Monthly: Money{AmountCents: 2400, Currency: "EUR"},
-				Annual:  Money{AmountCents: 24000, Currency: "EUR"},
-			},
-			Limits: PlanLimits{
-				Members:               5,
-				Channels:              15,
-				ScheduledPublications: 500,
-			},
-		},
-		{
-			Code: PlanTeam,
-			Name: "Team",
-			Prices: PlanPrices{
-				Monthly: Money{AmountCents: 4900, Currency: "EUR"},
-				Annual:  Money{AmountCents: 49000, Currency: "EUR"},
-			},
-			Limits: PlanLimits{
-				Members:               15,
-				Channels:              50,
-				ScheduledPublications: 2000,
-			},
-		},
+	start, pro, team := plans[0], plans[1], plans[2]
+	if start.Code != PlanStart || start.Purchasable ||
+		start.Prices.Monthly.AmountCents != 0 ||
+		start.Limits.Members != 1 ||
+		start.Limits.Channels != 3 ||
+		start.Limits.ScheduledPublicationsPerChannel != 10 {
+		t.Fatalf("Start = %#v", start)
 	}
-	for index := range expected {
-		if plans[index] != expected[index] {
-			t.Fatalf("plan %d = %#v, want %#v", index, plans[index], expected[index])
+	if pro.Code != PlanPro || !pro.Purchasable ||
+		pro.Limits.Members != 1 || pro.Limits.Channels != 50 ||
+		pro.Limits.ScheduledPublicationsPerChannel != 500 {
+		t.Fatalf("Pro = %#v", pro)
+	}
+	if team.Code != PlanTeam || !team.Purchasable ||
+		team.Limits.Members != 15 ||
+		team.Trial == nil || team.Trial.Days != 14 || team.Trial.Channels != 10 {
+		t.Fatalf("Team = %#v", team)
+	}
+	tests := []struct {
+		plan     PlanCode
+		interval BillingInterval
+		channels int64
+		want     int64
+	}{
+		{PlanPro, IntervalMonthly, 10, 4500},
+		{PlanPro, IntervalMonthly, 25, 9000},
+		{PlanPro, IntervalAnnual, 50, 146250},
+		{PlanTeam, IntervalMonthly, 25, 13500},
+		{PlanTeam, IntervalAnnual, 50, 191250},
+	}
+	for _, test := range tests {
+		got, err := PriceForChannels(test.plan, test.interval, test.channels)
+		if err != nil || got.AmountCents != test.want || got.Currency != "EUR" {
+			t.Fatalf("%s/%s/%d = %#v, %v", test.plan, test.interval, test.channels, got, err)
 		}
+	}
+}
+
+func TestPaddleCatalogHasExactDistinctD07Mappings(t *testing.T) {
+	catalog := testPaddleCatalog()
+	if err := catalog.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	items, err := catalog.ExpectedItems(PlanPro, IntervalMonthly, 26)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PaddleItem{
+		{PriceID: "pri_00000000000000000000000001", Quantity: 10},
+		{PriceID: "pri_00000000000000000000000002", Quantity: 15},
+		{PriceID: "pri_00000000000000000000000003", Quantity: 1},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Fatalf("items = %#v, want %#v", items, want)
+	}
+	duplicate := catalog[PaddlePriceKey{
+		Plan: PlanTeam, Interval: IntervalAnnual, Tier: TierThree,
+	}]
+	duplicate.PriceID = catalog[PaddlePriceKey{
+		Plan: PlanPro, Interval: IntervalMonthly, Tier: TierOne,
+	}].PriceID
+	catalog[PaddlePriceKey{
+		Plan: PlanTeam, Interval: IntervalAnnual, Tier: TierThree,
+	}] = duplicate
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("duplicate Paddle price was accepted")
 	}
 }
 
@@ -76,10 +126,12 @@ func TestPublicCatalogDoesNotExposePrivateEntitlement(t *testing.T) {
 	}
 }
 
-func TestPublicPlansReturnsIndependentSlice(t *testing.T) {
+func TestPublicPlansReturnsIndependentData(t *testing.T) {
 	plans := PublicPlans()
-	plans[0].Name = "Changed"
-	if PublicPlans()[0].Name != "Start" {
+	plans[1].Name = "Changed"
+	plans[1].PriceTiers[0].Monthly.AmountCents = 1
+	if PublicPlans()[1].Name != "Pro" ||
+		PublicPlans()[1].PriceTiers[0].Monthly.AmountCents != 450 {
 		t.Fatal("PublicPlans() exposed mutable catalog storage")
 	}
 }

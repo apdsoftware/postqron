@@ -25,7 +25,7 @@ func (workspaceViewerStub) CanViewBilling(
 	return false, nil
 }
 
-func TestPublicPlansEndpointOnlyContainsD03Catalog(t *testing.T) {
+func TestPublicPlansEndpointOnlyContainsD07PaddleCatalog(t *testing.T) {
 	handler := NewHTTPHandler(
 		NewService(&serviceStoreStub{}),
 		nil,
@@ -46,7 +46,14 @@ func TestPublicPlansEndpointOnlyContainsD03Catalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := strings.ToLower(string(body))
-	for _, required := range []string{`"provider":"stripe"`, `"start"`, `"pro"`, `"team"`} {
+	for _, required := range []string{
+		`"provider":"paddle"`,
+		`"catalog_version":"d07-v1"`,
+		`"start"`,
+		`"pro"`,
+		`"team"`,
+		`"price_tiers"`,
+	} {
 		if !strings.Contains(payload, required) {
 			t.Fatalf("public catalog is missing %q: %s", required, body)
 		}

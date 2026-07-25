@@ -1,15 +1,15 @@
 openapi: 3.1.0
 info:
   title: Postqron entitlements API
-  version: 0.1.0
+  version: 0.2.0
 paths:
   /api/v1/billing/plans:
     get:
-      summary: List the three purchasable plans
+      summary: List the three public plans
       operationId: listPublicPlans
       responses:
         "200":
-          description: Public Stripe catalog in EUR
+          description: D07 catalog in EUR with progressive Paddle pricing
           content:
             application/json:
               schema:
@@ -33,7 +33,7 @@ paths:
           description: No reliable entitlement is currently available
   /api/v1/workspaces/{workspace_id}/billing/checkout:
     post:
-      summary: Start an Owner-only Stripe Checkout
+      summary: Start an Owner-only Paddle Checkout
       operationId: createBillingCheckout
       parameters:
         - $ref: "#/components/parameters/WorkspaceID"
@@ -44,20 +44,24 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [plan, interval, idempotency_key]
+              required: [plan, interval, channels, idempotency_key]
               properties:
                 plan:
                   $ref: "#/components/schemas/PlanCode"
                 interval:
                   type: string
                   enum: [monthly, annual]
+                channels:
+                  type: integer
+                  minimum: 1
+                  maximum: 50
                 idempotency_key:
                   type: string
                   minLength: 1
                   maxLength: 255
       responses:
         "201":
-          description: Stripe-hosted Checkout session
+          description: Paddle-hosted Checkout transaction
           content:
             application/json:
               schema:
@@ -76,7 +80,7 @@ paths:
           description: Only an Owner can manage billing
   /api/v1/workspaces/{workspace_id}/billing/portal:
     post:
-      summary: Open the Owner-only Stripe Customer Portal
+      summary: Open the Owner-only Paddle Customer Portal
       operationId: createBillingPortal
       parameters:
         - $ref: "#/components/parameters/WorkspaceID"
@@ -95,7 +99,7 @@ paths:
                   maxLength: 255
       responses:
         "201":
-          description: Stripe-hosted Customer Portal session
+          description: Temporary, non-cacheable Paddle Customer Portal session
           content:
             application/json:
               schema:
@@ -132,12 +136,14 @@ components:
           const: EUR
     PublicPlan:
       type: object
-      required: [code, name, prices, limits]
+      required: [code, name, purchasable, prices, limits]
       properties:
         code:
           $ref: "#/components/schemas/PlanCode"
         name:
           type: string
+        purchasable:
+          type: boolean
         prices:
           type: object
           required: [monthly, annual]
@@ -148,7 +154,11 @@ components:
               $ref: "#/components/schemas/Money"
         limits:
           type: object
-          required: [members, channels, scheduled_publications]
+          required:
+            - members
+            - channels
+            - scheduled_publications
+            - scheduled_publications_per_channel
           properties:
             members:
               type: integer
@@ -156,13 +166,33 @@ components:
               type: integer
             scheduled_publications:
               type: integer
+            scheduled_publications_per_channel:
+              type: integer
+        price_tiers:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            required: [from_channel, to_channel, monthly, annual]
+            properties:
+              from_channel:
+                type: integer
+              to_channel:
+                type: integer
+              monthly:
+                $ref: "#/components/schemas/Money"
+              annual:
+                $ref: "#/components/schemas/Money"
     PublicCatalog:
       type: object
-      required: [provider, currency, plans]
+      required: [provider, catalog_version, currency, plans]
       properties:
         provider:
           type: string
-          const: stripe
+          const: paddle
+        catalog_version:
+          type: string
+          const: d07-v1
         currency:
           type: string
           const: EUR
