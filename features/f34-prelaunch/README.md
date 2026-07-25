@@ -10,6 +10,8 @@ The global route middleware explicitly allows:
 
 - the localized pre-launch landing and access-request pages;
 - legal documents and `help@postqron.com` support;
+- exactly `/app` and `/app/oauth/callback`, including localized forms, so
+  authentication can complete without exposing private `/app/**` routes;
 - `/admin`, whose own authorization middleware still decides access;
 - API, health/status, Nuxt, brand, PWA, manifest, robots and sitemap paths.
 

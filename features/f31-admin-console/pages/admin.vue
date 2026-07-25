@@ -4,7 +4,6 @@ import {
   definePageMeta,
   ref,
   useHead,
-  useRequestHeaders,
 } from '#imports'
 import { AdminApiError, normalizeAdminApiError } from '../core/api.ts'
 import type { EntitlementSummary } from '../core/contracts.ts'
@@ -49,10 +48,7 @@ async function loadDashboard() {
   loading.value = true
   errorCode.value = undefined
   try {
-    const headers = import.meta.server
-      ? useRequestHeaders(['cookie'])
-      : undefined
-    dashboard.value = await api.dashboard(headers)
+    dashboard.value = await api.dashboard()
   } catch (error) {
     errorCode.value = normalizeAdminApiError(error).code
   } finally {
@@ -116,7 +112,9 @@ async function applyInternalPlan() {
   }
 }
 
-await loadDashboard()
+if (import.meta.client && session.value) {
+  await loadDashboard()
+}
 </script>
 
 <template>
