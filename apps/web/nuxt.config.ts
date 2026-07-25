@@ -1,5 +1,8 @@
-import { delimiter } from 'node:path'
+import { delimiter, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  discoverFeatureComposition,
+} from './server/utils/feature-module'
 
 const fromRepository = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const defaultFeatureRoots = [
@@ -7,6 +10,12 @@ const defaultFeatureRoots = [
   fromRepository('../../services/api/features'),
   fromRepository('../../features'),
 ].join(delimiter)
+const configuredFeatureRoots = process.env.POSTQRON_FEATURE_ROOTS || defaultFeatureRoots
+const featureComposition = await discoverFeatureComposition(
+  configuredFeatureRoots
+    .split(delimiter)
+    .map(root => resolve(process.cwd(), root)),
+)
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-07-24',
@@ -22,7 +31,44 @@ export default defineNuxtConfig({
   },
   plugins: [
     fromRepository('./plugins/pwa.client.ts'),
+    ...featureComposition.plugins,
   ],
+  hooks: {
+    'app:resolve': (app) => {
+      for (const layout of featureComposition.layouts) {
+        app.layouts[layout.name] = {
+          name: layout.name,
+          file: layout.file,
+        }
+      }
+      for (const middleware of featureComposition.middleware) {
+        app.middleware.push({
+          name: middleware.name,
+          path: middleware.path,
+          global: middleware.global,
+        })
+      }
+    },
+    'components:dirs': (directories) => {
+      for (const path of featureComposition.components) {
+        directories.push({ path })
+      }
+    },
+    'pages:extend': (pages) => {
+      for (const route of featureComposition.routes) {
+        pages.push({
+          name: route.name,
+          path: route.path,
+          file: route.file,
+          middleware: route.middleware,
+          meta: {
+            featureId: route.featureId,
+            featureVisibility: route.visibility,
+          },
+        })
+      }
+    },
+  },
   devServer: {
     port: Number(process.env.NUXT_PORT || 3000),
   },
@@ -78,7 +124,7 @@ export default defineNuxtConfig({
     apiBase: process.env.POSTQRON_API_BASE
       || process.env.NUXT_PUBLIC_API_BASE
       || 'http://localhost:8080',
-    featureRoots: process.env.POSTQRON_FEATURE_ROOTS || defaultFeatureRoots,
+    featureRoots: configuredFeatureRoots,
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8080',
       siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3000',

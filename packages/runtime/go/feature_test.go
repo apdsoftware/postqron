@@ -88,6 +88,99 @@ func TestFilterKindRejectsUnknownKind(t *testing.T) {
 	}
 }
 
+func TestDiscoverValidatesServerAndWebComposition(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "fixture")
+	for _, path := range []string{
+		"server.go",
+		"runtime.ts",
+		"pages/example.vue",
+		"layouts/default.vue",
+		"plugins/example.ts",
+		"middleware/auth.ts",
+		"components/Example.vue",
+		"migrations/000001_fixture.sql",
+	} {
+		writeFixtureFile(t, directory, path)
+	}
+	source := `schema_version: 1
+id: fixture
+kind: api
+version: 0.1.0
+entrypoints:
+  server: ./server.go
+  web: ./runtime.ts
+dependencies: []
+migrations:
+  - ./migrations/000001_fixture.sql
+server:
+  routes:
+    - path: /fixture
+      handler: fixture
+      methods: [GET]
+      visibility: public
+web:
+  routes:
+    - name: fixture
+      path: /fixture
+      file: ./pages/example.vue
+      visibility: private
+      middleware: [auth]
+  layouts:
+    - name: default
+      file: ./layouts/default.vue
+  components: [./components]
+  plugins: [./plugins/example.ts]
+  middleware:
+    - name: auth
+      file: ./middleware/auth.ts
+`
+	if err := os.WriteFile(filepath.Join(directory, "feature.yaml"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	features, err := Discover(root)
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if !features[0].Manifest.SupportsKind("api") ||
+		!features[0].Manifest.SupportsKind("web") {
+		t.Fatalf("manifest does not expose both hosts: %+v", features[0].Manifest)
+	}
+	if !features[0].Manifest.IsRequired() {
+		t.Fatal("feature should be required by default")
+	}
+}
+
+func TestDiscoverRejectsPrivateWebRouteWithoutMiddleware(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "fixture")
+	writeFixtureFile(t, directory, "runtime.ts")
+	writeFixtureFile(t, directory, "pages/private.vue")
+	source := `schema_version: 1
+id: fixture
+kind: web
+version: 0.1.0
+entrypoints:
+  web: ./runtime.ts
+dependencies: []
+migrations: []
+web:
+  routes:
+    - path: /private
+      file: ./pages/private.vue
+      visibility: private
+`
+	if err := os.WriteFile(filepath.Join(directory, "feature.yaml"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Discover(root)
+	if err == nil || !strings.Contains(err.Error(), "require explicit middleware") {
+		t.Fatalf("Discover() error = %v, want private route middleware error", err)
+	}
+}
+
 func writeFeature(t *testing.T, root, id string, dependencies []string) {
 	writeFeatureWithKind(t, root, id, "api", dependencies)
 }
@@ -123,4 +216,15 @@ func featureIDs(features []Feature) []string {
 		ids = append(ids, feature.Manifest.ID)
 	}
 	return ids
+}
+
+func writeFixtureFile(t *testing.T, directory, path string) {
+	t.Helper()
+	target := filepath.Join(directory, path)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
