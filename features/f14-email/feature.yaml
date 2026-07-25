@@ -1,9 +1,10 @@
 schema_version: 1
 id: email
 kind: worker
-version: 0.1.0
+version: 0.2.0
 entrypoint: ./email.go
 dependencies:
   - brand
 migrations:
   - ./migrations/000001_create_email_delivery.sql
+  - ./migrations/000002_add_locale_and_preheader.sql
