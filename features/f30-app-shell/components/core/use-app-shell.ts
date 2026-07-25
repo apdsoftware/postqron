@@ -1,6 +1,7 @@
 import {
   computed,
   useNuxtApp,
+  useRequestFetch,
   useRuntimeConfig,
   useState,
 } from '#imports'
@@ -58,9 +59,9 @@ export function useAppBootstrapState() {
 
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
-  const nuxtApp = useNuxtApp()
+  const requestFetch = useRequestFetch()
   return new AppShellApi(
     resolveAppShellApiBase(config, import.meta.server),
-    nuxtApp.$fetch as unknown as AppFetch,
+    requestFetch as unknown as AppFetch,
   )
 }
