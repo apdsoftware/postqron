@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -47,6 +47,91 @@ describe('discoverFeatures', () => {
       'foundation',
       'shell',
     ])
+  })
+
+  it('ignores an absent root only when the caller declares it optional', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    const missingRoot = join(root, 'missing')
+    await createFeature(root, 'foundation')
+
+    const features = await discoverFeatures([
+      root,
+      { path: missingRoot, optional: true },
+    ])
+
+    expect(features.map(feature => feature.manifest.id)).toEqual(['foundation'])
+    await expect(discoverFeatures([missingRoot])).rejects.toThrow(
+      `feature root "${missingRoot}" is not accessible`,
+    )
+  })
+
+  it('does not hide an unreadable root declared optional', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    const root = join(parent, 'unreadable')
+    await mkdir(root)
+    await chmod(root, 0o000)
+
+    try {
+      await expect(discoverFeatures([{ path: root, optional: true }])).rejects.toThrow(
+        `feature root "${root}" cannot be scanned`,
+      )
+    } finally {
+      await chmod(root, 0o700)
+    }
+  })
+
+  it('does not hide a file configured as an optional root', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    const root = join(parent, 'not-a-directory')
+    await writeFile(root, '')
+
+    await expect(discoverFeatures([{ path: root, optional: true }])).rejects.toThrow(
+      `feature root "${root}" cannot be scanned`,
+    )
+  })
+
+  it('does not hide an invalid manifest in an optional root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    const directory = join(root, 'invalid')
+    await mkdir(directory)
+    await writeFile(
+      join(directory, 'feature.yaml'),
+      [
+        'schema_version: 2',
+        'id: invalid',
+        'kind: web',
+        'version: 0.1.0',
+        'entrypoint: ./entry.ts',
+        '',
+      ].join('\n'),
+    )
+
+    await expect(discoverFeatures([{ path: root, optional: true }])).rejects.toThrow(
+      'schema_version must be 1',
+    )
+  })
+
+  it('does not hide a missing entrypoint in an optional root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'postqron-features-'))
+    const directory = join(root, 'missing-entrypoint')
+    await mkdir(directory)
+    await writeFile(
+      join(directory, 'feature.yaml'),
+      [
+        'schema_version: 1',
+        'id: missing-entrypoint',
+        'kind: web',
+        'version: 0.1.0',
+        'entrypoint: ./entry.ts',
+        'dependencies: []',
+        'migrations: []',
+        '',
+      ].join('\n'),
+    )
+
+    await expect(discoverFeatures([{ path: root, optional: true }])).rejects.toThrow(
+      'missing-entrypoint.entrypoints.web does not point to a file',
+    )
   })
 
   it('rejects missing dependencies', async () => {

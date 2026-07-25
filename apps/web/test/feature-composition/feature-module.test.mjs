@@ -90,6 +90,34 @@ test('discovers and composes a complete fixture web feature', async () => {
   assert.equal(composition.middleware[0].name, 'fixture-auth')
 })
 
+test('composes required roots while an explicitly optional root is absent', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'postqron-web-feature-'))
+  const root = join(parent, 'required')
+  const directory = join(root, 'fixture')
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'runtime.ts'), 'export default {}\n')
+  await writeFile(
+    join(directory, 'feature.yaml'),
+    [
+      'schema_version: 1',
+      'id: fixture-web',
+      'kind: web',
+      'version: 0.1.0',
+      'entrypoint: ./runtime.ts',
+      'dependencies: []',
+      'migrations: []',
+      '',
+    ].join('\n'),
+  )
+
+  const composition = await discoverFeatureComposition([
+    root,
+    { path: join(parent, 'optional-missing'), optional: true },
+  ])
+
+  assert.deepEqual(composition.features, [{ id: 'fixture-web', version: '0.1.0' }])
+})
+
 test('rejects route collisions without a central registry', () => {
   const feature = id => ({
     directory: `/features/${id}`,

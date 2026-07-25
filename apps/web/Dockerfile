@@ -12,6 +12,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY apps/web apps/web
 COPY packages/runtime packages/runtime
+COPY services/api/features services/api/features
 COPY features features
 COPY scripts/runtime scripts/runtime
 RUN pnpm --filter @postqron/web build \

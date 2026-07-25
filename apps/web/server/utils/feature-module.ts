@@ -3,6 +3,7 @@ import {
   discoverFeatures,
   filterFeaturesByKind,
   type DiscoveredFeature,
+  type FeatureRootInput,
   type FeatureVisibility,
 } from '@postqron/runtime'
 
@@ -39,7 +40,7 @@ export interface FeatureComposition {
 }
 
 export async function discoverFeatureComposition(
-  roots: string[],
+  roots: FeatureRootInput[],
 ): Promise<FeatureComposition> {
   const discovered = await discoverFeatures(roots)
   return composeFeatureModules(filterFeaturesByKind(discovered, ['web']))
