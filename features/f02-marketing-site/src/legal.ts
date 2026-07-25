@@ -1,4 +1,5 @@
 import type {
+  LegalDocumentKey,
   PublishedLegalDocument,
 } from '../../f13-compliance/src/index.ts'
 import {
@@ -9,26 +10,32 @@ import {
   type LegalRepository,
 } from '../../f25-legal-documents/src/index.ts'
 
-// Public route slugs are kept as-is for backward compatibility; `document`
-// is the F25 gate's own document type, used to address the fail-closed
-// repository/adapter instead of the unimplemented legacy backend endpoint.
+// Public route slugs are kept as-is for backward compatibility. `key` is the
+// legacy F13 backend key, preserved so any existing consumer of this
+// contract keeps working unchanged. `document` is the F25 gate's own
+// document type, used to address the fail-closed repository/adapter
+// instead of the unimplemented legacy backend endpoint.
 export const PUBLIC_LEGAL_DOCUMENTS = {
   termini: {
+    key: 'terms_it',
     document: 'terms',
     title: 'Termini e condizioni',
     description: 'Le condizioni che regolano l’uso di Postqron.',
   },
   privacy: {
+    key: 'privacy_it',
     document: 'privacy',
     title: 'Privacy Policy',
     description: 'Come Postqron tratta e protegge i dati personali.',
   },
   cookie: {
+    key: 'cookies_it',
     document: 'cookies',
     title: 'Cookie Policy',
     description: 'Cookie necessari, preferenze e strumenti opzionali.',
   },
 } as const satisfies Record<string, {
+  key: LegalDocumentKey
   document: DocumentType
   title: string
   description: string
@@ -80,13 +87,19 @@ export async function handleLegalProxyRequest(
   })
 }
 
+// Accepts both the legacy F13 backend shape (`contentStatus: 'approved'`)
+// and F25's own gate shape (`status: 'approved'`, plus `requestedLocale`/
+// `fallbackUsed`/`permanentUrl` metadata). Every field on the input is
+// preserved on the returned value — this only validates a common subset
+// (content, version, digest, effective date) that both contracts share.
 export function parsePublishedLegalDocument(value: unknown): PublishedLegalDocument {
   if (!value || typeof value !== 'object') {
     throw new Error('Documento legale non disponibile.')
   }
   const document = value as Record<string, unknown>
+  const isApproved = document.contentStatus === 'approved' || document.status === 'approved'
   if (
-    document.contentStatus !== 'approved'
+    !isApproved
     || typeof document.content !== 'string'
     || typeof document.version !== 'string'
     || typeof document.digestSha256 !== 'string'

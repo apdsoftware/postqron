@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { LegalRepository } from '../../f25-legal-documents/src/index.ts'
 import { validReleaseInput } from '../../f25-legal-documents/test/fixtures.ts'
-import { handleLegalProxyRequest } from '../src/legal.ts'
+import { handleLegalProxyRequest, parsePublishedLegalDocument } from '../src/legal.ts'
 
 const now = '2026-07-25T12:30:00.000Z'
 
@@ -115,6 +115,40 @@ test('with an empty BUNDLED_LEGAL_RELEASE the proxy stays fail-closed: 503, no-s
     'legal_release_blocked',
   )
   assert.doesNotMatch(JSON.stringify(response.body), /content/iu)
+})
+
+test('an F25 approved release body survives the client-side parser with content, version, and fallback metadata intact', async () => {
+  const repository = await LegalRepository.create(await validReleaseInput())
+  const response = await handleLegalProxyRequest({
+    method: 'GET',
+    slug: 'termini',
+    locale: 'zz',
+    market: 'IT',
+    now,
+    repository,
+  })
+  assert.equal(response.status, 200)
+
+  const parsed = parsePublishedLegalDocument(response.body)
+  const withGateMetadata = parsed as unknown as {
+    content: string
+    version: string
+    effectiveAt: string
+    digestSha256: string
+    requestedLocale: string
+    fallbackUsed: boolean
+    permanentUrl: string
+  }
+  assert.equal(withGateMetadata.version, '1.0')
+  assert.ok(withGateMetadata.content.length > 0)
+  assert.equal(withGateMetadata.effectiveAt, '2026-07-25T12:00:00.000Z')
+  assert.match(withGateMetadata.digestSha256, /^[a-f0-9]{64}$/u)
+  // F25-only metadata (absent from the legacy F13 shape) must not be
+  // stripped by the parser: the fallback locale used to serve this
+  // unsupported request stays visible to callers that want it.
+  assert.equal(withGateMetadata.requestedLocale, 'en')
+  assert.equal(withGateMetadata.fallbackUsed, false)
+  assert.match(withGateMetadata.permanentUrl, /^\/legal\/terms\/1\.0\?locale=en$/u)
 })
 
 test('a market with no active release never resolves, even against a complete fixture bundle', async () => {
