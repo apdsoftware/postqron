@@ -46,18 +46,21 @@ test('all five admin catalogs are complete and retain technical identifiers', ()
 })
 
 test('admin UI exposes accessible en/de confirmations and never requests secrets', async () => {
-  const [page, layout, api] = await Promise.all([
+  const [page, layout, api, useAdmin] = await Promise.all([
     readFile(new URL('../pages/admin.vue', import.meta.url), 'utf8'),
     readFile(new URL('../layouts/admin-console.vue', import.meta.url), 'utf8'),
     readFile(new URL('../core/api.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../core/use-admin.ts', import.meta.url), 'utf8'),
   ])
   assert.match(page, /<h1>/u)
+  assert.match(page, /middleware: 'admin-access'/u)
   assert.match(page, /aria-labelledby=/u)
   assert.match(page, /aria-live="polite"/u)
   assert.match(page, /<dialog/u)
   assert.match(page, /confirm\.checkbox/u)
   assert.match(page, /minlength="8"/u)
   assert.match(page, /globalThis\.crypto\.randomUUID\(\)/u)
+  assert.match(useAdmin, /globalThis\.\$fetch/u)
   assert.match(layout, /href="#admin-main"/u)
   assert.match(layout, /PostqronLanguageSwitcher/u)
   assert.doesNotMatch(
@@ -78,6 +81,10 @@ test('manifest owns only the protected route and declares security dependencies'
   assert.match(manifest, /path: \/admin/u)
   assert.match(manifest, /visibility: private/u)
   assert.match(manifest, /middleware: \[admin-access\]/u)
+  assert.match(
+    manifest,
+    /plugins:\n    - \.\/runtime\.ts\n  middleware:/u,
+  )
   for (const dependency of [
     'app-shell',
     'auth',
