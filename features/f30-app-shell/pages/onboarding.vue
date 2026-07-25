@@ -5,6 +5,7 @@ import {
   navigateTo,
   ref,
   useAsyncData,
+  useHead,
   useRoute,
 } from '#imports'
 import { buildConsentReceipts } from '../components/core/contracts.ts'
@@ -36,6 +37,10 @@ const selectedWorkspace = ref(session.value?.workspaces[0]?.id ?? '')
 const accepted = ref(false)
 const saving = ref(false)
 const error = ref(false)
+
+useHead(computed(() => ({
+  title: t('documentTitle.onboarding'),
+})))
 
 await useAsyncData('postqron-onboarding-bootstrap', async () => {
   const value = await api.bootstrap()

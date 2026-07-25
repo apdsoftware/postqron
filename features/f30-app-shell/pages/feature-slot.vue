@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { definePageMeta } from '#imports'
+import {
+  computed,
+  definePageMeta,
+  useHead,
+} from '#imports'
 import { useAppShellI18n } from '../components/core/use-app-shell.ts'
 
 definePageMeta({ layout: 'app-shell' })
 const { t } = useAppShellI18n()
+
+useHead(computed(() => ({
+  title: t('documentTitle.feature'),
+})))
 </script>
 
 <template>

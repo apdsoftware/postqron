@@ -5,6 +5,7 @@ import {
   navigateTo,
   ref,
   useAsyncData,
+  useHead,
   useRequestHeaders,
   useRoute,
 } from '#imports'
@@ -39,6 +40,10 @@ const submittingProvider = ref<OAuthProvider>()
 const formError = ref<'configuration' | 'consent' | 'offline'>()
 const invalidIntent = ref(false)
 const locale = computed(() => localeFromAppPath(route.fullPath))
+
+useHead(computed(() => ({
+  title: t('documentTitle.app'),
+})))
 
 function queryString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined

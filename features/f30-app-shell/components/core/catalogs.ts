@@ -2,6 +2,11 @@ export const APP_SHELL_LOCALES = ['en', 'it', 'es', 'fr', 'de'] as const
 export type AppShellLocale = typeof APP_SHELL_LOCALES[number]
 
 const en = {
+  'documentTitle.app': 'Sign in or create an account — Postqron',
+  'documentTitle.callback': 'Completing sign-in — Postqron',
+  'documentTitle.onboarding': 'Set up your workspace — Postqron',
+  'documentTitle.home': 'Workspace overview — Postqron',
+  'documentTitle.feature': 'Feature workspace — Postqron',
   'auth.eyebrow': 'Postqron workspace',
   'auth.title': 'Plan, publish, and keep every channel in view.',
   'auth.description': 'Sign in or create your account with a trusted provider. No password to remember.',
@@ -66,6 +71,11 @@ export type AppShellMessageKey = keyof typeof en
 export type AppShellCatalog = Readonly<Record<AppShellMessageKey, string>>
 
 const it: AppShellCatalog = {
+  'documentTitle.app': 'Accedi o registrati — Postqron',
+  'documentTitle.callback': 'Completamento dell’accesso — Postqron',
+  'documentTitle.onboarding': 'Configura il workspace — Postqron',
+  'documentTitle.home': 'Panoramica workspace — Postqron',
+  'documentTitle.feature': 'Funzionalità — Postqron',
   'auth.eyebrow': 'Workspace Postqron',
   'auth.title': 'Pianifica, pubblica e tieni ogni canale sotto controllo.',
   'auth.description': 'Accedi o crea il tuo account con un provider affidabile. Nessuna password da ricordare.',
@@ -127,6 +137,11 @@ const it: AppShellCatalog = {
 }
 
 const es: AppShellCatalog = {
+  'documentTitle.app': 'Iniciar sesión o registrarse — Postqron',
+  'documentTitle.callback': 'Completando el acceso — Postqron',
+  'documentTitle.onboarding': 'Configura tu espacio de trabajo — Postqron',
+  'documentTitle.home': 'Resumen del espacio de trabajo — Postqron',
+  'documentTitle.feature': 'Función — Postqron',
   'auth.eyebrow': 'Espacio de trabajo Postqron',
   'auth.title': 'Planifica, publica y controla todos tus canales.',
   'auth.description': 'Inicia sesión o crea tu cuenta con un proveedor de confianza. Sin contraseñas que recordar.',
@@ -188,6 +203,11 @@ const es: AppShellCatalog = {
 }
 
 const fr: AppShellCatalog = {
+  'documentTitle.app': 'Connexion ou inscription — Postqron',
+  'documentTitle.callback': 'Finalisation de la connexion — Postqron',
+  'documentTitle.onboarding': 'Configurez votre espace de travail — Postqron',
+  'documentTitle.home': 'Vue d’ensemble de l’espace — Postqron',
+  'documentTitle.feature': 'Fonctionnalité — Postqron',
   'auth.eyebrow': 'Espace de travail Postqron',
   'auth.title': 'Planifiez, publiez et gardez chaque canal sous contrôle.',
   'auth.description': 'Connectez-vous ou créez votre compte avec un fournisseur de confiance. Aucun mot de passe à retenir.',
@@ -249,6 +269,11 @@ const fr: AppShellCatalog = {
 }
 
 const de: AppShellCatalog = {
+  'documentTitle.app': 'Anmelden oder registrieren — Postqron',
+  'documentTitle.callback': 'Anmeldung wird abgeschlossen — Postqron',
+  'documentTitle.onboarding': 'Arbeitsbereich einrichten — Postqron',
+  'documentTitle.home': 'Arbeitsbereich im Überblick — Postqron',
+  'documentTitle.feature': 'Funktion — Postqron',
   'auth.eyebrow': 'Postqron-Arbeitsbereich',
   'auth.title': 'Plane, veröffentliche und behalte jeden Kanal im Blick.',
   'auth.description': 'Melde dich über einen vertrauenswürdigen Anbieter an oder erstelle dein Konto. Kein Passwort nötig.',

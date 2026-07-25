@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { computed, definePageMeta } from '#imports'
+import {
+  computed,
+  definePageMeta,
+  useHead,
+} from '#imports'
 import {
   useAppSessionState,
   useAppShellI18n,
@@ -11,6 +15,10 @@ const session = useAppSessionState()
 const { t } = useAppShellI18n()
 const displayName = computed(() =>
   session.value?.account.display_name || t('shell.profile'))
+
+useHead(computed(() => ({
+  title: t('documentTitle.home'),
+})))
 </script>
 
 <template>
