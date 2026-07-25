@@ -83,7 +83,7 @@ test('manifest owns only the protected route and declares security dependencies'
   assert.match(manifest, /middleware: \[admin-access\]/u)
   assert.match(
     manifest,
-    /plugins:\n    - \.\/runtime\.ts\n  middleware:/u,
+    /plugins:\n {4}- \.\/runtime\.ts\n {2}middleware:/u,
   )
   for (const dependency of [
     'app-shell',
