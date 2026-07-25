@@ -3,6 +3,9 @@ import { fileURLToPath } from 'node:url'
 import {
   discoverFeatureComposition,
 } from './server/utils/feature-module'
+import {
+  STATIC_CONTENT_SECURITY_POLICY,
+} from './server/utils/content-security-policy'
 
 const fromRepository = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const defaultFeatureRoots = [
@@ -113,7 +116,7 @@ export default defineNuxtConfig({
   routeRules: {
     '/**': {
       headers: {
-        'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'",
+        'content-security-policy': STATIC_CONTENT_SECURITY_POLICY,
         'referrer-policy': 'strict-origin-when-cross-origin',
         'x-content-type-options': 'nosniff',
         'x-frame-options': 'DENY',
