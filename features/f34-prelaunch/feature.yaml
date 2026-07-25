@@ -1,0 +1,36 @@
+schema_version: 1
+id: prelaunch
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies:
+  - app-shell
+  - brand
+  - i18n
+  - legal-documents
+  - marketing-site
+  - prelaunch-access
+  - support-contact
+migrations: []
+required: true
+web:
+  routes:
+    - name: prelaunch-landing
+      path: /prelaunch
+      file: ./pages/prelaunch.vue
+      visibility: public
+      middleware: []
+    - name: prelaunch-access
+      path: /prelaunch/access
+      file: ./pages/access.vue
+      visibility: public
+      middleware: []
+  layouts:
+    - name: prelaunch
+      file: ./layouts/prelaunch.vue
+  plugins:
+    - ./runtime.ts
+  middleware:
+    - name: prelaunch-mode
+      file: ./middleware/prelaunch-mode.ts
+      global: true

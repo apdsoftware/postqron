@@ -1,0 +1,61 @@
+openapi: 3.1.0
+info:
+  title: Postqron pre-launch access API
+  version: 0.1.0
+paths:
+  /api/v1/prelaunch/access-requests:
+    post:
+      operationId: requestPrelaunchAccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AccessRequest'
+      responses:
+        '202':
+          description: Request accepted, including deduplicated requests
+        '303':
+          description: Browser form redirected to its localized result page
+        '422':
+          description: Consent or payload is invalid
+        '429':
+          description: Rate limit exceeded
+    options:
+      operationId: preflightPrelaunchAccess
+      responses:
+        '204':
+          description: Allowed CORS preflight
+  /api/v1/prelaunch/status:
+    get:
+      operationId: prelaunchStatus
+      responses:
+        '200':
+          description: Effective non-secret pre-launch mode
+components:
+  schemas:
+    AccessRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - locale
+        - access_consent
+        - marketing_consent
+        - consent_policy_version
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        locale:
+          enum: [en, it, es, fr, de]
+        access_consent:
+          const: true
+        marketing_consent:
+          const: false
+        consent_policy_version:
+          const: prelaunch-access-v1

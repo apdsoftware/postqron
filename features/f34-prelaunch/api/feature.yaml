@@ -1,0 +1,21 @@
+schema_version: 1
+id: prelaunch-access
+kind: api
+version: 0.1.0
+entrypoint: ./module.go
+dependencies:
+  - email
+  - operations
+migrations:
+  - ./migrations/000001_create_prelaunch_access.sql
+required: true
+server:
+  routes:
+    - path: /prelaunch/access-requests
+      handler: AccessRequests
+      methods: [POST, OPTIONS]
+      visibility: public
+    - path: /prelaunch/status
+      handler: PrelaunchStatus
+      methods: [GET]
+      visibility: public

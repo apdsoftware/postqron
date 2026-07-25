@@ -1,23 +1,29 @@
-import {
-  isPublicLegalSlug,
-  parsePublishedLegalDocument,
-  PUBLIC_LEGAL_DOCUMENTS,
-} from '../../../src/legal'
-import { normalizeUpstreamError, upstreamUrl } from '../../utils/upstream'
+import { LOCALE_COOKIE_CONTRACT } from '../../../../f36-i18n/src/cookie.ts'
+import { resolveLocale } from '../../../../f36-i18n/src/resolver.ts'
+import { handleLegalProxyRequest } from '../../../src/legal'
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, 'document') || ''
-  if (!isPublicLegalSlug(slug)) {
-    throw createError({ statusCode: 404, statusMessage: 'Documento non trovato' })
-  }
+  const query = getQuery(event)
 
-  const documentKey = PUBLIC_LEGAL_DOCUMENTS[slug].key
-  try {
-    const document = await $fetch(
-      upstreamUrl(`/api/v1/legal-documents/${encodeURIComponent(documentKey)}/current`),
-    )
-    return parsePublishedLegalDocument(document)
-  } catch (error) {
-    return normalizeUpstreamError(error)
+  const requestedLocale = typeof query.locale === 'string' ? query.locale : undefined
+  const locale = requestedLocale ?? resolveLocale({
+    acceptLanguage: getRequestHeader(event, 'accept-language'),
+    cookie: getCookie(event, LOCALE_COOKIE_CONTRACT.name),
+    url: event.path,
+  }).locale
+  const market = typeof query.market === 'string' ? query.market : undefined
+
+  const response = await handleLegalProxyRequest({
+    method: event.method,
+    slug,
+    locale,
+    market,
+  })
+
+  setResponseStatus(event, response.status)
+  for (const [name, value] of Object.entries(response.headers)) {
+    setResponseHeader(event, name, value)
   }
+  return response.body
 })
