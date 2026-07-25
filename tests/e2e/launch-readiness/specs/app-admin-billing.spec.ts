@@ -60,7 +60,7 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
   await adminPage.getByRole('button', { name: /assign/iu }).click()
   await adminPage.getByLabel(/reason/iu).fill('Approved launch fixture action')
   await adminPage.getByRole('checkbox').check()
-  await adminPage.getByRole('button', { name: /confirm|apply|assign/iu }).click()
+  await adminPage.getByRole('button', { name: /confirm operation/iu }).click()
   await expect(adminPage.getByText('internal_plan.assign')).toBeVisible()
   await expect(adminPage.getByText('Approved launch fixture action')).toBeVisible()
   await admin.close()
