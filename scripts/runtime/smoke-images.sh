@@ -40,6 +40,29 @@ assert_contains() {
   fi
 }
 
+assert_not_foundation_placeholder() {
+  local homepage=$1
+  if [[ "$homepage" == *'class="app-shell"'* ]]; then
+    echo "web image still serves the foundation placeholder" >&2
+    exit 1
+  fi
+}
+
+assert_normal_site() {
+  local homepage=$1
+  assert_contains "$homepage" 'class="site-shell"'
+  assert_contains "$homepage" '<main id="main-content">'
+  assert_not_foundation_placeholder "$homepage"
+}
+
+assert_prelaunch_site() {
+  local homepage=$1
+  assert_contains "$homepage" 'data-prelaunch-mode="on"'
+  assert_contains "$homepage" 'class="prelaunch-shell"'
+  assert_contains "$homepage" 'id="main-content"'
+  assert_not_foundation_placeholder "$homepage"
+}
+
 manifest_value() {
   local manifest=$1
   local field=$2
@@ -306,11 +329,18 @@ assert_exact_output \
 docker run -d --name "$web_container" "$web_image" >/dev/null
 wait_for_http "$web_container" "http://127.0.0.1:3000/api/health"
 homepage=$(container_fetch "$web_container" "http://127.0.0.1:3000/")
-assert_contains "$homepage" 'I tuoi contenuti social, finalmente in ordine.'
-if [[ "$homepage" == *'La fondazione applicativa è pronta'* ]]; then
-  echo "web image still serves the foundation placeholder" >&2
-  exit 1
+if [[ -f "$repository_root/features/f34-prelaunch/feature.yaml" ]]; then
+  assert_prelaunch_site "$homepage"
+  docker rm -f "$web_container" >/dev/null
+  docker run -d \
+    --name "$web_container" \
+    -e PRELAUNCH_MODE=false \
+    "$web_image" >/dev/null
+  wait_for_http "$web_container" "http://127.0.0.1:3000/api/health"
+  homepage=$(container_fetch "$web_container" "http://127.0.0.1:3000/")
+  assert_contains "$homepage" 'data-prelaunch-mode="off"'
 fi
+assert_normal_site "$homepage"
 web_catalog=$(container_fetch "$web_container" "http://127.0.0.1:3000/api/features")
 assert_contains "$web_catalog" '"id":"marketing-site"'
 extract_json_ids "$web_catalog" id "$temporary_directory/web-catalog"
