@@ -152,11 +152,12 @@ type hostedFeature struct {
 }
 
 type Host struct {
-	dependencies Dependencies
-	features     []*hostedFeature
-	migrations   MigrationManager
-	privateMux   *http.ServeMux
-	publicMux    *http.ServeMux
+	dependencies  Dependencies
+	features      []*hostedFeature
+	migrations    MigrationManager
+	privateMux    *http.ServeMux
+	privateRoutes []string
+	publicMux     *http.ServeMux
 
 	mu      sync.RWMutex
 	started bool
@@ -315,6 +316,9 @@ func (host *Host) mount(hosted *hostedFeature) error {
 		for _, method := range route.Methods {
 			pattern := method + " " + path.Clean("/api/v1"+route.Path)
 			target.Handle(pattern, handler)
+			if route.Visibility == "private" {
+				host.privateRoutes = append(host.privateRoutes, pattern)
+			}
 		}
 	}
 	return nil
@@ -416,6 +420,46 @@ func (host *Host) AuthenticatedHandler(
 		return nil, errors.New("private feature routes require explicit authentication middleware")
 	}
 	return authenticate(host.privateMux), nil
+}
+
+func (host *Host) MountAuthenticatedRoutes(
+	mux *http.ServeMux,
+	authenticate func(http.Handler) http.Handler,
+) error {
+	if mux == nil {
+		return errors.New("private feature routes require an explicit server mux")
+	}
+	handler, err := host.AuthenticatedHandler(authenticate)
+	if err != nil {
+		return err
+	}
+	host.mu.RLock()
+	patterns := slices.Clone(host.privateRoutes)
+	host.mu.RUnlock()
+	for _, pattern := range patterns {
+		if err := mountAuthenticatedPattern(mux, pattern, handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mountAuthenticatedPattern(
+	mux *http.ServeMux,
+	pattern string,
+	handler http.Handler,
+) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf(
+				"mount authenticated private route %q: %v",
+				pattern,
+				recovered,
+			)
+		}
+	}()
+	mux.Handle(pattern, handler)
+	return nil
 }
 
 func (host *Host) setError(hosted *hostedFeature, err error) {

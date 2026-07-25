@@ -73,9 +73,22 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	authenticatePrivate, err := httpapi.NewPostgresSessionAuthentication(database, time.Now)
+	if err != nil {
+		return err
+	}
+	apiHandler, err := httpapi.NewWithHost(
+		host,
+		authenticatePrivate,
+		version,
+		logger,
+	)
+	if err != nil {
+		return err
+	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           httpapi.NewWithHost(host, version, logger),
+		Handler:           apiHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

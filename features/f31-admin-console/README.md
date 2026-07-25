@@ -37,9 +37,11 @@ secrets, or complete payment data.
 
 ## Private adapter
 
-Create `Service` with an allowlist parsed from
-`POSTQRON_ADMIN_ALLOWLIST`, call `BootstrapAdmins` during startup, then mount
-`NewHandler(service, authenticator)` on F24's authenticated private listener.
+`NewPostgresModule` creates the service with an allowlist parsed from
+`POSTQRON_ADMIN_ALLOWLIST`, calls `BootstrapAdmins` during startup, and exposes
+`NewHandler(service, authenticator)` only through F24's authenticated private
+route overlay. The hybrid manifest declares every adapter route as `private`;
+the generic public `/api/v1/` fallback never receives those patterns.
 The adapter provides:
 
 - `GET /api/v1/admin/session`

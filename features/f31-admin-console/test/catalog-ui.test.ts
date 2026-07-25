@@ -90,7 +90,7 @@ test('admin UI exposes accessible en/de confirmations and never requests secrets
   )
 })
 
-test('manifest owns only the protected route and declares security dependencies', async () => {
+test('manifest owns only protected web and server routes with security dependencies', async () => {
   const manifest = await readFile(
     new URL('../feature.yaml', import.meta.url),
     'utf8',
@@ -114,5 +114,18 @@ test('manifest owns only the protected route and declares security dependencies'
     assert.match(manifest, new RegExp(`  - ${dependency}\\n`, 'u'))
   }
   assert.doesNotMatch(manifest, /visibility: public/u)
-  assert.doesNotMatch(manifest, /server:\n/u)
+  assert.match(manifest, /entrypoints:\n {2}server: \.\/module\.go\n {2}web: \.\/runtime\.ts/u)
+  for (const path of [
+    '/admin/session',
+    '/admin/dashboard',
+    '/admin/search',
+    '/admin/workspaces/{workspace_id}/internal-plan',
+    '/admin/admins/{account_id}',
+  ]) {
+    assert.ok(manifest.includes(`path: ${path}`))
+  }
+  assert.equal(
+    manifest.match(/visibility: private/gu)?.length,
+    6,
+  )
 })
