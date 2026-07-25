@@ -16,7 +16,7 @@ revisionSummary: "Initial from-scratch technical draft pending legal review."
 
 ## 1. Controller and contact
 
-This notice is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, the controller for the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at help@postqron.com and via https://apdsoftware.it. Whether a Data Protection Officer has been appointed, and if so their contact details, are recorded as pending legal-review metadata and will be disclosed here once confirmed. For all privacy-related questions, requests, or complaints in the meantime, please use help@postqron.com.
+This notice is issued by Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy, VAT number 03835250162), trading as APDSoftware, the controller for the Postqron service (entity information verified via a public source: https://mailronix.com/terms, consulted 2026-07-25), reachable at help@postqron.com and via https://apdsoftware.it. No Data Protection Officer has been appointed. For all privacy-related questions, requests, or complaints, please use help@postqron.com.
 
 ## 2. Categories of personal data processed
 
@@ -91,11 +91,11 @@ Data subjects also have the right to lodge a complaint with a supervisory author
 
 ## 9. Minors
 
-Whether the service is offered to, and the exact minimum age applicable to, individual users is still subject to legal confirmation; a firm minimum-age policy is recorded as pending legal-review metadata and will be disclosed here once confirmed. As a conservative operating position pending that confirmation, Postqron is intended for professional and business use and is not knowingly offered to children.
+Postqron is intended for professional and business use and is restricted to users aged 18 or over. The Service is not offered to individuals under the age of 18, and registration by minors is not permitted.
 
 ## 10. Complaints and DPO governance
 
-Privacy-related requests and complaints should be directed to help@postqron.com. Whether a Data Protection Officer has been appointed, and if so their contact details, are recorded as pending legal-review metadata and will be disclosed here once confirmed.
+Privacy-related requests and complaints should be directed to help@postqron.com. No Data Protection Officer has been appointed.
 
 ## 11. Changes to this notice
 

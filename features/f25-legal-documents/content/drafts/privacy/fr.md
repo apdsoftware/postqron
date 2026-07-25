@@ -16,7 +16,7 @@ revisionSummary: "Brouillon initial rédigé de zéro, en attente de validation 
 
 ## 1. Responsable du traitement et contact
 
-Le présent avis est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant que responsable du traitement pour le service Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et via https://apdsoftware.it. La désignation éventuelle d'un délégué à la protection des données (DPD) et ses coordonnées sont enregistrées comme métadonnées en attente de validation juridique et seront indiquées ici dès leur confirmation. Dans l'intervalle, pour toute question, demande ou réclamation relative à la confidentialité, veuillez écrire à help@postqron.com.
+Le présent avis est publié par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162), exerçant sous la marque APDSoftware en tant que responsable du traitement pour le service Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse help@postqron.com et via https://apdsoftware.it. Aucun délégué à la protection des données (DPD) n'a été désigné. Pour toute question, demande ou réclamation relative à la confidentialité, veuillez écrire à help@postqron.com.
 
 ## 2. Catégories de données personnelles traitées
 
@@ -91,11 +91,11 @@ Les personnes concernées disposent également du droit d'introduire une réclam
 
 ## 9. Mineurs
 
-La question de savoir si le service est proposé aux mineurs, ainsi que l'âge minimum exact applicable aux utilisateurs, restent soumises à confirmation juridique ; une politique définitive relative à l'âge minimum est enregistrée comme métadonnées en attente de validation juridique et sera indiquée ici dès sa confirmation. À titre de position opérationnelle prudente dans l'attente de cette confirmation, Postqron est destiné à un usage professionnel et commercial et n'est pas sciemment proposé à des mineurs.
+Postqron est destiné à un usage professionnel et commercial et est réservé aux utilisateurs âgés de 18 ans ou plus. Le Service n'est pas proposé aux personnes de moins de 18 ans et leur inscription n'est pas autorisée.
 
 ## 10. Réclamations et gouvernance du DPD
 
-Les demandes et réclamations relatives à la confidentialité doivent être adressées à help@postqron.com. La désignation éventuelle d'un délégué à la protection des données (DPD), ainsi que ses coordonnées le cas échéant, sont enregistrées comme métadonnées en attente de validation juridique et seront indiquées ici dès leur confirmation.
+Les demandes et réclamations relatives à la confidentialité doivent être adressées à help@postqron.com. Aucun délégué à la protection des données (DPD) n'a été désigné.
 
 ## 11. Modifications du présent avis
 

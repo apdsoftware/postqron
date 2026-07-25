@@ -16,7 +16,7 @@ revisionSummary: "Erster, von Grund auf neu erstellter Entwurf, ausstehende rech
 
 ## 1. Verantwortlicher und Kontakt
 
-Diese Erklärung wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Verantwortliche für den Dienst Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und über https://apdsoftware.it. Eine etwaige Bestellung eines Datenschutzbeauftragten und dessen Kontaktdaten werden als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt sind. Für alle datenschutzbezogenen Fragen, Anfragen oder Beschwerden wenden Sie sich in der Zwischenzeit bitte an help@postqron.com.
+Diese Erklärung wird von Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italien, USt-IdNr. 03835250162) herausgegeben, die unter der Marke APDSoftware als Verantwortliche für den Dienst Postqron auftritt (Angaben zur Rechtsperson verifiziert anhand einer öffentlichen Quelle: https://mailronix.com/terms, abgerufen am 2026-07-25), erreichbar unter help@postqron.com und über https://apdsoftware.it. Es wurde kein Datenschutzbeauftragter bestellt. Für alle datenschutzbezogenen Fragen, Anfragen oder Beschwerden wenden Sie sich bitte an help@postqron.com.
 
 ## 2. Kategorien der verarbeiteten personenbezogenen Daten
 
@@ -91,11 +91,11 @@ Betroffene Personen haben zudem das Recht, Beschwerde bei einer Aufsichtsbehörd
 
 ## 9. Minderjährige
 
-Ob der Dienst Minderjährigen angeboten wird und welches genaue Mindestalter für Nutzer gilt, ist noch Gegenstand rechtlicher Bestätigung; eine verbindliche Mindestalter-Regelung wird als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt ist. Als vorsichtige operative Haltung bis zu dieser Bestätigung ist Postqron für die professionelle und geschäftliche Nutzung bestimmt und wird nicht wissentlich Kindern angeboten.
+Postqron ist für die professionelle und geschäftliche Nutzung bestimmt und Nutzern vorbehalten, die mindestens 18 Jahre alt sind. Der Dienst wird Personen unter 18 Jahren nicht angeboten, und deren Registrierung ist nicht gestattet.
 
 ## 10. Beschwerden und Governance des Datenschutzbeauftragten
 
-Datenschutzbezogene Anfragen und Beschwerden sind an help@postqron.com zu richten. Ob ein Datenschutzbeauftragter bestellt wurde und, falls ja, dessen Kontaktdaten werden als Metadaten im Rahmen der ausstehenden rechtlichen Prüfung erfasst und hier ausgewiesen, sobald sie bestätigt sind.
+Datenschutzbezogene Anfragen und Beschwerden sind an help@postqron.com zu richten. Es wurde kein Datenschutzbeauftragter bestellt.
 
 ## 11. Änderungen dieser Erklärung
 
