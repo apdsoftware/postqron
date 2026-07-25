@@ -1,0 +1,51 @@
+schema_version: 1
+id: app-shell
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies:
+  - auth
+  - brand
+  - compliance
+  - email
+  - f10-entitlements
+  - i18n
+  - workspaces
+migrations: []
+web:
+  routes:
+    - name: app-entry
+      path: /app
+      file: ./pages/app.vue
+      visibility: public
+      middleware: []
+    - name: app-oauth-callback
+      path: /app/oauth/callback
+      file: ./pages/oauth-callback.vue
+      visibility: public
+      middleware: []
+    - name: app-onboarding
+      path: /app/onboarding
+      file: ./pages/onboarding.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-home
+      path: /app/home
+      file: ./pages/home.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-feature-slot
+      path: /app/:featurePath(.*)*
+      file: ./pages/feature-slot.vue
+      visibility: private
+      middleware: [app-session]
+  layouts:
+    - name: app-shell
+      file: ./layouts/app-shell.vue
+  components:
+    - ./components
+  plugins:
+    - ./runtime.ts
+  middleware:
+    - name: app-session
+      file: ./middleware/app-session.ts
