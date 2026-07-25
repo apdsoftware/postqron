@@ -124,7 +124,7 @@ func diagnosticFromError(err error, now time.Time) (Diagnostic, time.Duration) {
 		Detail: SanitizeDiagnostic(err.Error()),
 		At:     now,
 	}
-	var providerError *MailroxError
+	var providerError *MailronixError
 	if errors.As(err, &providerError) {
 		diagnostic.Code = sanitizeCode(providerError.Code)
 		diagnostic.Detail = SanitizeDiagnostic(providerError.Detail)

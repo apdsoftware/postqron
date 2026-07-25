@@ -1,8 +1,10 @@
 package email
 
 import (
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -16,9 +18,7 @@ func testRenderer(t *testing.T) *Renderer {
 	}
 	defer source.Close()
 	brand, err := LoadBrandFromF1(
-		source,
-		"Postqron",
-		"https://assets.example.test/logo-primary.svg",
+		source, "Postqron", "https://assets.example.test/logo-primary.svg",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -30,96 +30,150 @@ func testRenderer(t *testing.T) *Renderer {
 	return renderer
 }
 
-func testMessage(channel Channel, templateID TemplateID) Message {
+func testMessage(templateID TemplateID) Message {
+	count := int64(12345)
+	amount := int64(123456)
 	return Message{
-		ID:              "email_1",
-		IdempotencyKey:  "event:1",
-		Channel:         channel,
-		Template:        templateID,
+		ID: "email_1", IdempotencyKey: "event:1",
+		Channel: ChannelTransactional, Template: templateID,
 		TemplateVersion: "1.0.0",
 		Recipient: Recipient{
-			ID:    "account_1",
-			Email: "persona@example.test",
-			Name:  "Persona",
+			ID: "account_1", Email: "persona@example.test", Name: "Persona",
+			Locale: "it-IT",
 		},
 		Data: TemplateData{
-			Heading:     "Il tuo riepilogo",
-			Intro:       "Abbiamo completato l’operazione.",
-			Body:        "Puoi consultare i dettagli nel tuo spazio.",
-			ActionLabel: "Apri Postqron",
-			ActionURL:   "https://app.example.test/activity",
+			Detail: "Workspace Europa", ActionURL: "https://app.example.test/activity",
+			OccurredAt: time.Date(2026, 7, 24, 12, 30, 0, 0, time.UTC),
+			TimeZone:   "Europe/Rome", Count: &count, AmountMinor: &amount,
+			Currency: "EUR",
 		},
 		CreatedAt:   time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		MaxAttempts: 5,
 	}
 }
 
-func TestRendererProducesResponsiveAccessibleEscapedEmail(t *testing.T) {
-	message := testMessage(ChannelTransactional, TemplatePublicationFailed)
-	message.Data.Detail = `<script>alert("x")</script>`
-
-	rendered, err := testRenderer(t).Render(message)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, wanted := range []string{
-		`<html lang="it">`,
-		`name="viewport"`,
-		`@media only screen and (max-width: 620px)`,
-		`role="presentation"`,
-		`role="note"`,
-		`alt="Postqron"`,
-		`min-height:44px`,
-		`&lt;script&gt;alert`,
-	} {
-		if !strings.Contains(rendered.HTML, wanted) {
-			t.Fatalf("HTML does not contain %q", wanted)
+func TestEveryTemplateRendersAllLocalesWithCompleteAlternatives(t *testing.T) {
+	renderer := testRenderer(t)
+	for templateID := range templateCatalog {
+		for _, locale := range SupportedLocales {
+			t.Run(string(templateID)+"/"+string(locale), func(t *testing.T) {
+				message := testMessage(templateID)
+				message.Recipient.Locale = string(locale)
+				rendered, err := renderer.Render(message)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if rendered.Locale != locale || rendered.Subject == "" ||
+					rendered.Preheader == "" || rendered.HTML == "" || rendered.Text == "" {
+					t.Fatalf("incomplete rendering: %#v", rendered)
+				}
+				for _, wanted := range []string{
+					`<html lang="` + string(locale) + `"`,
+					`name="viewport"`, `role="presentation"`, `min-height:44px`,
+					rendered.Preheader, "Workspace Europa",
+					"https://app.example.test/activity",
+				} {
+					if !strings.Contains(rendered.HTML, wanted) {
+						t.Fatalf("HTML does not contain %q", wanted)
+					}
+				}
+				for _, forbidden := range []string{"ZgotmplZ", "{{", "unsubscribe"} {
+					if strings.Contains(strings.ToLower(rendered.HTML), forbidden) {
+						t.Fatalf("HTML unexpectedly contains %q", forbidden)
+					}
+				}
+			})
 		}
-	}
-	for _, forbidden := range []string{"ZgotmplZ", `<script>alert`, "Annulla l’iscrizione"} {
-		if strings.Contains(rendered.HTML, forbidden) {
-			t.Fatalf("HTML unexpectedly contains %q", forbidden)
-		}
-	}
-	if !strings.Contains(rendered.Text, "Dettaglio: <script>") {
-		t.Fatalf("plain-text alternative was not rendered: %q", rendered.Text)
-	}
-	if len(rendered.Headers) != 0 {
-		t.Fatalf("transactional headers = %#v, want no marketing headers", rendered.Headers)
 	}
 }
 
-func TestRendererSeparatesMarketingAndRequiresUnsubscribe(t *testing.T) {
-	message := testMessage(ChannelMarketing, TemplateMarketingUpdate)
-	if _, err := testRenderer(t).Render(message); !errors.Is(err, ErrUnsubscribeRequired) {
-		t.Fatalf("Render() error = %v, want ErrUnsubscribeRequired", err)
-	}
-	message.Data.UnsubscribeURL = "https://app.example.test/email/unsubscribe?token=opaque"
-	rendered, err := testRenderer(t).Render(message)
+func TestLocaleFallbackReplayAndLocalizedValues(t *testing.T) {
+	renderer := testRenderer(t)
+	message := testMessage(TemplateBilling)
+	message.Recipient.Locale = "pt-BR"
+	rendered, err := renderer.Render(message)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rendered.Headers["List-Unsubscribe-Post"] != "List-Unsubscribe=One-Click" {
-		t.Fatalf("missing one-click unsubscribe header: %#v", rendered.Headers)
+	if rendered.Locale != LocaleEnglish ||
+		!strings.Contains(rendered.Text, "Jul 24, 2026, 2:30 PM CEST") ||
+		!strings.Contains(rendered.Text, "12,345") ||
+		!strings.Contains(rendered.Text, "1,234.56 EUR") {
+		t.Fatalf("English fallback/localized values missing:\n%s", rendered.Text)
 	}
-	if !strings.Contains(rendered.HTML, "Annulla l’iscrizione") ||
-		!strings.Contains(rendered.Text, "Annulla l'iscrizione") {
-		t.Fatal("marketing alternatives do not expose unsubscribe")
+	message.Recipient.Locale = "de-DE"
+	german, err := renderer.Render(message)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if !strings.Contains(german.Text, "24.07.2026, 14:30 CEST") ||
+		!strings.Contains(german.Text, "12.345") ||
+		!strings.Contains(german.Text, "1.234,56 €") {
+		t.Fatalf("German localized values missing:\n%s", german.Text)
+	}
+	if rendered.TemplateVersion != german.TemplateVersion ||
+		rendered.IdempotencyKey != german.IdempotencyKey {
+		t.Fatal("rendering changed immutable replay fields")
+	}
+}
 
-	message.Channel = ChannelTransactional
-	if _, err := testRenderer(t).Render(message); !errors.Is(err, ErrTemplateChannel) {
-		t.Fatalf("cross-channel Render() error = %v, want ErrTemplateChannel", err)
+func TestRendererEscapesLongFrenchAndGermanContent(t *testing.T) {
+	renderer := testRenderer(t)
+	for _, locale := range []string{"fr", "de"} {
+		message := testMessage(TemplateOperationalAlert)
+		message.Recipient.Locale = locale
+		message.Data.Detail = strings.Repeat("Sehr longue information & ", 30) +
+			`<script>alert("x")</script>`
+		rendered, err := renderer.Render(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(rendered.HTML, "&lt;script&gt;") ||
+			strings.Contains(rendered.HTML, "<script>alert") {
+			t.Fatalf("%s detail was not escaped", locale)
+		}
+		if !strings.Contains(rendered.HTML, "@media only screen") {
+			t.Fatalf("%s lost responsive rule", locale)
+		}
 	}
 }
 
 func TestLoadBrandRejectsMissingF1ValuesInsteadOfFallingBack(t *testing.T) {
 	_, err := LoadBrandFromF1(
 		strings.NewReader(`{"color":{"semantic":{"light":{}}}}`),
-		"Postqron",
-		"https://assets.example.test/logo.svg",
+		"Postqron", "https://assets.example.test/logo.svg",
 	)
 	if err == nil {
 		t.Fatal("LoadBrandFromF1() accepted incomplete F1 tokens")
+	}
+}
+
+func TestNormalizedTemplateCatalogSnapshot(t *testing.T) {
+	renderer := testRenderer(t)
+	ids := make([]string, 0, len(templateCatalog))
+	for templateID := range templateCatalog {
+		ids = append(ids, string(templateID))
+	}
+	sort.Strings(ids)
+	hash := sha256.New()
+	for _, rawID := range ids {
+		for _, locale := range SupportedLocales {
+			message := testMessage(TemplateID(rawID))
+			message.Recipient.Locale = string(locale)
+			rendered, err := renderer.Render(message)
+			if err != nil {
+				t.Fatal(err)
+			}
+			normalized := strings.Join(strings.Fields(
+				rawID+"\n"+string(locale)+"\n"+rendered.Subject+"\n"+
+					rendered.Preheader+"\n"+rendered.HTML+"\n"+
+					rendered.Text+"\n"+message.Data.ActionURL,
+			), " ")
+			_, _ = hash.Write([]byte(normalized))
+		}
+	}
+	const expected = "0d77ec241ec8de1b8ebc6510341cca3654862cd93ac353c3c6b54d8f30fd7330"
+	if actual := hex.EncodeToString(hash.Sum(nil)); actual != expected {
+		t.Fatalf("normalized template snapshot = %s, want %s", actual, expected)
 	}
 }

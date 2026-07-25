@@ -1,116 +1,103 @@
-# F14 — Email transazionali Mailrox
+# F14 — Email transazionali Mailronix
 
-Questa slice worker autonoma implementa l'invio email di Postqron:
+Questa slice è l’unico confine autorizzato per le email transazionali originate
+da Postqron. Le altre feature pubblicano il comando versionato
+`contracts/email-command.schema.json`; non chiamano provider, SMTP o API email.
+Il canale accettato è esclusivamente `transactional`: campagne e marketing sono
+fuori da F14, mentre ricevute fiscali e di pagamento restano responsabilità di
+Paddle.
 
-- template HTML responsive e semantici, sempre accompagnati da testo semplice;
-- catalogo transazionale separato dal solo template marketing;
-- brand, palette, font e logo risolti dalla feature F1, senza valori duplicati;
-- adapter HTTP Mailrox con idempotency key e ricevuta del provider;
-- credenziali transazionali e marketing distinte, lette da un secret provider;
-- retry esponenziali limitati e classificazione degli errori permanenti;
-- webhook firmati, eventi provider idempotenti, bounce e complaint;
-- unsubscribe marketing cifrato/autenticato e suppression list atomica;
-- diagnostica limitata e redatta da indirizzi email e credenziali.
+## Contratto verificato e limiti
 
-## Discovery F16
+Il contratto ufficiale Mailronix verificato è documentato in
+`contracts/mailronix-api-1.0.0.md`. L’adapter implementa esattamente
+`POST /email/send` con contenuto diretto, Bearer API key, risposta 202
+`queued/email_log_id` e gli errori pubblicati.
 
-`feature.yaml` dichiara la dipendenza da `brand`. Il worker include F1 e F14 tra
-le root scoperte; non serve un registro centrale:
+La specifica ufficiale non espone webhook, SMTP, sandbox remoto, Reply-To,
+header di idempotenza, limiti numerici o stato di consegna. Queste capacità non
+sono simulate come se fossero provider features: il documento del contratto
+elenca i blocchi da chiudere con Mailronix prima del go-live. In particolare,
+`help@postqron.com` non può ancora essere impostato come Reply-To senza un campo
+ufficialmente supportato.
 
-```sh
-POSTQRON_FEATURE_ROOTS="services/worker/features:features/f01-brand:features/f14-email"
-```
+## Configurazione e segreti
 
-Per validare manifest e migrazione con il runtime F16:
+`MailronixConfig` contiene solo configurazione non segreta:
 
-```sh
-go run ./services/api/cmd/migrate \
-  --check \
-  --roots "features/f01-brand:features/f14-email"
-```
+- endpoint HTTPS con path obbligatorio `/email/send`;
+- versione contratto obbligatoria `1.0.0`;
+- nome del segreto della API key, consigliato
+  `MAILRONIX_TRANSACTIONAL_API_KEY`;
+- mittente transazionale;
+- conferma di verifica dominio;
+- soglia e cooldown del circuit breaker.
 
-La migrazione crea la coda persistente, il ledger degli eventi provider e le
-soppressioni. `f14_claim_email_delivery` usa `FOR UPDATE SKIP LOCKED`;
-`f14_record_email_provider_event` applica stato e soppressione nella stessa
-transazione.
+La API key viene risolta a runtime tramite `SecretProvider`, non entra in
+frontend, repository, fixture o log. Un client HTTP con timeout esplicito è
+obbligatorio. La costruzione live fallisce se la versione del contratto non
+coincide, il dominio non è dichiarato verificato o la configurazione è
+incompleta.
 
-## Brand e template
+## Localizzazione e replay
 
-Il processo host passa a `LoadBrandFromF1`:
+Ogni template include oggetto, preheader, HTML responsive e plain text in
+`en`, `it`, `es`, `fr` e `de`. La preferenza del destinatario accetta anche
+tag regionali (`it-IT`, `de-DE`) e ricade su `en` per valori assenti o non
+supportati. Locale e versione template vengono salvate nel messaggio renderizzato
+prima dell’invio: retry e replay non possono cambiare la copia originale.
 
-1. `features/f01-brand/tokens/tokens.json`;
-2. il nome scoperto da `features/f01-brand/runtime.ts`;
-3. l'URL HTTPS pubblicato di `logo-primary.svg`.
+Date/orari, interi e valute vengono formattati per locale senza modificare il
+valore sottostante. I link HTTPS restano identici; cambia solo l’etichetta
+localizzata. Il layout usa markup semantico, alternative plain text, target
+touch da 44 px e una regola mobile che regge testi lunghi in francese e tedesco.
 
-F14 non contiene palette, font, logo o fallback di brand. Se un token F1
-richiesto manca, il renderer fallisce all'avvio.
+## Matrice transazionale
 
-I template transazionali sono:
+`TransactionalEventMatrix` è il catalogo eseguibile con evento, produttore,
+destinatario, template, priorità, origine locale, idempotency key e
+responsabilità di invio. Copre:
 
-- `welcome`;
-- `plan_changed`;
-- `publication_failed`;
-- `security_alert`.
+- welcome/onboarding e inviti workspace;
+- sicurezza, collegamento account e cambiamenti sensibili;
+- social scaduti/da riconnettere;
+- approvazioni e collaborazione;
+- pubblicazione riuscita, fallita e retry manuale;
+- pagamento fallito, piano, cancellazione e grace period;
+- export, cancellazione e richieste privacy;
+- richiesta accesso/pre-lancio;
+- alert amministrativi/operativi rivolti a un utente.
 
-`marketing_update` è l'unico template marketing. Un template non può cambiare
-canale e i messaggi transazionali rifiutano campi di unsubscribe, così non
-possono incorporare promozioni per errore. Ogni messaggio marketing richiede
-invece un URL HTTPS di cancellazione e produce sia il link nel corpo sia gli
-header `List-Unsubscribe` e `List-Unsubscribe-Post`.
+Gli eventi di billing dichiarano esplicitamente che Paddle possiede la ricevuta
+fiscale; Mailronix invia soltanto la notifica Postqron e non ne duplica il
+contenuto.
 
-Prima del rilascio, oltre ai test automatici, verificare i template con
-VoiceOver, zoom del testo, una viewport da 320 px e i client email supportati.
+## Affidabilità e ambiente fake
 
-## Configurazione Mailrox e segreti
+L’idempotency key è unica nel ledger F14 e il claim SQL usa
+`FOR UPDATE SKIP LOCKED`. Errori 429/500/503, indisponibilità del secret store,
+timeout e trasporto sono riprovabili con backoff limitato; gli errori 4xx
+documentati sono permanenti. Il circuit breaker interrompe temporaneamente gli
+invii dopo errori transitori consecutivi. Diagnostica, indirizzi e credenziali
+sono redatti e il corpo completo non viene scritto nei log.
 
-L'endpoint Mailrox è configurazione di deploy e deve usare HTTPS. I valori
-sensibili non fanno parte di `MailroxConfig`: la configurazione contiene
-soltanto i nomi da risolvere tramite `SecretProvider`.
+`FakeSender` è l’unica modalità di sviluppo/CI: conserva i messaggi in memoria e
+rifiuta ogni destinatario che non appartenga ai domini riservati
+`example.test`/`example.invalid`, impedendo invii reali accidentali.
 
-Nomi consigliati:
+## Checklist go-live
 
-```text
-MAILROX_TRANSACTIONAL_API_KEY
-MAILROX_MARKETING_API_KEY
-MAILROX_WEBHOOK_SECRET
-F14_UNSUBSCRIBE_SECRET
-```
+Questi controlli richiedono accesso all’account Mailronix e non possono essere
+certificati dal repository:
 
-Le due API key devono avere nomi distinti; l'adapter seleziona chiave e mittente
-in base al canale. Staging e produzione devono collegare `SecretProvider` al
-secret manager esterno previsto da F15. Il provider a mappa è adatto soltanto a
-test e sviluppo locale.
-
-Il contratto HTTP di invio usa JSON, autenticazione Bearer, header
-`Idempotency-Key` e richiede un `message_id` nella risposta. L'endpoint e la
-versione Mailrox approvati per l'ambiente vengono fissati nella configurazione
-di deploy, non nel repository.
-
-## Idempotenza, retry e diagnostica
-
-L'idempotency key è unica per canale nel database e viene inoltrata a Mailrox.
-Il claim atomico impedisce a due worker di inviare lo stesso record. Errori di
-trasporto, timeout, `425`, `429` e `5xx` sono riprovabili; `Retry-After` viene
-rispettato entro il limite della policy. Gli altri `4xx` falliscono senza
-retry. Raggiunto `max_attempts`, il messaggio passa a `failed`.
-
-La diagnostica conserva solo codice, testo sicuro, retryability e timestamp.
-Email, bearer token e parametri chiamati token/secret/password/api-key vengono
-redatti; il corpo grezzo del provider non viene registrato.
-
-## Bounce, complaint e unsubscribe
-
-Il webhook accetta solo `POST` firmati con HMAC SHA-256, timestamp entro la
-finestra configurata e payload conforme a
-`contracts/mailrox-event.schema.json`. L'ID dell'evento rende i replay innocui.
-Hard bounce e complaint sopprimono tutti gli invii al destinatario; un soft
-bounce aggiorna invece l'esito senza creare una soppressione permanente.
-
-L'unsubscribe usa un token opaco cifrato e autenticato con AES-GCM: l'URL non
-espone email o recipient ID.
-L'applicazione idempotente crea una soppressione `marketing`; le comunicazioni
-strettamente transazionali restano abilitate. Una soppressione `all` non può
-essere ridotta da un unsubscribe successivo.
+1. verificare il dominio mittente in console e acquisire i record ufficiali;
+2. controllare SPF, DKIM e DMARC con esito positivo;
+3. inviare le preview Mailronix a due provider destinatari;
+4. verificare rendering nei client principali, VoiceOver, zoom e viewport
+   320 px;
+5. ottenere il contratto ufficiale per Reply-To, webhook/status delivery,
+   idempotenza provider e test mode, oppure registrare la loro indisponibilità
+   come rischio approvato.
 
 ## Test
 

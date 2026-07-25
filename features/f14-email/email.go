@@ -1,4 +1,4 @@
-// Package email implements the autonomous F14 email delivery slice.
+// Package email implements the autonomous F14 transactional-email slice.
 package email
 
 import (
@@ -14,35 +14,71 @@ import (
 
 type Channel string
 
+const ChannelTransactional Channel = "transactional"
+
+type Locale string
+
 const (
-	ChannelTransactional Channel = "transactional"
-	ChannelMarketing     Channel = "marketing"
+	LocaleEnglish Locale = "en"
+	LocaleItalian Locale = "it"
+	LocaleSpanish Locale = "es"
+	LocaleFrench  Locale = "fr"
+	LocaleGerman  Locale = "de"
 )
+
+var SupportedLocales = []Locale{
+	LocaleEnglish, LocaleItalian, LocaleSpanish, LocaleFrench, LocaleGerman,
+}
+
+func ResolveLocale(value string) Locale {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if separator := strings.IndexAny(normalized, "-_"); separator >= 0 {
+		normalized = normalized[:separator]
+	}
+	switch Locale(normalized) {
+	case LocaleItalian, LocaleSpanish, LocaleFrench, LocaleGerman:
+		return Locale(normalized)
+	default:
+		return LocaleEnglish
+	}
+}
 
 type TemplateID string
 
 const (
-	TemplateWelcome           TemplateID = "welcome"
-	TemplatePlanChanged       TemplateID = "plan_changed"
-	TemplatePublicationFailed TemplateID = "publication_failed"
-	TemplateSecurityAlert     TemplateID = "security_alert"
-	TemplateMarketingUpdate   TemplateID = "marketing_update"
+	TemplateWelcome             TemplateID = "welcome"
+	TemplateWorkspaceInvitation TemplateID = "workspace_invitation"
+	TemplateAccountSecurity     TemplateID = "account_security"
+	TemplateAccountLinked       TemplateID = "account_linked"
+	TemplateSocialReconnect     TemplateID = "social_reconnect"
+	TemplateCollaboration       TemplateID = "collaboration"
+	TemplatePublicationSuccess  TemplateID = "publication_succeeded"
+	TemplatePublicationFailed   TemplateID = "publication_failed"
+	TemplateBilling             TemplateID = "billing_update"
+	TemplateDataExportReady     TemplateID = "data_export_ready"
+	TemplateDeletion            TemplateID = "deletion_update"
+	TemplatePrivacyRequest      TemplateID = "privacy_request"
+	TemplatePrelaunchAccess     TemplateID = "prelaunch_access"
+	TemplateOperationalAlert    TemplateID = "operational_alert"
 )
 
 type Recipient struct {
-	ID    string
-	Email string
-	Name  string
+	ID     string
+	Email  string
+	Name   string
+	Locale string
 }
 
+// TemplateData contains values, never translated prose. The renderer owns all
+// user-facing copy so producers cannot accidentally bypass F14 localization.
 type TemplateData struct {
-	Heading        string
-	Intro          string
-	Body           string
-	Detail         string
-	ActionLabel    string
-	ActionURL      string
-	UnsubscribeURL string
+	Detail      string
+	ActionURL   string
+	OccurredAt  time.Time
+	TimeZone    string
+	Count       *int64
+	AmountMinor *int64
+	Currency    string
 }
 
 type Message struct {
@@ -63,25 +99,22 @@ type RenderedMessage struct {
 	Channel         Channel
 	Template        TemplateID
 	TemplateVersion string
+	Locale          Locale
 	Recipient       Recipient
 	Subject         string
+	Preheader       string
 	HTML            string
 	Text            string
-	Headers         map[string]string
 }
 
 type DeliveryState string
 
 const (
-	StatePending    DeliveryState = "pending"
-	StateSending    DeliveryState = "sending"
-	StateRetry      DeliveryState = "retry"
-	StateAccepted   DeliveryState = "accepted"
-	StateDelivered  DeliveryState = "delivered"
-	StateBounced    DeliveryState = "bounced"
-	StateComplained DeliveryState = "complained"
-	StateFailed     DeliveryState = "failed"
-	StateSuppressed DeliveryState = "suppressed"
+	StatePending  DeliveryState = "pending"
+	StateSending  DeliveryState = "sending"
+	StateRetry    DeliveryState = "retry"
+	StateAccepted DeliveryState = "accepted"
+	StateFailed   DeliveryState = "failed"
 )
 
 type Delivery struct {
@@ -121,66 +154,44 @@ type Store interface {
 	MarkAccepted(context.Context, string, string, time.Time) error
 	MarkRetry(context.Context, string, Diagnostic, time.Time) error
 	MarkFailed(context.Context, string, Diagnostic) error
-	RecordProviderEvent(context.Context, ProviderEvent) (bool, error)
-	Suppress(context.Context, Suppression) error
-	IsSuppressed(context.Context, string, Channel) (bool, error)
 }
 
 var (
-	ErrInvalidMessage        = errors.New("invalid email message")
-	ErrInvalidRecipient      = errors.New("invalid email recipient")
-	ErrInvalidChannel        = errors.New("invalid email channel")
-	ErrTemplateChannel       = errors.New("template is not allowed on this channel")
-	ErrUnsubscribeRequired   = errors.New("marketing email requires unsubscribe")
-	ErrUnexpectedUnsubscribe = errors.New("transactional email cannot include marketing unsubscribe")
-	ErrSuppressed            = errors.New("recipient is suppressed")
-	semverPattern            = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
+	ErrInvalidMessage   = errors.New("invalid email message")
+	ErrInvalidRecipient = errors.New("invalid email recipient")
+	ErrInvalidChannel   = errors.New("only transactional email is allowed")
+	ErrUnknownTemplate  = errors.New("unknown transactional template")
+	semverPattern       = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
 )
 
 func validateMessage(message Message) error {
 	if strings.TrimSpace(message.ID) == "" ||
 		strings.TrimSpace(message.IdempotencyKey) == "" ||
 		len(message.IdempotencyKey) > 255 ||
-		strings.TrimSpace(string(message.Template)) == "" ||
 		!semverPattern.MatchString(message.TemplateVersion) ||
-		strings.TrimSpace(message.Data.Heading) == "" ||
-		strings.TrimSpace(message.Data.Intro) == "" ||
 		message.MaxAttempts < 1 {
 		return ErrInvalidMessage
 	}
-	if message.Recipient.ID == "" {
+	if message.Channel != ChannelTransactional {
+		return ErrInvalidChannel
+	}
+	if _, ok := templateCatalog[message.Template]; !ok {
+		return ErrUnknownTemplate
+	}
+	if strings.TrimSpace(message.Recipient.ID) == "" {
 		return ErrInvalidRecipient
 	}
 	address, err := mail.ParseAddress(message.Recipient.Email)
 	if err != nil || !strings.EqualFold(address.Address, strings.TrimSpace(message.Recipient.Email)) {
 		return ErrInvalidRecipient
 	}
-	if message.Channel != ChannelTransactional && message.Channel != ChannelMarketing {
-		return ErrInvalidChannel
-	}
-	expected, ok := templateChannels[message.Template]
-	if !ok || expected != message.Channel {
-		return ErrTemplateChannel
-	}
 	if message.Data.ActionURL != "" {
 		if err := validateHTTPSURL(message.Data.ActionURL); err != nil {
 			return fmt.Errorf("%w: action URL", ErrInvalidMessage)
 		}
-		if strings.TrimSpace(message.Data.ActionLabel) == "" {
-			return fmt.Errorf("%w: action label", ErrInvalidMessage)
-		}
-	} else if message.Data.ActionLabel != "" {
-		return fmt.Errorf("%w: action URL", ErrInvalidMessage)
 	}
-	switch message.Channel {
-	case ChannelMarketing:
-		if err := validateHTTPSURL(message.Data.UnsubscribeURL); err != nil {
-			return ErrUnsubscribeRequired
-		}
-	case ChannelTransactional:
-		if message.Data.UnsubscribeURL != "" {
-			return ErrUnexpectedUnsubscribe
-		}
+	if message.Data.AmountMinor != nil && strings.TrimSpace(message.Data.Currency) == "" {
+		return fmt.Errorf("%w: currency", ErrInvalidMessage)
 	}
 	return nil
 }
@@ -191,12 +202,4 @@ func validateHTTPSURL(value string) error {
 		return errors.New("absolute HTTPS URL is required")
 	}
 	return nil
-}
-
-var templateChannels = map[TemplateID]Channel{
-	TemplateWelcome:           ChannelTransactional,
-	TemplatePlanChanged:       ChannelTransactional,
-	TemplatePublicationFailed: ChannelTransactional,
-	TemplateSecurityAlert:     ChannelTransactional,
-	TemplateMarketingUpdate:   ChannelMarketing,
 }

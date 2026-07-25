@@ -1,10 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://postqron.example/contracts/f14/email-command.schema.json",
-  "title": "Email delivery command",
+  "title": "F14 transactional email command",
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "event",
     "idempotency_key",
     "channel",
     "template_id",
@@ -14,21 +15,34 @@
     "occurred_at"
   ],
   "properties": {
+    "event": {
+      "type": "string",
+      "pattern": "^f14\\.[a-z0-9_]+\\.v[0-9]+$"
+    },
     "idempotency_key": {
       "type": "string",
       "minLength": 1,
       "maxLength": 255
     },
     "channel": {
-      "enum": ["transactional", "marketing"]
+      "const": "transactional"
     },
     "template_id": {
       "enum": [
         "welcome",
-        "plan_changed",
+        "workspace_invitation",
+        "account_security",
+        "account_linked",
+        "social_reconnect",
+        "collaboration",
+        "publication_succeeded",
         "publication_failed",
-        "security_alert",
-        "marketing_update"
+        "billing_update",
+        "data_export_ready",
+        "deletion_update",
+        "privacy_request",
+        "prelaunch_access",
+        "operational_alert"
       ]
     },
     "template_version": {
@@ -40,74 +54,35 @@
       "additionalProperties": false,
       "required": ["id", "email"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "email": {
-          "type": "string",
-          "format": "email"
-        },
-        "name": {
-          "type": "string"
-        }
+        "id": {"type": "string", "minLength": 1},
+        "email": {"type": "string", "format": "email"},
+        "name": {"type": "string"},
+        "locale": {"type": "string"}
       }
     },
     "data": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["heading", "intro"],
       "properties": {
-        "heading": {
-          "type": "string",
-          "minLength": 1
-        },
-        "intro": {
-          "type": "string",
-          "minLength": 1
-        },
-        "body": {
-          "type": "string"
-        },
-        "detail": {
-          "type": "string"
-        },
-        "action_label": {
-          "type": "string"
-        },
+        "detail": {"type": "string"},
         "action_url": {
           "type": "string",
           "format": "uri",
           "pattern": "^https://"
         },
-        "unsubscribe_url": {
-          "type": "string",
-          "format": "uri",
-          "pattern": "^https://"
-        }
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "time_zone": {"type": "string"},
+        "count": {"type": "integer"},
+        "amount_minor": {"type": "integer"},
+        "currency": {"type": "string", "pattern": "^[A-Za-z]{3}$"}
+      },
+      "dependentRequired": {
+        "amount_minor": ["currency"]
       }
     },
     "occurred_at": {
       "type": "string",
       "format": "date-time"
     }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "channel": {
-            "const": "marketing"
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "data": {
-            "required": ["unsubscribe_url"]
-          }
-        }
-      }
-    }
-  ]
+  }
 }

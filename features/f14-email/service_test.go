@@ -2,7 +2,6 @@ package email
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
@@ -24,7 +23,7 @@ func (sender *scriptedSender) Send(
 			return ProviderReceipt{}, err
 		}
 	}
-	return ProviderReceipt{MessageID: "mailrox_1"}, nil
+	return ProviderReceipt{MessageID: "mailronix_1"}, nil
 }
 
 func testService(
@@ -34,9 +33,7 @@ func testService(
 ) (*Service, time.Time) {
 	t.Helper()
 	service, err := NewService(
-		store,
-		testRenderer(t),
-		sender,
+		store, testRenderer(t), sender,
 		RetryPolicy{BaseDelay: time.Minute, MaxDelay: time.Hour},
 	)
 	if err != nil {
@@ -48,18 +45,20 @@ func testService(
 	return service, now
 }
 
-func TestServiceEnqueueIsIdempotentAndDispatchesOnce(t *testing.T) {
+func TestServiceEnqueueIsIdempotentAndPinsRenderedLocale(t *testing.T) {
 	store := NewMemoryStore()
 	sender := &scriptedSender{}
 	service, _ := testService(t, store, sender)
-	message := testMessage(ChannelTransactional, TemplateWelcome)
+	message := testMessage(TemplateWelcome)
 	message.ID = ""
 	message.CreatedAt = time.Time{}
+	message.Recipient.Locale = "fr-FR"
 
 	first, err := service.Enqueue(context.Background(), message)
 	if err != nil {
 		t.Fatal(err)
 	}
+	message.Recipient.Locale = "de-DE"
 	second, err := service.Enqueue(context.Background(), message)
 	if err != nil {
 		t.Fatal(err)
@@ -67,19 +66,14 @@ func TestServiceEnqueueIsIdempotentAndDispatchesOnce(t *testing.T) {
 	if !first.Created || second.Created || first.ID != second.ID {
 		t.Fatalf("idempotency results = %#v, %#v", first, second)
 	}
-	processed, err := service.DispatchOne(context.Background())
-	if err != nil || !processed {
-		t.Fatalf("DispatchOne() = %v, %v", processed, err)
+	if _, err := service.DispatchOne(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	processed, err = service.DispatchOne(context.Background())
-	if err != nil || processed {
-		t.Fatalf("second DispatchOne() = %v, %v", processed, err)
-	}
-	if len(sender.messages) != 1 {
-		t.Fatalf("send count = %d, want 1", len(sender.messages))
+	if len(sender.messages) != 1 || sender.messages[0].Locale != LocaleFrench {
+		t.Fatalf("send did not preserve first locale: %#v", sender.messages)
 	}
 	delivery, _ := store.Delivery(first.ID)
-	if delivery.State != StateAccepted || delivery.ProviderMessageID != "mailrox_1" {
+	if delivery.State != StateAccepted || delivery.ProviderMessageID != "mailronix_1" {
 		t.Fatalf("delivery = %#v", delivery)
 	}
 }
@@ -87,18 +81,14 @@ func TestServiceEnqueueIsIdempotentAndDispatchesOnce(t *testing.T) {
 func TestServiceRetriesTransientFailureThenAccepts(t *testing.T) {
 	store := NewMemoryStore()
 	sender := &scriptedSender{errors: []error{
-		&MailroxError{
-			Code:       "rate_limited",
-			Retryable:  true,
-			RetryAfter: 10 * time.Minute,
-			Detail:     "wait for persona@example.test Bearer secret-value",
+		&MailronixError{
+			Code: "rate_limited", Retryable: true, RetryAfter: 10 * time.Minute,
+			Detail: "wait for persona@example.test Bearer secret-value",
 		},
 		nil,
 	}}
 	service, now := testService(t, store, sender)
-	message := testMessage(ChannelTransactional, TemplateSecurityAlert)
-
-	result, err := service.Enqueue(context.Background(), message)
+	result, err := service.Enqueue(context.Background(), testMessage(TemplateAccountSecurity))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +101,6 @@ func TestServiceRetriesTransientFailureThenAccepts(t *testing.T) {
 		delivery.LastDiagnostic.Detail != "wait for [redacted] [redacted]" {
 		t.Fatalf("retry delivery = %#v", delivery)
 	}
-
 	service.now = func() time.Time { return now.Add(10 * time.Minute) }
 	if _, err := service.DispatchOne(context.Background()); err != nil {
 		t.Fatal(err)
@@ -125,12 +114,10 @@ func TestServiceRetriesTransientFailureThenAccepts(t *testing.T) {
 func TestServiceStopsAfterPermanentFailure(t *testing.T) {
 	store := NewMemoryStore()
 	sender := &scriptedSender{errors: []error{
-		&MailroxError{Code: "invalid_recipient", Detail: "address rejected"},
+		&MailronixError{Code: "domain_not_verified", Detail: "sender rejected"},
 	}}
 	service, _ := testService(t, store, sender)
-	message := testMessage(ChannelTransactional, TemplatePlanChanged)
-
-	result, err := service.Enqueue(context.Background(), message)
+	result, err := service.Enqueue(context.Background(), testMessage(TemplateBilling))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,28 +127,5 @@ func TestServiceStopsAfterPermanentFailure(t *testing.T) {
 	delivery, _ := store.Delivery(result.ID)
 	if delivery.State != StateFailed || delivery.LastDiagnostic.Retryable {
 		t.Fatalf("failed delivery = %#v", delivery)
-	}
-}
-
-func TestSuppressionSeparatesMarketingUntilHardBounce(t *testing.T) {
-	store := NewMemoryStore()
-	if err := store.Suppress(context.Background(), Suppression{
-		RecipientID: "account_1",
-		Scope:       SuppressMarketing,
-		Reason:      "unsubscribe",
-		OccurredAt:  time.Now(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	service, _ := testService(t, store, &scriptedSender{})
-
-	marketing := testMessage(ChannelMarketing, TemplateMarketingUpdate)
-	marketing.Data.UnsubscribeURL = "https://app.example.test/unsubscribe?token=opaque"
-	if _, err := service.Enqueue(context.Background(), marketing); !errors.Is(err, ErrSuppressed) {
-		t.Fatalf("marketing Enqueue() error = %v, want ErrSuppressed", err)
-	}
-	transactional := testMessage(ChannelTransactional, TemplateWelcome)
-	if _, err := service.Enqueue(context.Background(), transactional); err != nil {
-		t.Fatalf("transactional Enqueue() error = %v", err)
 	}
 }
