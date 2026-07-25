@@ -1,0 +1,15 @@
+{
+  "name": "@postqron/launch-readiness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:local": "LAUNCH_READINESS_LOCAL=1 playwright test",
+    "audit:artifacts": "node scripts/audit-artifacts.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.0"
+  }
+}
