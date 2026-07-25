@@ -1,37 +1,26 @@
 <script setup lang="ts">
-import { useHead, useRuntimeConfig, useSeoMeta } from '#imports'
+import { computed, useHead, useRuntimeConfig, useSeoMeta } from '#imports'
+import { SUPPORTED_LOCALES, localizeUrl } from '../../f36-i18n/src/index.ts'
+import { useMarketingSiteI18n } from '~/locales/runtime.ts'
 
 const config = useRuntimeConfig()
-const title = 'Domande frequenti — Postqron'
-const description = 'Risposte essenziali su prova, piani, canali, programmazione, sicurezza e controllo dei cookie in Postqron.'
-const canonical = `${config.public.siteUrl}/faq`
+const i18n = useMarketingSiteI18n()
+const t = (key: string) => i18n.translate(`marketing-faq.${key}`)
 
-const questions = [
-  {
-    question: 'Posso provare Postqron prima di scegliere un piano?',
-    answer: 'Sì. Al primo accesso puoi usare il piano Pro per 14 giorni e verificare come si inserisce nel tuo flusso di lavoro.',
-  },
-  {
-    question: 'Cosa succede quando raggiungo un limite del piano?',
-    answer: 'Postqron non elimina contenuti o collegamenti. Blocca soltanto la nuova azione che supera il limite e ti mostra quale capacità è esaurita.',
-  },
-  {
-    question: 'Posso cambiare la data di un post già programmato?',
-    answer: 'Sì, finché il post non è entrato in pubblicazione puoi modificarlo, riprogrammarlo o annullarlo.',
-  },
-  {
-    question: 'Come capisco se un post è stato pubblicato?',
-    answer: 'Ogni destinazione mostra il proprio stato. In caso di errore ricevi una spiegazione utile e puoi intervenire senza creare duplicati.',
-  },
-  {
-    question: 'I miei account social restano sotto il mio controllo?',
-    answer: 'Sì. Puoi vedere quali account sono collegati e revocare l’accesso. Postqron usa i permessi necessari alle funzioni che scegli.',
-  },
-  {
-    question: 'Posso rifiutare i cookie non necessari?',
-    answer: 'Sì. Accettazione, rifiuto e personalizzazione hanno la stessa evidenza. Puoi cambiare scelta in ogni momento dal footer.',
-  },
-]
+const siteUrl = String(config.public.siteUrl).replace(/\/+$/u, '')
+const title = computed(() => t('seo.title'))
+const description = computed(() => t('seo.description'))
+const canonicalPath = computed(() => i18n.localize('/faq'))
+const canonical = computed(() => `${siteUrl}${canonicalPath.value}`)
+
+const questions = computed(() => [
+  { question: t('q1.question'), answer: t('q1.answer') },
+  { question: t('q2.question'), answer: t('q2.answer') },
+  { question: t('q3.question'), answer: t('q3.answer') },
+  { question: t('q4.question'), answer: t('q4.answer') },
+  { question: t('q5.question'), answer: t('q5.answer') },
+  { question: t('q6.question'), answer: t('q6.answer') },
+])
 
 useSeoMeta({
   title,
@@ -39,17 +28,29 @@ useSeoMeta({
   ogTitle: title,
   ogDescription: description,
   ogUrl: canonical,
-  ogImage: `${config.public.siteUrl}/og.png`,
+  ogImage: `${siteUrl}/og.png`,
   twitterCard: 'summary_large_image',
 })
-useHead({
-  link: [{ rel: 'canonical', href: canonical }],
+useHead(computed(() => ({
+  link: [
+    { rel: 'canonical', href: canonical.value },
+    ...SUPPORTED_LOCALES.map(locale => ({
+      rel: 'alternate',
+      hreflang: locale,
+      href: `${siteUrl}${localizeUrl(locale, '/faq')}`,
+    })),
+    {
+      rel: 'alternate',
+      hreflang: 'x-default',
+      href: `${siteUrl}/faq`,
+    },
+  ],
   script: [{
     type: 'application/ld+json',
     innerHTML: JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'FAQPage',
-      mainEntity: questions.map(item => ({
+      mainEntity: questions.value.map(item => ({
         '@type': 'Question',
         name: item.question,
         acceptedAnswer: {
@@ -59,19 +60,18 @@ useHead({
       })),
     }),
   }],
-})
+})))
 </script>
 
 <template>
   <div>
     <section class="page-hero content-wrap">
       <p class="eyebrow">
-        FAQ
+        {{ t('hero.eyebrow') }}
       </p>
-      <h1>Le risposte che servono, senza giri di parole.</h1>
+      <h1>{{ t('hero.title') }}</h1>
       <p>
-        Una panoramica rapida su prova, limiti, pubblicazione, sicurezza e
-        privacy.
+        {{ t('hero.lead') }}
       </p>
     </section>
 
@@ -83,7 +83,10 @@ useHead({
       >
         <summary>
           <span>{{ item.question }}</span>
-          <span aria-hidden="true">+</span>
+          <span
+            class="faq-list__icon"
+            aria-hidden="true"
+          >+</span>
         </summary>
         <p>{{ item.answer }}</p>
       </details>
@@ -92,14 +95,21 @@ useHead({
     <section class="cta-band content-wrap">
       <div>
         <p class="eyebrow">
-          Pronto a fare ordine?
+          {{ t('ctaBand.eyebrow') }}
         </p>
-        <h2>Prova Postqron con i tuoi contenuti.</h2>
+        <h2>{{ t('ctaBand.title') }}</h2>
       </div>
       <a
         class="pq-button"
         :href="config.public.appUrl"
-      >Inizia ora</a>
+      >{{ t('ctaBand.cta') }}</a>
     </section>
   </div>
 </template>
+
+<style scoped>
+.faq-list__icon {
+  flex: 0 0 auto;
+  margin-inline: 0.25rem;
+}
+</style>
