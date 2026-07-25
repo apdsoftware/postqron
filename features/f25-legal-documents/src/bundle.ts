@@ -7,6 +7,9 @@ export const BUNDLED_LEGAL_RELEASE: LegalReleaseInput = Object.freeze({
   artifacts: Object.freeze([]),
   evidence: Object.freeze([]),
   releases: Object.freeze([]),
+  // No market is `active` (D08 §3/§8/§12): every market, including `IT`,
+  // requires its own registered legal approval before this can grow.
+  marketAllowlist: Object.freeze([]),
 })
 
 let repositoryPromise: Promise<LegalRepository> | undefined

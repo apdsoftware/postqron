@@ -50,6 +50,11 @@ test('the committed draft corpus covers every document and locale as a draft', a
 
 test('draft artifacts alone can never satisfy the publication gate', async () => {
   const artifacts = await loadDraftArtifacts()
-  const repository = await LegalRepository.create({ artifacts, evidence: [], releases: [] })
+  const repository = await LegalRepository.create({
+    artifacts,
+    evidence: [],
+    releases: [],
+    marketAllowlist: [],
+  })
   assert.equal(repository.ready, false)
 })

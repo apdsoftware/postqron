@@ -4,6 +4,8 @@ import {
   LEGAL_LOCALES,
   REQUIRED_EVIDENCE_KINDS,
   isArtifactStatus,
+  isMarketAllowlistStatus,
+  isMarketCode,
   type GateAudit,
   type GateBlocker,
   type LegalArtifact,
@@ -11,11 +13,13 @@ import {
   type LegalLocale,
   type LegalRelease,
   type LegalReleaseInput,
+  type MarketAllowlistEntry,
 } from './types.ts'
 
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/u
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/u
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
+const PROPOSED_EFFECTIVE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u
 // "TODO" is checked case-sensitively and separately from the rest of this
 // pattern because its lowercase form ("todo") is an ordinary Spanish and
 // Italian word ("all"/"every") that appears constantly in real legal prose;
@@ -100,8 +104,16 @@ async function auditArtifact(
   if (!VERSION_PATTERN.test(artifact.version)) {
     blocker(blockers, 'invalid_version', `${path}.version`, 'major.minor is required')
   }
-  if (artifact.jurisdiction !== 'IT') {
-    blocker(blockers, 'invalid_jurisdiction', `${path}.jurisdiction`, 'IT is required')
+  if (!isMarketCode(artifact.jurisdiction)) {
+    blocker(blockers, 'invalid_jurisdiction', `${path}.jurisdiction`, 'a recognized market code is required')
+  }
+  if (!PROPOSED_EFFECTIVE_DATE_PATTERN.test(artifact.proposedEffectiveDate)) {
+    blocker(
+      blockers,
+      'invalid_proposed_effective_date',
+      `${path}.proposedEffectiveDate`,
+      'a YYYY-MM-DD date is required',
+    )
   }
   if (!isArtifactStatus(artifact.status)) {
     blocker(blockers, 'invalid_status', `${path}.status`, 'a recognized artifact status is required')
@@ -167,11 +179,29 @@ function auditRelease(
   index: number,
   artifacts: Map<string, LegalArtifact>,
   evidence: Map<string, LegalReleaseInput['evidence'][number]>,
+  marketAllowlist: Map<string, MarketAllowlistEntry>,
   blockers: GateBlocker[],
 ): void {
   const path = `releases[${index}]`
-  if (release.market !== 'IT') {
-    blocker(blockers, 'invalid_market', `${path}.market`, 'IT is required')
+  if (!isMarketCode(release.market)) {
+    blocker(blockers, 'invalid_market', `${path}.market`, 'a recognized market code is required')
+  } else {
+    const entry = marketAllowlist.get(release.market)
+    if (!entry) {
+      blocker(
+        blockers,
+        'unknown_market',
+        `${path}.market`,
+        `${release.market} has no market allowlist entry`,
+      )
+    } else if (entry.status !== 'active') {
+      blocker(
+        blockers,
+        'market_not_active',
+        `${path}.market`,
+        `${release.market} is ${entry.status}, not active (D08 per-market gate)`,
+      )
+    }
   }
   if (release.fallbackLocale !== DEFAULT_LEGAL_LOCALE) {
     blocker(blockers, 'invalid_fallback', `${path}.fallbackLocale`, 'en is required')
@@ -222,6 +252,14 @@ function auditRelease(
           'draft_status_blocks_release',
           referencePath,
           'a draft artifact cannot be served as approved or current',
+        )
+      }
+      if (artifact.jurisdiction !== release.market) {
+        blocker(
+          blockers,
+          'artifact_market_mismatch',
+          referencePath,
+          `artifact jurisdiction ${artifact.jurisdiction} does not match release market ${release.market}`,
         )
       }
       if (new Date(artifact.approvedAt) > new Date(release.approvedAt)) {
@@ -338,8 +376,25 @@ export async function auditLegalRelease(
     }
   }
 
+  const marketAllowlist = new Map<string, MarketAllowlistEntry>()
+  for (const [index, entry] of input.marketAllowlist.entries()) {
+    const path = `marketAllowlist[${index}]`
+    if (!isMarketCode(entry.market)) {
+      blocker(blockers, 'invalid_market_code', `${path}.market`, 'a recognized market code is required')
+      continue
+    }
+    if (!isMarketAllowlistStatus(entry.status)) {
+      blocker(blockers, 'invalid_market_status', `${path}.status`, 'a recognized allowlist status is required')
+    }
+    if (marketAllowlist.has(entry.market)) {
+      blocker(blockers, 'duplicate_market_allowlist_entry', path, entry.market)
+    } else {
+      marketAllowlist.set(entry.market, entry)
+    }
+  }
+
   for (const [index, release] of input.releases.entries()) {
-    auditRelease(release, index, artifacts, evidence, blockers)
+    auditRelease(release, index, artifacts, evidence, marketAllowlist, blockers)
     if (index > 0) {
       const previous = input.releases[index - 1]
       if (!previous) {

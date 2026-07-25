@@ -7,7 +7,8 @@
   "required": [
     "artifacts",
     "evidence",
-    "releases"
+    "releases",
+    "marketAllowlist"
   ],
   "properties": {
     "artifacts": {
@@ -27,6 +28,12 @@
       "items": {
         "$ref": "#/$defs/release"
       }
+    },
+    "marketAllowlist": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/marketAllowlistEntry"
+      }
     }
   },
   "$defs": {
@@ -42,6 +49,30 @@
     "digest": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "proposedEffectiveDate": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "marketCode": {
+      "enum": ["IT", "SEE", "GB", "US", "CA", "AU", "OTHER"]
+    },
+    "marketAllowlistEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["market", "status"],
+      "properties": {
+        "market": {
+          "$ref": "#/$defs/marketCode"
+        },
+        "status": {
+          "enum": ["not_reviewed", "pending_legal_approval", "active"]
+        },
+        "approvalReference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "artifact": {
       "type": "object",
@@ -59,6 +90,7 @@
         "approvalReference",
         "approvedAt",
         "publishedAt",
+        "proposedEffectiveDate",
         "effectiveAt",
         "changeType",
         "revisionSummary"
@@ -68,7 +100,9 @@
           "enum": [
             "terms",
             "privacy",
-            "cookies"
+            "cookies",
+            "dpa",
+            "subprocessors"
           ]
         },
         "locale": {
@@ -81,7 +115,7 @@
           ]
         },
         "jurisdiction": {
-          "const": "IT"
+          "$ref": "#/$defs/marketCode"
         },
         "version": {
           "$ref": "#/$defs/version"
@@ -114,6 +148,9 @@
         },
         "publishedAt": {
           "$ref": "#/$defs/utcInstant"
+        },
+        "proposedEffectiveDate": {
+          "$ref": "#/$defs/proposedEffectiveDate"
         },
         "effectiveAt": {
           "$ref": "#/$defs/utcInstant"
@@ -183,7 +220,9 @@
           "enum": [
             "terms",
             "privacy",
-            "cookies"
+            "cookies",
+            "dpa",
+            "subprocessors"
           ]
         },
         "locale": {
@@ -223,7 +262,7 @@
           "minLength": 1
         },
         "market": {
-          "const": "IT"
+          "$ref": "#/$defs/marketCode"
         },
         "version": {
           "$ref": "#/$defs/version"
@@ -243,8 +282,8 @@
         },
         "artifacts": {
           "type": "array",
-          "minItems": 15,
-          "maxItems": 15,
+          "minItems": 25,
+          "maxItems": 25,
           "items": {
             "$ref": "#/$defs/artifactReference"
           }

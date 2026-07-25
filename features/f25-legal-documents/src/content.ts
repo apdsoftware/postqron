@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import {
   DOCUMENT_TYPES,
   LEGAL_LOCALES,
+  isMarketCode,
   type ArtifactStatus,
   type ChangeType,
   type LegalArtifact,
@@ -24,7 +25,11 @@ const REQUIRED_FRONTMATTER_FIELDS = [
   'changeType',
   'revisionSummary',
   'version',
+  'jurisdiction',
+  'proposedEffectiveDate',
 ] as const
+
+const PROPOSED_EFFECTIVE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u
 
 interface DraftFrontmatter {
   title: string
@@ -34,6 +39,8 @@ interface DraftFrontmatter {
   changeType: string
   revisionSummary: string
   version: string
+  jurisdiction: string
+  proposedEffectiveDate: string
 }
 
 export function draftPath(document: string, locale: string): string {
@@ -73,6 +80,12 @@ export function parseDraftFile(
       throw new Error(`missing required frontmatter field "${required}" in ${sourcePath}`)
     }
   }
+  if (!isMarketCode(fields.jurisdiction)) {
+    throw new Error(`invalid frontmatter field "jurisdiction" in ${sourcePath}`)
+  }
+  if (!PROPOSED_EFFECTIVE_DATE_PATTERN.test(fields.proposedEffectiveDate ?? '')) {
+    throw new Error(`invalid frontmatter field "proposedEffectiveDate" in ${sourcePath}`)
+  }
   return {
     frontmatter: fields as unknown as DraftFrontmatter,
     body: (rest ?? '').trim(),
@@ -94,7 +107,7 @@ export async function loadDraftArtifacts(): Promise<LegalArtifact[]> {
       artifacts.push({
         document,
         locale,
-        jurisdiction: 'IT',
+        jurisdiction: frontmatter.jurisdiction as LegalArtifact['jurisdiction'],
         version: frontmatter.version,
         status: frontmatter.status as ArtifactStatus,
         title: frontmatter.title,
@@ -105,6 +118,7 @@ export async function loadDraftArtifacts(): Promise<LegalArtifact[]> {
         approvalReference: '',
         approvedAt: '',
         publishedAt: '',
+        proposedEffectiveDate: frontmatter.proposedEffectiveDate,
         effectiveAt: '',
         changeType: frontmatter.changeType as ChangeType,
         revisionSummary: frontmatter.revisionSummary,
