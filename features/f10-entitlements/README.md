@@ -7,13 +7,16 @@ semantics:
   channel);
 - progressive Pro and Team pricing in EUR for 1–50 channels, monthly or
   annual, with the annual total equal to ten monthly totals;
-- a one-time, cardless 14-day Team trial for 10 channels;
+- a one-time, cardless 14-day Team trial for 10 channels, distinct from
+  payment recovery;
 - Paddle-only checkout, subscription changes, cancellation, and temporary
   customer portal sessions;
 - exact server-side validation of the expected Paddle product/price line items;
 - raw-body `Paddle-Signature` verification, event deduplication, and
   `occurred_at` ordering;
-- a 14-day grace period that is anchored to the first failed renewal;
+- a 30-day Paddle dunning window anchored to the first failed renewal;
+- provider-driven suspension and termination: only verified Paddle `paused`
+  and `canceled` events restrict service or return a workspace to Start;
 - conservative downgrade and restriction behavior: counters and user resources
   are never deleted.
 
@@ -63,7 +66,7 @@ No central registry is needed. Include both the platform root and this slice:
 POSTQRON_FEATURE_ROOTS="services/api/features:features/f10-entitlements"
 ```
 
-The same roots validate both forward-only F10 migrations:
+The same roots validate all three forward-only F10 migrations:
 
 ```sh
 go run ./services/api/cmd/migrate \

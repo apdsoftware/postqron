@@ -29,6 +29,19 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 	if !trialCreated {
 		t.Fatal("trial was not provisioned")
 	}
+	var trialEnds time.Time
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT trial_ends_at
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&trialEnds); err != nil {
+		t.Fatal(err)
+	}
+	if want := now.Add(14 * 24 * time.Hour); !trialEnds.Equal(want) {
+		t.Fatalf("Team trial ends at %s, want %s", trialEnds, want)
+	}
 	trialCreated, err = store.ProvisionTrial(ctx, workspaceID, now.Add(time.Hour))
 	if err != nil || trialCreated {
 		t.Fatalf("second trial provisioning = %v, %v", trialCreated, err)
@@ -304,24 +317,136 @@ func testBillingLifecycle(
 	if _, err = store.ApplyBillingEvent(ctx, retried); err != nil {
 		t.Fatal(err)
 	}
-	var firstFailure, graceEnds time.Time
+	var firstFailure, dunningEnds time.Time
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT first_payment_failed_at, grace_ends_at
+		`SELECT first_payment_failed_at, dunning_ends_at
 		   FROM f10_workspace_billing
 		  WHERE workspace_id = $1`,
 		workspaceID,
-	).Scan(&firstFailure, &graceEnds); err != nil {
+	).Scan(&firstFailure, &dunningEnds); err != nil {
 		t.Fatal(err)
 	}
 	wantFailure := now.Add(3 * time.Minute)
 	if !firstFailure.Equal(wantFailure) ||
-		!graceEnds.Equal(wantFailure.Add(14*24*time.Hour)) {
-		t.Fatalf("grace = %s..%s, want anchored at %s", firstFailure, graceEnds, wantFailure)
+		!dunningEnds.Equal(wantFailure.Add(30*24*time.Hour)) {
+		t.Fatalf(
+			"dunning = %s..%s, want 30 days anchored at %s",
+			firstFailure,
+			dunningEnds,
+			wantFailure,
+		)
 	}
-	affected, err := store.RestrictExpiredGracePeriods(ctx, graceEnds)
-	if err != nil || affected != 1 {
-		t.Fatalf("expired grace restriction = %d, %v", affected, err)
+
+	if _, err := pool.Exec(
+		ctx,
+		`DELETE FROM f10_internal_entitlement_overrides
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	afterDunning, err := store.ApplyUsage(ctx, UsageCommand{
+		WorkspaceID:    workspaceID,
+		Resource:       ResourceMembers,
+		Delta:          1,
+		IdempotencyKey: "member:after-dunning-window",
+		OccurredAt:     dunningEnds.Add(time.Second),
+	})
+	if err != nil || !afterDunning.Accepted {
+		t.Fatalf("usage after dunning deadline = %#v, %v", afterDunning, err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT billing_state
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != StatePastDue {
+		t.Fatalf("local deadline changed billing state to %s", state)
+	}
+
+	paused := retried
+	paused.ID = "evt_paused_f10"
+	paused.Type = "subscription.paused"
+	paused.OccurredAt = dunningEnds.Add(2 * time.Second)
+	paused.State = StatePaymentRestricted
+	if result, err = store.ApplyBillingEvent(ctx, paused); err != nil ||
+		!result.StateChanged {
+		t.Fatalf("Paddle pause = %#v, %v", result, err)
+	}
+	restricted, err := store.ApplyUsage(ctx, UsageCommand{
+		WorkspaceID:    workspaceID,
+		Resource:       ResourceMembers,
+		Delta:          1,
+		IdempotencyKey: "member:while-paused",
+		OccurredAt:     paused.OccurredAt.Add(time.Second),
+	})
+	if err != nil || restricted.Accepted ||
+		restricted.Code != "payment_restricted" {
+		t.Fatalf("usage while Paddle-paused = %#v, %v", restricted, err)
+	}
+
+	recovered := paused
+	recovered.ID = "evt_recovered_f10"
+	recovered.Type = "subscription.resumed"
+	recovered.OccurredAt = paused.OccurredAt.Add(2 * time.Second)
+	recovered.State = StateActive
+	if result, err = store.ApplyBillingEvent(ctx, recovered); err != nil ||
+		!result.StateChanged {
+		t.Fatalf("recovered payment = %#v, %v", result, err)
+	}
+	var timestampsCleared bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT first_payment_failed_at IS NULL
+		        AND dunning_ends_at IS NULL
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&timestampsCleared); err != nil {
+		t.Fatal(err)
+	}
+	if !timestampsCleared {
+		t.Fatal("recovered payment did not clear dunning timestamps")
+	}
+	recoveredUsage, err := store.ApplyUsage(ctx, UsageCommand{
+		WorkspaceID:    workspaceID,
+		Resource:       ResourceMembers,
+		Delta:          1,
+		IdempotencyKey: "member:after-recovery",
+		OccurredAt:     recovered.OccurredAt.Add(time.Second),
+	})
+	if err != nil || !recoveredUsage.Accepted {
+		t.Fatalf("usage after payment recovery = %#v, %v", recoveredUsage, err)
+	}
+
+	canceled := recovered
+	canceled.ID = "evt_canceled_f10"
+	canceled.Type = "subscription.canceled"
+	canceled.OccurredAt = dunningEnds.Add(31 * 24 * time.Hour)
+	canceled.Plan = PlanStart
+	canceled.Interval = IntervalMonthly
+	canceled.Channels = 3
+	canceled.State = StateCanceled
+	if result, err = store.ApplyBillingEvent(ctx, canceled); err != nil ||
+		!result.StateChanged {
+		t.Fatalf("Paddle cancellation = %#v, %v", result, err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT billing_state, plan_code
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&state, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if state != StateCanceled || plan != PlanStart {
+		t.Fatalf("state after Paddle cancellation = %s/%s", state, plan)
 	}
 }
 
@@ -405,6 +530,103 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 	}
 	if _, err := pool.Exec(ctx, string(paddleMigration)); err != nil {
 		t.Fatalf("idempotent Paddle migration replay: %v", err)
+	}
+	migrationFailureAt := time.Date(
+		2020,
+		time.July,
+		1,
+		12,
+		0,
+		0,
+		0,
+		time.UTC,
+	)
+	const (
+		pastDueFixture    = "c8ebf596-8a13-4d4b-bafe-365f7c61c448"
+		restrictedFixture = "f9c88c87-bf75-4d31-b250-3f270bc21f34"
+	)
+	for workspaceID, state := range map[string]BillingState{
+		pastDueFixture:    StatePastDue,
+		restrictedFixture: StatePaymentRestricted,
+	} {
+		var created bool
+		if err := pool.QueryRow(
+			ctx,
+			"SELECT f10_provision_trial($1, $2)",
+			workspaceID,
+			migrationFailureAt,
+		).Scan(&created); err != nil || !created {
+			t.Fatalf("provision %s migration fixture: %v", state, err)
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE f10_workspace_billing
+			    SET plan_code = 'team',
+			        billing_state = $3::text,
+			        first_payment_failed_at = $2::timestamptz,
+			        grace_ends_at = $2::timestamptz + interval '14 days'
+			  WHERE workspace_id = $1`,
+			workspaceID,
+			migrationFailureAt,
+			state,
+		); err != nil {
+			t.Fatalf("seed %s dunning migration fixture: %v", state, err)
+		}
+	}
+	dunningMigration, err := os.ReadFile(filepath.Join(
+		"migrations",
+		"000003_paddle_dunning_30_days.sql",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for replay := 0; replay < 2; replay++ {
+		if _, err := pool.Exec(ctx, string(dunningMigration)); err != nil {
+			t.Fatalf("dunning migration replay %d: %v", replay, err)
+		}
+	}
+	for workspaceID, wantState := range map[string]BillingState{
+		pastDueFixture:    StatePastDue,
+		restrictedFixture: StatePaymentRestricted,
+	} {
+		var (
+			state       BillingState
+			dunningEnds time.Time
+		)
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT billing_state, dunning_ends_at
+			   FROM f10_workspace_billing
+			  WHERE workspace_id = $1`,
+			workspaceID,
+		).Scan(&state, &dunningEnds); err != nil {
+			t.Fatalf("query %s dunning migration fixture: %v", wantState, err)
+		}
+		if state != wantState {
+			t.Fatalf("migration changed %s fixture to %s", wantState, state)
+		}
+		if want := migrationFailureAt.Add(30 * 24 * time.Hour); !dunningEnds.Equal(want) {
+			t.Fatalf(
+				"%s fixture dunning ends at %s, want %s",
+				wantState,
+				dunningEnds,
+				want,
+			)
+		}
+	}
+	var publicState BillingState
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT billing_state
+		   FROM f10_public_entitlement_usage
+		  WHERE workspace_id = $1
+		  LIMIT 1`,
+		pastDueFixture,
+	).Scan(&publicState); err != nil {
+		t.Fatalf("query migrated public dunning state: %v", err)
+	}
+	if publicState != StatePastDue {
+		t.Fatalf("public view inferred local suspension state %s", publicState)
 	}
 
 	t.Cleanup(func() {
