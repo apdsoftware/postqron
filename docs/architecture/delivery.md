@@ -48,7 +48,10 @@ that already exist and never echoes secret input:
 ```
 
 The provision phase configures public domains and CIDRs, provider credentials,
-the deployment key when missing, and an S3-compatible Terraform backend. After
+the deployment key when missing, and an S3-compatible Terraform backend. On the
+first provisioning run, the workflow uses those environment credentials to
+create the private state bucket when absent, enables versioning, verifies its
+status, and only then initializes Terraform. Existing buckets are reused. After
 the server host key has been verified, configure release-only values:
 
 ```sh

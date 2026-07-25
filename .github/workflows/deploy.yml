@@ -66,6 +66,7 @@ jobs:
     env:
       BASE_ADMIN_CIDRS_JSON: ${{ vars.ADMIN_CIDRS_JSON }}
       AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_ACCESS_KEY }}
+      AWS_EC2_METADATA_DISABLED: "true"
       AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_SECRET_KEY }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
@@ -103,6 +104,65 @@ jobs:
         run: |
           install -m 0600 /dev/null "$RUNNER_TEMP/backend.hcl"
           printf '%s\n' "$BACKEND_CONFIG" > "$RUNNER_TEMP/backend.hcl"
+
+          backend_value() {
+            local key=$1
+            awk -F= -v key="$key" '
+              $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+                value = $2
+                sub(/^[[:space:]]*"/, "", value)
+                sub(/"[[:space:]]*$/, "", value)
+                print value
+                exit
+              }
+            ' "$RUNNER_TEMP/backend.hcl"
+          }
+
+          state_bucket=$(backend_value bucket)
+          state_region=$(backend_value region)
+          state_endpoint=$(backend_value s3)
+          if [[ ! "$state_bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
+            echo "invalid Terraform state bucket" >&2
+            exit 1
+          fi
+          if [[ ! "$state_region" =~ ^[a-z0-9-]+$ ]] ||
+            [[ "$state_endpoint" != "https://$state_region.your-objectstorage.com" ]]; then
+            echo "invalid Hetzner Object Storage endpoint" >&2
+            exit 1
+          fi
+
+          aws_s3=(
+            aws
+            --endpoint-url "$state_endpoint"
+            --region "$state_region"
+            --no-cli-pager
+          )
+          existing_bucket=$("${aws_s3[@]}" s3api list-buckets \
+            --query "Buckets[?Name=='$state_bucket'].Name | [0]" \
+            --output text)
+          if [[ "$existing_bucket" == "$state_bucket" ]]; then
+            echo "reusing existing private Terraform state bucket"
+          else
+            "${aws_s3[@]}" s3api create-bucket \
+              --bucket "$state_bucket" \
+              --acl private \
+              --create-bucket-configuration "LocationConstraint=$state_region" \
+              >/dev/null
+            echo "created private Terraform state bucket"
+          fi
+
+          "${aws_s3[@]}" s3api put-bucket-versioning \
+            --bucket "$state_bucket" \
+            --versioning-configuration Status=Enabled
+          versioning_status=$("${aws_s3[@]}" s3api get-bucket-versioning \
+            --bucket "$state_bucket" \
+            --query Status \
+            --output text)
+          if [[ "$versioning_status" != "Enabled" ]]; then
+            echo "Terraform state bucket versioning is not enabled" >&2
+            exit 1
+          fi
+
           terraform -chdir="$TF_DIRECTORY" init \
             -backend-config="$RUNNER_TEMP/backend.hcl"
       - name: Apply infrastructure
