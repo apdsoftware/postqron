@@ -71,6 +71,21 @@ assert_clean_image() {
   fi
 }
 
+assert_web_runtime_roots() {
+  local container=$1
+  docker exec "$container" test -f /app/foundation/web/platform/feature.yaml
+  docker exec "$container" test -f /app/foundation/api/platform/feature.yaml
+  docker exec "$container" test -f /app/features/f02-marketing-site/feature.yaml
+
+  local bundled_features
+  bundled_features=$(docker exec "$container" \
+    find /app/features -name feature.yaml -type f | wc -l | tr -d ' ')
+  if [[ "$bundled_features" != "22" ]]; then
+    echo "$container contains $bundled_features bundled features, want 22" >&2
+    exit 1
+  fi
+}
+
 cleanup() {
   docker rm -f \
     "$web_container" \
@@ -116,6 +131,7 @@ assert_contains \
   'postqron-public-shell-'
 container_fetch "$web_container" "http://127.0.0.1:3000/pwa/icon-192.png" >/dev/null
 container_fetch "$web_container" "http://127.0.0.1:3000/pwa/pwa-client.mjs" >/dev/null
+assert_web_runtime_roots "$web_container"
 assert_clean_bundle "$web_container"
 
 worker_output=$(docker run \

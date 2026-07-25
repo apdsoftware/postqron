@@ -70,6 +70,13 @@ export interface DiscoveredFeature {
   manifestPath: string
 }
 
+export interface FeatureRoot {
+  path: string
+  optional?: boolean
+}
+
+export type FeatureRootInput = string | FeatureRoot
+
 const featureIdPattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
 const semverPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const kinds = new Set<FeatureKind>(['api', 'web', 'worker'])
@@ -470,13 +477,52 @@ async function findManifestPaths(root: string): Promise<string[]> {
   return paths
 }
 
-export async function discoverFeatures(roots: string[]): Promise<DiscoveredFeature[]> {
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return undefined
+  }
+  return typeof error.code === 'string' ? error.code : undefined
+}
+
+export async function discoverFeatures(
+  roots: FeatureRootInput[],
+): Promise<DiscoveredFeature[]> {
   const features: DiscoveredFeature[] = []
   const ids = new Set<string>()
 
   for (const configuredRoot of roots) {
-    const root = await realpath(configuredRoot)
-    const manifestPaths = await findManifestPaths(root)
+    const rootConfiguration = typeof configuredRoot === 'string'
+      ? { path: configuredRoot, optional: false }
+      : { path: configuredRoot.path, optional: configuredRoot.optional === true }
+
+    let root: string
+    try {
+      root = await realpath(rootConfiguration.path)
+    } catch (error) {
+      if (rootConfiguration.optional && errorCode(error) === 'ENOENT') {
+        continue
+      }
+      throw new Error(
+        `feature root ${JSON.stringify(rootConfiguration.path)} is not accessible: `
+        + describeError(error),
+        { cause: error },
+      )
+    }
+
+    let manifestPaths: string[]
+    try {
+      manifestPaths = await findManifestPaths(root)
+    } catch (error) {
+      throw new Error(
+        `feature root ${JSON.stringify(rootConfiguration.path)} cannot be scanned: `
+        + describeError(error),
+        { cause: error },
+      )
+    }
     for (const manifestPath of manifestPaths) {
       const source = await readFile(manifestPath, 'utf8')
       const manifest = parseManifest(parse(source), manifestPath)
