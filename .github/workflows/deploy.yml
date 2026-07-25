@@ -235,10 +235,26 @@ jobs:
       - name: Restore administrative SSH allowlist
         if: always()
         run: |
-          if [[ -d "$TF_DIRECTORY/.terraform" ]] &&
-            terraform -chdir="$TF_DIRECTORY" state list |
-              grep --quiet '^module.platform.hcloud_firewall.platform$'; then
-            TF_VAR_admin_cidrs="$BASE_ADMIN_CIDRS_JSON" \
-              terraform -chdir="$TF_DIRECTORY" apply -auto-approve \
-                -target=module.platform.hcloud_firewall.platform
+          if [[ ! -d "$TF_DIRECTORY/.terraform" ]]; then
+            exit 0
           fi
+
+          for attempt in $(seq 1 12); do
+            if state_resources=$(terraform -chdir="$TF_DIRECTORY" state list 2>/dev/null) &&
+              grep --fixed-strings --line-regexp --quiet \
+                'module.platform.hcloud_firewall.platform' <<<"$state_resources"; then
+              if TF_VAR_admin_cidrs="$BASE_ADMIN_CIDRS_JSON" \
+                terraform -chdir="$TF_DIRECTORY" apply -auto-approve \
+                  -target=module.platform.hcloud_firewall.platform; then
+                exit 0
+              fi
+            fi
+
+            if [[ "$attempt" -lt 12 ]]; then
+              echo "remote state is not consistent yet; retrying SSH allowlist restore ($attempt/12)"
+              sleep 10
+            fi
+          done
+
+          echo "could not restore the administrative SSH allowlist after 12 attempts" >&2
+          exit 1
