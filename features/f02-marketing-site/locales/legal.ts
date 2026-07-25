@@ -11,7 +11,7 @@ const en = {
   'doc.cookie.description': 'Necessary cookies, preferences, and optional tools.',
   'version.label': 'Version {version} · In force since {date}',
   'state.loading': 'Loading the document…',
-  'state.unavailableTitle': 'Document not publishable yet',
+  'state.unavailableTitle': 'Approved content unavailable',
   'state.unavailableBody': 'The approved content is not available. Postqron does not publish drafts or text lacking the required approval.',
   'state.retry': 'Retry',
 } as const
@@ -27,7 +27,7 @@ const it: CatalogShape<typeof en> = {
   'doc.cookie.description': 'Cookie necessari, preferenze e strumenti opzionali.',
   'version.label': 'Versione {version} · In vigore dal {date}',
   'state.loading': 'Caricamento del documento…',
-  'state.unavailableTitle': 'Documento non ancora pubblicabile',
+  'state.unavailableTitle': 'Contenuto approvato non disponibile',
   'state.unavailableBody': 'Il contenuto approvato non è disponibile. Postqron non pubblica bozze o testi privi dell’approvazione prevista.',
   'state.retry': 'Riprova',
 }
@@ -43,7 +43,7 @@ const es: CatalogShape<typeof en> = {
   'doc.cookie.description': 'Cookies necesarias, preferencias y herramientas opcionales.',
   'version.label': 'Versión {version} · En vigor desde el {date}',
   'state.loading': 'Cargando el documento…',
-  'state.unavailableTitle': 'Documento aún no publicable',
+  'state.unavailableTitle': 'Contenido aprobado no disponible',
   'state.unavailableBody': 'El contenido aprobado no está disponible. Postqron no publica borradores ni textos sin la aprobación requerida.',
   'state.retry': 'Reintentar',
 }
@@ -59,7 +59,7 @@ const fr: CatalogShape<typeof en> = {
   'doc.cookie.description': 'Cookies nécessaires, préférences et outils facultatifs.',
   'version.label': 'Version {version} · En vigueur depuis le {date}',
   'state.loading': 'Chargement du document…',
-  'state.unavailableTitle': 'Document pas encore publiable',
+  'state.unavailableTitle': 'Contenu approuvé indisponible',
   'state.unavailableBody': 'Le contenu approuvé n’est pas disponible. Postqron ne publie pas de brouillons ni de textes sans l’approbation requise.',
   'state.retry': 'Réessayer',
 }
@@ -75,7 +75,7 @@ const de: CatalogShape<typeof en> = {
   'doc.cookie.description': 'Notwendige Cookies, Präferenzen und optionale Tools.',
   'version.label': 'Version {version} · In Kraft seit {date}',
   'state.loading': 'Dokument wird geladen…',
-  'state.unavailableTitle': 'Dokument noch nicht veröffentlichbar',
+  'state.unavailableTitle': 'Genehmigter Inhalt nicht verfügbar',
   'state.unavailableBody': 'Der genehmigte Inhalt ist nicht verfügbar. Postqron veröffentlicht keine Entwürfe oder Texte ohne die erforderliche Genehmigung.',
   'state.retry': 'Erneut versuchen',
 }

@@ -62,7 +62,7 @@ useHead(computed(() => ({
   ],
 })))
 
-const { data, error, status, refresh } = await useFetch<PublishedLegalDocument>(
+const { data, status, refresh } = await useFetch<PublishedLegalDocument>(
   `/api/legal/${slug}`,
   {
     key: computed(() => `legal-${slug}-${documentKey}-${i18n.locale.value}`),
@@ -75,7 +75,9 @@ const document = computed(() => {
     return undefined
   }
   try {
-    return parsePublishedLegalDocument(data.value)
+    const parsed = parsePublishedLegalDocument(data.value)
+    const responseLocale = parsed.locale.toLowerCase().split(/[-_]/u, 1)[0]
+    return responseLocale === i18n.locale.value ? parsed : undefined
   } catch {
     return undefined
   }
@@ -120,11 +122,11 @@ const versionLabel = computed(() => {
         <h2>
           {{ status === 'pending' ? t('state.loading') : t('state.unavailableTitle') }}
         </h2>
-        <p v-if="error">
+        <p v-if="status !== 'pending'">
           {{ t('state.unavailableBody') }}
         </p>
         <button
-          v-if="error"
+          v-if="status !== 'pending'"
           class="pq-button pq-button--secondary"
           type="button"
           @click="() => refresh()"

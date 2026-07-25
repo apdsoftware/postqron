@@ -111,6 +111,9 @@ test('the home, features, and FAQ pages no longer hardcode Italian copy', async 
 
 test('the legal page keeps the fail-closed gate and only shows a localized generic unavailable state', async () => {
   const legalPage = await source('pages/legal/[document].vue')
+  assert.match(legalPage, /query: computed\(\(\) => \(\{ locale: i18n\.locale\.value \}\)\)/)
+  assert.match(legalPage, /watch: \[i18n\.locale\]/)
+  assert.match(legalPage, /responseLocale === i18n\.locale\.value/)
   assert.match(legalPage, /t\('state\.unavailableTitle'\)/)
   assert.match(legalPage, /t\('state\.unavailableBody'\)/)
   assert.match(legalPage, /t\('state\.loading'\)/)
