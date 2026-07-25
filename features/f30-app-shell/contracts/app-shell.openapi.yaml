@@ -1,0 +1,230 @@
+openapi: 3.1.0
+info:
+  title: Postqron app shell façade
+  version: 0.1.0
+  description: >
+    Same-origin server façade used by F30. Every authenticated operation
+    validates the F3 HttpOnly session server-side. The façade delegates
+    identity, consent, workspace, and transactional email work to F3, F4,
+    F13, and F14; it is not an email or OAuth provider client.
+paths:
+  /api/v1/app/bootstrap:
+    get:
+      summary: Read safe login configuration, current legal documents, and optional session
+      responses:
+        "200":
+          description: Public bootstrap payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bootstrap"
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
+  /api/v1/app/session:
+    get:
+      summary: Resolve the F3 session and current F4 workspace server-side
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Valid server-side session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSession"
+        "401":
+          description: Missing, expired, revoked, or invalid session
+        "403":
+          description: Authenticated account cannot access the selected workspace
+  /api/v1/app/onboarding:
+    post:
+      summary: Atomically finish required consent and create or select a workspace
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [consents, workspace]
+              properties:
+                consents:
+                  type: array
+                  minItems: 2
+                  items:
+                    $ref: "#/components/schemas/ConsentReceipt"
+                workspace:
+                  oneOf:
+                    - type: object
+                      additionalProperties: false
+                      required: [mode, name]
+                      properties:
+                        mode:
+                          const: create
+                        name:
+                          type: string
+                          minLength: 1
+                          maxLength: 80
+                    - type: object
+                      additionalProperties: false
+                      required: [mode, id]
+                      properties:
+                        mode:
+                          const: select
+                        id:
+                          type: string
+                          minLength: 1
+      responses:
+        "200":
+          description: Existing workspace selected
+        "201":
+          description: Personal workspace created
+        "401":
+          description: Invalid session
+        "403":
+          description: Workspace membership denied
+        "409":
+          description: Required consent or workspace state changed
+  /api/v1/app/workspaces/select:
+    post:
+      summary: Select an accessible F4 workspace for the current F3 session
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [workspace_id]
+              properties:
+                workspace_id:
+                  type: string
+                  minLength: 1
+      responses:
+        "204":
+          description: Selection stored in a secure server-side session
+        "401":
+          description: Invalid session
+        "403":
+          description: Account is not an active member
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
+  responses:
+    RetryableConfigurationError:
+      description: Safe retryable error; no secret or provider response is exposed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AppError"
+  schemas:
+    AppError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
+    ConsentReceipt:
+      type: object
+      additionalProperties: false
+      required: [document_key, version, digest_sha256, action, locale]
+      properties:
+        document_key:
+          enum: [terms, privacy]
+        version:
+          type: string
+          minLength: 1
+        digest_sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        action:
+          const: accepted
+        locale:
+          enum: [en, it, es, fr, de]
+    LegalDocument:
+      type: object
+      additionalProperties: false
+      required: [key, version, digest_sha256, href]
+      properties:
+        key:
+          enum: [terms, privacy]
+        version:
+          type: string
+        digest_sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        href:
+          type: string
+          pattern: "^/(?:en|it|es|fr|de)?/?legal/"
+    Workspace:
+      type: object
+      additionalProperties: false
+      required: [id, name, role]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          enum: [owner, member]
+    AppSession:
+      type: object
+      additionalProperties: false
+      required: [account, onboarding_required, workspaces]
+      properties:
+        account:
+          type: object
+          additionalProperties: false
+          required: [id, display_name, locale]
+          properties:
+            id:
+              type: string
+            display_name:
+              type: string
+            email:
+              type: string
+              format: email
+            locale:
+              enum: [en, it, es, fr, de]
+        onboarding_required:
+          type: boolean
+        current_workspace:
+          $ref: "#/components/schemas/Workspace"
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workspace"
+    Bootstrap:
+      type: object
+      additionalProperties: false
+      required: [providers, legal_documents]
+      properties:
+        providers:
+          type: array
+          items:
+            enum: [google, apple, facebook, linkedin]
+        legal_documents:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/LegalDocument"
+        session:
+          $ref: "#/components/schemas/AppSession"
