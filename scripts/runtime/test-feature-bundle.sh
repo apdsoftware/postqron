@@ -10,16 +10,35 @@ bundle="$temporary_directory/features"
   "$repository_root/features" \
   "$bundle"
 
-manifest_count=$(find "$bundle" -name feature.yaml -type f | wc -l | tr -d ' ')
-migration_count=$(find "$bundle" -path '*/migrations/*.sql' -type f | wc -l | tr -d ' ')
-if [[ "$manifest_count" != "22" ]]; then
-  echo "feature bundle has $manifest_count manifests, want 22" >&2
+assert_bundle_matches_source() {
+  local description=$1
+  local find_path=$2
+  local source_files="$temporary_directory/source-$description"
+  local bundled_files="$temporary_directory/bundled-$description"
+
+  (
+    cd "$repository_root/features"
+    find . -path "$find_path" -type f | LC_ALL=C sort
+  ) >"$source_files"
+  (
+    cd "$bundle"
+    find . -path "$find_path" -type f | LC_ALL=C sort
+  ) >"$bundled_files"
+
+  if cmp -s "$source_files" "$bundled_files"; then
+    return
+  fi
+
+  echo "feature bundle $description do not match source:" >&2
+  comm -23 "$source_files" "$bundled_files" |
+    sed 's/^/  missing: /' >&2
+  comm -13 "$source_files" "$bundled_files" |
+    sed 's/^/  unexpected: /' >&2
   exit 1
-fi
-if [[ "$migration_count" != "20" ]]; then
-  echo "feature bundle has $migration_count migrations, want 20" >&2
-  exit 1
-fi
+}
+
+assert_bundle_matches_source manifests '*/feature.yaml'
+assert_bundle_matches_source migrations '*/migrations/*.sql'
 
 for required_asset in \
   f23-pwa/web/manifest.webmanifest \
