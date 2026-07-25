@@ -230,18 +230,3 @@ func (store *SQLStore) BillingBinding(
 	}
 	return binding, nil
 }
-
-func (store *SQLStore) RestrictExpiredGracePeriods(
-	ctx context.Context,
-	now time.Time,
-) (int64, error) {
-	var affected int64
-	if err := store.db.QueryRow(
-		ctx,
-		"SELECT f10_restrict_expired_grace($1)",
-		now.UTC(),
-	).Scan(&affected); err != nil {
-		return 0, fmt.Errorf("restrict expired Paddle grace periods: %w", err)
-	}
-	return affected, nil
-}
