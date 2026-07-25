@@ -14,9 +14,9 @@ import (
 )
 
 func TestPostgresRepositoryIntegration(t *testing.T) {
-	databaseURL := os.Getenv("F26_DATABASE_URL")
+	databaseURL := integrationDatabaseURL()
 	if databaseURL == "" {
-		t.Skip("set F26_DATABASE_URL after applying the F26 migration")
+		t.Skip("set F26_DATABASE_URL or DATABASE_URL after applying the F26 migration")
 	}
 	database, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -126,4 +126,24 @@ func TestPostgresRepositoryIntegration(t *testing.T) {
 	if err != nil || erased.Current.HasRecordedChoice || len(erased.Evidence) != 0 {
 		t.Fatalf("erased=%+v err=%v", erased, err)
 	}
+}
+
+func TestIntegrationDatabaseURLPrefersFeatureOverrideAndFallsBackToCI(t *testing.T) {
+	t.Setenv("F26_DATABASE_URL", "feature-override-value")
+	t.Setenv("DATABASE_URL", "ci-fallback-value")
+	if got := integrationDatabaseURL(); got != "feature-override-value" {
+		t.Fatalf("integrationDatabaseURL() = %q, want feature override", got)
+	}
+
+	t.Setenv("F26_DATABASE_URL", "")
+	if got := integrationDatabaseURL(); got != "ci-fallback-value" {
+		t.Fatalf("integrationDatabaseURL() = %q, want CI fallback", got)
+	}
+}
+
+func integrationDatabaseURL() string {
+	if databaseURL := os.Getenv("F26_DATABASE_URL"); databaseURL != "" {
+		return databaseURL
+	}
+	return os.Getenv("DATABASE_URL")
 }
