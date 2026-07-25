@@ -231,7 +231,14 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           printf '%s' "$GHCR_TOKEN" | ssh postqron@"$DEPLOYMENT_HOST" docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          ssh postqron@"$DEPLOYMENT_HOST" 'chmod 0600 /opt/postqron/runtime.env && sudo systemctl restart postqron.service'
+          ssh postqron@"$DEPLOYMENT_HOST" '
+            set -e
+            trap "docker logout ghcr.io >/dev/null 2>&1 || true" EXIT
+            chmod 0600 /opt/postqron/runtime.env
+            cd /opt/postqron
+            docker compose --env-file runtime.env pull
+          '
+          ssh postqron@"$DEPLOYMENT_HOST" sudo systemctl restart postqron.service
       - name: Restore administrative SSH allowlist
         if: always()
         run: |
