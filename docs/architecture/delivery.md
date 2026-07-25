@@ -36,6 +36,34 @@ those from the reviewed commit and environment variables. The remote file is
 mode `0600`. No token, private key, password, state credential, or personal data
 is stored in Git.
 
+## Configure GitHub
+
+Use the interactive helper from an authenticated workstation. It skips names
+that already exist and never echoes secret input:
+
+```sh
+./scripts/deploy/configure-github-environment.sh \
+  --environment production \
+  --phase provision
+```
+
+The provision phase configures public domains and CIDRs, provider credentials,
+the deployment key when missing, and an S3-compatible Terraform backend. After
+the server host key has been verified, configure release-only values:
+
+```sh
+./scripts/deploy/configure-github-environment.sh \
+  --environment production \
+  --phase release
+```
+
+This second phase reads a verified `known_hosts` file, requests a GitHub classic
+token limited to `read:packages`, and generates a URL-safe PostgreSQL password
+directly into `RUNTIME_ENV`. Values already configured are not rotated. Replace
+one intentionally with `--replace NAME`; replacing `RUNTIME_ENV` rotates the
+database password and must not be done against an existing database without a
+coordinated password change.
+
 ## First deployment
 
 1. Create a dedicated remote state bucket and GitHub environments.
