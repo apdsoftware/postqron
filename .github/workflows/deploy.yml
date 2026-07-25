@@ -228,9 +228,9 @@ jobs:
       - name: Pull images and restart
         if: inputs.operation == 'release'
         env:
-          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          printf '%s' "$GHCR_READ_TOKEN" | ssh postqron@"$DEPLOYMENT_HOST" docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | ssh postqron@"$DEPLOYMENT_HOST" docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           ssh postqron@"$DEPLOYMENT_HOST" 'chmod 0600 /opt/postqron/runtime.env && sudo systemctl restart postqron.service'
       - name: Restore administrative SSH allowlist
         if: always()

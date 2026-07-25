@@ -21,8 +21,8 @@ Options:
 The provision phase configures public domains, Cloudflare, Hetzner, Terraform
 state, the administrative CIDR allowlist, and the deployment SSH key.
 
-The release phase configures the verified SSH host key, a GHCR read-only token,
-and the generated runtime database configuration.
+The release phase configures the verified SSH host key and the generated
+runtime database configuration. GHCR uses the workflow's temporary token.
 EOF
 }
 
@@ -407,8 +407,6 @@ if [[ "$phase" == "provision" ]]; then
   configure_backend
 else
   configure_known_hosts
-  needs_secret "GHCR_READ_TOKEN" &&
-    set_prompted_secret "GHCR_READ_TOKEN" "GitHub classic token with read:packages"
   configure_runtime
 fi
 
