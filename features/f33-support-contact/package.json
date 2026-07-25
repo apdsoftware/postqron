@@ -1,0 +1,14 @@
+{
+  "name": "@postqron/f33-support-contact",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "pnpm --dir ../../apps/web exec nuxt typecheck"
+  },
+  "peerDependencies": {
+    "nuxt": "^3.21.0",
+    "vue": "^3.5.0"
+  }
+}
