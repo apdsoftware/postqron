@@ -312,7 +312,7 @@ func cloneDraft(draft Draft) Draft {
 
 func cloneContent(content DraftContent) DraftContent {
 	copyOfContent := content
-	copyOfContent.Media = append([]Media(nil), content.Media...)
+	copyOfContent.Media = append([]Media{}, content.Media...)
 	copyOfContent.Destinations = make([]Destination, len(content.Destinations))
 	for index, destination := range content.Destinations {
 		copyOfContent.Destinations[index] = destination

@@ -1,0 +1,11 @@
+title = "Postqron gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "F13 uses a deterministic non-secret idempotency key in tests"
+condition = "AND"
+paths = ['''^features/f13-compliance/test/compliance\.test\.ts$''']
+regexTarget = "match"
+regexes = ['''idempotency-[12]''']

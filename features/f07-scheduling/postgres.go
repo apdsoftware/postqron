@@ -42,10 +42,16 @@ func (repository *PostgresRepository) Create(
 	if err := insertPublicationCommand(ctx, transaction, command); err != nil {
 		return ScheduledPost{}, err
 	}
+	created, err := scanScheduledPost(transaction.QueryRow(ctx, postSelect+`
+		WHERE workspace_id = $1 AND id = $2
+	`, post.WorkspaceID, post.ID))
+	if err != nil {
+		return ScheduledPost{}, err
+	}
 	if err := transaction.Commit(ctx); err != nil {
 		return ScheduledPost{}, fmt.Errorf("commit schedule transaction: %w", err)
 	}
-	return clonePost(post), nil
+	return clonePost(created), nil
 }
 
 func (repository *PostgresRepository) Get(
