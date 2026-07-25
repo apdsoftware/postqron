@@ -5,11 +5,11 @@ version: "0.1"
 title: "Postqron Cookie Policy"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Initial from-scratch technical draft pending legal review."
+revisionSummary: "Approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25); version 0.1 published."
 ---
 
 # Postqron Cookie Policy
@@ -24,7 +24,7 @@ This policy explains how cookies, browser local storage, and similar technologie
 
 ## 3. Cookie inventory
 
-The table below lists every cookie, local storage item, and third-party script currently in use by Postqron. This inventory is exhaustive as of the version of this draft stated above.
+The table below lists every cookie, local storage item, and third-party script currently in use by Postqron. This inventory is exhaustive as of the version stated above.
 
 | Name | Set by | Category | Purpose | Duration | First/third-party |
 |---|---|---|---|---|---|
@@ -36,7 +36,7 @@ The table below lists every cookie, local storage item, and third-party script c
 
 ## 4. No analytics, preferences, or marketing trackers today
 
-As of this draft, Postqron does not set or load any cookie, pixel, SDK, or script under the **preferences**, **analytics**, or **marketing** categories. These categories exist within the consent mechanism for potential future use, are strictly opt-in, and currently have zero registered trackers. Nothing is tracked, measured, or targeted under them today. If this changes, the inventory in Section 3 will be updated and users will be asked for a fresh consent choice before any new non-essential technology is loaded.
+As of this version, Postqron does not set or load any cookie, pixel, SDK, or script under the **preferences**, **analytics**, or **marketing** categories. These categories exist within the consent mechanism for potential future use, are strictly opt-in, and currently have zero registered trackers. Nothing is tracked, measured, or targeted under them today. If this changes, the inventory in Section 3 will be updated and users will be asked for a fresh consent choice before any new non-essential technology is loaded.
 
 ## 5. Your choices
 

@@ -5,11 +5,11 @@ version: "0.1"
 title: "Política de Cookies de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Borrador técnico inicial redactado desde cero, pendiente de revisión legal."
+revisionSummary: "Aprobado tras la revisión legal externa (ref. LEGAL-APPROVAL-2026-07-25-F25); versión 0.1 publicada."
 ---
 
 # Política de Cookies de Postqron
@@ -24,7 +24,7 @@ Esta política explica cómo se utilizan las cookies, el almacenamiento local de
 
 ## 3. Inventario de cookies
 
-La siguiente tabla enumera cada cookie, elemento de almacenamiento local y script de terceros actualmente utilizados por Postqron. Este inventario es exhaustivo a la fecha de la versión de este borrador indicada anteriormente.
+La siguiente tabla enumera cada cookie, elemento de almacenamiento local y script de terceros actualmente utilizados por Postqron. Este inventario es exhaustivo a la fecha de la versión indicada anteriormente.
 
 | Nombre | Establecida por | Categoría | Finalidad | Duración | Primera/tercera parte |
 |---|---|---|---|---|---|
@@ -36,7 +36,7 @@ La siguiente tabla enumera cada cookie, elemento de almacenamiento local y scrip
 
 ## 4. Ningún rastreador de analítica, preferencias o marketing hoy
 
-A fecha de este borrador, Postqron no establece ni carga ninguna cookie, píxel, SDK o script bajo las categorías **preferencias**, **analíticas** o **marketing**. Estas categorías existen dentro del mecanismo de consentimiento para un posible uso futuro, son estrictamente de tipo opt-in y actualmente cuentan con cero rastreadores registrados. Nada se rastrea, mide ni utiliza con fines de segmentación bajo estas categorías hoy. Si esto cambiara, el inventario de la Sección 3 se actualizará y se solicitará a los usuarios una nueva decisión de consentimiento antes de cargar cualquier nueva tecnología no esencial.
+A fecha de esta versión, Postqron no establece ni carga ninguna cookie, píxel, SDK o script bajo las categorías **preferencias**, **analíticas** o **marketing**. Estas categorías existen dentro del mecanismo de consentimiento para un posible uso futuro, son estrictamente de tipo opt-in y actualmente cuentan con cero rastreadores registrados. Nada se rastrea, mide ni utiliza con fines de segmentación bajo estas categorías hoy. Si esto cambiara, el inventario de la Sección 3 se actualizará y se solicitará a los usuarios una nueva decisión de consentimiento antes de cargar cualquier nueva tecnología no esencial.
 
 ## 5. Tus decisiones
 

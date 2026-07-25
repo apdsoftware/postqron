@@ -5,16 +5,16 @@ version: "0.1"
 title: "Accord de Traitement des Données de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Premier projet technique rédigé de novo, en attente de relecture juridique."
+revisionSummary: "Approuvé après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25) ; version 0.1 publiée."
 ---
 
 # Accord de Traitement des Données de Postqron
 
-*Version provisoire 0.1 — en attente de relecture juridique. Ce document décrit, de bonne foi et à des fins internes et de prévisualisation, les conditions de traitement des données applicables entre Postqron et ses clients professionnels. Il ne constitue pas encore un instrument juridique finalisé.*
+*Version 0.1 — approuvée après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25). Ce document décrit les conditions de traitement des données applicables entre Postqron et ses clients professionnels.*
 
 Le présent Accord de Traitement des Données (« ATD ») est émis par Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italie, numéro de TVA 03835250162, REA (registre des entreprises italien) BG 431224), exerçant sous la marque APDSoftware en tant qu'exploitant du service Postqron (informations relatives à l'entité vérifiées via une source publique : https://mailronix.com/terms, consultée le 2026-07-25), joignable à l'adresse privacy@postqron.com et via le site https://apdsoftware.it.
 
@@ -106,4 +106,4 @@ Postqron met à la disposition du client les informations raisonnablement néces
 
 ---
 
-*Le présent document est un projet technique préparé en amont d'une relecture par un conseil juridique formel. Il vise à décrire, sur le fond et de bonne foi, les conditions de traitement des données que Postqron entend proposer à ses clients professionnels, et ne constitue pas un instrument juridique finalisé ou contraignant tant qu'il n'aura pas été remplacé par une version relue et publiée.*
+*Le présent document constitue l'instrument juridique contraignant entre Postqron et ses clients professionnels en matière de traitement des données, à la suite de l'approbation juridique externe enregistrée sous la référence LEGAL-APPROVAL-2026-07-25-F25.*

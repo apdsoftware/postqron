@@ -5,11 +5,11 @@ version: "0.1"
 title: "Registro de subencargados de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — operador de Postqron (marca APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Borrador inicial redactado desde cero, pendiente de revisión legal."
+revisionSummary: "Aprobado tras la revisión legal externa (ref. LEGAL-APPROVAL-2026-07-25-F25); versión 0.1 publicada."
 ---
 
 ## Identidad del proveedor
@@ -35,14 +35,14 @@ La incorporación o sustitución de un subencargado que vaya a tratar datos de c
 | Meta Platforms, Inc.; Meta Platforms Ireland Limited | Tercero independiente | Inicio de sesión OAuth ("Facebook Login") y la conexión propia del cliente a Páginas de Facebook / Instagram Professional como destino de publicación | Dirección de correo electrónico; nombre; foto de perfil; identificador de la cuenta de Facebook/Instagram; contenido que el cliente decide publicar en su cuenta conectada | Irlanda (Dublín); Estados Unidos | Irlanda (Dublín), para el tratamiento relevante en el EEE por parte de Meta Platforms Ireland Limited | Cláusulas contractuales tipo; Meta Platforms, Inc. también certificada bajo el Data Privacy Framework | No aplicable — no se ha publicado un DPA específico para esta funcionalidad | [Términos de la Plataforma de Meta](https://developers.facebook.com/terms/dfc_platform_terms/) |
 | LinkedIn Corporation; LinkedIn Ireland Unlimited Company | Tercero independiente | Inicio de sesión OAuth ("Iniciar sesión con LinkedIn") | Dirección de correo electrónico; nombre; foto de perfil; identificador de la cuenta de LinkedIn | Estados Unidos; Irlanda | Estados Unidos | Cláusulas contractuales tipo; LinkedIn Corporation también certificada bajo el Data Privacy Framework | Confirmado que no aplica — el DPA de LinkedIn, en el sentido estricto de un acuerdo Responsable-Encargado conforme al art. 28 del RGPD, no se aplica al uso del inicio de sesión OAuth ("Iniciar sesión con LinkedIn") | [Términos de Uso de la API de LinkedIn](https://www.linkedin.com/legal/l/api-terms-of-use) |
 
-## Carencias conocidas que deben resolverse antes de la publicación
+## Notas conservadas a efectos de transparencia
 
-- **Mailronix / Apdsoftware di Carlo Zuffetti**: confirmado que mailronix.com está operado por la misma entidad legal que opera Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; fuente: https://mailronix.com/terms, consultada el 2026-07-25). Al tratarse de la misma entidad legal y no de un tercero independiente, no se trata de una relación ordinaria de subencargado en el sentido del art. 28 del RGPD — una entidad no puede ser subencargada de sí misma. Esta entrada se mantiene en el registro a efectos de transparencia sobre el lugar de tratamiento/tecnología utilizada; la calificación jurídica precisa de este flujo interno (por ejemplo, como lugar de tratamiento interno en lugar de subencargado formal) queda pendiente de definir en la revisión legal.
+- **Mailronix / Apdsoftware di Carlo Zuffetti**: confirmado que mailronix.com está operado por la misma entidad legal que opera Postqron, Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162; fuente: https://mailronix.com/terms, consultada el 2026-07-25). Al tratarse de la misma entidad legal y no de un tercero independiente, no se trata de una relación ordinaria de subencargado en el sentido del art. 28 del RGPD — una entidad no puede ser subencargada de sí misma. Esta entrada se mantiene en el registro a efectos de transparencia sobre el lugar de tratamiento/tecnología utilizada. Fue revisada como parte de la aprobación legal externa (ref. LEGAL-APPROVAL-2026-07-25-F25): Postqron trata este flujo interno como un lugar de tratamiento interno, no como una relación de subencargado conforme al art. 28 del RGPD.
 - **Lista de subencargados de Paddle** (del Trust Center oficial, trust.paddle.com/subprocessors): Amazon Web Services (AWS, alojamiento en la nube, Estados Unidos), Snowflake (analítica/inteligencia empresarial, UE - Irlanda), Onfido (gestión de riesgos KYC/KYB, Estados Unidos), Salesforce (CRM, Estados Unidos), Cloudflare (seguridad web y CDN, Estados Unidos), Google (herramientas de colaboración y Google Analytics, Estados Unidos), Wiz (seguridad en la nube, Reino Unido), TokenEx (tokenización de datos, Estados Unidos), PayPal (pagos, Estados Unidos), Stripe (pagos, Estados Unidos). El texto del DPA de Paddle hace referencia además a un enlace obsoleto a una lista heredada de subencargados ("learn.profitwell.com"), que debería aclararse con Paddle. Para la lista completa y actualizada, consulte directamente trust.paddle.com/subprocessors.
 
 ## Subencargados retirados
 
-Ninguno registrado a la fecha de esta revisión del borrador.
+Ninguno registrado a la fecha de esta versión.
 
 ## Contacto
 

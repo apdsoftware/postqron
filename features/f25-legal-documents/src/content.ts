@@ -92,12 +92,32 @@ export function parseDraftFile(
   }
 }
 
+export interface ApprovalStamp {
+  approvalReference: string
+  approvedAt: string
+  publishedAt: string
+  effectiveAt: string
+}
+
+const UNSTAMPED: ApprovalStamp = {
+  approvalReference: '',
+  approvedAt: '',
+  publishedAt: '',
+  effectiveAt: '',
+}
+
 /**
- * Loads the committed draft corpus for tests and previews only. Never wired
- * into `src/api.ts` or the Vue page — those keep reading `BUNDLED_LEGAL_RELEASE`,
- * which stays empty until a legally approved release replaces it.
+ * Loads the committed corpus for tests, previews, and the one-off bundle
+ * generation script (`scripts/build-bundle.ts`). Never imported at runtime by
+ * `src/api.ts` or the Vue page — those keep reading `BUNDLED_LEGAL_RELEASE`,
+ * a static artifact generated ahead of time, so Node's `fs`/`path`/`url`
+ * built-ins used here never reach the browser bundle.
+ *
+ * `stamp` is left unset (empty strings) for tests and previews, which do not
+ * assert on approval metadata. The bundle generation script passes the real
+ * approval reference and UTC timestamps recorded for the release.
  */
-export async function loadDraftArtifacts(): Promise<LegalArtifact[]> {
+export async function loadDraftArtifacts(stamp: ApprovalStamp = UNSTAMPED): Promise<LegalArtifact[]> {
   const artifacts: LegalArtifact[] = []
   for (const document of DOCUMENT_TYPES) {
     for (const locale of LEGAL_LOCALES) {
@@ -115,11 +135,11 @@ export async function loadDraftArtifacts(): Promise<LegalArtifact[]> {
         contactEmail: frontmatter.contactEmail,
         content: body,
         digestSha256: await sha256(body),
-        approvalReference: '',
-        approvedAt: '',
-        publishedAt: '',
+        approvalReference: stamp.approvalReference,
+        approvedAt: stamp.approvedAt,
+        publishedAt: stamp.publishedAt,
         proposedEffectiveDate: frontmatter.proposedEffectiveDate,
-        effectiveAt: '',
+        effectiveAt: stamp.effectiveAt,
         changeType: frontmatter.changeType as ChangeType,
         revisionSummary: frontmatter.revisionSummary,
       })

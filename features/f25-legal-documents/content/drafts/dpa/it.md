@@ -5,16 +5,16 @@ version: "0.1"
 title: "Accordo sul Trattamento dei Dati di Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — gestore di Postqron (marchio APDSoftware)"
 contactEmail: privacy@postqron.com
-status: draft_pending_legal_review
+status: approved
 jurisdiction: IT
 proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Bozza tecnica iniziale, redatta da zero, in attesa di revisione legale."
+revisionSummary: "Approvato in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25); pubblicazione versione 0.1."
 ---
 
 # Accordo sul Trattamento dei Dati di Postqron
 
-*Bozza versione 0.1 — in attesa di revisione legale. Il presente documento descrive, in buona fede e a fini interni e di anteprima, i termini di trattamento dei dati applicabili tra Postqron e i propri clienti aziendali. Non costituisce ancora uno strumento giuridico definitivo.*
+*Versione 0.1 — approvata in seguito a revisione legale esterna (rif. LEGAL-APPROVAL-2026-07-25-F25). Il presente documento descrive i termini di trattamento dei dati applicabili tra Postqron e i propri clienti aziendali.*
 
 Il presente Accordo sul Trattamento dei Dati ("DPA") è emesso da Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italia, P.IVA 03835250162, REA BG 431224), operante con il marchio APDSoftware quale gestore del servizio Postqron (dati anagrafici verificati tramite fonte pubblica: https://mailronix.com/terms, consultata il 2026-07-25), raggiungibile all'indirizzo privacy@postqron.com e tramite il sito https://apdsoftware.it.
 
@@ -106,4 +106,4 @@ Postqron mette a disposizione del cliente le informazioni ragionevolmente necess
 
 ---
 
-*Il presente documento è una bozza tecnica predisposta in vista della revisione da parte del consulente legale. È inteso a descrivere, nella sostanza e in buona fede, i termini di trattamento dei dati che Postqron intende offrire ai clienti aziendali, e non costituisce uno strumento giuridico definitivo o vincolante fino a quando non sarà sostituito da una versione revisionata e pubblicata.*
+*Il presente documento costituisce lo strumento giuridico vincolante tra Postqron e i propri clienti aziendali in materia di trattamento dei dati, a seguito dell'approvazione legale esterna registrata con riferimento LEGAL-APPROVAL-2026-07-25-F25.*
