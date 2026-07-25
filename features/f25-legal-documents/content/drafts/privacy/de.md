@@ -91,7 +91,7 @@ Betroffene Personen haben zudem das Recht, Beschwerde bei einer Aufsichtsbehörd
 
 ## 9. Minderjährige
 
-Postqron ist für die professionelle und geschäftliche Nutzung bestimmt und Nutzern vorbehalten, die mindestens 18 Jahre alt sind. Der Dienst wird Personen unter 18 Jahren nicht angeboten, und deren Registrierung ist nicht gestattet.
+Postqron sieht keine spezifische Mindestaltersanforderung für die Nutzung des Dienstes vor, unbeschadet der nach anwendbarem Recht erforderlichen Geschäftsfähigkeit zum Abschluss eines Vertrags.
 
 ## 10. Beschwerden und Governance des Datenschutzbeauftragten
 

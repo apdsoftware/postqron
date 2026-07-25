@@ -91,7 +91,7 @@ Data subjects also have the right to lodge a complaint with a supervisory author
 
 ## 9. Minors
 
-Postqron is intended for professional and business use and is restricted to users aged 18 or over. The Service is not offered to individuals under the age of 18, and registration by minors is not permitted.
+Postqron does not impose a specific minimum-age requirement for use of the Service, without prejudice to the legal capacity to enter into a contract required under applicable law.
 
 ## 10. Complaints and DPO governance
 

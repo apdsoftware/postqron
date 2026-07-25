@@ -91,7 +91,7 @@ Gli interessati hanno inoltre il diritto di proporre reclamo a un'autorità di c
 
 ## 9. Minori
 
-Postqron è destinato a un uso professionale e aziendale ed è riservato a utenti che abbiano compiuto 18 anni di età. Il Servizio non è offerto a persone minori di 18 anni e non ne è consentita la registrazione.
+Postqron non impone un requisito di età minima specifico per l'utilizzo del Servizio, fermo restando il possesso della capacità legale di stipulare un contratto ai sensi della legge applicabile.
 
 ## 10. Reclami e governance del DPO
 

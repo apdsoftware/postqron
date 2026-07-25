@@ -80,7 +80,7 @@ To the maximum extent permitted by applicable mandatory law, Postqron's liabilit
 
 ## 15. Governing law and jurisdiction
 
-These Terms are governed by Italian law. For consumers, this choice of law does not deprive them of the protection afforded by mandatory provisions of the law of their country of habitual residence, where applicable European Union rules on cross-border consumer contracts (in particular the Rome I Regulation) so provide. For disputes involving a consumer, the competent court is that of the consumer's place of residence, as determined under applicable law. For disputes between Postqron and a business customer (B2B), the competent courts are those of the venue of the contracting entity's registered office — Apdsoftware di Carlo Zuffetti, registered at Via C. Colombo 15, 24047 Treviglio (BG), Italy (source: https://mailronix.com/terms, consulted 2026-07-25); the precise determination of the competent court, including any specialized business-court venue, remains subject to confirmation by legal counsel.
+These Terms are governed by Italian law. For consumers, this choice of law does not deprive them of the protection afforded by mandatory provisions of the law of their country of habitual residence, where applicable European Union rules on cross-border consumer contracts (in particular the Rome I Regulation) so provide. For disputes involving a consumer, the competent court is that of the consumer's place of residence, as determined under applicable law. For disputes between Postqron and a business customer (B2B), the competent court is the Court of Bergamo, the venue of the registered office of the contracting entity Apdsoftware di Carlo Zuffetti (Via C. Colombo 15, 24047 Treviglio (BG), Italy).
 
 ## 16. Complaints and disputes
 
