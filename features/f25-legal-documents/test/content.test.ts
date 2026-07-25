@@ -1,14 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import {
-  DOCUMENT_TYPES,
-  LEGAL_LOCALES,
-  draftPath,
-  loadDraftArtifacts,
-  parseDraftFile,
-  sha256,
-} from '../src/index.ts'
+import { DOCUMENT_TYPES, LEGAL_LOCALES, sha256 } from '../src/index.ts'
+import { draftPath, loadDraftArtifacts, parseDraftFile } from '../src/content.ts'
 
 test('every draft artifact parses with a matching path, digest, and status', async () => {
   const artifacts = await loadDraftArtifacts()

@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DOCUMENT_TYPES, LEGAL_LOCALES, LegalRepository, loadDraftArtifacts } from '../src/index.ts'
+import { DOCUMENT_TYPES, LEGAL_LOCALES, LegalRepository } from '../src/index.ts'
+import { loadDraftArtifacts } from '../src/content.ts'
 
 const featureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const source = (path: string) => readFile(resolve(featureRoot, path), 'utf8')
