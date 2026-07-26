@@ -11,6 +11,30 @@ const CONTENT_SECURITY_POLICY_DIRECTIVES = [
 export const STATIC_CONTENT_SECURITY_POLICY
   = CONTENT_SECURITY_POLICY_DIRECTIVES.join('; ')
 
+export function httpOriginForContentSecurityPolicy(
+  apiBase: unknown,
+): string | undefined {
+  if (typeof apiBase !== 'string') {
+    return undefined
+  }
+
+  try {
+    const url = new URL(apiBase)
+    if (
+      url.protocol !== 'http:' && url.protocol !== 'https:'
+      || url.hostname.includes('*')
+      || url.username
+      || url.password
+    ) {
+      return undefined
+    }
+    return url.origin
+  }
+  catch {
+    return undefined
+  }
+}
+
 export function inlineScriptHashes(chunks: readonly string[]): string[] {
   const hashes = new Set<string>()
   const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/giu
@@ -33,12 +57,16 @@ export function inlineScriptHashes(chunks: readonly string[]): string[] {
 
 export function contentSecurityPolicyForHtml(
   chunks: readonly string[],
+  apiBase?: unknown,
 ): string {
   const hashes = inlineScriptHashes(chunks)
+  const apiOrigin = httpOriginForContentSecurityPolicy(apiBase)
 
   return CONTENT_SECURITY_POLICY_DIRECTIVES
     .map(directive => directive === "script-src 'self'"
       ? [directive, ...hashes].join(' ')
-      : directive)
+      : directive === "connect-src 'self'" && apiOrigin
+        ? `${directive} ${apiOrigin}`
+        : directive)
     .join('; ')
 }
