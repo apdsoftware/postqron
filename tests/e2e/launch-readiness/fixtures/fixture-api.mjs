@@ -216,12 +216,27 @@ const server = createServer(async (request, response) => {
   }
   if (request.method === 'GET' && url.pathname === '/api/v1/app/bootstrap') {
     json(response, 200, {
+      auth_methods: ['password'],
       providers: ['google', 'apple', 'facebook', 'linkedin'],
       legal_documents: [
         { key: 'terms', version: '1.0', href: '/legal/termini', digest_sha256: digest },
         { key: 'privacy', version: '1.0', href: '/legal/privacy', digest_sha256: digest },
       ],
       ...(role ? { session: appSession(role) } : {}),
+    })
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/auth/password/login') {
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    if (
+      input.email !== 'admin@example.test'
+      || input.password !== 'fixture-admin-password'
+    ) {
+      error(response, 401, 'AUTH_INVALID_CREDENTIALS')
+      return
+    }
+    json(response, 200, { authenticated: true }, {
+      'set-cookie': 'postqron_fixture_session=admin; Path=/; HttpOnly; SameSite=Lax',
     })
     return
   }

@@ -35,11 +35,14 @@ func (store *PostgresStore) Session(
 		SELECT
 			s.account_id,
 			a.normalized_email,
-			EXISTS (
+			(
+				a.email_verified_at IS NOT NULL
+				OR EXISTS (
 				SELECT 1
 				FROM auth_provider_identities identity
 				WHERE identity.account_id = a.id
 				  AND lower(btrim(identity.provider_email)) = a.normalized_email
+				)
 			),
 			s.authenticated_at,
 			s.expires_at

@@ -28,6 +28,7 @@ export interface AppSession {
 }
 
 export interface AppBootstrap {
+  auth_methods: Array<'password'>
   legal_documents: LegalDocument[]
   providers: OAuthProvider[]
   session?: AppSession
@@ -125,6 +126,9 @@ function parseLegalDocument(value: unknown): LegalDocument {
 
 export function parseBootstrap(value: unknown): AppBootstrap {
   if (!isRecord(value)
+    || !Array.isArray(value.auth_methods)
+    || value.auth_methods.length !== 1
+    || value.auth_methods[0] !== 'password'
     || !Array.isArray(value.providers)
     || !value.providers.every(provider => providers.has(provider))
     || !Array.isArray(value.legal_documents)) {
@@ -132,12 +136,15 @@ export function parseBootstrap(value: unknown): AppBootstrap {
   }
   const legalDocuments = value.legal_documents.map(parseLegalDocument)
   if (
-    legalDocuments.length !== 2
-    || new Set(legalDocuments.map(document => document.key)).size !== 2
+    legalDocuments.length !== 0 && (
+      legalDocuments.length !== 2
+      || new Set(legalDocuments.map(document => document.key)).size !== 2
+    )
   ) {
     throw new Error('APP_INVALID_BOOTSTRAP_PAYLOAD')
   }
   return {
+    auth_methods: ['password'],
     providers: [...value.providers],
     legal_documents: legalDocuments,
     session: value.session === undefined ? undefined : parseSession(value.session),

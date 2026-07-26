@@ -18,8 +18,9 @@ POSTQRON_ADMIN_ALLOWLIST=carlo.zuffetti@apdsoftware.it
 POSTQRON_ADMIN_ALLOWED_ORIGINS=https://postqron.com
 ```
 
-The address is configuration, not a password or an authentication bypass.
-Access also requires a valid OAuth session, verified email, an active
+The address is configuration, not an authentication bypass. The admin surface
+uses the central F3 email/password session; optional OAuth providers are not
+required. Access also requires a valid session, verified email, an active
 server-side admin record, and an unexpired session. `Service.BootstrapAdmins`
 applies configuration changes through the same immutable audit boundary used
 for later administrator additions and removals.

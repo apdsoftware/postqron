@@ -160,6 +160,39 @@
   gap: var(--pq-space-3);
 }
 
+.auth-password-form {
+  display: grid;
+  margin-bottom: var(--pq-space-5);
+  gap: var(--pq-space-3);
+}
+
+.auth-password-form input {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--pq-color-border-strong);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-3);
+  color: var(--pq-color-text);
+  background: var(--pq-color-surface);
+}
+
+.auth-separator {
+  display: flex;
+  margin: 0 0 var(--pq-space-4);
+  color: var(--pq-color-text-muted);
+  gap: var(--pq-space-3);
+  align-items: center;
+  font-size: var(--pq-font-size-sm);
+}
+
+.auth-separator::before,
+.auth-separator::after {
+  height: 1px;
+  content: "";
+  background: var(--pq-color-border);
+  flex: 1;
+}
+
 .auth-provider {
   display: grid;
   min-height: 3.25rem;

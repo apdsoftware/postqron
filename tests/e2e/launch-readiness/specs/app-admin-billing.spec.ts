@@ -75,6 +75,29 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
   await admin.close()
 })
 
+test('admin signs in with email and password without an OAuth provider', async ({
+  page,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  const document = await page.goto(`${offBaseURL}/admin`)
+  expect(document?.status()).toBe(200)
+  await expect(page.getByRole('heading', {
+    level: 2,
+    name: /administrator sign-in/iu,
+  })).toBeVisible()
+
+  await page.getByLabel(/email address/iu).fill('admin@example.test')
+  await page.getByLabel(/^password$/iu).fill('incorrect-password')
+  await page.getByRole('button', { name: /^sign in$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/invalid/iu)
+
+  await page.getByLabel(/^password$/iu).fill('fixture-admin-password')
+  await page.getByRole('button', { name: /^sign in$/iu }).click()
+  await expect(page.getByRole('heading', { level: 2, name: /service health/iu }))
+    .toBeVisible()
+})
+
 test('Paddle sandbox checkout stays pending until signed webhook, then opens portal', async ({
   browser,
 }, testInfo) => {
