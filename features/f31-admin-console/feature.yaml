@@ -65,10 +65,36 @@ web:
       file: ./pages/admin.vue
       visibility: private
       middleware: [admin-access]
+    - name: admin-users
+      path: /admin/users
+      file: ./pages/users.vue
+      visibility: private
+      middleware: [admin-access]
+    - name: admin-workspaces
+      path: /admin/workspaces
+      file: ./pages/workspaces.vue
+      visibility: private
+      middleware: [admin-access]
+    - name: admin-plans
+      path: /admin/plans
+      file: ./pages/plans.vue
+      visibility: private
+      middleware: [admin-access]
+    - name: admin-audit
+      path: /admin/audit
+      file: ./pages/audit.vue
+      visibility: private
+      middleware: [admin-access]
+    - name: admin-profile
+      path: /admin/profile
+      file: ./pages/profile.vue
+      visibility: private
+      middleware: [admin-access]
   layouts:
     - name: admin-console
       file: ./layouts/admin-console.vue
-  components: []
+  components:
+    - ./components
   plugins:
     - ./runtime.ts
   middleware:

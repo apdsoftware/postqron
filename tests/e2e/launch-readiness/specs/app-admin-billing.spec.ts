@@ -66,10 +66,15 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
   expect(allowed?.status()).toBe(200)
   expect((await allowedSession).status()).toBe(200)
   await expect(adminPage.getByRole('heading', { level: 1 })).toBeVisible()
+
+  await adminPage.goto(`${offBaseURL}/admin/plans`)
   await adminPage.getByRole('button', { name: /assign/iu }).click()
   await adminPage.getByLabel(/reason/iu).fill('Approved launch fixture action')
   await adminPage.getByRole('checkbox').check()
   await adminPage.getByRole('button', { name: /confirm operation/iu }).click()
+  await expect(adminPage.getByText(/accepted and audited/iu)).toBeVisible()
+
+  await adminPage.goto(`${offBaseURL}/admin/audit`)
   await expect(adminPage.getByText('internal_plan.assign')).toBeVisible()
   await expect(adminPage.getByText('Approved launch fixture action')).toBeVisible()
   await admin.close()
@@ -94,8 +99,7 @@ test('admin signs in with email and password without an OAuth provider', async (
 
   await page.getByLabel(/^password$/iu).fill('fixture-admin-password')
   await page.getByRole('button', { name: /^sign in$/iu }).click()
-  await expect(page.getByRole('heading', { level: 2, name: /service health/iu }))
-    .toBeVisible()
+  await expect(page.getByText(/service health/iu)).toBeVisible()
 })
 
 test('Paddle sandbox checkout stays pending until signed webhook, then opens portal', async ({

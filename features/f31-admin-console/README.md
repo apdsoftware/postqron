@@ -1,7 +1,30 @@
 # F31 — Protected admin console
 
-This slice owns `/admin`, its five-locale catalog, the private admin HTTP
-adapter, and the security policy applied to every admin operation.
+This slice owns `/admin` and its dedicated sections (`/admin/users`,
+`/admin/workspaces`, `/admin/plans`, `/admin/audit`, `/admin/profile`), its
+five-locale catalog, the private admin HTTP adapter, and the security policy
+applied to every admin operation.
+
+## Shell
+
+`layouts/admin-console.vue` renders a persistent desktop sidebar that becomes
+a keyboard- and click-dismissible drawer under 48rem, a sticky top bar with
+the current section, a `<select>`-based language switcher
+(`components/AdminLanguageSelect.vue`, matching the public site's `<select>`
+pattern rather than a row of links), the authenticated administrator's email
+linking to `/admin/profile`, and a predisposed
+`data-postqron-slot="admin-logout-action"` position for a future sign-out
+control. Every route in `feature.yaml` declares the same `admin-console`
+layout and `admin-access` middleware, and `components/nav.ts` is the single
+source of truth for sidebar entries, active-state matching, and Dashboard
+quick links.
+
+Reusable page building blocks live in `components/`: `AdminPageHeader`
+(eyebrow/title/description), `AdminKpiCard`, `AdminAlert`, `AdminDataTable`,
+`AdminFilterBar`, `AdminPagination`, `AdminState` (loading/empty/error), and
+`AdminLoginGate` (the shared email/password sign-in form). This issue ships
+structure, loading, and empty states only; full data views land in dependent
+issues.
 
 ## Security boundary
 

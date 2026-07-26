@@ -63,31 +63,61 @@ test('admin route declares a localized non-empty document title', async () => {
 })
 
 test('admin UI exposes accessible en/de confirmations and never requests secrets', async () => {
-  const [page, layout, api, useAdmin] = await Promise.all([
+  const [page, plans, loginGate, state, pageHeader, layout, api, useAdmin] = await Promise.all([
     readFile(new URL('../pages/admin.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../pages/plans.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/AdminLoginGate.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/AdminState.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/AdminPageHeader.vue', import.meta.url), 'utf8'),
     readFile(new URL('../layouts/admin-console.vue', import.meta.url), 'utf8'),
     readFile(new URL('../core/api.ts', import.meta.url), 'utf8'),
     readFile(new URL('../core/use-admin.ts', import.meta.url), 'utf8'),
   ])
-  assert.match(page, /<h1>/u)
+  assert.match(page, /<AdminPageHeader/u)
+  assert.match(pageHeader, /<h1>/u)
   assert.match(page, /middleware: 'admin-access'/u)
-  assert.match(page, /aria-labelledby=/u)
-  assert.match(page, /aria-live="polite"/u)
-  assert.match(page, /<dialog/u)
-  assert.match(page, /confirm\.checkbox/u)
-  assert.match(page, /minlength="8"/u)
-  assert.match(page, /globalThis\.crypto\.randomUUID\(\)/u)
+  assert.match(loginGate, /aria-labelledby=/u)
+  assert.match(state, /aria-live="polite"/u)
+  assert.match(plans, /middleware: 'admin-access'/u)
+  assert.match(plans, /aria-labelledby=/u)
+  assert.match(plans, /<dialog/u)
+  assert.match(plans, /confirm\.checkbox/u)
+  assert.match(plans, /minlength="8"/u)
+  assert.match(plans, /globalThis\.crypto\.randomUUID\(\)/u)
   assert.match(useAdmin, /globalThis\.\$fetch/u)
   assert.match(layout, /href="#admin-main"/u)
-  assert.match(layout, /PostqronLanguageSwitcher/u)
+  assert.match(layout, /AdminLanguageSelect/u)
   assert.doesNotMatch(
-    `${page}\n${api}`.toLowerCase(),
+    `${page}\n${plans}\n${api}`.toLowerCase(),
     /social[_-]?token|payment[_-]?method|card[_-]?number|client[_-]?secret/u,
   )
   assert.notEqual(
     ADMIN_CATALOGS.en['confirm.description'],
     ADMIN_CATALOGS.de['confirm.description'],
   )
+})
+
+test('the admin shell declares every dedicated section with the shared layout and guard', async () => {
+  const [layout, languageSelect, nav, feature] = await Promise.all([
+    readFile(new URL('../layouts/admin-console.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/AdminLanguageSelect.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/nav.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../feature.yaml', import.meta.url), 'utf8'),
+  ])
+  assert.match(layout, /<AdminLanguageSelect/u)
+  assert.match(languageSelect, /<select/u)
+  assert.doesNotMatch(layout, /<ul/u)
+  for (const path of [
+    '/admin',
+    '/admin/users',
+    '/admin/workspaces',
+    '/admin/plans',
+    '/admin/audit',
+    '/admin/profile',
+  ]) {
+    assert.match(nav, new RegExp(`path: '${path.replace(/\//gu, '\\/')}'`, 'u'))
+    assert.match(feature, new RegExp(`path: ${path.replace(/\//gu, '\\/')}\\n`, 'u'))
+  }
 })
 
 test('manifest owns only protected web and server routes with security dependencies', async () => {
@@ -126,6 +156,6 @@ test('manifest owns only protected web and server routes with security dependenc
   }
   assert.equal(
     manifest.match(/visibility: private/gu)?.length,
-    6,
+    11,
   )
 })
