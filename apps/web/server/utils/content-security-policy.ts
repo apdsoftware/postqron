@@ -20,7 +20,12 @@ export function httpOriginForContentSecurityPolicy(
 
   try {
     const url = new URL(apiBase)
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    if (
+      url.protocol !== 'http:' && url.protocol !== 'https:'
+      || url.hostname.includes('*')
+      || url.username
+      || url.password
+    ) {
       return undefined
     }
     return url.origin

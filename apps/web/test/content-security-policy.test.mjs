@@ -90,6 +90,8 @@ test('invalid or non-HTTP API bases fail closed', () => {
   for (const apiBase of [
     'ftp://api.example.test/api/v1',
     'javascript:alert(1)',
+    'https://*.example.test/api/v1',
+    'https://operator:secret@api.example.test/api/v1',
     'https://api.example.test; script-src *',
     'not a URL',
     { origin: 'https://api.example.test' },
