@@ -15,6 +15,7 @@ const digest = 'a'.repeat(64)
 
 test('bootstrap accepts only two versioned required documents and known providers', () => {
   const bootstrap = parseBootstrap({
+    auth_methods: ['password'],
     providers: ['google', 'apple', 'facebook', 'linkedin'],
     legal_documents: [
       {

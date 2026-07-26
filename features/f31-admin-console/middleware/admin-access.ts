@@ -1,7 +1,6 @@
 import {
   abortNavigation,
   createError,
-  navigateTo,
 } from '#imports'
 import {
   normalizeAdminApiError,
@@ -41,7 +40,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
       }))
     }
     if (decision.action === 'login') {
-      return navigateTo(decision.location, { redirectCode: 302 })
+      return
     }
   }
 })

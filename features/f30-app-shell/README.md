@@ -1,6 +1,7 @@
 # F30 — Product app shell
 
-This slice owns the real `/app` entry point, OAuth hand-off, onboarding UI,
+This slice owns the real `/app` entry point, primary email/password sign-in,
+optional OAuth hand-off, onboarding UI,
 server-session route guard, responsive product chrome, application states, and
 declarative extension slots. It does not own pricing, checkout, admin, or any
 vertical feature.

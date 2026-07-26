@@ -26,8 +26,11 @@ const dashboard = useAdminDashboardState()
 const searchResults = useAdminSearchState()
 const { date, t } = useAdminI18n()
 const loading = ref(true)
+const authenticating = ref(false)
 const searching = ref(false)
 const saving = ref(false)
+const email = ref('')
+const password = ref('')
 const query = ref('')
 const errorCode = ref<AdminApiError['code']>()
 const success = ref(false)
@@ -43,6 +46,25 @@ useHead(computed(() => ({
 
 const canSubmit = computed(() =>
   confirmed.value && reason.value.trim().length >= 8 && !saving.value)
+
+async function login() {
+  authenticating.value = true
+  errorCode.value = undefined
+  try {
+    await api.passwordLogin({
+      email: email.value,
+      password: password.value,
+    })
+    password.value = ''
+    session.value = await api.session()
+    await loadDashboard()
+  } catch (error) {
+    password.value = ''
+    errorCode.value = normalizeAdminApiError(error).code
+  } finally {
+    authenticating.value = false
+  }
+}
 
 async function loadDashboard() {
   loading.value = true
@@ -114,6 +136,8 @@ async function applyInternalPlan() {
 
 if (import.meta.client && session.value) {
   await loadDashboard()
+} else {
+  loading.value = false
 }
 </script>
 
@@ -127,8 +151,54 @@ if (import.meta.client && session.value) {
       <p>{{ t('page.description') }}</p>
     </header>
 
+    <section
+      v-if="!session"
+      class="admin-panel admin-login"
+      aria-labelledby="admin-login-title"
+    >
+      <h2 id="admin-login-title">
+        {{ t('login.title') }}
+      </h2>
+      <p>{{ t('login.description') }}</p>
+      <form @submit.prevent="login">
+        <label for="admin-email">{{ t('login.email') }}</label>
+        <input
+          id="admin-email"
+          v-model="email"
+          type="email"
+          autocomplete="username"
+          maxlength="320"
+          required
+        >
+        <label for="admin-password">{{ t('login.password') }}</label>
+        <input
+          id="admin-password"
+          v-model="password"
+          type="password"
+          autocomplete="current-password"
+          minlength="12"
+          maxlength="1024"
+          required
+        >
+        <p
+          v-if="errorCode"
+          class="admin-inline-error"
+          role="alert"
+        >
+          {{ t(`error.${errorCode}` as never) }}
+        </p>
+        <button
+          class="pq-button pq-button--primary"
+          type="submit"
+          :disabled="authenticating"
+        >
+          {{ authenticating ? t('login.signingIn') : t('login.submit') }}
+        </button>
+      </form>
+    </section>
+
     <p
-      v-if="loading"
+      v-else-if="loading"
       class="admin-state"
       role="status"
       aria-live="polite"

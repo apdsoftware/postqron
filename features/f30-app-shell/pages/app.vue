@@ -35,7 +35,10 @@ const { t } = useAppShellI18n()
 const bootstrapState = useAppBootstrapState()
 const sessionState = useAppSessionState()
 const accepted = ref(false)
-const mode = ref<'register' | 'signin'>('register')
+const mode = ref<'register' | 'signin'>('signin')
+const email = ref('')
+const password = ref('')
+const submittingPassword = ref(false)
 const submittingProvider = ref<OAuthProvider>()
 const formError = ref<'configuration' | 'consent' | 'offline'>()
 const invalidIntent = ref(false)
@@ -132,6 +135,30 @@ async function start(provider: OAuthProvider) {
       : 'configuration'
   } finally {
     submittingProvider.value = undefined
+  }
+}
+
+async function signInWithPassword() {
+  submittingPassword.value = true
+  formError.value = undefined
+  try {
+    await api.passwordLogin({
+      email: email.value,
+      password: password.value,
+    })
+    password.value = ''
+    const session = await api.session()
+    sessionState.value = session
+    await navigateTo(
+      authenticatedDestination(returnTo, session.onboarding_required),
+    )
+  } catch {
+    password.value = ''
+    formError.value = globalThis.navigator && !globalThis.navigator.onLine
+      ? 'offline'
+      : 'configuration'
+  } finally {
+    submittingPassword.value = false
   }
 }
 
@@ -240,6 +267,52 @@ const providers = computed<OAuthProvider[]>(() =>
             }}
           </div>
 
+          <form
+            v-if="mode === 'signin'"
+            class="auth-password-form"
+            @submit.prevent="signInWithPassword"
+          >
+            <label for="app-auth-email">{{ t('auth.email') }}</label>
+            <input
+              id="app-auth-email"
+              v-model="email"
+              type="email"
+              autocomplete="username"
+              maxlength="320"
+              required
+            >
+            <label for="app-auth-password">{{ t('auth.password') }}</label>
+            <input
+              id="app-auth-password"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              minlength="12"
+              maxlength="1024"
+              required
+            >
+            <button
+              class="pq-button"
+              data-full-width="true"
+              type="submit"
+              :disabled="submittingPassword"
+            >
+              <span
+                v-if="submittingPassword"
+                class="pq-button__spinner"
+                aria-hidden="true"
+              />
+              {{ submittingPassword ? t('auth.signingIn') : t('auth.passwordSubmit') }}
+            </button>
+          </form>
+
+          <p
+            v-if="mode === 'signin' && providers.length"
+            class="auth-separator"
+          >
+            {{ t('auth.orProvider') }}
+          </p>
+
           <div class="auth-providers">
             <button
               v-for="provider in providers"
@@ -268,7 +341,10 @@ const providers = computed<OAuthProvider[]>(() =>
             </p>
           </div>
 
-          <label class="auth-consent">
+          <label
+            v-if="mode === 'register'"
+            class="auth-consent"
+          >
             <input
               v-model="accepted"
               type="checkbox"

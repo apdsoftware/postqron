@@ -83,6 +83,30 @@
   margin-top: 0;
 }
 
+.admin-login {
+  width: min(32rem, 100%);
+  margin-inline: auto;
+}
+
+.admin-login > p {
+  color: var(--pq-color-text-muted);
+}
+
+.admin-login form {
+  display: grid;
+  gap: var(--pq-space-3);
+}
+
+.admin-login input {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--pq-color-border-strong);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-3);
+  color: var(--pq-color-text);
+  background: var(--pq-color-surface);
+}
+
 .admin-health,
 .admin-entitlements,
 .admin-audit,

@@ -108,6 +108,30 @@ export class AdminApi {
     }
   }
 
+  async passwordLogin(input: {
+    email: string
+    password: string
+  }): Promise<void> {
+    try {
+      await this.#request('/api/v1/auth/password/login', {
+        method: 'POST',
+        body: {
+          email: input.email.trim(),
+          password: input.password,
+        },
+      })
+    } catch (error) {
+      const status = statusOf(error)
+      throw new AdminApiError(
+        status === 401
+          ? 'ADMIN_INVALID_CREDENTIALS'
+          : 'ADMIN_UNAVAILABLE',
+        status,
+        error,
+      )
+    }
+  }
+
   async dashboard(headers?: Readonly<Record<string, string>>): Promise<AdminDashboard> {
     try {
       return parseDashboard(await this.#request('/api/v1/admin/dashboard', { headers }))

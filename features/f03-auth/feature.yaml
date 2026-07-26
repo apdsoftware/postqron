@@ -2,7 +2,19 @@ schema_version: 1
 id: auth
 kind: api
 version: 0.1.0
-entrypoint: ./auth.go
+entrypoints:
+  server: ./module.go
 dependencies: []
 migrations:
   - ./migrations/000001_create_auth.sql
+  - ./migrations/000002_password_auth.sql
+server:
+  routes:
+    - path: /auth/password/login
+      handler: Password
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/password/login
+      handler: Password
+      methods: [OPTIONS]
+      visibility: "public"

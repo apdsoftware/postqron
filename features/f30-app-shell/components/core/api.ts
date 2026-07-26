@@ -180,6 +180,19 @@ export class AppShellApi {
     }
   }
 
+  async passwordLogin(input: {
+    email: string
+    password: string
+  }): Promise<void> {
+    await this.#request('/api/v1/auth/password/login', {
+      method: 'POST',
+      body: {
+        email: input.email.trim(),
+        password: input.password,
+      },
+    })
+  }
+
   async authorize(input: {
     consents: ConsentReceipt[]
     contractCountry: string

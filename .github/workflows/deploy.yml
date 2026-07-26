@@ -197,15 +197,22 @@ jobs:
       - name: Prepare runtime configuration
         if: inputs.operation == 'release'
         env:
+          ADMIN_PASSWORD_HASH_B64: ${{ secrets.ADMIN_PASSWORD_HASH_B64 }}
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
           RUNTIME_ENV: ${{ secrets.RUNTIME_ENV }}
         run: |
+          if [[ -z "$ADMIN_PASSWORD_HASH_B64" ]]; then
+            echo "ADMIN_PASSWORD_HASH_B64 must be configured for password authentication" >&2
+            exit 1
+          fi
           install -m 0600 /dev/null "$RUNNER_TEMP/runtime.env"
           printf '%s\n' "$RUNTIME_ENV" > "$RUNNER_TEMP/runtime.env"
           {
             printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
             printf 'APP_DOMAIN=%s\n' "$APP_DOMAIN"
+            printf 'POSTQRON_ADMIN_BOOTSTRAP_EMAIL=%s\n' 'carlo.zuffetti@apdsoftware.it'
+            printf 'POSTQRON_ADMIN_PASSWORD_HASH_B64=%s\n' "$ADMIN_PASSWORD_HASH_B64"
             printf 'WEB_IMAGE=ghcr.io/%s-web:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             printf 'API_IMAGE=ghcr.io/%s-api:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             printf 'WORKER_IMAGE=ghcr.io/%s-worker:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
