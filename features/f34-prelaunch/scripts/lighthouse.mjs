@@ -15,7 +15,7 @@ const reportPath = `${reportDirectory}report.json`
 const serverEntrypoint = fileURLToPath(
   new URL('../../../apps/web/.output/server/index.mjs', import.meta.url),
 )
-const url = 'http://127.0.0.1:41736/prelaunch'
+const url = 'http://127.0.0.1:41736/en/prelaunch'
 
 const build = spawnSync(
   'pnpm',

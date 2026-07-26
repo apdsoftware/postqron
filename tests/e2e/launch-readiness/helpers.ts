@@ -10,7 +10,7 @@ export const fixtureBaseURL = process.env.LAUNCH_FIXTURE_URL
 export const locales = ['en', 'it', 'es', 'fr', 'de'] as const
 
 export function localized(locale: typeof locales[number], path: string): string {
-  return `${locale === 'en' ? '' : `/${locale}`}${path}`
+  return `/${locale}${path}`
 }
 
 export function covers(testInfo: TestInfo, ...requirements: string[]): void {

@@ -15,7 +15,7 @@ test('pre-launch redirects incomplete routes to the selected locale', () => {
     ['fr', '/fr/funzionalita'],
     ['de', '/de/faq'],
   ] as const) {
-    const prefix = locale === 'en' ? '' : `/${locale}`
+    const prefix = `/${locale}`
     assert.deepEqual(
       prelaunchRouteDecision({ enabled: true, locale, url }),
       { action: 'redirect', location: `${prefix}/prelaunch` },
@@ -120,7 +120,7 @@ test('go-live retires pre-launch pages without touching the normal site', () => 
     enabled: false,
     locale: 'en',
     url: '/en/prelaunch/access',
-  }), { action: 'redirect', location: '/app' })
+  }), { action: 'redirect', location: '/en/app' })
   assert.deepEqual(prelaunchRouteDecision({
     enabled: false,
     locale: 'en',

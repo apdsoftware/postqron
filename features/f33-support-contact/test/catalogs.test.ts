@@ -50,7 +50,7 @@ test('the contact route is available at the canonical path for every locale', ()
   assert.deepEqual(
     SUPPORTED_LOCALES.map(locale => localizeUrl(locale, '/contatti')),
     [
-      '/contatti',
+      '/en/contatti',
       '/it/contatti',
       '/es/contatti',
       '/fr/contatti',

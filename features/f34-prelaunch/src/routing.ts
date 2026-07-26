@@ -96,7 +96,10 @@ export function prelaunchRouteDecision(input: {
   }
 
   if (isPrelaunchPath(input.url)) {
-    return { action: 'redirect', location: '/app' }
+    return {
+      action: 'redirect',
+      location: localizeUrl(input.locale, '/app'),
+    }
   }
   return { action: 'allow' }
 }

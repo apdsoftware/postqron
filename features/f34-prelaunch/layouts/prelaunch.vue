@@ -19,6 +19,7 @@ const link = (path: string) => computed(() =>
       <NuxtLink
         :to="link('/prelaunch').value"
         :aria-label="prelaunch.translate('nav.home')"
+        :prefetch="false"
       >
         <img
           src="/brand/logo-primary.svg"
@@ -45,13 +46,22 @@ const link = (path: string) => computed(() =>
     <footer class="prelaunch-footer">
       <p>© {{ new Date().getUTCFullYear() }} Postqron</p>
       <nav aria-label="Legal">
-        <NuxtLink :to="link('/legal/privacy').value">
+        <NuxtLink
+          :to="link('/legal/privacy').value"
+          :prefetch="false"
+        >
           {{ prelaunch.translate('footer.privacy') }}
         </NuxtLink>
-        <NuxtLink :to="link('/legal/cookies').value">
+        <NuxtLink
+          :to="link('/legal/cookies').value"
+          :prefetch="false"
+        >
           {{ prelaunch.translate('footer.cookies') }}
         </NuxtLink>
-        <NuxtLink :to="link('/legal/terms').value">
+        <NuxtLink
+          :to="link('/legal/terms').value"
+          :prefetch="false"
+        >
           {{ prelaunch.translate('footer.terms') }}
         </NuxtLink>
         <a
@@ -96,7 +106,7 @@ const link = (path: string) => computed(() =>
 }
 
 .prelaunch-header__language {
-  min-width: 8rem;
+  min-width: 0;
 }
 
 .prelaunch-footer {
@@ -135,6 +145,25 @@ const link = (path: string) => computed(() =>
 
   .prelaunch-footer {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 30rem) {
+  .prelaunch-header {
+    gap: 0.5rem;
+  }
+
+  .prelaunch-header img {
+    width: 7.5rem;
+  }
+
+  .prelaunch-header__language .postqron-language-switcher select {
+    max-width: 7.75rem;
+  }
+
+  .prelaunch-footer nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>

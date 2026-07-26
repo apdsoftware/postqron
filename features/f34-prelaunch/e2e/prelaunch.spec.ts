@@ -11,15 +11,17 @@ const localeExpectations = {
 for (const [locale, heading] of Object.entries(localeExpectations)) {
   test(`renders the ${locale} pre-launch experience`, async ({ page }) => {
     await page.goto(`/${locale}/prelaunch`)
-    const prefix = locale === 'en' ? '' : `/${locale}`
+    const prefix = `/${locale}`
     await expect(page).toHaveTitle(/Postqron/u)
     await expect(page.locator('html')).toHaveAttribute('lang', locale)
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading)
-    await expect(page.getByRole('link', {
+    await expect(page.locator('.prelaunch-hero').getByRole('link', {
       name: /access|acceso|accès|accesso|zugang/iu,
     })).toHaveAttribute('href', `${prefix}/prelaunch/access`)
     await expect(page.locator(`a[href="${prefix}/legal/privacy"]`)).toBeVisible()
     await expect(page.locator('a[href="mailto:help@postqron.com"]')).toBeVisible()
+    await expect(page.locator('.prelaunch-plan')).toHaveCount(3)
+    await expect(page.locator('.prelaunch-plan').first()).toContainText('Start')
   })
 }
 
@@ -29,7 +31,7 @@ test('falls back to English for an unsupported browser language', async ({
   const context = await browser.newContext({ locale: 'pt-BR' })
   const page = await context.newPage()
   await page.goto('/prelaunch')
-  await expect(page).toHaveURL(/\/prelaunch$/u)
+  await expect(page).toHaveURL(/\/en\/prelaunch$/u)
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await context.close()
 })
@@ -47,7 +49,7 @@ test('access request is explicit and separate from marketing', async ({
       },
     })
   })
-  await page.goto('/prelaunch/access')
+  await page.goto('/en/prelaunch/access')
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
     'content',
     'noindex, nofollow',
@@ -66,12 +68,12 @@ test('access request is explicit and separate from marketing', async ({
 })
 
 test('keyboard navigation reaches the primary CTA', async ({ page }) => {
-  await page.goto('/prelaunch')
+  await page.goto('/en/prelaunch')
   await page.keyboard.press('Tab')
   await page.keyboard.press('Enter')
   await expect(page.locator('#main-content')).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(page.getByRole('link', {
+  await expect(page.locator('.prelaunch-hero').getByRole('link', {
     name: 'Request early access',
   })).toBeFocused()
 })
@@ -80,7 +82,7 @@ test('go-live redirects obsolete pre-launch URLs to the app', async ({
   page,
 }) => {
   await page.goto('http://127.0.0.1:41735/prelaunch')
-  await expect(page).toHaveURL(/\/app$/u)
+  await expect(page).toHaveURL(/\/en\/app$/u)
   await expect(page.locator('body')).not.toContainText(
     'Your social content, finally in order.',
   )

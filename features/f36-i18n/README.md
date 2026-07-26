@@ -19,11 +19,12 @@ tests. The server writes the complete resolution to the Nuxt payload. The
 client hydrates that value instead of resolving the browser again, so SSR,
 hydration, `html lang`, and the first rendered content agree.
 
-English routes are canonical without a prefix. The other locales use `/it`,
-`/es`, `/fr`, and `/de`. `localizeUrl` strips an existing supported prefix
-before applying the requested one and preserves a valid path, query, and hash.
-It accepts origin-relative URLs only, preventing open redirects and redirect
-loops.
+Every canonical localized route has an explicit language prefix: `/en`, `/it`,
+`/es`, `/fr`, and `/de`. Legacy unprefixed URLs resolve through the normal
+locale precedence and redirect to that canonical form. `localizeUrl` strips an
+existing supported prefix before applying the requested one and preserves a
+valid path, query, and hash. It accepts origin-relative URLs only, preventing
+open redirects and redirect loops.
 
 ## Runtime integration
 
@@ -32,7 +33,7 @@ central feature registry is required. It provides:
 
 - `usePostqronI18n()` and `$postqronI18n`;
 - a global canonical-locale route middleware;
-- the reusable `<PostqronLanguageSwitcher />` component;
+- the reusable compact native-select `<PostqronLanguageSwitcher />` component;
 - catalog registration, translation, pluralisation, and interpolation;
 - locale-aware `date`, `number`, `currency`, and `timeZone` formatters.
 

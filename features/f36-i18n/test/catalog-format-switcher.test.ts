@@ -120,18 +120,18 @@ test('Intl formatters use active locale while inputs remain language-independent
   )
 })
 
-test('language switcher preserves query and exposes native keyboard and SR semantics', async () => {
+test('language switcher preserves query and exposes a native select', async () => {
   const model = createLanguageSwitcherModel(
     'it',
     '/it/calendar?view=month&channel=2',
   )
   assert.equal(model.items.length, 5)
-  assert.equal(model.items.find(item => item.locale === 'en')?.href, '/calendar?view=month&channel=2')
+  assert.equal(model.items.find(item => item.locale === 'en')?.href, '/en/calendar?view=month&channel=2')
   assert.equal(model.items.find(item => item.locale === 'fr')?.href, '/fr/calendar?view=month&channel=2')
   assert.equal(model.items.find(item => item.locale === 'it')?.active, true)
   assert.deepEqual(model.accessibility, {
-    activation: 'native-link',
-    currentAttribute: 'aria-current',
+    activation: 'native-select',
+    currentAttribute: 'value',
     statusLive: 'polite',
   })
 
@@ -139,9 +139,9 @@ test('language switcher preserves query and exposes native keyboard and SR seman
     new URL('../components/LanguageSwitcher.vue', import.meta.url),
     'utf8',
   )
-  assert.match(component, /<nav[\s\S]*:aria-label=/u)
-  assert.match(component, /<a[\s\S]*:aria-current=/u)
-  assert.match(component, /:hreflang="locale"/u)
+  assert.match(component, /<select[\s\S]*:aria-label=/u)
+  assert.match(component, /<option/u)
+  assert.doesNotMatch(component, /<a/u)
   assert.match(component, /aria-live="polite"/u)
-  assert.match(component, /:focus-visible/u)
+  assert.match(component, /:focus-within/u)
 })

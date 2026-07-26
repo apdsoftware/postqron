@@ -16,7 +16,8 @@ The global route middleware explicitly allows:
 - API, health/status, Nuxt, brand, PWA, manifest, robots and sitemap paths.
 
 All other public pages redirect to the localized landing without retaining an
-untrusted return URL. Direct visits to pre-launch pages redirect to `/app`
+untrusted return URL. Direct visits to pre-launch pages redirect to the
+localized app route (for example `/en/app`)
 after go-live, so the public CTA never ends at a missing route.
 
 ## Access requests
@@ -48,7 +49,7 @@ Activation and rollback are configuration-only operations:
 3. Go live by setting the production secret/config value to the exact string
    `false` and restart/roll the web and API processes.
 4. Verify the status reports `explicit_false`, `/` serves the marketing site,
-   `/prelaunch` redirects to `/app`, and the CTA targets `/app`.
+   `/en/prelaunch` redirects to `/en/app`, and the CTA targets `/en/app`.
 5. Roll back immediately by setting the value to the exact string `true`.
    Removing or corrupting the value also fails closed, but explicit `true` is
    preferred because it makes intent visible in status.

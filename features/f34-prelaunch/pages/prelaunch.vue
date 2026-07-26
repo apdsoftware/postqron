@@ -2,6 +2,7 @@
 import {
   computed,
   definePageMeta,
+  useFetch,
   useHead,
   useRuntimeConfig,
   useSeoMeta,
@@ -10,6 +11,8 @@ import {
   SUPPORTED_LOCALES,
   localizeUrl,
 } from '../../f36-i18n/src/index.ts'
+import { parsePublicCatalog } from '../../f02-marketing-site/src/catalog.ts'
+import PrelaunchPricing from '../components/PrelaunchPricing.vue'
 import { usePrelaunch } from '../runtime.ts'
 import { PRELAUNCH_CATALOGS } from '../src/catalogs.ts'
 
@@ -26,6 +29,22 @@ const description = computed(() =>
   prelaunch.translate('landing.metaDescription'))
 const accessUrl = computed(() =>
   localizeUrl(prelaunch.locale.value, '/prelaunch/access'))
+const {
+  data: rawCatalog,
+  status: catalogStatus,
+} = await useFetch('/api/plans', {
+  key: 'prelaunch-public-plan-catalog-d07-v1',
+})
+const catalog = computed(() => {
+  if (!rawCatalog.value) {
+    return undefined
+  }
+  try {
+    return parsePublicCatalog(rawCatalog.value)
+  } catch {
+    return undefined
+  }
+})
 
 useSeoMeta({
   title,
@@ -49,7 +68,7 @@ useHead(computed(() => ({
     {
       rel: 'alternate',
       hreflang: 'x-default',
-      href: `${siteUrl}/prelaunch`,
+      href: `${siteUrl}/en/prelaunch`,
     },
   ],
 })))
@@ -92,6 +111,7 @@ const valueCards = computed(() => [
           <NuxtLink
             class="pq-button"
             :to="accessUrl"
+            :prefetch="false"
           >
             {{ prelaunch.translate('landing.cta') }}
           </NuxtLink>
@@ -133,12 +153,40 @@ const valueCards = computed(() => [
         <p>{{ card.copy }}</p>
       </article>
     </section>
+
+    <PrelaunchPricing
+      v-if="catalog"
+      :catalog="catalog"
+      :access-url="accessUrl"
+    />
+    <section
+      v-else
+      class="prelaunch-pricing-state"
+      aria-live="polite"
+    >
+      <p class="eyebrow">
+        {{ prelaunch.translate('pricing.eyebrow') }}
+      </p>
+      <h2>{{ prelaunch.translate('pricing.title') }}</h2>
+      <p>
+        {{ catalogStatus === 'pending'
+          ? prelaunch.translate('pricing.loading')
+          : prelaunch.translate('pricing.unavailable') }}
+      </p>
+      <NuxtLink
+        class="pq-button"
+        :to="accessUrl"
+        :prefetch="false"
+      >
+        {{ prelaunch.translate('pricing.cta') }}
+      </NuxtLink>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .prelaunch-page {
-  width: min(calc(100% - 2rem), 72rem);
+  width: min(calc(100% - clamp(1.25rem, 5vw, 2rem)), 72rem);
   margin-inline: auto;
   padding: clamp(2.5rem, 7vw, 6rem) 0 clamp(4rem, 9vw, 8rem);
 }
@@ -310,6 +358,25 @@ const valueCards = computed(() => [
   line-height: var(--pq-line-height-body);
 }
 
+.prelaunch-pricing-state {
+  max-width: 48rem;
+  margin: clamp(4rem, 10vw, 8rem) auto 0;
+  border: 1px solid var(--pq-color-border);
+  border-radius: var(--pq-radius-xl);
+  padding: clamp(1.5rem, 5vw, 3rem);
+  background: #fff;
+  text-align: center;
+}
+
+.prelaunch-pricing-state h2 {
+  margin: 0;
+  font-size: var(--pq-font-size-2xl);
+}
+
+.prelaunch-pricing-state > p:not(.eyebrow) {
+  color: var(--pq-color-text-muted);
+}
+
 @media (max-width: 48rem) {
   .prelaunch-hero {
     grid-template-columns: 1fr;
@@ -326,6 +393,15 @@ const valueCards = computed(() => [
 }
 
 @media (max-width: 30rem) {
+  .prelaunch-page {
+    padding-top: 1.75rem;
+  }
+
+  .prelaunch-hero h1 {
+    overflow-wrap: anywhere;
+    font-size: clamp(2.25rem, 13vw, var(--pq-font-size-4xl));
+  }
+
   .prelaunch-hero__action,
   .prelaunch-hero__action .pq-button {
     width: 100%;
