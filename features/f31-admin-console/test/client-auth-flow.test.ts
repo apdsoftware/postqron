@@ -21,13 +21,25 @@ test('admin authorization runs only in the browser without forwarding SSR cookie
   )
 })
 
-test('admin dashboard is requested client-side only after a valid session', async () => {
-  const page = await source('../pages/admin.vue')
+test('the login gate lives in the shared layout so every admin route is protected', async () => {
+  const layout = await source('../layouts/admin-console.vue')
+
+  assert.match(layout, /await api\.session\(\)/u)
+  assert.match(layout, /<template v-if="session">/u)
+  assert.match(layout, /<main\s+v-else/u)
+  assert.doesNotMatch(layout, /useRequestHeaders/u)
+})
+
+test('section data is only requested client-side after a valid session is present', async () => {
+  const loader = await source('../components/use-admin-section.ts')
 
   assert.match(
-    page,
-    /if \(import\.meta\.client && session\.value\) \{\s+await loadDashboard\(\)\s+\}/u,
+    loader,
+    /if \(!import\.meta\.client \|\| !session\.value\) \{/u,
   )
-  assert.match(page, /dashboard\.value = await api\.dashboard\(\)/u)
-  assert.doesNotMatch(page, /useRequestHeaders|api\.dashboard\(headers\)/u)
+  assert.match(loader, /state\.value = await load\(\)/u)
+  assert.doesNotMatch(loader, /useRequestHeaders/u)
+
+  const dashboardPage = await source('../pages/admin.vue')
+  assert.match(dashboardPage, /useAdminSectionLoad\(\s*dashboard,\s*\(\) => api\.dashboard\(\),?\s*\)/u)
 })
