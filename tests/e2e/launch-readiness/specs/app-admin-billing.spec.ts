@@ -74,6 +74,7 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
   await adminPage.getByRole('checkbox').check()
   await adminPage.getByRole('button', { name: /confirm operation/iu }).click()
   await expect(adminPage.getByText(/accepted and audited/iu)).toBeVisible()
+  await adminPage.getByRole('button', { name: /^cancel$/iu }).click()
 
   await adminPage.getByRole('link', { name: /^audit$/iu }).click()
   await expect(adminPage).toHaveURL(/\/admin\/audit$/u)
@@ -136,7 +137,9 @@ test('admin sidebar deep-links every section, marks the active route, and collap
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto(`${offBaseURL}/admin`)
   const sidebar = page.locator('.admin-sidebar')
-  const drawerToggle = page.getByRole('button', { name: /menu/iu })
+  const drawerToggle = page.getByRole('button', {
+    name: /^open navigation menu$/iu,
+  })
   await expect(drawerToggle).toBeVisible()
   await expect(sidebar).not.toHaveAttribute('data-open', 'true')
   await drawerToggle.click()
