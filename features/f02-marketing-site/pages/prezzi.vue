@@ -42,7 +42,7 @@ useHead(() => ({
     {
       rel: 'alternate',
       hreflang: 'x-default',
-      href: `${String(config.public.siteUrl).replace(/\/+$/u, '')}/prezzi`,
+      href: `${String(config.public.siteUrl).replace(/\/+$/u, '')}/en/prezzi`,
     },
   ],
 }))

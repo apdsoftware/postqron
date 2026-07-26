@@ -14,8 +14,8 @@ export interface LanguageSwitcherItem {
 
 export interface LanguageSwitcherModel {
   accessibility: {
-    activation: 'native-link'
-    currentAttribute: 'aria-current'
+    activation: 'native-select'
+    currentAttribute: 'value'
     statusLive: 'polite'
   }
   items: readonly LanguageSwitcherItem[]
@@ -43,8 +43,8 @@ export function createLanguageSwitcherModel(
       ),
     })),
     accessibility: {
-      activation: 'native-link',
-      currentAttribute: 'aria-current',
+      activation: 'native-select',
+      currentAttribute: 'value',
       statusLive: 'polite',
     },
   }

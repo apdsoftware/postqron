@@ -75,7 +75,7 @@ export function localeFromAppPath(value: string): AppShellLocale {
 }
 
 export function appRoot(locale: AppShellLocale): string {
-  return locale === 'en' ? '/app' : `/${locale}/app`
+  return `/${locale}/app`
 }
 
 function unlocalizedAppPath(pathname: string): string {

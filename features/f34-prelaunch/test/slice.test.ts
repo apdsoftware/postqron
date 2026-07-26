@@ -15,9 +15,10 @@ test('slice declares global middleware and owned routes', async () => {
 })
 
 test('landing includes SEO, legal, support and accessible CTA contracts', async () => {
-  const [page, layout] = await Promise.all([
+  const [page, layout, pricing] = await Promise.all([
     source('../pages/prelaunch.vue'),
     source('../layouts/prelaunch.vue'),
+    source('../components/PrelaunchPricing.vue'),
   ])
   assert.match(page, /useSeoMeta/u)
   assert.match(page, /rel: 'canonical'/u)
@@ -29,6 +30,12 @@ test('landing includes SEO, legal, support and accessible CTA contracts', async 
   assert.match(layout, /\/legal\/privacy/u)
   assert.match(layout, /\/legal\/cookies/u)
   assert.match(layout, /\/legal\/terms/u)
+  assert.match(page, /useFetch\('\/api\/plans'/u)
+  assert.match(page, /parsePublicCatalog/u)
+  assert.match(pricing, /priceForChannels/u)
+  assert.match(pricing, /catalog\.plans/u)
+  assert.match(pricing, /pricing\.note/u)
+  assert.doesNotMatch(pricing, /\b(?:9|19|29|49)[,.]99\b/u)
 })
 
 test('access form requires explicit consent and sends marketing false', async () => {

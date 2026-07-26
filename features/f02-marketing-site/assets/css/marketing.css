@@ -20,8 +20,14 @@ body {
 
 body,
 button,
-input {
+input,
+select {
   font-family: var(--pq-font-sans);
+}
+
+img,
+svg {
+  max-width: 100%;
 }
 
 a {
@@ -62,8 +68,8 @@ button {
 
 .site-header__inner {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: var(--pq-space-8);
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: clamp(var(--pq-space-3), 2vw, var(--pq-space-8));
   align-items: center;
   min-height: 5rem;
 }
@@ -78,8 +84,10 @@ button {
 
 .site-header__desktop {
   display: flex;
-  gap: var(--pq-space-8);
+  min-width: 0;
+  gap: clamp(var(--pq-space-4), 2vw, var(--pq-space-8));
   align-items: center;
+  justify-content: center;
 }
 
 .site-header__desktop a {
@@ -109,6 +117,7 @@ button {
 
 .site-header__cta {
   justify-self: end;
+  white-space: nowrap;
 }
 
 .site-header__mobile {
@@ -147,6 +156,13 @@ button {
   grid-template-columns: minmax(0, 1fr) minmax(25rem, 0.95fr);
   gap: clamp(3rem, 7vw, 6rem);
   align-items: center;
+}
+
+.hero-section__grid > *,
+.workflow > *,
+.capability > *,
+.pricing-grid > * {
+  min-width: 0;
 }
 
 .hero-section h1,
@@ -1024,13 +1040,14 @@ button {
   }
 }
 
-@media (max-width: 48rem) {
+@media (max-width: 58rem) {
   .site-header__inner {
     grid-template-columns: 1fr auto;
   }
 
   .site-header__desktop,
-  .site-header__cta {
+  .site-header__cta,
+  .site-header__language {
     display: none;
   }
 
@@ -1067,6 +1084,10 @@ button {
     border-radius: var(--pq-radius-lg);
     background: var(--pq-color-surface);
     box-shadow: var(--pq-shadow-md);
+  }
+
+  .site-header__mobile[open] summary {
+    background: var(--pq-color-brand-subtle);
   }
 
   .site-header__mobile nav a {
@@ -1160,6 +1181,13 @@ button {
     padding-block: var(--pq-space-16);
   }
 
+  .hero-section h1,
+  .page-hero h1,
+  .legal-hero h1 {
+    overflow-wrap: anywhere;
+    font-size: clamp(2.2rem, 12vw, var(--pq-font-size-4xl));
+  }
+
   .hero-section__actions,
   .hero-section__actions .pq-button {
     width: 100%;
@@ -1210,6 +1238,10 @@ button {
     left: var(--pq-space-2);
     max-height: calc(100vh - 1rem);
     padding: var(--pq-space-4);
+  }
+
+  .cookie-option {
+    gap: var(--pq-space-3);
   }
 
   .site-footer__grid {

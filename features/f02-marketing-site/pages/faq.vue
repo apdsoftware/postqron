@@ -42,7 +42,7 @@ useHead(computed(() => ({
     {
       rel: 'alternate',
       hreflang: 'x-default',
-      href: `${siteUrl}/faq`,
+      href: `${siteUrl}/en/faq`,
     },
   ],
   script: [{

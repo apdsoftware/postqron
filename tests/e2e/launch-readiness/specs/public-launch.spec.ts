@@ -22,17 +22,17 @@ test('pre-launch fails closed when enabled and exposes the normal site when disa
 
   const gated = await page.goto(`${onBaseURL}/prezzi`)
   expect(gated?.status()).toBe(200)
-  await expect(page).toHaveURL(/\/prelaunch$/u)
+  await expect(page).toHaveURL(/\/en\/prelaunch$/u)
   await expect(page.locator('body')).toHaveAttribute('data-prelaunch-mode', 'on')
 
   const publicResponse = await page.goto(`${offBaseURL}/prezzi`)
   expect(publicResponse?.status()).toBe(200)
-  await expect(page).toHaveURL(/\/prezzi$/u)
+  await expect(page).toHaveURL(/\/en\/prezzi$/u)
   await expect(page.locator('body')).toHaveAttribute('data-prelaunch-mode', 'off')
 
   const stale = await page.goto(`${offBaseURL}/prelaunch`)
   expect(stale?.status()).toBe(200)
-  await expect(page).toHaveURL(/\/app$/u)
+  await expect(page).toHaveURL(/\/en\/app$/u)
   await expect(page.locator('.auth-page__main > section h1').first()).toBeVisible()
 })
 
@@ -54,7 +54,7 @@ test('legal, support and contact launch URLs are successful and never 404', asyn
   expect(home?.status()).toBe(200)
   await expect(page.locator('a[href="mailto:help@postqron.com"]').first())
     .toBeVisible()
-  await expect(page.locator('a[href="/contatti"]')).toBeVisible()
+  await expect(page.locator('a[href="/en/contatti"]')).toBeVisible()
 })
 
 test('cookie consent is default-deny and supports accept, reject and revocation', async ({
@@ -114,7 +114,7 @@ test('locale detection, precedence, fallback and language changes are determinis
   }])
   await page.goto(`${offBaseURL}/de/faq`)
   await expect(page.locator('html')).toHaveAttribute('lang', 'de')
-  await page.getByRole('link', { name: 'Español' }).click()
+  await page.getByRole('combobox', { name: 'Sprache' }).selectOption('es')
   await expect(page).toHaveURL(/\/es\/faq$/u)
   await expect(page.locator('html')).toHaveAttribute('lang', 'es')
 
@@ -122,7 +122,36 @@ test('locale detection, precedence, fallback and language changes are determinis
   const unsupportedPage = await unsupported.newPage()
   await unsupportedPage.goto(`${offBaseURL}/faq`)
   await expect(unsupportedPage.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(unsupportedPage).toHaveURL(/\/en\/faq$/u)
   await unsupported.close()
+})
+
+test('public and pre-launch surfaces fit mobile viewports without horizontal overflow', async ({
+  page,
+}, testInfo) => {
+  covers(testInfo, 'LR-WCAG', 'LR-I18N')
+
+  for (const width of [320, 375, 768]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const url of [
+      `${offBaseURL}/en`,
+      `${offBaseURL}/en/prezzi`,
+      `${onBaseURL}/en/prelaunch`,
+    ]) {
+      const response = await page.goto(url)
+      expect(response?.status(), `${width} ${url}`).toBe(200)
+      const dimensions = await page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }))
+      expect(dimensions.scrollWidth, `${width} ${url}`).toBeLessThanOrEqual(
+        dimensions.clientWidth,
+      )
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    }
+
+    await expect(page.getByRole('combobox')).toBeVisible()
+  }
 })
 
 test('five-locale public, pricing, cookie and pre-launch matrix has no missing keys', async ({

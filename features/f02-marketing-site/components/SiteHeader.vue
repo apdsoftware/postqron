@@ -74,7 +74,7 @@ const isCurrent = (to: string) => route.path === to
 </template>
 
 <style scoped>
-@media (max-width: 48rem) {
+@media (max-width: 58rem) {
   .site-header__language {
     display: none;
   }
@@ -84,18 +84,16 @@ const isCurrent = (to: string) => route.path === to
   }
 
   .site-header__mobile nav :deep(.postqron-language-switcher) {
-    padding: var(--pq-space-3) var(--pq-space-5);
+    padding: var(--pq-space-3) var(--pq-space-5) var(--pq-space-4);
   }
 
-  .site-header__mobile nav :deep(.postqron-language-switcher__list) {
-    gap: var(--pq-space-2) var(--pq-space-3);
+  .site-header__mobile nav :deep(.postqron-language-switcher__control) {
+    width: 100%;
   }
 
-  .site-header__mobile nav :deep(.postqron-language-switcher a) {
-    min-height: var(--pq-size-target-min);
-    padding: 0;
-    color: var(--pq-color-text);
-    background: transparent;
+  .site-header__mobile nav :deep(.postqron-language-switcher select) {
+    width: 100%;
+    max-width: none;
   }
 }
 </style>

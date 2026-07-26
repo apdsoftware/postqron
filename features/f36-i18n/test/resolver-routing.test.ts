@@ -75,7 +75,7 @@ test('resolver enforces URL, profile, cookie, browser, English precedence', () =
   }), { locale: 'en', source: 'fallback' })
 })
 
-test('canonical routing keeps English unprefixed and preserves path and query', () => {
+test('canonical routing prefixes every locale and preserves path and query', () => {
   assert.equal(
     localizeUrl('it', '/account/posts?state=draft&sort=-date'),
     '/it/account/posts?state=draft&sort=-date',
@@ -84,8 +84,9 @@ test('canonical routing keeps English unprefixed and preserves path and query', 
     localizeUrl('fr', '/it/account/posts?state=draft#post-2'),
     '/fr/account/posts?state=draft#post-2',
   )
-  assert.equal(localizeUrl('en', '/de/account'), '/account')
-  assert.equal(canonicalLocaleRedirect('en', '/en/account?q=one'), '/account?q=one')
+  assert.equal(localizeUrl('en', '/de/account'), '/en/account')
+  assert.equal(canonicalLocaleRedirect('en', '/account?q=one'), '/en/account?q=one')
+  assert.equal(canonicalLocaleRedirect('en', '/en/account?q=one'), undefined)
   assert.equal(canonicalLocaleRedirect('de', '/de/account?q=one'), undefined)
 })
 

@@ -28,7 +28,7 @@ const session: AppSession = {
   }],
 }
 
-const localePrefixes = ['', '/it', '/es', '/fr', '/de']
+const localePrefixes = ['/en', '/it', '/es', '/fr', '/de']
 
 for (const prefix of localePrefixes) {
   test(`preserves a validated purchase intent through ${prefix || 'en'} authentication`, () => {
@@ -86,7 +86,7 @@ test('offline and denied guards expose only stable application state', () => {
     }),
     {
       action: 'redirect',
-      location: '/app?return_to=%2Fapp%2Fhome&app_state=access-denied',
+      location: '/en/app?return_to=%2Fapp%2Fhome&app_state=access-denied',
     },
   )
 })

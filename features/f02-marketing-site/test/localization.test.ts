@@ -55,8 +55,7 @@ test('the legal catalog never claims a single locale is legally binding', () => 
 
 test('public marketing routes resolve to the correct localized path for every locale', () => {
   for (const path of ['/', '/funzionalita', '/faq', '/legal/termini', '/legal/privacy', '/legal/cookie']) {
-    assert.equal(localizeUrl('en', path), path)
-    for (const locale of SUPPORTED_LOCALES.filter(candidate => candidate !== 'en')) {
+    for (const locale of SUPPORTED_LOCALES) {
       const expected = path === '/' ? `/${locale}` : `/${locale}${path}`
       assert.equal(localizeUrl(locale, path), expected)
     }

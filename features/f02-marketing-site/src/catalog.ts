@@ -457,7 +457,7 @@ export function localizePath(locale: PricingLocale, path: string): string {
     parts.splice(1, 1)
   }
   const base = parts.join('/') || '/'
-  return locale === 'en' ? base : `/${locale}${base === '/' ? '' : base}`
+  return `/${locale}${base === '/' ? '' : base}`
 }
 
 export function pricingCopy(locale: PricingLocale): PricingCopy {

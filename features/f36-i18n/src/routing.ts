@@ -1,6 +1,5 @@
 import { I18nError } from './errors.ts'
 import {
-  DEFAULT_LOCALE,
   isLocale,
   type Locale,
 } from './locales.ts'
@@ -87,9 +86,7 @@ export function localizeUrl(locale: Locale, value: string): string {
   }
   const parsed = parseLocalUrl(value)
   const basePath = splitLocalePath(parsed.pathname).pathname
-  const localizedPath = locale === DEFAULT_LOCALE
-    ? basePath
-    : `/${locale}${basePath === '/' ? '' : basePath}`
+  const localizedPath = `/${locale}${basePath === '/' ? '' : basePath}`
   return `${localizedPath}${parsed.search}${parsed.hash}`
 }
 
