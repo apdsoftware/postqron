@@ -4,29 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 )
 
 const (
-	sessionCookieName    = "__Host-postqron_session"
-	maxAdminRequestBytes = 8 << 10
+	sessionCookieName          = "__Host-postqron_session"
+	maxAdminRequestBytes       = 8 << 10
+	AdminAllowedOriginsEnvName = "POSTQRON_ADMIN_ALLOWED_ORIGINS"
 )
 
 type HTTPHandler struct {
-	service       *Service
-	authenticator Authenticator
-	handler       http.Handler
+	service        *Service
+	authenticator  Authenticator
+	allowedOrigins map[string]struct{}
+	handler        http.Handler
 }
 
-func NewHandler(service *Service, authenticator Authenticator) (http.Handler, error) {
+func NewHandler(
+	service *Service,
+	authenticator Authenticator,
+	allowedOrigins ...string,
+) (http.Handler, error) {
 	if service == nil || authenticator == nil {
 		return nil, errors.New("admin HTTP dependencies are required")
 	}
+	origins, err := newAdminOriginPolicy(allowedOrigins)
+	if err != nil {
+		return nil, err
+	}
 	admin := &HTTPHandler{
-		service:       service,
-		authenticator: authenticator,
+		service:        service,
+		authenticator:  authenticator,
+		allowedOrigins: origins,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/admin/session", admin.session)
@@ -42,12 +56,120 @@ func NewHandler(service *Service, authenticator Authenticator) (http.Handler, er
 	)
 	mux.HandleFunc("PUT /api/v1/admin/admins/{account_id}", admin.addAdmin)
 	mux.HandleFunc("DELETE /api/v1/admin/admins/{account_id}", admin.removeAdmin)
-	admin.handler = admin.authorize(mux)
+	admin.handler = admin.cors(admin.authorize(mux))
 	return admin, nil
 }
 
 func (handler *HTTPHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	handler.handler.ServeHTTP(writer, request)
+}
+
+func ParseAllowedOrigins(raw string) ([]string, error) {
+	seen := make(map[string]struct{})
+	var origins []string
+	for _, candidate := range strings.Split(raw, ",") {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		normalized, err := normalizeAdminOrigin(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid admin allowed origin: %w", err)
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		origins = append(origins, normalized)
+	}
+	if len(origins) == 0 {
+		return nil, errors.New("admin allowed origins must not be empty")
+	}
+	sort.Strings(origins)
+	return origins, nil
+}
+
+func AllowedOriginsFromEnvironment(
+	lookup func(string) (string, bool),
+) ([]string, error) {
+	if lookup == nil {
+		return nil, errors.New("environment lookup is required")
+	}
+	raw, exists := lookup(AdminAllowedOriginsEnvName)
+	if !exists {
+		return nil, fmt.Errorf("%s is required", AdminAllowedOriginsEnvName)
+	}
+	return ParseAllowedOrigins(raw)
+}
+
+func newAdminOriginPolicy(origins []string) (map[string]struct{}, error) {
+	normalized, err := ParseAllowedOrigins(strings.Join(origins, ","))
+	if err != nil {
+		return nil, err
+	}
+	policy := make(map[string]struct{}, len(normalized))
+	for _, origin := range normalized {
+		policy[origin] = struct{}{}
+	}
+	return policy, nil
+}
+
+func normalizeAdminOrigin(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return "", errors.New("origin is invalid")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if (scheme != "http" && scheme != "https") ||
+		parsed.Host == "" ||
+		parsed.Hostname() == "" ||
+		parsed.User != nil ||
+		strings.Contains(parsed.Host, "*") ||
+		strings.HasSuffix(parsed.Host, ":") ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" ||
+		(parsed.Path != "" && parsed.Path != "/") {
+		return "", errors.New("origin is invalid")
+	}
+	host := strings.ToLower(parsed.Host)
+	switch {
+	case scheme == "https" && strings.HasSuffix(host, ":443"):
+		host = strings.TrimSuffix(host, ":443")
+	case scheme == "http" && strings.HasSuffix(host, ":80"):
+		host = strings.TrimSuffix(host, ":80")
+	}
+	return scheme + "://" + host, nil
+}
+
+func (handler *HTTPHandler) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		rawOrigin := request.Header.Get("Origin")
+		if rawOrigin == "" {
+			next.ServeHTTP(writer, request)
+			return
+		}
+		origin, err := normalizeAdminOrigin(rawOrigin)
+		if err != nil {
+			writeError(writer, http.StatusForbidden, "ADMIN_ORIGIN_FORBIDDEN")
+			return
+		}
+		if _, allowed := handler.allowedOrigins[origin]; !allowed {
+			writeError(writer, http.StatusForbidden, "ADMIN_ORIGIN_FORBIDDEN")
+			return
+		}
+		writer.Header().Set("Access-Control-Allow-Origin", origin)
+		writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		writer.Header().Add("Vary", "Origin")
+		if request.Method == http.MethodOptions {
+			writer.Header().Set("Access-Control-Allow-Methods", "GET, PUT, DELETE")
+			writer.Header().Set(
+				"Access-Control-Allow-Headers",
+				"Content-Type, X-CSRF-Token, Idempotency-Key",
+			)
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
 }
 
 type adminContextKey struct{}
