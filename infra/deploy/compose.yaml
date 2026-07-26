@@ -42,6 +42,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       POSTQRON_ADMIN_ALLOWLIST: ${POSTQRON_ADMIN_ALLOWLIST:-carlo.zuffetti@apdsoftware.it}
+      POSTQRON_ADMIN_ALLOWED_ORIGINS: https://${APP_DOMAIN}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
       interval: 10s

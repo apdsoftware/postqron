@@ -31,6 +31,10 @@ func NewPostgresModule(
 	if err != nil {
 		return nil, err
 	}
+	allowedOrigins, err := AllowedOriginsFromEnvironment(os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
 	store := NewPostgresStore(database, clock, newSecureID)
 	service, err := NewService(Config{
 		Allowlist:    allowlist,
@@ -45,7 +49,7 @@ func NewPostgresModule(
 	if err != nil {
 		return nil, err
 	}
-	handler, err := NewHandler(service, store)
+	handler, err := NewHandler(service, store, allowedOrigins...)
 	if err != nil {
 		return nil, err
 	}

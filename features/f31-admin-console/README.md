@@ -15,6 +15,7 @@ The initial production configuration is:
 
 ```sh
 POSTQRON_ADMIN_ALLOWLIST=carlo.zuffetti@apdsoftware.it
+POSTQRON_ADMIN_ALLOWED_ORIGINS=https://postqron.com
 ```
 
 The address is configuration, not a password or an authentication bypass.
@@ -38,10 +39,24 @@ secrets, or complete payment data.
 ## Private adapter
 
 `NewPostgresModule` creates the service with an allowlist parsed from
-`POSTQRON_ADMIN_ALLOWLIST`, calls `BootstrapAdmins` during startup, and exposes
-`NewHandler(service, authenticator)` only through F24's authenticated private
-route overlay. The hybrid manifest declares every adapter route as `private`;
-the generic public `/api/v1/` fallback never receives those patterns.
+`POSTQRON_ADMIN_ALLOWLIST` and a non-empty, normalized browser-origin allowlist
+parsed from `POSTQRON_ADMIN_ALLOWED_ORIGINS`, calls `BootstrapAdmins` during
+startup, and exposes `NewHandler(service, authenticator, allowedOrigins...)`
+through F24's route overlay. The hybrid manifest declares every `GET`, `PUT`,
+and `DELETE` adapter route except `GET /admin/session` as `private`.
+The session transport and each matching `OPTIONS` pattern are declared
+separately on the public transport channel so anonymous 401 responses and
+preflights can reach the F31 origin policy before the private channel's
+session authentication. The F31 handler still authenticates and allowlists
+the session request itself. Public preflight routes return no admin data, and
+the same handler rejects every origin outside the configured allowlist.
+
+Allowed browser origins receive an exact `Access-Control-Allow-Origin`,
+`Access-Control-Allow-Credentials: true`, and `Vary: Origin`. Their preflight
+requests complete before authentication and advertise only `GET`, `PUT`,
+`DELETE`, `Content-Type`, `X-CSRF-Token`, and `Idempotency-Key`. Requests
+without `Origin` keep the server-to-server behavior; configured browser
+origins are never inferred or reflected.
 The adapter provides:
 
 - `GET /api/v1/admin/session`
