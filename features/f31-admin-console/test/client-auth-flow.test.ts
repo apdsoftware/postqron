@@ -71,9 +71,12 @@ test('section data is only requested client-side after a valid session is presen
     loader,
     /if \(!import\.meta\.client \|\| !session\.value\) \{/u,
   )
-  assert.match(loader, /state\.value = await load\(\)/u)
+  assert.match(loader, /state\.value = await load\(signal\)/u)
   assert.doesNotMatch(loader, /useRequestHeaders/u)
 
   const dashboardPage = await source('../pages/admin.vue')
-  assert.match(dashboardPage, /useAdminSectionLoad\(\s*dashboard,\s*\(\) => api\.dashboard\(\),?\s*\)/u)
+  assert.match(
+    dashboardPage,
+    /useAdminSectionLoad\(\s*dashboard,\s*signal => api\.dashboard\(\{ signal \}\),\s*\{ intervalMs: dashboardRefreshIntervalMs \},?\s*\)/u,
+  )
 })

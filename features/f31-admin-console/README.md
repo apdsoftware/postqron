@@ -9,7 +9,8 @@ admin operation.
 The console renders through a single layout (`layouts/admin-console.vue`)
 shared by every route:
 
-- `/admin` — Dashboard: service health and top-level KPIs.
+- `/admin` — Dashboard (the `/admin` landing page): service health and
+  top-level KPIs.
 - `/admin/users` — complete, server-paginated registered-user directory.
 - `/admin/workspaces` — complete, server-paginated workspace directory.
 - `/admin/plans` — review entitlements and assign or revoke the internal plan.
@@ -113,6 +114,29 @@ The adapter provides:
 
 The Nuxt runtime expects that private listener behind its configured API
 boundary. No provider credential is sent to the browser.
+
+## Dashboard service health
+
+`GET /api/v1/admin/dashboard` never reports a service `operational` from a
+hardcoded value or from missing data. `PostgresStore.Dashboard` collects one
+real, timestamped signal per essential dependency — `api` and `database` from
+a bounded ping, `worker_queue` from the real F08 publishing backlog, and
+`scheduler_publishing` from the real F07 pending-command backlog — and
+projects each through F15's `operations.ProjectServiceStatus` adapter
+(`operational`, `degraded`, `outage`, or `unknown`). A dependency that was
+never checked, or whose check has expired past the server's freshness
+window, is `unknown`; it is never rendered as operational. A database outage
+degrades the response (api/database report the outage, worker/scheduler
+report unknown) instead of failing the whole request, matching the
+`AdminDashboard` schema's partial-failure behavior documented in
+`contracts/admin.openapi.yaml`.
+
+On the client, `pages/admin.vue` shows a high-contrast `AdminAlert` banner
+naming every non-operational service and its last-checked timestamp whenever
+one exists — status is never conveyed by color alone. `useAdminSectionLoad`
+supports a controlled background refresh (`intervalMs`) with per-request
+`AbortController` cancellation and exponential backoff on repeated failure;
+it never polls faster than the configured interval.
 
 ## User and workspace directories
 

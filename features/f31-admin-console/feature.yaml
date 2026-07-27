@@ -12,6 +12,7 @@ dependencies:
   - f11-internal-plan
   - i18n
   - operations
+  - publishing
   - scheduling
   - social-connections
   - workspaces
