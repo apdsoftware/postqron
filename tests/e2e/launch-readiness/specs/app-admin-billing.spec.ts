@@ -629,7 +629,13 @@ test('Unlimited checkout is flat-rate, sends no channel quantity, and passes WCA
     })
   })
 
+  const paddleOpenCount = () => page.evaluate(() =>
+    (globalThis as unknown as { __paddleOpen?: unknown[] }).__paddleOpen?.length ?? 0)
+
   for (const interval of ['monthly', 'annual'] as const) {
+    // Each iteration is a full navigation to a fresh document, so
+    // window.__paddleOpen starts empty again every time: the expectation
+    // below is always "exactly one open on this page", not a running total.
     await page.goto(
       `${offBaseURL}/app/billing/checkout?plan=unlimited&interval=${interval}`,
     )
@@ -648,9 +654,14 @@ test('Unlimited checkout is flat-rate, sends no channel quantity, and passes WCA
     await page.getByRole('button', {
       name: /open secure checkout|apri il checkout sicuro|abrir el pago seguro|ouvrir le paiement sécurisé|sicheren checkout öffnen/iu,
     }).click()
-    await expect(page.getByText(
-      /preparing secure checkout|preparazione del checkout sicuro|preparando el pago seguro|préparation du paiement sécurisé|sicherer checkout wird vorbereitet/iu,
-    )).toBeVisible()
+    // "Preparing…" renders synchronously on click, before the async
+    // checkout POST resolves and Paddle.Checkout.open actually runs, so it
+    // cannot be used to confirm the transaction opened. Poll the fixture's
+    // own record of Paddle.Checkout.open calls instead, before navigating
+    // away to the next interval.
+    await expect.poll(paddleOpenCount, {
+      message: `Paddle.Checkout.open was not recorded for ${interval}`,
+    }).toBe(1)
   }
 
   openedTransactions.push(
