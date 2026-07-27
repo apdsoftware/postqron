@@ -96,11 +96,8 @@ function cta(plan: PublicPlan): string {
 
 function href(plan: PublicPlan): string {
   const quantity = quantityFor(plan)
-  const query = new URLSearchParams({ plan: plan.code, interval: interval.value })
-  if (quantity !== null) {
-    query.set('quantity', String(quantity))
-  }
-  const runtimeIntent = `${config.public.appUrl}?${query}`
+  const quantityPart = quantity === null ? '' : `&quantity=${quantity}`
+  const runtimeIntent = `${config.public.appUrl}?plan=${plan.code}&interval=${interval.value}${quantityPart}`
   return purchaseHref(
     runtimeIntent,
     locale.value,
