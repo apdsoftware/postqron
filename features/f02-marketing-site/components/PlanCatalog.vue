@@ -120,10 +120,6 @@ function setQuantity(raw: string) {
   selection.value = withQuantity(props.catalog, selection.value, quantity)
 }
 
-function onQuantityInput(event: Event) {
-  setQuantity((event.target as HTMLInputElement).value)
-}
-
 function compatible(plan: PublicPlan): boolean {
   return isPlanCompatible(plan, selection.value.quantity)
 }
@@ -271,7 +267,7 @@ function href(plan: PublicPlan): string {
           step="1"
           :value="quantityValue"
           :aria-valuetext="quantityOptionLabel(selection.quantity)"
-          @input="onQuantityInput"
+          @input="setQuantity(($event.target as unknown as { value: string }).value)"
         >
         <ol
           class="quantity-control__markers"
