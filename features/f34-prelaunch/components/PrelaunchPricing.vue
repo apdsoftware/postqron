@@ -18,7 +18,16 @@ const props = defineProps<{
 const prelaunch = usePrelaunch()
 const copy = computed(() => pricingCopy(prelaunch.locale.value))
 
-function displayedChannels(plan: PublicPlan): number {
+function displayName(plan: PublicPlan): string {
+  return plan.code === 'unlimited' ? copy.value.unlimitedName : plan.name
+}
+
+// A null channel limit is Unlimited's flat-priced, quota-free shape; there is
+// no channel quantity to display or feed into the pricing calculation.
+function displayedChannels(plan: PublicPlan): number | null {
+  if (plan.limits.channels === null) {
+    return null
+  }
   return plan.purchasable ? Math.min(3, plan.limits.channels) : plan.limits.channels
 }
 
@@ -30,17 +39,26 @@ function price(plan: PublicPlan): string {
 }
 
 function members(plan: PublicPlan): string {
+  if (plan.limits.members === null) {
+    return copy.value.unlimitedMembers
+  }
   const key = plan.limits.members === 1 ? copy.value.member : copy.value.members
   return interpolate(key, { count: plan.limits.members })
 }
 
 function channels(plan: PublicPlan): string {
   const count = displayedChannels(plan)
+  if (count === null) {
+    return copy.value.unlimitedChannels
+  }
   const key = count === 1 ? copy.value.channel : copy.value.channels
   return interpolate(key, { count })
 }
 
 function scheduled(plan: PublicPlan): string {
+  if (plan.limits.scheduled_publications_per_channel === null) {
+    return copy.value.unlimitedScheduled
+  }
   return interpolate(copy.value.scheduledPerChannel, {
     count: plan.limits.scheduled_publications_per_channel,
   })
@@ -76,7 +94,7 @@ function scheduled(plan: PublicPlan): string {
           {{ copy.featured }}
         </span>
         <p class="prelaunch-plan__name">
-          {{ plan.name }}
+          {{ displayName(plan) }}
         </p>
         <p class="prelaunch-plan__price">
           <strong>{{ price(plan) }}</strong>
@@ -134,7 +152,7 @@ function scheduled(plan: PublicPlan): string {
 
 .prelaunch-pricing__grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.25rem;
   align-items: stretch;
   margin-top: 2.5rem;
@@ -234,6 +252,12 @@ function scheduled(plan: PublicPlan): string {
   margin: 1.5rem auto 0;
   font-size: var(--pq-font-size-sm);
   text-align: center;
+}
+
+@media (max-width: 64rem) {
+  .prelaunch-pricing__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 52rem) {

@@ -20,7 +20,7 @@ for (const [locale, heading] of Object.entries(localeExpectations)) {
     })).toHaveAttribute('href', `${prefix}/prelaunch/access`)
     await expect(page.locator(`a[href="${prefix}/legal/privacy"]`)).toBeVisible()
     await expect(page.locator('a[href="mailto:help@postqron.com"]')).toBeVisible()
-    await expect(page.locator('.prelaunch-plan')).toHaveCount(3)
+    await expect(page.locator('.prelaunch-plan')).toHaveCount(4)
     await expect(page.locator('.prelaunch-plan').first()).toContainText('Start')
   })
 }

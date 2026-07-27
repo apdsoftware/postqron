@@ -471,7 +471,7 @@ test('Paddle sandbox checkout stays pending until signed webhook, then opens por
   })
 
   await page.goto(
-    `${offBaseURL}/app/billing/checkout?plan=pro&interval=monthly&quantity=10`,
+    `${offBaseURL}/app/billing/checkout?plan=pro&interval=monthly&quantity=6`,
   )
   await expect(page.getByText(/processing|elaborazione|procesando|traitement|verarbeitet/iu))
     .toBeVisible()
@@ -527,6 +527,57 @@ test('Paddle sandbox checkout stays pending until signed webhook, then opens por
   await context.close()
 })
 
+test('Unlimited checkout is flat-rate, sends no channel quantity, and passes WCAG checks', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-PADDLE', 'LR-WCAG')
+  const context = await browser.newContext()
+  await session(context, 'authenticated')
+  const page = await context.newPage()
+  const openedTransactions: unknown[] = []
+  await page.addInitScript(() => {
+    const fixturePaddle = {
+      Environment: { set: (_environment: 'sandbox') => {} },
+      Initialize: (_options: unknown) => {},
+      Checkout: {
+        open: (options: unknown) => {
+          (globalThis as unknown as { __paddleOpen?: unknown[] }).__paddleOpen
+            ??= []
+          ;(globalThis as unknown as { __paddleOpen: unknown[] }).__paddleOpen
+            .push(options)
+        },
+      },
+    }
+    Object.defineProperty(globalThis, 'Paddle', {
+      value: fixturePaddle,
+      configurable: true,
+    })
+  })
+
+  for (const interval of ['monthly', 'annual'] as const) {
+    await page.goto(
+      `${offBaseURL}/app/billing/checkout?plan=unlimited&interval=${interval}`,
+    )
+    await expect(page.getByText(
+      /flat-rate|prezzo fisso|precio fijo|prix fixe|festpreis/iu,
+    )).toBeVisible()
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+      .analyze()
+    const blocking = results.violations.filter(violation =>
+      violation.impact === 'serious' || violation.impact === 'critical')
+    expect(blocking, interval).toEqual([])
+  }
+
+  openedTransactions.push(
+    ...await page.evaluate(() =>
+      (globalThis as unknown as { __paddleOpen?: unknown[] }).__paddleOpen ?? []),
+  )
+  expect(openedTransactions.length).toBeGreaterThan(0)
+  await context.close()
+})
+
 test('five-locale app and admin routes render without missing keys', async ({
   browser,
 }, testInfo) => {
@@ -564,6 +615,7 @@ test('authenticated app and admin pass serious and critical WCAG checks', async 
 
   for (const [role, path] of [
     ['authenticated', '/app/home'],
+    ['authenticated', '/app/billing'],
     ['admin', '/admin'],
   ] as const) {
     const context = await browser.newContext()
