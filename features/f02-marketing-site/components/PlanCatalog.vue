@@ -19,6 +19,7 @@ import {
   type PublicCatalog,
   type PublicPlan,
 } from '~/src/catalog'
+import { displayedChannelLimit, quantityForPlan } from '~/src/plan-display'
 
 const props = defineProps<{
   catalog: PublicCatalog
@@ -47,15 +48,8 @@ function displayName(plan: PublicPlan): string {
   return plan.code === 'unlimited' ? copy.value.unlimitedName : plan.name
 }
 
-// A null channel limit means the plan is flat-priced (Unlimited) and does
-// not accept a channel quantity; the shared slider does not apply to it.
 function quantityFor(plan: PublicPlan): number | null {
-  if (plan.limits.channels === null) {
-    return null
-  }
-  return plan.purchasable
-    ? Math.min(channels.value, plan.limits.channels)
-    : plan.limits.channels
+  return quantityForPlan(plan, channels.value)
 }
 
 function total(plan: PublicPlan) {
@@ -71,7 +65,7 @@ function members(plan: PublicPlan): string {
 }
 
 function channelLimit(plan: PublicPlan): string {
-  const count = quantityFor(plan)
+  const count = displayedChannelLimit(plan)
   if (count === null) {
     return copy.value.unlimitedChannels
   }
