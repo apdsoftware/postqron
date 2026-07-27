@@ -20,6 +20,10 @@ import {
 } from '~/src/catalog'
 import { displayedChannelLimit } from '~/src/plan-display'
 import {
+  CHANNEL_SLIDER_MINIMUM,
+  sliderMarkerPosition,
+} from '~/src/slider-geometry'
+import {
   OVER_MAX_QUANTITY,
   annualBillingTerms,
   annualSaving,
@@ -67,6 +71,14 @@ const sliderMarkers = computed(() => [
     label: `${number(sliderMaximum.value)}+`,
   },
 ])
+const positionedSliderMarkers = computed(() => sliderMarkers.value.map(marker => ({
+  ...marker,
+  position: sliderMarkerPosition(
+    marker.value,
+    CHANNEL_SLIDER_MINIMUM,
+    sliderMaximum.value,
+  ),
+})))
 const annualTerms = computed(() => annualBillingTerms(props.catalog))
 const annualTermsParams = computed(() => ({
   months: number(annualTerms.value.monthsCharged),
@@ -262,7 +274,7 @@ function href(plan: PublicPlan): string {
           id="pricing-channel-quantity"
           class="quantity-control__slider"
           type="range"
-          min="1"
+          :min="CHANNEL_SLIDER_MINIMUM"
           :max="sliderMaximum"
           step="1"
           :value="quantityValue"
@@ -274,9 +286,10 @@ function href(plan: PublicPlan): string {
           aria-hidden="true"
         >
           <li
-            v-for="marker in sliderMarkers"
+            v-for="marker in positionedSliderMarkers"
             :key="marker.value"
-            :style="{ '--marker-position': marker.value }"
+            :data-marker-value="marker.value"
+            :style="{ '--marker-position': marker.position }"
           >
             {{ marker.label }}
           </li>
@@ -493,12 +506,47 @@ function href(plan: PublicPlan): string {
 }
 
 .quantity-control__slider {
+  --slider-thumb-size: 1.5rem;
+
+  appearance: none;
   accent-color: var(--pq-color-brand);
   width: 100%;
   min-height: var(--pq-size-target-min);
   margin: 0;
   cursor: pointer;
   touch-action: pan-y;
+}
+
+.quantity-control__slider::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border: 1px solid var(--pq-color-border);
+  border-radius: 999px;
+  background: var(--pq-color-surface-subtle);
+}
+
+.quantity-control__slider::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  margin-top: calc((0.5rem - var(--slider-thumb-size)) / 2 - 1px);
+  border: 0;
+  border-radius: 50%;
+  background: var(--pq-color-brand);
+}
+
+.quantity-control__slider::-moz-range-track {
+  height: 0.5rem;
+  border: 1px solid var(--pq-color-border);
+  border-radius: 999px;
+  background: var(--pq-color-surface-subtle);
+}
+
+.quantity-control__slider::-moz-range-thumb {
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  border: 0;
+  border-radius: 50%;
+  background: var(--pq-color-brand);
 }
 
 .quantity-control__slider:focus-visible {
@@ -508,10 +556,11 @@ function href(plan: PublicPlan): string {
 }
 
 .quantity-control__markers {
-  display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  width: 100%;
+  position: relative;
+  width: calc(100% - var(--slider-thumb-size, 1.5rem));
+  min-height: 1.25em;
   margin: calc(-1 * var(--pq-space-2)) 0 0;
+  margin-inline: calc(var(--slider-thumb-size, 1.5rem) / 2);
   padding: 0;
   color: var(--pq-color-text-muted);
   font-size: var(--pq-font-size-xs);
@@ -519,8 +568,9 @@ function href(plan: PublicPlan): string {
 }
 
 .quantity-control__markers li {
-  grid-column: var(--marker-position);
-  justify-self: center;
+  position: absolute;
+  left: var(--marker-position);
+  transform: translateX(-50%);
   white-space: nowrap;
 }
 

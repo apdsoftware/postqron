@@ -175,6 +175,8 @@ test('the pre-launch component consumes the shared model and never builds checko
   assert.match(component, /v-model\.number="sliderPosition"/u)
   assert.match(component, /:aria-valuetext="quantityValueText\(selection\.quantity\)"/u)
   assert.match(component, /prelaunch-pricing__markers/u)
+  assert.match(component, /positionedThresholdMarkers/u)
+  assert.match(component, /sliderMarkerPosition/u)
   assert.match(component, /pricing\.sliderGuide/u)
   assert.match(component, /role="radiogroup"/u)
   assert.match(component, /type="radio"/u)

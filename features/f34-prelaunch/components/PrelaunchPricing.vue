@@ -27,6 +27,10 @@ import {
   withQuantity,
   type ChannelQuantity,
 } from '../../f02-marketing-site/src/pricing-model.ts'
+import {
+  CHANNEL_SLIDER_MINIMUM,
+  sliderMarkerPosition,
+} from '../../f02-marketing-site/src/slider-geometry.ts'
 import { usePrelaunch } from '../runtime.ts'
 
 const props = defineProps<{
@@ -40,7 +44,22 @@ const selection = ref(initialPricingSelection())
 const plans = computed(() => orderedPlans(props.catalog))
 const currentPlan = computed(() => selectedPlan(props.catalog, selection.value))
 const sliderMaximum = computed(() => overMaxThreshold(props.catalog))
-const thresholdMarkers = computed(() => [1, 3, 6, 9, sliderMaximum.value])
+const thresholdMarkers = computed(() => [
+  CHANNEL_SLIDER_MINIMUM,
+  ...plans.value
+    .filter(plan => plan.limits.channels !== null)
+    .map(plan => plan.limits.channels as number)
+    .filter(value => value > CHANNEL_SLIDER_MINIMUM),
+  sliderMaximum.value,
+])
+const positionedThresholdMarkers = computed(() => thresholdMarkers.value.map(value => ({
+  value,
+  position: sliderMarkerPosition(
+    value,
+    CHANNEL_SLIDER_MINIMUM,
+    sliderMaximum.value,
+  ),
+})))
 const annualTerms = computed(() => annualBillingTerms(props.catalog))
 const annualTermsParams = computed(() => ({
   months: number(annualTerms.value.monthsCharged),
@@ -251,7 +270,7 @@ function incompatibleReason(plan: PublicPlan): string {
           id="prelaunch-channel-quantity"
           v-model.number="sliderPosition"
           type="range"
-          min="1"
+          :min="CHANNEL_SLIDER_MINIMUM"
           :max="sliderMaximum"
           step="1"
           :aria-valuetext="quantityValueText(selection.quantity)"
@@ -261,10 +280,12 @@ function incompatibleReason(plan: PublicPlan): string {
           aria-hidden="true"
         >
           <span
-            v-for="marker in thresholdMarkers"
-            :key="marker"
+            v-for="marker in positionedThresholdMarkers"
+            :key="marker.value"
+            :data-marker-value="marker.value"
+            :style="{ '--marker-position': marker.position }"
           >
-            {{ marker === sliderMaximum ? `${number(marker)}+` : number(marker) }}
+            {{ marker.value === sliderMaximum ? `${number(marker.value)}+` : number(marker.value) }}
           </span>
         </div>
         <p class="prelaunch-pricing__guide">
@@ -488,12 +509,47 @@ function incompatibleReason(plan: PublicPlan): string {
 }
 
 .prelaunch-pricing__quantity input[type="range"] {
+  --slider-thumb-size: 1.5rem;
+
+  appearance: none;
   width: 100%;
   min-height: var(--pq-size-target-min);
   margin: 0;
   accent-color: var(--pq-color-brand);
   cursor: pointer;
   touch-action: manipulation;
+}
+
+.prelaunch-pricing__quantity input[type="range"]::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border: 1px solid var(--pq-color-border);
+  border-radius: 999px;
+  background: var(--pq-color-surface-subtle);
+}
+
+.prelaunch-pricing__quantity input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  margin-top: calc((0.5rem - var(--slider-thumb-size)) / 2 - 1px);
+  border: 0;
+  border-radius: 50%;
+  background: var(--pq-color-brand);
+}
+
+.prelaunch-pricing__quantity input[type="range"]::-moz-range-track {
+  height: 0.5rem;
+  border: 1px solid var(--pq-color-border);
+  border-radius: 999px;
+  background: var(--pq-color-surface-subtle);
+}
+
+.prelaunch-pricing__quantity input[type="range"]::-moz-range-thumb {
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  border: 0;
+  border-radius: 50%;
+  background: var(--pq-color-brand);
 }
 
 .prelaunch-pricing__quantity input[type="range"]:focus-visible {
@@ -503,11 +559,20 @@ function incompatibleReason(plan: PublicPlan): string {
 }
 
 .prelaunch-pricing__markers {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  width: calc(100% - var(--slider-thumb-size, 1.5rem));
+  min-height: 1.25em;
+  margin-inline: calc(var(--slider-thumb-size, 1.5rem) / 2);
   color: var(--pq-color-text-muted);
   font-size: var(--pq-font-size-xs);
   font-variant-numeric: tabular-nums;
+}
+
+.prelaunch-pricing__markers span {
+  position: absolute;
+  left: var(--marker-position);
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .prelaunch-pricing__guide {
