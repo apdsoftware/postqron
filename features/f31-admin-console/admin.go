@@ -116,6 +116,9 @@ type AdminDirectory interface {
 type Reader interface {
 	Dashboard(context.Context) (Dashboard, error)
 	Search(context.Context, string) (SearchResults, error)
+	ListUsers(context.Context, UserDirectoryQuery) (UserDirectoryPage, error)
+	User(context.Context, string) (UserDirectoryItem, bool, error)
+	ListWorkspaces(context.Context, WorkspaceDirectoryQuery) (WorkspaceDirectoryPage, error)
 }
 
 type InternalPlanChange struct {

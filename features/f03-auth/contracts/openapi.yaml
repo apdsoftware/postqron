@@ -1,8 +1,105 @@
 openapi: 3.1.0
 info:
   title: Postqron authentication slice
-  version: 0.1.0
+  version: 0.2.0
 paths:
+  /api/v1/auth/password/login:
+    post:
+      summary: Authenticate an administrator with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordLogin'
+      responses:
+        '200':
+          description: Session created in a Secure HttpOnly cookie
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [authenticated]
+                properties:
+                  authenticated:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password/change:
+    post:
+      summary: Change the authenticated password and rotate the current session
+      description: >-
+        Requires recent password authentication and the session-derived CSRF
+        token. Success updates the Argon2id hash atomically, revokes every
+        existing account session, creates one replacement session, and appends
+        a security event without storing or returning password material.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '200':
+          description: Password changed and current session rotated
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [changed]
+                properties:
+                  changed:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke the current password session
+      description: >-
+        Revokes the server-side session before clearing the session cookie.
+        Repeating logout after revocation remains safe.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '204':
+          description: Session revoked and cookie cleared
+          headers:
+            Set-Cookie:
+              description: Expired Secure HttpOnly session cookie
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/auth/authorize:
     post:
       summary: Start a federated login or registration
@@ -90,14 +187,6 @@ paths:
                 $ref: '#/components/schemas/Authorization'
         '401':
           $ref: '#/components/responses/Error'
-  /api/v1/auth/logout:
-    post:
-      summary: Revoke the current session
-      security:
-        - sessionCookie: []
-      responses:
-        '204':
-          description: Session revoked and cookie cleared
   /api/v1/auth/sessions/revoke:
     post:
       summary: Revoke every session for the current account
@@ -127,12 +216,26 @@ paths:
         '409':
           $ref: '#/components/responses/Error'
 components:
+  headers:
+    SessionCookie:
+      description: Secure HttpOnly session cookie; the raw value is never returned in JSON
+      schema:
+        type: string
   securitySchemes:
     sessionCookie:
       type: apiKey
       in: cookie
       name: __Host-postqron_session
   parameters:
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Token derived from and bound to the current opaque session
+      schema:
+        type: string
+        minLength: 64
+        maxLength: 64
     State:
       name: state
       in: query
@@ -179,6 +282,44 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    PasswordLogin:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+    PasswordChange:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password, confirmation]
+      properties:
+        current_password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+        new_password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+        confirmation:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
     Provider:
       type: string
       enum: [google, apple, facebook, linkedin]

@@ -1,8 +1,12 @@
 openapi: 3.1.0
 info:
   title: Postqron private administration console
-  version: 0.1.0
-  description: Private-channel contract. It must never be mounted on the public API mux.
+  version: 0.2.0
+  description: |
+    Private-channel contract. Every operation requires a verified, active,
+    server-allowlisted administrator session and must never be mounted on the
+    public API mux. Directory projections intentionally exclude credentials,
+    OAuth tokens, password hashes, and complete payment data.
 servers:
   - url: https://admin.internal
 paths:
@@ -15,9 +19,9 @@ paths:
         '200':
           description: Verified and server-allowlisted administrator session.
         '401':
-          description: Session is missing or expired.
+          $ref: '#/components/responses/Unauthenticated'
         '403':
-          description: Verified email, allowlist, or active administrator check failed.
+          $ref: '#/components/responses/Forbidden'
   /api/v1/admin/dashboard:
     get:
       operationId: getAdminDashboard
@@ -39,7 +43,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminDashboard'
         '403':
-          description: Administration is forbidden without disclosing dashboard data.
+          $ref: '#/components/responses/Forbidden'
         '503':
           description: >-
             The administration data source itself could not be read (not to
@@ -48,6 +52,8 @@ paths:
   /api/v1/admin/search:
     get:
       operationId: searchAdminSubjects
+      deprecated: true
+      description: Retained for entitlement workflows; directory pages use the paginated endpoints.
       security:
         - productSession: []
       parameters:
@@ -62,7 +68,231 @@ paths:
         '200':
           description: Minimal user and workspace results without secrets or payment data.
         '403':
-          description: Administration is forbidden without performing the search.
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/users:
+    get:
+      operationId: listAdminUsers
+      description: Lists all matching accounts with server-side filters, ordering, and pagination.
+      security:
+        - productSession: []
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, locked]
+        - name: email_verified
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Plan'
+        - name: login_method
+          in: query
+          schema:
+            type: string
+            enum: [password, google, apple, facebook, linkedin]
+        - $ref: '#/components/parameters/RegisteredFrom'
+        - $ref: '#/components/parameters/RegisteredTo'
+        - $ref: '#/components/parameters/LastLoginFrom'
+        - $ref: '#/components/parameters/LastLoginTo'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: registered_at
+            enum:
+              - email
+              - display_name
+              - status
+              - email_verified
+              - registered_at
+              - last_login_at
+              - active_sessions
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          description: A server-paginated account directory and the total number of filtered rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDirectoryPage'
+        '400':
+          $ref: '#/components/responses/InvalidFilters'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/admin/users/{account_id}:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    get:
+      operationId: getAdminUser
+      description: Returns a safe account drill-down using only directory-visible fields.
+      security:
+        - productSession: []
+      responses:
+        '200':
+          description: Safe account detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDirectoryItem'
+        '404':
+          description: Account not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/users/export:
+    get:
+      operationId: exportAdminUsers
+      description: |
+        Exports all rows matching the same user filters and ordering, not only
+        the visible page. Formula-like cell values are escaped. The request is
+        rejected with 413 when more than 10,000 rows match.
+      security:
+        - productSession: []
+      parameters:
+        - $ref: '#/components/parameters/ExportFormat'
+        - $ref: '#/components/parameters/Search'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, locked]
+        - name: email_verified
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Plan'
+        - name: login_method
+          in: query
+          schema:
+            type: string
+            enum: [password, google, apple, facebook, linkedin]
+        - $ref: '#/components/parameters/RegisteredFrom'
+        - $ref: '#/components/parameters/RegisteredTo'
+        - $ref: '#/components/parameters/LastLoginFrom'
+        - $ref: '#/components/parameters/LastLoginTo'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: registered_at
+            enum: [email, display_name, status, email_verified, registered_at, last_login_at, active_sessions]
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          $ref: '#/components/responses/DirectoryExport'
+        '400':
+          $ref: '#/components/responses/InvalidFilters'
+        '413':
+          $ref: '#/components/responses/ExportTooLarge'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/workspaces:
+    get:
+      operationId: listAdminWorkspaces
+      description: Lists workspaces with server-side filters, ordering, and pagination.
+      security:
+        - productSession: []
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, deletion_pending]
+        - $ref: '#/components/parameters/Plan'
+        - name: owner
+          in: query
+          description: Case-insensitive partial owner email or display name.
+          schema:
+            type: string
+            maxLength: 120
+        - $ref: '#/components/parameters/CreatedFrom'
+        - $ref: '#/components/parameters/CreatedTo'
+        - $ref: '#/components/parameters/UpdatedFrom'
+        - $ref: '#/components/parameters/UpdatedTo'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: updated_at
+            enum: [name, owner_email, status, plan_code, member_count, channel_count, post_count, created_at, updated_at]
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          description: A server-paginated workspace directory and filtered total.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDirectoryPage'
+        '400':
+          $ref: '#/components/responses/InvalidFilters'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/admin/workspaces/export:
+    get:
+      operationId: exportAdminWorkspaces
+      description: |
+        Exports every workspace matching the same filters and ordering. Formula
+        injection is mitigated and datasets over 10,000 rows receive 413.
+      security:
+        - productSession: []
+      parameters:
+        - $ref: '#/components/parameters/ExportFormat'
+        - $ref: '#/components/parameters/Search'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, deletion_pending]
+        - $ref: '#/components/parameters/Plan'
+        - name: owner
+          in: query
+          schema:
+            type: string
+            maxLength: 120
+        - $ref: '#/components/parameters/CreatedFrom'
+        - $ref: '#/components/parameters/CreatedTo'
+        - $ref: '#/components/parameters/UpdatedFrom'
+        - $ref: '#/components/parameters/UpdatedTo'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: updated_at
+            enum: [name, owner_email, status, plan_code, member_count, channel_count, post_count, created_at, updated_at]
+        - $ref: '#/components/parameters/Direction'
+      responses:
+        '200':
+          $ref: '#/components/responses/DirectoryExport'
+        '400':
+          $ref: '#/components/responses/InvalidFilters'
+        '413':
+          $ref: '#/components/responses/ExportTooLarge'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/admin/workspaces/{workspace_id}/internal-plan:
     parameters:
       - $ref: '#/components/parameters/WorkspaceID'
@@ -80,16 +310,23 @@ paths:
           description: F11 assignment accepted and immutably audited.
         '403':
           description: Server authorization or CSRF check failed.
+    delete:
+      operationId: revokeAdminInternalPlan
+      security:
+        - productSession: []
+          csrfToken: []
+          recentReauth: []
+          idempotencyKey: []
+      requestBody:
+        $ref: '#/components/requestBodies/ConfirmedReason'
+      responses:
+        '200':
+          description: F11 revocation accepted and immutably audited.
+        '403':
+          description: Server authorization or CSRF check failed.
   /api/v1/admin/admins/{account_id}:
     parameters:
-      - name: account_id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+      - $ref: '#/components/parameters/AccountID'
     put:
       operationId: addConfiguredAdministrator
       description: The target email must also be present in the server allowlist.
@@ -119,20 +356,6 @@ paths:
           description: Administrator removal accepted and immutably audited.
         '403':
           description: Target is not server-configured or authorization failed.
-    delete:
-      operationId: revokeAdminInternalPlan
-      security:
-        - productSession: []
-          csrfToken: []
-          recentReauth: []
-          idempotencyKey: []
-      requestBody:
-        $ref: '#/components/requestBodies/ConfirmedReason'
-      responses:
-        '200':
-          description: F11 revocation accepted and immutably audited.
-        '403':
-          description: Server authorization or CSRF check failed.
 components:
   securitySchemes:
     productSession:
@@ -153,16 +376,289 @@ components:
       in: header
       name: Idempotency-Key
   parameters:
+    AccountID:
+      name: account_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/SafeID'
     WorkspaceID:
       name: workspace_id
       in: path
       required: true
       schema:
+        $ref: '#/components/schemas/SafeID'
+    Search:
+      name: q
+      in: query
+      description: Optional case-insensitive quick search; blank or at least two characters.
+      schema:
         type: string
-        minLength: 1
-        maxLength: 128
-        pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+        maxLength: 120
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000000
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        enum: [10, 25, 50, 100]
+        default: 25
+    Direction:
+      name: direction
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+    Plan:
+      name: plan
+      in: query
+      schema:
+        type: string
+        enum: [start, pro, team, internal]
+    ExportFormat:
+      name: format
+      in: query
+      required: true
+      schema:
+        type: string
+        enum: [csv, xlsx]
+    RegisteredFrom:
+      name: registered_from
+      in: query
+      schema:
+        type: string
+        format: date
+    RegisteredTo:
+      name: registered_to
+      in: query
+      description: Inclusive UTC calendar date.
+      schema:
+        type: string
+        format: date
+    LastLoginFrom:
+      name: last_login_from
+      in: query
+      schema:
+        type: string
+        format: date
+    LastLoginTo:
+      name: last_login_to
+      in: query
+      description: Inclusive UTC calendar date.
+      schema:
+        type: string
+        format: date
+    CreatedFrom:
+      name: created_from
+      in: query
+      schema:
+        type: string
+        format: date
+    CreatedTo:
+      name: created_to
+      in: query
+      description: Inclusive UTC calendar date.
+      schema:
+        type: string
+        format: date
+    UpdatedFrom:
+      name: updated_from
+      in: query
+      schema:
+        type: string
+        format: date
+    UpdatedTo:
+      name: updated_to
+      in: query
+      description: Inclusive UTC calendar date.
+      schema:
+        type: string
+        format: date
   schemas:
+    SafeID:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          pattern: '^ADMIN_[A-Z_]+$'
+    UserWorkspaceMembership:
+      type: object
+      additionalProperties: false
+      required: [id, name, role, plan_code, plan_status]
+      properties:
+        id:
+          $ref: '#/components/schemas/SafeID'
+        name:
+          type: string
+        role:
+          type: string
+          enum: [owner, member]
+        plan_code:
+          type: string
+          enum: [start, pro, team, internal, unassigned]
+        plan_status:
+          type: string
+    UserDirectoryItem:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - email
+        - display_name
+        - account_status
+        - email_verified
+        - login_methods
+        - registered_at
+        - last_login_at
+        - active_sessions
+        - workspaces
+      properties:
+        id:
+          $ref: '#/components/schemas/SafeID'
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        account_status:
+          type: string
+          enum: [active, locked]
+        email_verified:
+          type: boolean
+        login_methods:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [password, google, apple, facebook, linkedin]
+        registered_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: [string, 'null']
+          format: date-time
+        active_sessions:
+          type: integer
+          minimum: 0
+        workspaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserWorkspaceMembership'
+    UserDirectoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, page_size, total, sort, direction]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/UserDirectoryItem'
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          enum: [10, 25, 50, 100]
+        total:
+          type: integer
+          minimum: 0
+        sort:
+          type: string
+        direction:
+          type: string
+          enum: [asc, desc]
+    WorkspaceDirectoryItem:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - owner_id
+        - owner_email
+        - owner_display_name
+        - status
+        - plan_code
+        - plan_status
+        - member_count
+        - channel_count
+        - post_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/SafeID'
+        name:
+          type: string
+        owner_id:
+          $ref: '#/components/schemas/SafeID'
+        owner_email:
+          type: string
+          format: email
+        owner_display_name:
+          type: string
+        status:
+          type: string
+          enum: [active, deletion_pending]
+        plan_code:
+          type: string
+          enum: [start, pro, team, internal, unassigned]
+        plan_status:
+          type: string
+        member_count:
+          type: integer
+          minimum: 0
+        channel_count:
+          type: integer
+          minimum: 0
+        post_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceDirectoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, page_size, total, sort, direction]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/WorkspaceDirectoryItem'
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          enum: [10, 25, 50, 100]
+        total:
+          type: integer
+          minimum: 0
+        sort:
+          type: string
+        direction:
+          type: string
+          enum: [asc, desc]
     ServiceHealth:
       type: object
       additionalProperties: false
@@ -200,6 +696,53 @@ components:
           type: array
           items:
             type: object
+  responses:
+    Unauthenticated:
+      description: Session is missing or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Administration is forbidden without reading or disclosing directory data.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InvalidFilters:
+      description: Filter, date range, ordering, page, or page size is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: Protected directory storage is temporarily unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ExportTooLarge:
+      description: More than 10,000 rows matched; narrow the filters and retry.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DirectoryExport:
+      description: Filtered export with a safe attachment filename.
+      headers:
+        Content-Disposition:
+          schema:
+            type: string
+          description: attachment filename containing only a stable prefix, date, and extension.
+      content:
+        text/csv:
+          schema:
+            type: string
+            contentEncoding: binary
+        application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+          schema:
+            type: string
+            contentEncoding: binary
   requestBodies:
     ConfirmedReason:
       required: true

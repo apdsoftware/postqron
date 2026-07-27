@@ -151,6 +151,112 @@ test('a failed health request never renders as fully operational', async ({
   await fixtureHealth('operational')
 })
 
+test('admin logout stays visible on desktop and mobile and revokes the server session', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  const context = await browser.newContext()
+  await session(context, 'admin')
+  const page = await context.newPage()
+  await page.goto(`${offBaseURL}/admin`)
+
+  const logout = page.getByRole('button', { name: /^sign out$/iu })
+  await expect(logout).toBeVisible()
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(logout).toBeVisible()
+
+  const revoked = page.waitForResponse(response =>
+    response.url().endsWith('/api/v1/auth/logout')
+    && response.status() === 204)
+  await logout.click()
+  await revoked
+  await expect(page).toHaveURL(/\/admin\?signed_out=1$/u)
+  await expect(page.getByRole('status')).toContainText(/signed out securely/iu)
+  await expect(page.getByRole('heading', {
+    level: 2,
+    name: /administrator sign-in/iu,
+  })).toBeVisible()
+
+  const rejected = await context.request.get(
+    `${fixtureBaseURL}/api/v1/admin/session`,
+  )
+  expect(rejected.status()).toBe(401)
+  await context.close()
+})
+
+test('admin changes password with safe errors, rotates this session, and revokes the others', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  const current = await browser.newContext()
+  const other = await browser.newContext()
+  await session(current, 'admin')
+  await session(other, 'admin')
+  const page = await current.newPage()
+  const otherPage = await other.newPage()
+  await page.goto(`${offBaseURL}/admin/profile`)
+  await otherPage.goto(`${offBaseURL}/admin`)
+
+  await page.getByLabel(/^current password$/iu).fill('wrong-current-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-new-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('fixture-new-admin-password')
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/current password is invalid/iu)
+
+  await page.getByLabel(/^current password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-new-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('different-confirmation')
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/do not match/iu)
+
+  await page.getByLabel(/^current password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('fixture-admin-password')
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/different password/iu)
+
+  await page.getByLabel(/^current password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-new-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('fixture-new-admin-password')
+  const changed = page.waitForResponse(response =>
+    response.url().endsWith('/api/v1/auth/password/change')
+    && response.status() === 200)
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await changed
+  await expect(page.getByRole('status')).toContainText(/other sessions were revoked/iu)
+  await expect(
+    page.locator('.admin-profile-details').getByText(
+      'admin@example.test',
+      { exact: true },
+    ),
+  ).toBeVisible()
+
+  const oldSessionRejected = otherPage.waitForResponse(response =>
+    response.url().endsWith('/api/v1/admin/session')
+    && response.status() === 401)
+  await otherPage.reload()
+  await oldSessionRejected
+  await expect(otherPage.getByRole('heading', {
+    level: 2,
+    name: /administrator sign-in/iu,
+  })).toBeVisible()
+
+  await page.getByRole('button', { name: /^sign out$/iu }).click()
+  await page.getByLabel(/email address/iu).fill('admin@example.test')
+  await page.getByLabel(/^password$/iu).fill('fixture-admin-password')
+  await page.getByRole('button', { name: /^sign in$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/invalid/iu)
+  await page.getByLabel(/^password$/iu).fill('fixture-new-admin-password')
+  await page.getByRole('button', { name: /^sign in$/iu }).click()
+  await expect(page.getByRole('heading', { level: 2, name: /service health/iu }))
+    .toBeVisible()
+
+  await current.close()
+  await other.close()
+})
+
 test('admin sidebar deep-links every section, marks the active route, and collapses on mobile', async ({
   browser,
 }, testInfo) => {
@@ -192,6 +298,84 @@ test('admin sidebar deep-links every section, marks the active route, and collap
   await expect(sidebar).toHaveAttribute('data-open', 'true')
   await page.keyboard.press('Escape')
   await expect(sidebar).not.toHaveAttribute('data-open', 'true')
+  await context.close()
+})
+
+test('admin user and workspace directories keep server filters in the URL and export safely', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE', 'LR-WCAG')
+
+  const context = await browser.newContext({ acceptDownloads: true })
+  await session(context, 'admin')
+  const page = await context.newPage()
+
+  const userResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/v1/admin/users'
+      && url.searchParams.get('status') === 'locked'
+      && url.searchParams.get('page_size') === '10'
+  })
+  await page.goto(
+    `${offBaseURL}/admin/users?status=locked&email_verified=false`
+    + '&plan=team&login_method=linkedin&page=1&page_size=10'
+    + '&sort=email&direction=asc',
+  )
+  expect((await userResponse).status()).toBe(200)
+  await expect(page).toHaveURL(/status=locked/u)
+  await expect(page).toHaveURL(/email_verified=false/u)
+  const userTable = page.locator('.admin-table tbody')
+  await expect(userTable.getByText('locked@example.test')).toBeVisible()
+  await expect(userTable.getByText('admin@example.test')).toHaveCount(0)
+  await expect(page.getByText(/1 matching result/iu)).toBeVisible()
+
+  await page.getByRole('button', { name: /view details/iu }).click()
+  const detail = page.getByRole('dialog')
+  await expect(detail).toContainText('Locked Fixture')
+  await expect(detail).toContainText('google, linkedin')
+  await page.getByRole('button', { name: /^close$/iu }).click()
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: /export csv/iu }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('postqron-admin-users.csv')
+
+  await page.getByLabel(/quick search/iu).fill('no-result-user')
+  await page.getByRole('button', { name: /apply filters/iu }).click()
+  await expect(page).toHaveURL(/q=no-result-user/u)
+  await expect(page.getByText(/no matching administration data/iu)).toBeVisible()
+
+  await page.goto(
+    `${offBaseURL}/admin/workspaces?status=active&plan=pro`
+    + '&owner=admin%40example.test&page=1&page_size=25'
+    + '&sort=channel_count&direction=desc',
+  )
+  await expect(page.getByText('Fixture Workspace')).toBeVisible()
+  await expect(page.getByText('Locked Studio')).not.toBeVisible()
+  await expect(page.getByRole('link', {
+    name: 'Fixture Admin',
+    exact: true,
+  })).toHaveAttribute(
+    'href',
+    /\/admin\/users\?q=admin%40example\.test$/u,
+  )
+  await expect(page.getByRole('link', {
+    name: 'pro',
+    exact: true,
+  })).toHaveAttribute(
+    'href',
+    /\/admin\/plans$/u,
+  )
+
+  for (const path of ['/admin/users', '/admin/workspaces']) {
+    await page.goto(`${offBaseURL}${path}`)
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+      .analyze()
+    const blocking = results.violations.filter(violation =>
+      violation.impact === 'serious' || violation.impact === 'critical')
+    expect(blocking, path).toEqual([])
+  }
   await context.close()
 })
 

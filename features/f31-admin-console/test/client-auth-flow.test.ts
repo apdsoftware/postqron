@@ -30,6 +30,40 @@ test('the login gate lives in the shared layout so every admin route is protecte
   assert.doesNotMatch(layout, /useRequestHeaders/u)
 })
 
+test('logout is server-side, always visible in the top bar, and clears client state only after success', async () => {
+  const [layout, logout, api] = await Promise.all([
+    source('../layouts/admin-console.vue'),
+    source('../components/AdminLogoutButton.vue'),
+    source('../core/api.ts'),
+  ])
+
+  assert.match(layout, /<AdminLogoutButton/u)
+  assert.match(logout, /await api\.logout\(session\.value\.csrf_token\)/u)
+  assert.ok(
+    logout.indexOf('await api.logout(session.value.csrf_token)')
+      < logout.indexOf('session.value = undefined'),
+  )
+  assert.match(api, /#request\('\/api\/v1\/auth\/logout'/u)
+  assert.match(api, /'X-CSRF-Token': csrfToken/u)
+})
+
+test('profile password form uses the authenticated CSRF token and never retains submitted secrets', async () => {
+  const [profile, api] = await Promise.all([
+    source('../pages/admin-profile.vue'),
+    source('../core/api.ts'),
+  ])
+
+  assert.match(profile, /autocomplete="current-password"/u)
+  assert.equal(profile.match(/autocomplete="new-password"/gu)?.length, 2)
+  assert.match(profile, /await api\.changePassword\(\{/u)
+  assert.match(profile, /csrfToken: session\.value\.csrf_token/u)
+  assert.match(profile, /session\.value = await api\.session\(\)/u)
+  assert.match(profile, /clearPasswords\(\)/u)
+  assert.match(api, /current_password: input\.currentPassword/u)
+  assert.match(api, /confirmation: input\.confirmation/u)
+  assert.doesNotMatch(profile, /console\.(?:log|error)|localStorage|sessionStorage/u)
+})
+
 test('section data is only requested client-side after a valid session is present', async () => {
   const loader = await source('../components/use-admin-section.ts')
 

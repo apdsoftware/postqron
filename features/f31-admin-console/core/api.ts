@@ -4,11 +4,21 @@ import {
   parseDashboard,
   parseMutationResult,
   parseSearchResults,
+  parseUserDirectoryDetail,
+  parseUserDirectoryPage,
+  parseWorkspaceDirectoryPage,
   type AdminDashboard,
   type AdminSession,
+  type ExportFormat,
   type MutationResult,
   type SearchResults,
+  type UserDirectoryItem,
+  type UserDirectoryPage,
+  type UserDirectoryParams,
+  type WorkspaceDirectoryPage,
+  type WorkspaceDirectoryParams,
 } from './contracts.ts'
+import { directorySearchParams } from './directory-query.ts'
 
 export type AdminFetch = (
   path: string,
@@ -25,6 +35,11 @@ export class AdminApiError extends Error {
     this.code = code
     this.status = status
   }
+}
+
+export interface AdminDownload {
+  body: Blob
+  filename: string
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -55,9 +70,33 @@ function remoteCode(error: unknown): string | undefined {
   const value = (error as {
     data?: { error?: unknown }
   }).data?.error
-  return typeof value === 'string' && /^ADMIN_[A-Z_]+$/u.test(value)
+  const code = typeof value === 'string'
     ? value
+    : value && typeof value === 'object'
+      ? (value as { code?: unknown }).code
+      : undefined
+  return typeof code === 'string'
+    && /^(?:ADMIN|AUTH)_[A-Z_]+$/u.test(code)
+    ? code
     : undefined
+}
+
+function adminCode(code: string | undefined): string | undefined {
+  const passwordCodes: Readonly<Record<string, string>> = {
+    AUTH_UNAUTHENTICATED: 'ADMIN_UNAUTHENTICATED',
+    AUTH_CSRF_INVALID: 'ADMIN_CSRF_INVALID',
+    AUTH_REAUTHENTICATION_REQUIRED: 'ADMIN_REAUTH_REQUIRED',
+    AUTH_CURRENT_PASSWORD_INVALID: 'ADMIN_CURRENT_PASSWORD_INVALID',
+    AUTH_PASSWORD_CONFIRMATION_MISMATCH: 'ADMIN_PASSWORD_CONFIRMATION_MISMATCH',
+    AUTH_PASSWORD_WEAK: 'ADMIN_PASSWORD_WEAK',
+    AUTH_PASSWORD_CHANGE_RATE_LIMITED: 'ADMIN_PASSWORD_CHANGE_RATE_LIMITED',
+    AUTH_PASSWORD_CHANGE_CONFLICT: 'ADMIN_REAUTH_REQUIRED',
+    AUTH_PASSWORD_UNAVAILABLE: 'ADMIN_UNAVAILABLE',
+  }
+  if (!code) {
+    return undefined
+  }
+  return code.startsWith('ADMIN_') ? code : passwordCodes[code]
 }
 
 export function normalizeAdminApiError(error: unknown): AdminApiError {
@@ -70,7 +109,7 @@ export function normalizeAdminApiError(error: unknown): AdminApiError {
     : status === 403
       ? 'ADMIN_FORBIDDEN'
       : 'ADMIN_UNAVAILABLE'
-  return new AdminApiError(remoteCode(error) ?? fallback, status, error)
+  return new AdminApiError(adminCode(remoteCode(error)) ?? fallback, status, error)
 }
 
 export class AdminApi {
@@ -132,6 +171,35 @@ export class AdminApi {
     }
   }
 
+  async logout(csrfToken: string): Promise<void> {
+    await this.#request('/api/v1/auth/logout', {
+      method: 'POST',
+      headers: {
+        'X-CSRF-Token': csrfToken,
+      },
+    })
+  }
+
+  async changePassword(input: {
+    confirmation: string
+    csrfToken: string
+    currentPassword: string
+    newPassword: string
+  }): Promise<void> {
+    await this.#request('/api/v1/auth/password/change', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': input.csrfToken,
+      },
+      body: {
+        current_password: input.currentPassword,
+        new_password: input.newPassword,
+        confirmation: input.confirmation,
+      },
+    })
+  }
+
   async dashboard(options?: Readonly<{
     headers?: Readonly<Record<string, string>>
     signal?: AbortSignal
@@ -159,6 +227,91 @@ export class AdminApi {
       return parseSearchResults(
         await this.#request(`/api/v1/admin/search?${parameters.toString()}`),
       )
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  async users(parameters: UserDirectoryParams): Promise<UserDirectoryPage> {
+    const query = directorySearchParams(parameters)
+    try {
+      return parseUserDirectoryPage(
+        await this.#request(`/api/v1/admin/users?${query.toString()}`),
+      )
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  async user(accountId: string): Promise<UserDirectoryItem> {
+    const id = assertSafeIdentifier(accountId)
+    try {
+      return parseUserDirectoryDetail(await this.#request(
+        `/api/v1/admin/users/${encodeURIComponent(id)}`,
+      ))
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  async workspaces(
+    parameters: WorkspaceDirectoryParams,
+  ): Promise<WorkspaceDirectoryPage> {
+    const query = directorySearchParams(parameters)
+    try {
+      return parseWorkspaceDirectoryPage(
+        await this.#request(`/api/v1/admin/workspaces?${query.toString()}`),
+      )
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  async exportUsers(
+    parameters: UserDirectoryParams,
+    format: ExportFormat,
+  ): Promise<AdminDownload> {
+    return this.#exportDirectory('users', parameters, format)
+  }
+
+  async exportWorkspaces(
+    parameters: WorkspaceDirectoryParams,
+    format: ExportFormat,
+  ): Promise<AdminDownload> {
+    return this.#exportDirectory('workspaces', parameters, format)
+  }
+
+  async #exportDirectory(
+    subject: 'users' | 'workspaces',
+    parameters: UserDirectoryParams | WorkspaceDirectoryParams,
+    format: ExportFormat,
+  ): Promise<AdminDownload> {
+    const query = directorySearchParams(parameters, false)
+    query.set('format', format)
+    try {
+      const body = await this.#request(
+        `/api/v1/admin/${subject}/export?${query.toString()}`,
+        { responseType: 'blob' },
+      )
+      if (!(body instanceof Blob)) {
+        throw new Error('ADMIN_INVALID_EXPORT')
+      }
+      return {
+        body,
+        filename: `postqron-admin-${subject}.${format}`,
+      }
     } catch (error) {
       if (error instanceof AdminApiError) {
         throw error

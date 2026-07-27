@@ -168,4 +168,69 @@ test('remote errors expose only stable admin codes', () => {
     }).code,
     'ADMIN_UNAVAILABLE',
   )
+  assert.equal(
+    normalizeAdminApiError({
+      statusCode: 400,
+      data: {
+        error: {
+          code: 'AUTH_CURRENT_PASSWORD_INVALID',
+          message: 'safe remote message',
+        },
+      },
+    }).code,
+    'ADMIN_CURRENT_PASSWORD_INVALID',
+  )
+})
+
+test('password change and logout send only secrets required by their authenticated contracts', async () => {
+  const calls: Array<{
+    path: string
+    options?: Readonly<Record<string, unknown>>
+  }> = []
+  const api = new AdminApi(
+    'https://admin.postqron.test',
+    async (path, options) => {
+      calls.push({ path, options })
+      return path.endsWith('/change') ? { changed: true } : undefined
+    },
+  )
+
+  await api.changePassword({
+    currentPassword: 'current-password-value',
+    newPassword: 'new-password-value',
+    confirmation: 'new-password-value',
+    csrfToken: 'opaque-csrf-token',
+  })
+  await api.logout('rotated-csrf-token')
+
+  assert.deepEqual(calls, [
+    {
+      path: '/api/v1/auth/password/change',
+      options: {
+        baseURL: 'https://admin.postqron.test',
+        credentials: 'include',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': 'opaque-csrf-token',
+        },
+        body: {
+          current_password: 'current-password-value',
+          new_password: 'new-password-value',
+          confirmation: 'new-password-value',
+        },
+      },
+    },
+    {
+      path: '/api/v1/auth/logout',
+      options: {
+        baseURL: 'https://admin.postqron.test',
+        credentials: 'include',
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': 'rotated-csrf-token',
+        },
+      },
+    },
+  ])
 })

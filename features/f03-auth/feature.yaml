@@ -8,6 +8,7 @@ dependencies: []
 migrations:
   - ./migrations/000001_create_auth.sql
   - ./migrations/000002_password_auth.sql
+  - ./migrations/000003_admin_profile_auth.sql
 server:
   routes:
     - path: /auth/password/login
@@ -15,6 +16,22 @@ server:
       methods: [POST]
       visibility: "public"
     - path: /auth/password/login
+      handler: Password
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/password/change
+      handler: Password
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/password/change
+      handler: Password
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/logout
+      handler: Password
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/logout
       handler: Password
       methods: [OPTIONS]
       visibility: "public"
