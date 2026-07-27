@@ -32,7 +32,6 @@ import {
   overMaxThreshold,
   perChannelPrice,
   planTotal,
-  quantityOptions,
   selectedPlan,
   withInterval,
   withPlan,
@@ -53,7 +52,21 @@ const paidPlans = computed(() =>
   props.catalog.plans.filter((plan): plan is PublicPlan & { code: 'pro' | 'team' } =>
     plan.code === 'pro' || plan.code === 'team'))
 const currentPlan = computed(() => selectedPlan(props.catalog, selection.value))
-const channelOptions = computed(() => quantityOptions(props.catalog))
+const sliderMaximum = computed(() => overMaxThreshold(props.catalog))
+const sliderMarkers = computed(() => [
+  { value: 1, label: '1' },
+  ...plans.value
+    .filter(plan => plan.limits.channels !== null)
+    .map(plan => ({
+      value: plan.limits.channels as number,
+      label: number(plan.limits.channels as number),
+    }))
+    .filter(marker => marker.value > 1),
+  {
+    value: sliderMaximum.value,
+    label: `${number(sliderMaximum.value)}+`,
+  },
+])
 const annualTerms = computed(() => annualBillingTerms(props.catalog))
 const annualTermsParams = computed(() => ({
   months: number(annualTerms.value.monthsCharged),
@@ -84,23 +97,28 @@ function displayName(plan: PublicPlan): string {
 
 function quantityOptionLabel(option: ChannelQuantity): string {
   return option === OVER_MAX_QUANTITY
-    ? interpolate(copy.value.quantityOverMax, { count: number(overMaxThreshold(props.catalog)) })
-    : number(option)
+    ? interpolate(copy.value.quantityOverMax, { count: number(sliderMaximum.value) })
+    : interpolate(option === 1 ? copy.value.channel : copy.value.channels, {
+        count: number(option),
+      })
 }
 
 function setBillingInterval(interval: BillingInterval) {
   selection.value = withInterval(selection.value, interval)
 }
 
-const quantityValue = computed({
-  get: () => String(selection.value.quantity),
-  set: (raw: string) => {
-    const quantity: ChannelQuantity = raw === OVER_MAX_QUANTITY
-      ? OVER_MAX_QUANTITY
-      : Number(raw)
-    selection.value = withQuantity(props.catalog, selection.value, quantity)
-  },
-})
+const quantityValue = computed(() =>
+  selection.value.quantity === OVER_MAX_QUANTITY
+    ? sliderMaximum.value
+    : selection.value.quantity)
+
+function setQuantity(raw: string) {
+  const numeric = Number(raw)
+  const quantity: ChannelQuantity = numeric === sliderMaximum.value
+    ? OVER_MAX_QUANTITY
+    : numeric
+  selection.value = withQuantity(props.catalog, selection.value, quantity)
+}
 
 function compatible(plan: PublicPlan): boolean {
   return isPlanCompatible(plan, selection.value.quantity)
@@ -234,21 +252,35 @@ function href(plan: PublicPlan): string {
       </p>
 
       <label class="quantity-control">
-        <span>
+        <span class="quantity-control__heading">
           <strong>{{ copy.quantityLabel }}</strong>
+          <output for="pricing-channel-quantity">
+            {{ quantityOptionLabel(selection.quantity) }}
+          </output>
         </span>
-        <select
+        <input
           id="pricing-channel-quantity"
-          v-model="quantityValue"
+          class="quantity-control__slider"
+          type="range"
+          min="1"
+          :max="sliderMaximum"
+          step="1"
+          :value="quantityValue"
+          :aria-valuetext="quantityOptionLabel(selection.quantity)"
+          @input="setQuantity(($event.target as unknown as { value: string }).value)"
         >
-          <option
-            v-for="option in channelOptions"
-            :key="String(option)"
-            :value="String(option)"
+        <ol
+          class="quantity-control__markers"
+          aria-hidden="true"
+        >
+          <li
+            v-for="marker in sliderMarkers"
+            :key="marker.value"
+            :style="{ '--marker-position': marker.value }"
           >
-            {{ quantityOptionLabel(option) }}
-          </option>
-        </select>
+            {{ marker.label }}
+          </li>
+        </ol>
         <small>{{ copy.quantityHelp }}</small>
       </label>
     </div>
@@ -446,19 +478,50 @@ function href(plan: PublicPlan): string {
   color: var(--pq-color-text-muted);
 }
 
-.quantity-control > span {
+.quantity-control__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pq-space-2);
   color: var(--pq-color-text);
 }
 
-.quantity-control select {
+.quantity-control__heading output {
+  color: var(--pq-color-brand);
+  font-weight: 700;
+}
+
+.quantity-control__slider {
+  accent-color: var(--pq-color-brand);
   width: 100%;
   min-height: var(--pq-size-target-min);
-  border: 1px solid var(--pq-color-border);
-  border-radius: var(--pq-radius-md);
-  padding: var(--pq-space-2) var(--pq-space-3);
-  color: var(--pq-color-text);
-  background: var(--pq-color-surface);
-  font-size: var(--pq-font-size-md);
+  margin: 0;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.quantity-control__slider:focus-visible {
+  border-radius: var(--pq-radius-sm);
+  outline: 3px solid var(--pq-color-brand);
+  outline-offset: 3px;
+}
+
+.quantity-control__markers {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  width: 100%;
+  margin: calc(-1 * var(--pq-space-2)) 0 0;
+  padding: 0;
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-xs);
+  list-style: none;
+}
+
+.quantity-control__markers li {
+  grid-column: var(--marker-position);
+  justify-self: center;
+  white-space: nowrap;
 }
 
 .sr-only {
