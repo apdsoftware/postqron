@@ -125,11 +125,7 @@ func (store *SQLStore) ApplyUsage(
 		return UsageDecision{}, fmt.Errorf("execute atomic quota command: %w", err)
 	}
 	decision.Usage.Resource = command.Resource
-	if limit != nil {
-		decision.Usage.Limit = *limit
-	}
-	if remaining != nil {
-		decision.Usage.Remaining = *remaining
-	}
+	decision.Usage.Limit = limit
+	decision.Usage.Remaining = remaining
 	return decision, nil
 }

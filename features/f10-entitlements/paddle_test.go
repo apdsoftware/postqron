@@ -88,11 +88,11 @@ func TestVerifyPaddleSignatureUsesRawBodyAndRejectsReplay(t *testing.T) {
 func TestPaddleTransactionCompletedIsVerifiedDeduplicatedAndOrdered(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	catalog := testPaddleCatalog()
-	items, _ := catalog.ExpectedItems(PlanTeam, IntervalAnnual, 25)
+	items, _ := catalog.ExpectedItems(PlanTeam, IntervalAnnual, limit(9))
 	store := &billingStoreStub{
 		transaction: BillingBinding{
 			WorkspaceID: "workspace", Plan: PlanTeam,
-			Interval: IntervalAnnual, Channels: 25, ExpectedItems: items,
+			Interval: IntervalAnnual, Channels: limit(9), ExpectedItems: items,
 			Period: Period{Start: now, End: now.AddDate(1, 0, 0)},
 		},
 		subscriptionErr: ErrUnknownSubscription,
@@ -142,7 +142,7 @@ func TestPaddleTransactionCompletedIsVerifiedDeduplicatedAndOrdered(t *testing.T
 	)
 	store.subscription = BillingBinding{
 		WorkspaceID: "workspace", Plan: PlanTeam, Interval: IntervalAnnual,
-		Channels: 25, CustomerID: "ctm", SubscriptionID: "sub",
+		Channels: limit(9), CustomerID: "ctm", SubscriptionID: "sub",
 		Period: Period{Start: now, End: now.AddDate(1, 0, 0)},
 	}
 	store.subscriptionErr = nil
@@ -164,11 +164,11 @@ func TestPaddleTransactionCompletedIsVerifiedDeduplicatedAndOrdered(t *testing.T
 func TestPaddleRejectsWrongItemsAndClientCheckoutEventCannotGrant(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	catalog := testPaddleCatalog()
-	expected, _ := catalog.ExpectedItems(PlanPro, IntervalMonthly, 1)
+	expected, _ := catalog.ExpectedItems(PlanPro, IntervalMonthly, limit(1))
 	store := &billingStoreStub{
 		transaction: BillingBinding{
 			WorkspaceID: "workspace", Plan: PlanPro, Interval: IntervalMonthly,
-			Channels: 1, ExpectedItems: expected,
+			Channels: limit(1), ExpectedItems: expected,
 			Period: Period{Start: now, End: now.AddDate(0, 1, 0)},
 		},
 		subscriptionErr: ErrUnknownSubscription,

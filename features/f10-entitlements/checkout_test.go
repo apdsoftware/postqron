@@ -70,21 +70,22 @@ func TestCheckoutUsesOwnerAndServerComposedPaddleItems(t *testing.T) {
 		AccountID:      "account-1",
 		Plan:           PlanTeam,
 		Interval:       IntervalAnnual,
-		Channels:       25,
+		Channels:       limit(9),
 		IdempotencyKey: "upgrade-team-annual",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if provider.request.CatalogVersion != CatalogVersion ||
-		provider.request.Channels != 25 ||
-		len(provider.request.Items) != 2 ||
-		provider.request.Items[0].Quantity != 10 ||
-		provider.request.Items[1].Quantity != 15 {
+		provider.request.Channels == nil ||
+		*provider.request.Channels != 9 ||
+		len(provider.request.Items) != 1 ||
+		provider.request.Items[0].Quantity != 9 {
 		t.Fatalf("provider request = %#v", provider.request)
 	}
 	if store.registration.Plan != PlanTeam ||
-		store.registration.Channels != 25 ||
+		store.registration.Channels == nil ||
+		*store.registration.Channels != 9 ||
 		!SamePaddleItems(store.registration.Items, provider.request.Items) {
 		t.Fatalf("registration = %#v", store.registration)
 	}
@@ -104,7 +105,7 @@ func TestCheckoutRejectsFreePlanAndNonOwner(t *testing.T) {
 	}
 	_, err = service.Create(context.Background(), CheckoutRequest{
 		WorkspaceID: "workspace", AccountID: "account", Plan: PlanStart,
-		Interval: IntervalMonthly, Channels: 3, IdempotencyKey: "free",
+		Interval: IntervalMonthly, Channels: limit(3), IdempotencyKey: "free",
 	})
 	if !errors.Is(err, ErrFreePlan) || provider.calls != 0 {
 		t.Fatalf("free checkout = %v, calls %d", err, provider.calls)
@@ -112,10 +113,60 @@ func TestCheckoutRejectsFreePlanAndNonOwner(t *testing.T) {
 	service.authorizer = ownerStub{owner: false}
 	_, err = service.Create(context.Background(), CheckoutRequest{
 		WorkspaceID: "workspace", AccountID: "account", Plan: PlanPro,
-		Interval: IntervalMonthly, Channels: 3, IdempotencyKey: "paid",
+		Interval: IntervalMonthly, Channels: limit(3), IdempotencyKey: "paid",
 	})
 	if !errors.Is(err, ErrOwnerRequired) || provider.calls != 0 {
 		t.Fatalf("non-owner checkout = %v, calls %d", err, provider.calls)
+	}
+}
+
+func TestUnlimitedCheckoutHasFlatItemAndNoChannelQuantity(t *testing.T) {
+	expiresAt := time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC)
+	provider := &checkoutProviderStub{result: CheckoutSession{
+		ID:        "txn_00000000000000000000000002",
+		URL:       "https://pay.paddle.io/checkout/unlimited",
+		ExpiresAt: expiresAt,
+	}}
+	store := &checkoutStoreStub{}
+	service, err := NewCheckoutService(
+		ownerStub{owner: true},
+		provider,
+		store,
+		testPaddleCatalog(),
+		"https://app.postqron.test/billing/checkout",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Create(context.Background(), CheckoutRequest{
+		WorkspaceID:    "46c847c5-621f-4c2a-a672-bdfeb2f9aa29",
+		AccountID:      "account-1",
+		Plan:           PlanUnlimited,
+		Interval:       IntervalMonthly,
+		Channels:       nil,
+		IdempotencyKey: "checkout-unlimited",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.request.Channels != nil ||
+		store.registration.Channels != nil ||
+		len(provider.request.Items) != 1 ||
+		provider.request.Items[0].Quantity != 1 {
+		t.Fatalf(
+			"provider=%#v registration=%#v",
+			provider.request,
+			store.registration,
+		)
+	}
+	if _, err := service.Create(context.Background(), CheckoutRequest{
+		WorkspaceID:    "46c847c5-621f-4c2a-a672-bdfeb2f9aa29",
+		AccountID:      "account-1",
+		Plan:           PlanUnlimited,
+		Interval:       IntervalMonthly,
+		Channels:       limit(1),
+		IdempotencyKey: "checkout-unlimited-with-quantity",
+	}); !errors.Is(err, ErrInvalidChannels) {
+		t.Fatalf("Unlimited checkout with channel quantity error = %v", err)
 	}
 }
 

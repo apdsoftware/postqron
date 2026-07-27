@@ -34,8 +34,8 @@ func TestServiceReservePassesIdempotentServerCommand(t *testing.T) {
 			Usage: Usage{
 				Resource:  ResourceChannels,
 				Used:      3,
-				Limit:     5,
-				Remaining: 2,
+				Limit:     limit(5),
+				Remaining: limit(2),
 			},
 		},
 	}
@@ -53,7 +53,8 @@ func TestServiceReservePassesIdempotentServerCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Accepted || result.Usage.Remaining != 2 {
+	if !result.Accepted || result.Usage.Remaining == nil ||
+		*result.Usage.Remaining != 2 {
 		t.Fatalf("Reserve() = %#v", result)
 	}
 	if store.command.Delta != 1 ||

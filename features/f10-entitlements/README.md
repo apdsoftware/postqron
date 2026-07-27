@@ -1,13 +1,15 @@
 # F10 entitlements
 
-This autonomous API slice implements the D07 commercial catalog and D06 quota
+This autonomous API slice implements the D09 commercial catalog and D06 quota
 semantics:
 
 - permanently free Start (3 channels, 1 member, 10 concurrent posts per
   channel);
-- progressive Pro and Team pricing in EUR for 1–50 channels, monthly or
-  annual, with the annual total equal to ten monthly totals;
-- a one-time, cardless 14-day Team trial for 10 channels, distinct from
+- Pro pricing for 1–6 channels and Team pricing for 1–9 channels, monthly or
+  annual, with every annual total equal to ten monthly totals;
+- public, flat-priced Unlimited at €129/month or €1,290/year, represented by
+  nullable quotas rather than numeric sentinels;
+- a one-time, cardless 14-day Team trial for 9 channels and 9 members, distinct from
   payment recovery;
 - Paddle-only checkout, subscription changes, cancellation, and temporary
   customer portal sessions;
@@ -35,13 +37,13 @@ The runtime reads server-only values from:
 - `PADDLE_ENVIRONMENT`: `sandbox` or `production`;
 - `PADDLE_API_KEY`: a current-format key for the selected environment;
 - `PADDLE_WEBHOOK_SECRET`: the notification destination secret;
-- `PADDLE_CATALOG_JSON`: the twelve D07 mappings (Pro/Team × monthly/annual ×
-  three progressive tiers).
+- `PADDLE_CATALOG_JSON`: the fourteen D09 mappings (the twelve retained D07
+  Pro/Team tier mappings plus Unlimited × monthly/annual × flat).
 
 Each mapping has `plan`, `interval`, `tier`, `product_id`, `price_id`, and
 `unit_amount_cents`. Validation rejects missing mappings, reused price IDs,
-multiple products for one plan, a shared Pro/Team product, environment/key
-mismatches, and amounts that drift from D07. API keys and webhook secrets are
+multiple products for one plan, shared paid-plan products, environment/key
+mismatches, and amounts that drift from D09. API keys and webhook secrets are
 never serialized into public contracts or provider errors.
 
 ## Catalog dry-run
@@ -66,7 +68,7 @@ No central registry is needed. Include both the platform root and this slice:
 POSTQRON_FEATURE_ROOTS="services/api/features:features/f10-entitlements"
 ```
 
-The same roots validate all three forward-only F10 migrations:
+The same roots validate all four forward-only F10 migrations:
 
 ```sh
 go run ./services/api/cmd/migrate \

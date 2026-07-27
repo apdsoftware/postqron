@@ -73,8 +73,8 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		}(index)
 	}
 	wait.Wait()
-	if accepted.Load() != 10 {
-		t.Fatalf("accepted reservations = %d, want Team trial limit 10", accepted.Load())
+	if accepted.Load() != 9 {
+		t.Fatalf("accepted reservations = %d, want Team trial limit 9", accepted.Load())
 	}
 
 	overview, err := service.GetOverview(ctx, workspaceID)
@@ -82,15 +82,16 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	channels := usageFor(t, overview, ResourceChannels)
-	if channels.Used != 10 || channels.Remaining != 0 || channels.OverLimit {
+	if channels.Used != 9 || channels.Remaining == nil ||
+		*channels.Remaining != 0 || channels.OverLimit {
 		t.Fatalf("channel usage after concurrency = %#v", channels)
 	}
 	members := usageFor(t, overview, ResourceMembers)
-	if members.Limit != 15 {
-		t.Fatalf("Team trial member limit = %#v, want 15", members.Limit)
+	if members.Limit == nil || *members.Limit != 9 {
+		t.Fatalf("Team trial member limit = %#v, want 9", members.Limit)
 	}
 	publications := usageFor(t, overview, ResourceScheduledPublications)
-	if publications.Limit != 500 {
+	if publications.Limit == nil || *publications.Limit != 500 {
 		t.Fatalf(
 			"Team trial scheduled-publication limit = %#v, want 500",
 			publications.Limit,
@@ -112,14 +113,17 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := usageFor(t, overview, ResourceChannels).Used; got != 10 {
-		t.Fatalf("usage after idempotent replay = %d, want 10", got)
+	if got := usageFor(t, overview, ResourceChannels).Used; got != 9 {
+		t.Fatalf("usage after idempotent replay = %d, want 9", got)
 	}
 
 	if _, err := pool.Exec(
 		ctx,
 		`UPDATE f10_workspace_billing
-		    SET plan_code = 'start', channel_quantity = 3, updated_at = $2
+		    SET plan_code = 'start',
+		        billing_state = 'active',
+		        channel_quantity = 3,
+		        updated_at = $2
 		  WHERE workspace_id = $1`,
 		workspaceID,
 		now.Add(2*time.Hour),
@@ -131,7 +135,8 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	channels = usageFor(t, overview, ResourceChannels)
-	if channels.Used != 10 || channels.Remaining != 0 || !channels.OverLimit {
+	if channels.Used != 9 || channels.Remaining == nil ||
+		*channels.Remaining != 0 || !channels.OverLimit {
 		t.Fatalf("downgrade did not preserve overage: %#v", channels)
 	}
 
@@ -142,7 +147,7 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		1,
 		"disconnect:channel-00",
 	)
-	if err != nil || !release.Accepted || release.Usage.Used != 9 {
+	if err != nil || !release.Accepted || release.Usage.Used != 8 {
 		t.Fatalf("release during overage = %#v, %v", release, err)
 	}
 	denied, err := service.Reserve(
@@ -155,7 +160,7 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if denied.Accepted || denied.Code != "limit_reached" || denied.Usage.Used != 9 {
+	if denied.Accepted || denied.Code != "limit_reached" || denied.Usage.Used != 8 {
 		t.Fatalf("over-limit addition = %#v", denied)
 	}
 
@@ -188,14 +193,169 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	lowerPayload := strings.ToLower(string(payload))
-	for _, forbidden := range []string{"internal", "unlimited", "override"} {
+	for _, forbidden := range []string{
+		"internal_unlimited",
+		"override",
+		"allowlist",
+		"assignment_reason",
+	} {
 		if strings.Contains(lowerPayload, forbidden) {
 			t.Fatalf("public overview exposed %q: %s", forbidden, payload)
 		}
 	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE f10_workspace_billing
+		    SET plan_code = 'team',
+		        billing_state = 'trialing',
+		        channel_quantity = 9,
+		        updated_at = $2
+		  WHERE workspace_id = $1`,
+		workspaceID,
+		now.Add(3*time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	testBillingLifecycle(t, pool, store, workspaceID, now)
+	testUnlimitedEntitlementAndConservativeDowngrade(t, pool, store, now)
 	testMonthlyQuotaWindow(t, pool)
+}
+
+func testUnlimitedEntitlementAndConservativeDowngrade(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	store *SQLStore,
+	now time.Time,
+) {
+	t.Helper()
+	ctx := context.Background()
+	workspaceID := "7a870d8f-4647-43ac-b81d-54e58f1af011"
+	registration := CheckoutRegistration{
+		SessionID:      "txn_00000000000000000000000002",
+		WorkspaceID:    workspaceID,
+		Plan:           PlanUnlimited,
+		Interval:       IntervalMonthly,
+		Channels:       nil,
+		CatalogVersion: CatalogVersion,
+		Items: []PaddleItem{
+			{PriceID: "pri_00000000000000000000000013", Quantity: 1},
+		},
+		ExpiresAt: now.Add(time.Hour),
+		CreatedAt: now,
+	}
+	if err := store.RegisterCheckout(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	paid := BillingEvent{
+		ID:             "evt_unlimited_paid_f10",
+		Type:           "transaction.completed",
+		OccurredAt:     now.Add(time.Minute),
+		WorkspaceID:    workspaceID,
+		Plan:           PlanUnlimited,
+		Interval:       IntervalMonthly,
+		Channels:       nil,
+		State:          StateActive,
+		CustomerID:     "cus_unlimited_f10",
+		SubscriptionID: "sub_unlimited_f10",
+		TransactionID:  registration.SessionID,
+		ApplyState:     true,
+		Period: Period{
+			Start: now,
+			End:   now.AddDate(0, 1, 0),
+		},
+	}
+	if result, err := store.ApplyBillingEvent(ctx, paid); err != nil ||
+		!result.FirstDelivery || !result.StateChanged {
+		t.Fatalf("Unlimited payment = %#v, %v", result, err)
+	}
+
+	service := NewService(store)
+	service.now = func() time.Time { return now.Add(2 * time.Minute) }
+	for _, resource := range []Resource{
+		ResourceMembers,
+		ResourceChannels,
+		ResourceScheduledPublications,
+	} {
+		decision, err := service.Reserve(
+			ctx,
+			workspaceID,
+			resource,
+			1_000_000,
+			"unlimited:"+string(resource),
+		)
+		if err != nil || !decision.Accepted ||
+			decision.Usage.Limit != nil ||
+			decision.Usage.Remaining != nil ||
+			decision.Usage.OverLimit {
+			t.Fatalf("Unlimited %s decision = %#v, %v", resource, decision, err)
+		}
+	}
+	overview, err := service.GetOverview(ctx, workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Plan.Code != PlanUnlimited ||
+		overview.Plan.Limits.Channels != nil {
+		t.Fatalf("Unlimited overview = %#v", overview)
+	}
+	for _, usage := range overview.Usage {
+		if usage.Limit != nil || usage.Remaining != nil || usage.OverLimit {
+			t.Fatalf("Unlimited usage contains a numeric quota: %#v", usage)
+		}
+	}
+	var checkoutChannels, billingChannels *int64
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT checkout.channel_quantity, billing.channel_quantity
+		   FROM f10_checkout_sessions AS checkout
+		   JOIN f10_workspace_billing AS billing USING (workspace_id)
+		  WHERE checkout.session_id = $1`,
+		registration.SessionID,
+	).Scan(&checkoutChannels, &billingChannels); err != nil {
+		t.Fatal(err)
+	}
+	if checkoutChannels != nil || billingChannels != nil {
+		t.Fatalf(
+			"Unlimited persisted fake quantities: checkout=%v billing=%v",
+			checkoutChannels,
+			billingChannels,
+		)
+	}
+
+	downgrade := paid
+	downgrade.ID = "evt_unlimited_to_team_f10"
+	downgrade.OccurredAt = paid.Period.End
+	downgrade.Plan = PlanTeam
+	downgrade.Interval = IntervalAnnual
+	downgrade.Channels = limit(9)
+	downgrade.Period = Period{
+		Start: paid.Period.End,
+		End:   paid.Period.End.AddDate(1, 0, 0),
+	}
+	if result, err := store.ApplyBillingEvent(ctx, downgrade); err != nil ||
+		!result.StateChanged {
+		t.Fatalf("Unlimited downgrade = %#v, %v", result, err)
+	}
+	overview, err = service.GetOverview(ctx, workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channels := usageFor(t, overview, ResourceChannels)
+	if channels.Used != 1_000_000 || channels.Limit == nil ||
+		*channels.Limit != 9 || !channels.OverLimit {
+		t.Fatalf("downgrade deleted or hid channel overage: %#v", channels)
+	}
+	denied, err := service.Reserve(
+		ctx,
+		workspaceID,
+		ResourceChannels,
+		1,
+		"downgraded:new-channel",
+	)
+	if err != nil || denied.Accepted || denied.Code != "limit_reached" {
+		t.Fatalf("downgraded addition = %#v, %v", denied, err)
+	}
 }
 
 func testBillingLifecycle(
@@ -212,11 +372,10 @@ func testBillingLifecycle(
 		WorkspaceID:    workspaceID,
 		Plan:           PlanTeam,
 		Interval:       IntervalAnnual,
-		Channels:       25,
+		Channels:       limit(9),
 		CatalogVersion: CatalogVersion,
 		Items: []PaddleItem{
-			{PriceID: "pri_00000000000000000000000010", Quantity: 10},
-			{PriceID: "pri_00000000000000000000000011", Quantity: 15},
+			{PriceID: "pri_00000000000000000000000010", Quantity: 9},
 		},
 		ExpiresAt: now.Add(time.Hour),
 		CreatedAt: now,
@@ -248,7 +407,7 @@ func testBillingLifecycle(
 		WorkspaceID:    workspaceID,
 		Plan:           PlanTeam,
 		Interval:       IntervalAnnual,
-		Channels:       25,
+		Channels:       limit(9),
 		State:          StateActive,
 		CustomerID:     "cus_f10",
 		SubscriptionID: "sub_f10",
@@ -274,7 +433,7 @@ func testBillingLifecycle(
 	stale.State = StatePaymentRestricted
 	stale.Plan = PlanStart
 	stale.Interval = IntervalMonthly
-	stale.Channels = 3
+	stale.Channels = limit(3)
 	result, err = store.ApplyBillingEvent(ctx, stale)
 	if err != nil || !result.FirstDelivery || result.StateChanged {
 		t.Fatalf("stale event = %#v, %v", result, err)
@@ -430,7 +589,7 @@ func testBillingLifecycle(
 	canceled.OccurredAt = dunningEnds.Add(31 * 24 * time.Hour)
 	canceled.Plan = PlanStart
 	canceled.Interval = IntervalMonthly
-	canceled.Channels = 3
+	canceled.Channels = limit(3)
 	canceled.State = StateCanceled
 	if result, err = store.ApplyBillingEvent(ctx, canceled); err != nil ||
 		!result.StateChanged {
@@ -627,6 +786,38 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 	}
 	if publicState != StatePastDue {
 		t.Fatalf("public view inferred local suspension state %s", publicState)
+	}
+
+	d09Migration, err := os.ReadFile(filepath.Join(
+		"migrations",
+		"000004_d09_public_unlimited.sql",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for replay := 0; replay < 2; replay++ {
+		if _, err := pool.Exec(ctx, string(d09Migration)); err != nil {
+			t.Fatalf("D09 migration replay %d: %v", replay, err)
+		}
+	}
+	var (
+		unlimitedMembers  *int64
+		unlimitedChannels *int64
+	)
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT member_limit, channel_limit
+		   FROM f10_public_plans
+		  WHERE code = 'unlimited'`,
+	).Scan(&unlimitedMembers, &unlimitedChannels); err != nil {
+		t.Fatal(err)
+	}
+	if unlimitedMembers != nil || unlimitedChannels != nil {
+		t.Fatalf(
+			"Unlimited migration stored sentinels: members=%v channels=%v",
+			unlimitedMembers,
+			unlimitedChannels,
+		)
 	}
 
 	t.Cleanup(func() {

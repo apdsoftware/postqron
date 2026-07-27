@@ -19,11 +19,12 @@ const (
 )
 
 type Usage struct {
-	Resource  Resource `json:"resource"`
-	Used      int64    `json:"used"`
-	Limit     int64    `json:"limit"`
-	Remaining int64    `json:"remaining"`
-	OverLimit bool     `json:"over_limit"`
+	Resource Resource `json:"resource"`
+	Used     int64    `json:"used"`
+	// Limit and Remaining are null when no commercial plan quota applies.
+	Limit     *int64 `json:"limit"`
+	Remaining *int64 `json:"remaining"`
+	OverLimit bool   `json:"over_limit"`
 }
 
 type Period struct {
