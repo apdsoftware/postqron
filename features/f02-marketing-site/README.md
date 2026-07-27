@@ -19,8 +19,8 @@ canonici e destinazione delle call to action.
 ## Modello prezzi condiviso
 
 `src/pricing-model.ts` è il modello condiviso di selezione quantità/cadenza/
-piano usato dalla pagina prezzi e riusabile da F34 e F29 (issue #195): opzioni
-di quantità 1–max e `10 o più` derivate dal catalogo runtime, compatibilità
+piano usato dalla pagina prezzi e riusabile da F34 e F29 (issue #195): slider
+discreto accessibile da 1 a `10+`, con soglie derivate dal catalogo runtime, compatibilità
 Start → Pro → Team → Unlimited, preselezione del piano minimo compatibile,
 conservazione della scelta esplicita superiore finché compatibile, totali,
 prezzo per canale, termini annuali (10 mensilità per 12 mesi) e intent di
