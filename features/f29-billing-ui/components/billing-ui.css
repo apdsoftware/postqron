@@ -63,6 +63,20 @@
   color: var(--pq-color-text-muted);
 }
 
+.billing-summary-annual {
+  display: grid;
+  gap: .35rem;
+  border-radius: var(--pq-radius-lg);
+  padding: 1rem;
+  margin-block: .5rem;
+  background: var(--pq-color-surface-subtle);
+}
+
+.billing-summary-annual p {
+  margin: 0;
+  color: var(--pq-color-text-muted);
+}
+
 .billing-actions {
   display: flex;
   flex-wrap: wrap;

@@ -17,9 +17,11 @@ import {
   pricingCopy,
 } from '../../f02-marketing-site/src/catalog.ts'
 import {
+  annualCheckoutSummary,
   checkoutTransition,
   createIdempotencyKey,
   entitlementConfirmed,
+  intentCompatibleWithPlan,
   parsePurchaseIntent,
   safePaddleClientToken,
   type CheckoutSession,
@@ -84,9 +86,15 @@ const planName = computed(() => {
     ? pricingCopy(locale.value).unlimitedName
     : plan.value.name
 })
+const compatible = computed(() =>
+  Boolean(intent && plan.value && intentCompatibleWithPlan(plan.value, intent)))
 const total = computed(() =>
-  plan.value && intent
+  plan.value && intent && compatible.value
     ? priceForChannels(plan.value, intent.interval, intent.quantity ?? null)
+    : undefined)
+const annualSummary = computed(() =>
+  plan.value && intent && compatible.value
+    ? annualCheckoutSummary(plan.value, intent)
     : undefined)
 const pricingPath = computed(() => localizePath(locale.value, '/prezzi'))
 useHead(computed(() => ({
@@ -123,7 +131,7 @@ function paddleEvent(event: PaddleEvent) {
 }
 
 async function openCheckout() {
-  if (!intent || intent.plan === 'start' || !plan.value) {
+  if (!intent || intent.plan === 'start' || !plan.value || !compatible.value) {
     return
   }
   transition('create')
@@ -152,7 +160,7 @@ async function openCheckout() {
 }
 
 onMounted(() => {
-  if (intent?.plan !== 'start' && plan.value) {
+  if (intent?.plan !== 'start' && plan.value && compatible.value) {
     void openCheckout()
   }
 })
@@ -194,6 +202,19 @@ onBeforeUnmount(() => {
     >
       {{ t('checkout.loading') }}
     </div>
+    <div
+      v-else-if="!compatible"
+      class="billing-state"
+      role="alert"
+    >
+      <p>{{ t('checkout.incompatible') }}</p>
+      <NuxtLink
+        class="pq-button"
+        :to="pricingPath"
+      >
+        {{ t('checkout.back') }}
+      </NuxtLink>
+    </div>
     <article
       v-else
       class="billing-card"
@@ -202,6 +223,12 @@ onBeforeUnmount(() => {
         <h2>{{ planName }}</h2>
         <span class="billing-badge">{{ t(`interval.${intent.interval}`) }}</span>
       </div>
+      <p v-if="plan.limits.members !== null">
+        {{ t('checkout.usersIncluded', { count: number(plan.limits.members) }) }}
+      </p>
+      <p v-else>
+        {{ t('checkout.usersIncludedUnlimited') }}
+      </p>
       <p v-if="intent.quantity !== undefined">
         {{ t('checkout.channels', { count: number(intent.quantity) }) }}
       </p>
@@ -213,6 +240,17 @@ onBeforeUnmount(() => {
           total: formatMoney(total, locale),
         }) }}</strong>
       </p>
+      <div
+        v-if="annualSummary"
+        class="billing-summary-annual"
+      >
+        <p>{{ t('checkout.annualUpfront', { total: formatMoney(annualSummary.total, locale) }) }}</p>
+        <p>{{ t('checkout.annualCoverage') }}</p>
+        <p>{{ t('checkout.annualEquivalentToTen', { monthly: formatMoney(annualSummary.monthlyPrice, locale) }) }}</p>
+        <p>{{ t('checkout.monthlyEquivalent', { monthly: formatMoney(annualSummary.monthlyEquivalent, locale) }) }}</p>
+        <p>{{ t('checkout.annualSavings', { amount: formatMoney(annualSummary.savings, locale) }) }}</p>
+        <p>{{ t('checkout.annualRenewal') }}</p>
+      </div>
       <p class="billing-summary">
         {{ t('checkout.taxes') }}
       </p>
