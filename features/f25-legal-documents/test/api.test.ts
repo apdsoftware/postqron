@@ -41,7 +41,7 @@ test('the bundled release API exposes digest, locale, version, and history', asy
     now,
   })
   assert.equal(current.status, 200)
-  assert.equal(current.headers['x-legal-document-version'], '0.1')
+  assert.equal(current.headers['x-legal-document-version'], '0.2')
   assert.match(current.headers.etag ?? '', /^"sha256-[a-f0-9]{64}"$/u)
   assert.equal((current.body as { locale: string }).locale, 'it')
 
@@ -52,6 +52,14 @@ test('the bundled release API exposes digest, locale, version, and history', asy
   })
   assert.equal(historical.status, 200)
   assert.equal((historical.body as { version: string }).version, '0.1')
+
+  const historicalTerms = handleLegalApiRequest(repository, {
+    method: 'GET',
+    url: '/api/v1/legal-documents/terms/versions/0.1?locale=it',
+    now,
+  })
+  assert.equal(historicalTerms.status, 200)
+  assert.equal((historicalTerms.body as { version: string }).version, '0.1')
 })
 
 test('approved fixture API exposes digest, locale, version, and history', async () => {
