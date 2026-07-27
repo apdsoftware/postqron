@@ -16,6 +16,18 @@ funzionalità, prezzi, FAQ e documenti legali senza richiedere registri centrali
 `NUXT_PUBLIC_SITE_URL` e `NUXT_PUBLIC_APP_URL` configurano rispettivamente URL
 canonici e destinazione delle call to action.
 
+## Modello prezzi condiviso
+
+`src/pricing-model.ts` è il modello condiviso di selezione quantità/cadenza/
+piano usato dalla pagina prezzi e riusabile da F34 e F29 (issue #195): opzioni
+di quantità 1–max e `10 o più` derivate dal catalogo runtime, compatibilità
+Start → Pro → Team → Unlimited, preselezione del piano minimo compatibile,
+conservazione della scelta esplicita superiore finché compatibile, totali,
+prezzo per canale, termini annuali (10 mensilità per 12 mesi) e intent di
+checkout validi. Il copy dei selettori nelle cinque lingue vive in
+`PRICING_COPY` (`src/catalog.ts`). Nessun prezzo o limite è duplicato nel
+client: la fonte runtime resta `GET /api/v1/billing/plans` (F10, `d09-v2`).
+
 ## Verifica
 
 ```sh
