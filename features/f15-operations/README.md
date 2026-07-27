@@ -9,6 +9,12 @@ security controls without a central registry.
   secret/PII fields plus common credential patterns before emission.
 - `HealthHandler` exposes liveness, dependency-aware readiness, and bounded
   Prometheus metrics. `/metrics` is defined as an internal mTLS endpoint.
+- `dashboard.go` is a small, dependency-free adapter (`ServiceStatus`,
+  `ServiceSignal`, `ProjectServiceStatus`) that other feature slices — F31's
+  admin dashboard, currently — use to project a real, timestamped signal
+  into the shared `operational`/`degraded`/`outage`/`unknown` vocabulary. It
+  never reports `operational` for a signal that was never collected or has
+  expired past a caller-supplied freshness window.
 - `config/alerts.yaml` pages on delayed publication queues, failed
   publications, readiness, audit persistence, stale backups, and overdue
   restore tests. Every alert links to an owned runbook.

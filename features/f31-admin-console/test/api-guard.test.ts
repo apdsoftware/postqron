@@ -20,7 +20,7 @@ const sessionPayload = {
 const dashboardPayload = {
   services: [{
     code: 'api',
-    status: 'healthy',
+    status: 'operational',
     checked_at: '2026-07-25T12:00:00.000Z',
   }],
   entitlements: [{

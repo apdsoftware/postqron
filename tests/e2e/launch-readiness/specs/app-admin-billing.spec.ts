@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test'
 import {
   covers,
   fixtureBaseURL,
+  fixtureHealth,
   fixtureReset,
   locales,
   localized,
@@ -162,6 +163,50 @@ test('admin signs in with email and password without an OAuth provider', async (
   await page.getByRole('button', { name: /^sign in$/iu }).click()
   await expect(page.getByRole('heading', { level: 2, name: /service health/iu }))
     .toBeVisible()
+})
+
+test('dashboard is the admin landing page and surfaces a danger alert only when a service is not operational', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN')
+
+  const healthy = await browser.newContext()
+  await session(healthy, 'admin')
+  const healthyPage = await healthy.newPage()
+  await healthyPage.goto(`${offBaseURL}/admin`)
+  await expect(healthyPage).toHaveURL(/\/admin$/u)
+  await expect(healthyPage.getByRole('alert')).toHaveCount(0)
+  await expect(healthyPage.getByText(/^healthy$/iu)).toBeVisible()
+  await healthy.close()
+
+  for (const status of ['degraded', 'outage', 'unknown'] as const) {
+    await fixtureHealth(status)
+    const context = await browser.newContext()
+    await session(context, 'admin')
+    const page = await context.newPage()
+    await page.goto(`${offBaseURL}/admin`)
+    const alert = page.getByRole('alert')
+    await expect(alert).toBeVisible()
+    await expect(alert).toContainText(/database|worker_queue/u)
+    await context.close()
+  }
+  await fixtureHealth('operational')
+})
+
+test('a failed health request never renders as fully operational', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  await fixtureHealth('api_failure')
+  const context = await browser.newContext()
+  await session(context, 'admin')
+  const page = await context.newPage()
+  await page.goto(`${offBaseURL}/admin`)
+  await expect(page.getByRole('alert')).toContainText(/unavailable/iu)
+  await expect(page.getByText(/^healthy$/iu)).toHaveCount(0)
+  await context.close()
+  await fixtureHealth('operational')
 })
 
 test('admin logout stays visible on desktop and mobile and revokes the server session', async ({

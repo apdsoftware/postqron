@@ -25,13 +25,30 @@ paths:
   /api/v1/admin/dashboard:
     get:
       operationId: getAdminDashboard
+      description: >-
+        Every service status reflects a real signal collected on this call.
+        A dependency that could not be checked, or whose check has expired
+        past its freshness window, is reported unknown; it is never reported
+        operational. When the database itself is unreachable the response
+        still returns 200 with database/api reflecting the outage and the
+        worker/scheduler dependencies reported unknown, instead of failing
+        the whole request.
+      security:
+        - productSession: []
       responses:
         "200":
           description: Minimal service health, entitlement, and recent audit projection.
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "503":
-          $ref: "#/components/responses/Unavailable"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDashboard'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: >-
+            The administration data source itself could not be read (not to
+            be confused with a degraded/outage service reported inside a
+            successful 200 response).
   /api/v1/admin/search:
     get:
       operationId: searchAdminSubjects
@@ -851,6 +868,43 @@ components:
         direction:
           type: string
           enum: [asc, desc]
+    ServiceHealth:
+      type: object
+      additionalProperties: false
+      required: [code, status, checked_at]
+      properties:
+        code:
+          type: string
+          description: >-
+            One of api, database, worker_queue, scheduler_publishing, or an
+            additional configured operational dependency.
+        status:
+          enum: [operational, degraded, outage, unknown]
+          description: >-
+            unknown means the dependency was never checked, or its check
+            has expired past the server's freshness window. It is distinct
+            from — and never rendered as — operational.
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp of the last real check for this service.
+    AdminDashboard:
+      type: object
+      additionalProperties: false
+      required: [services, entitlements, recent_audit]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceHealth'
+        entitlements:
+          type: array
+          items:
+            type: object
+        recent_audit:
+          type: array
+          items:
+            type: object
   responses:
     Unauthenticated:
       description: Session is missing or expired.

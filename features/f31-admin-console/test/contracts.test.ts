@@ -98,6 +98,22 @@ test('plan and audit list contracts keep only safe paginated projections', () =>
   }))
 })
 
+test('dashboard service status is restricted to the operational vocabulary', () => {
+  assert.throws(() => parseDashboard({
+    services: [{ code: 'api', status: 'healthy', checked_at: '2026-07-25T12:00:00Z' }],
+    entitlements: [],
+    recent_audit: [],
+  }))
+  for (const status of ['operational', 'degraded', 'outage', 'unknown']) {
+    const result = parseDashboard({
+      services: [{ code: 'database', status, checked_at: '2026-07-25T12:00:00Z' }],
+      entitlements: [],
+      recent_audit: [],
+    })
+    assert.equal(result.services[0]?.status, status)
+  }
+})
+
 test('search contract returns only minimum data fields', () => {
   const result = parseSearchResults({
     users: [{

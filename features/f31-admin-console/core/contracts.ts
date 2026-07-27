@@ -1,5 +1,7 @@
 const safeIDPattern = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u
 
+const serviceStatuses = new Set(['operational', 'degraded', 'outage', 'unknown'])
+
 export interface AdminSession {
   account: {
     id: string
@@ -333,9 +335,13 @@ export function parseDashboard(value: unknown): AdminDashboard {
   return {
     services: list(source.services, 'services', (item) => {
       const health = record(item)
+      const status = text(health.status, 'services.status', true)
+      if (!serviceStatuses.has(status)) {
+        throw new Error('ADMIN_INVALID_RESPONSE:services.status')
+      }
       return {
         code: text(health.code, 'services.code', true),
-        status: text(health.status, 'services.status', true),
+        status,
         checked_at: instant(health.checked_at, 'services.checked_at'),
       }
     }),

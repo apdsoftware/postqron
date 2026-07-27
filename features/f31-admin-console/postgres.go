@@ -9,6 +9,18 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	operations "github.com/apdsoftware/postqron/features/f15-operations"
+)
+
+const (
+	dashboardServiceAPI                 = "api"
+	dashboardServiceDatabase            = "database"
+	dashboardServiceWorkerQueue         = "worker_queue"
+	dashboardServiceSchedulerPublishing = "scheduler_publishing"
+	dashboardCheckTimeout               = 2 * time.Second
+	dashboardFreshness                  = 30 * time.Second
+	dashboardSlowAPIThreshold           = 300 * time.Millisecond
 )
 
 type PostgresStore struct {
@@ -158,17 +170,62 @@ func (store *PostgresStore) SetAdmin(
 	return nil
 }
 
+// Dashboard reports the current KPI and service-health projection. Every
+// service status is derived from a real, timestamped signal collected on
+// this call; a dependency that could not be checked is reported unknown
+// rather than operational, and a database outage degrades the response
+// instead of hiding the other services behind a full request failure.
 func (store *PostgresStore) Dashboard(ctx context.Context) (Dashboard, error) {
 	now := store.clock().UTC()
+	thresholds := operations.DefaultAlertThresholds()
+
+	pingCtx, cancel := context.WithTimeout(ctx, dashboardCheckTimeout)
+	pingErr := store.database.PingContext(pingCtx)
+	cancel()
+	databaseReachable := pingErr == nil
+	apiLatency := store.clock().UTC().Sub(now)
+
 	result := Dashboard{
-		Services: []ServiceHealth{{
-			Code:      "api",
-			Status:    "operational",
-			CheckedAt: now,
-		}},
+		Services: []ServiceHealth{
+			projectedService(dashboardServiceAPI, now, operations.ServiceSignal{
+				Present:   true,
+				Reachable: true,
+				Warning:   !databaseReachable || apiLatency > dashboardSlowAPIThreshold,
+				CheckedAt: now,
+			}),
+			projectedService(dashboardServiceDatabase, now, operations.ServiceSignal{
+				Present:   true,
+				Reachable: databaseReachable,
+				Critical:  !databaseReachable,
+				CheckedAt: now,
+			}),
+		},
 		Entitlements: []EntitlementSummary{},
 		RecentAudit:  []AuditEvent{},
 	}
+
+	if !databaseReachable {
+		result.Services = append(result.Services,
+			projectedService(dashboardServiceWorkerQueue, now, operations.ServiceSignal{}),
+			projectedService(dashboardServiceSchedulerPublishing, now, operations.ServiceSignal{}),
+		)
+		return result, nil
+	}
+
+	workerSignal, err := store.workerQueueSignal(ctx, now, thresholds)
+	if err != nil {
+		result.Services = append(result.Services, projectedService(dashboardServiceWorkerQueue, now, operations.ServiceSignal{}))
+	} else {
+		result.Services = append(result.Services, projectedService(dashboardServiceWorkerQueue, now, workerSignal))
+	}
+
+	schedulerSignal, err := store.schedulerSignal(ctx, now, thresholds)
+	if err != nil {
+		result.Services = append(result.Services, projectedService(dashboardServiceSchedulerPublishing, now, operations.ServiceSignal{}))
+	} else {
+		result.Services = append(result.Services, projectedService(dashboardServiceSchedulerPublishing, now, schedulerSignal))
+	}
+
 	rows, err := store.database.QueryContext(ctx, `
 		SELECT
 			billing.workspace_id::text,
@@ -222,6 +279,91 @@ func (store *PostgresStore) Dashboard(ctx context.Context) (Dashboard, error) {
 		result.RecentAudit = append(result.RecentAudit, event)
 	}
 	return result, auditRows.Err()
+}
+
+func projectedService(code string, now time.Time, signal operations.ServiceSignal) ServiceHealth {
+	status := operations.ProjectServiceStatus(signal, now, dashboardFreshness)
+	checkedAt := signal.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = now
+	}
+	return ServiceHealth{Code: code, Status: string(status), CheckedAt: checkedAt}
+}
+
+// workerQueueSignal derives worker/queue health from the real F08 publishing
+// backlog: a queue depth or oldest-waiting-job age beyond the shared F15
+// thresholds is critical, and any unresolved dead letter is a warning.
+func (store *PostgresStore) workerQueueSignal(
+	ctx context.Context,
+	now time.Time,
+	thresholds operations.AlertThresholds,
+) (operations.ServiceSignal, error) {
+	var queueDepth int64
+	var oldestSeconds float64
+	var unresolvedFailures int64
+	err := store.database.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) FILTER (
+				WHERE status IN ('pending', 'retry_wait', 'publishing')
+			),
+			COALESCE(GREATEST(EXTRACT(EPOCH FROM (
+				$1::timestamptz - MIN(next_attempt_at) FILTER (
+					WHERE status IN ('pending', 'retry_wait', 'publishing')
+				)
+			)), 0), 0),
+			(
+				SELECT COUNT(*)
+				FROM f08_publication_dead_letters
+				WHERE resolved_at IS NULL
+			)
+		FROM f08_publication_destinations`,
+		now,
+	).Scan(&queueDepth, &oldestSeconds, &unresolvedFailures)
+	if err != nil {
+		return operations.ServiceSignal{}, err
+	}
+	oldestAge := time.Duration(oldestSeconds * float64(time.Second))
+	return operations.ServiceSignal{
+		Present:   true,
+		Reachable: true,
+		Critical: queueDepth > thresholds.MaxQueueDepth ||
+			oldestAge > thresholds.MaxOldestQueuedJobAge,
+		Warning:   unresolvedFailures > 0,
+		CheckedAt: now,
+	}, nil
+}
+
+// schedulerSignal derives scheduler/publishing health from the real F07
+// pending-command backlog, reusing the same shared F15 thresholds.
+func (store *PostgresStore) schedulerSignal(
+	ctx context.Context,
+	now time.Time,
+	thresholds operations.AlertThresholds,
+) (operations.ServiceSignal, error) {
+	var pending int64
+	var oldestSeconds float64
+	err := store.database.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE state = 'pending'),
+			COALESCE(GREATEST(EXTRACT(EPOCH FROM (
+				$1::timestamptz - MIN(execute_at_utc) FILTER (
+					WHERE state = 'pending'
+				)
+			)), 0), 0)
+		FROM f07_publication_commands`,
+		now,
+	).Scan(&pending, &oldestSeconds)
+	if err != nil {
+		return operations.ServiceSignal{}, err
+	}
+	oldestAge := time.Duration(oldestSeconds * float64(time.Second))
+	return operations.ServiceSignal{
+		Present:   true,
+		Reachable: true,
+		Critical:  oldestAge > thresholds.MaxOldestQueuedJobAge,
+		Warning:   pending > thresholds.MaxQueueDepth,
+		CheckedAt: now,
+	}, nil
 }
 
 func (store *PostgresStore) Search(

@@ -32,6 +32,19 @@ export async function fixtureReset(): Promise<void> {
   }
 }
 
+export async function fixtureHealth(
+  status: 'operational' | 'degraded' | 'outage' | 'unknown' | 'api_failure',
+): Promise<void> {
+  const response = await fetch(`${fixtureBaseURL}/__fixture/health`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+  if (!response.ok) {
+    throw new Error(`fixture health failed with ${response.status}`)
+  }
+}
+
 export async function session(
   context: BrowserContext,
   role: 'authenticated' | 'normal' | 'admin',
