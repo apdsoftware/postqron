@@ -36,6 +36,75 @@ test('falls back to English for an unsupported browser language', async ({
   await context.close()
 })
 
+test('pricing controls preserve only compatible pre-launch selections', async ({
+  page,
+}) => {
+  await page.goto('/en/prelaunch')
+
+  const quantity = page.getByLabel('Social channels')
+  const monthly = page.getByRole('button', { name: 'Monthly', exact: true })
+  const annual = page.getByRole('button', {
+    name: 'Annual — pay 10 months out of 12',
+    exact: true,
+  })
+  const start = page.locator('[data-plan="start"]')
+  const pro = page.locator('[data-plan="pro"]')
+  const team = page.locator('[data-plan="team"]')
+  const unlimited = page.locator('[data-plan="unlimited"]')
+
+  await expect(quantity).toHaveValue('1')
+  await expect(monthly).toHaveAttribute('aria-pressed', 'true')
+  await expect(start.getByRole('radio')).toBeChecked()
+  await expect(page.getByText(
+    'With annual billing you pay 10 monthly instalments upfront and use the service for 12 months.',
+    { exact: false },
+  )).toBeVisible()
+
+  await quantity.selectOption('4')
+  await expect(start.getByRole('radio')).toBeDisabled()
+  await expect(start.getByRole('link')).toHaveCount(0)
+  await expect(pro.getByRole('radio')).toBeChecked()
+
+  await team.getByRole('radio').check()
+  await quantity.selectOption('5')
+  await expect(team.getByRole('radio')).toBeChecked()
+  await annual.click()
+  await expect(annual).toHaveAttribute('aria-pressed', 'true')
+  await expect(quantity).toHaveValue('5')
+  await expect(team.getByRole('radio')).toBeChecked()
+  await expect(team).toContainText('You pay 10 months, you use the service for 12')
+
+  await quantity.selectOption('over_max')
+  await expect(start.getByRole('radio')).toBeDisabled()
+  await expect(pro.getByRole('radio')).toBeDisabled()
+  await expect(team.getByRole('radio')).toBeDisabled()
+  await expect(unlimited.getByRole('radio')).toBeChecked()
+  await expect(start.getByRole('link')).toHaveCount(0)
+  await expect(pro.getByRole('link')).toHaveCount(0)
+  await expect(team.getByRole('link')).toHaveCount(0)
+  await expect(unlimited.getByRole('link')).toHaveAttribute(
+    'href',
+    '/en/prelaunch/access',
+  )
+})
+
+test('pricing controls do not overflow supported viewport widths', async ({
+  page,
+}) => {
+  for (const width of [320, 375, 768, 1024]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/en/prelaunch')
+    const dimensions = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }))
+    expect(
+      dimensions.scrollWidth,
+      `horizontal overflow at ${width}px`,
+    ).toBeLessThanOrEqual(dimensions.clientWidth)
+  }
+})
+
 test('access request is explicit and separate from marketing', async ({
   page,
 }) => {

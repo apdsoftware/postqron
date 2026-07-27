@@ -12,6 +12,11 @@ import {
   localizeUrl,
 } from '../../f36-i18n/src/index.ts'
 import { parsePublicCatalog } from '../../f02-marketing-site/src/catalog.ts'
+import {
+  annualBillingTerms,
+  orderedPlans,
+  quantityOptions,
+} from '../../f02-marketing-site/src/pricing-model.ts'
 import PrelaunchPricing from '../components/PrelaunchPricing.vue'
 import { usePrelaunch } from '../runtime.ts'
 import { PRELAUNCH_CATALOGS } from '../src/catalogs.ts'
@@ -40,7 +45,11 @@ const catalog = computed(() => {
     return undefined
   }
   try {
-    return parsePublicCatalog(rawCatalog.value)
+    const parsed = parsePublicCatalog(rawCatalog.value)
+    orderedPlans(parsed)
+    quantityOptions(parsed)
+    annualBillingTerms(parsed)
+    return parsed
   } catch {
     return undefined
   }

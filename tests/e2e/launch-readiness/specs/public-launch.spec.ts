@@ -150,7 +150,9 @@ test('public and pre-launch surfaces fit mobile viewports without horizontal ove
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
     }
 
-    await expect(page.getByRole('combobox')).toBeVisible()
+    await expect(
+      page.getByRole('banner').getByRole('combobox', { name: 'Language' }),
+    ).toBeVisible()
   }
 })
 

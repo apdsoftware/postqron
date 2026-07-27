@@ -37,6 +37,21 @@ Local development allows `http://localhost:3000` and
 `GET /api/v1/prelaunch/status` reports the effective boolean and resolution
 source without returning the environment value or any secret.
 
+## Pricing controls
+
+The pre-launch plan comparison imports F2's shared runtime pricing model and
+localized pricing copy. It starts at monthly billing, one channel and the
+lowest compatible plan; exposes the catalog-derived channel range plus the
+over-limit option; and preserves an explicitly selected higher compatible
+plan. Incompatible lower plans stay visible but disabled and have no action.
+Every compatible action still requests early access—pre-launch never creates a
+checkout intent.
+
+Prices, limits, annual terms and quantity thresholds come only from the parsed
+`GET /api/v1/billing/plans` `d09-v2` catalog. If that catalog cannot support the
+shared model, the landing keeps the pricing controls fail-closed and shows the
+unavailable state.
+
 ## Activation and rollback
 
 Activation and rollback are configuration-only operations:
