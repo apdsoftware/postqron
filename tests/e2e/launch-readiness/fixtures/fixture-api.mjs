@@ -75,7 +75,7 @@ function reset() {
     entitlement: 'start',
     internal: false,
     audit: [],
-    adminPassword: 'fixture-admin-password',
+    adminVerifier: 'fixture-admin-password',
     adminSessions: new Set(['admin']),
     nextAdminSession: 1,
   }
@@ -238,7 +238,7 @@ const server = createServer(async (request, response) => {
     const input = JSON.parse((await body(request)).toString('utf8') || '{}')
     if (
       input.email !== 'admin@example.test'
-      || input.password !== state.adminPassword
+      || input.password !== state.adminVerifier
     ) {
       error(response, 401, 'AUTH_INVALID_CREDENTIALS')
       return
@@ -289,16 +289,16 @@ const server = createServer(async (request, response) => {
     if (
       typeof input.new_password !== 'string'
       || input.new_password.length < 12
-      || input.new_password === state.adminPassword
+      || input.new_password === state.adminVerifier
     ) {
       error(response, 400, 'AUTH_PASSWORD_WEAK')
       return
     }
-    if (input.current_password !== state.adminPassword) {
+    if (input.current_password !== state.adminVerifier) {
       error(response, 400, 'AUTH_CURRENT_PASSWORD_INVALID')
       return
     }
-    state.adminPassword = input.new_password
+    state.adminVerifier = input.new_password
     state.adminSessions.clear()
     const token = `admin-rotated-${state.nextAdminSession++}`
     state.adminSessions.add(token)
