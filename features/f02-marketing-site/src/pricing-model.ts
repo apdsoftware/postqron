@@ -207,23 +207,27 @@ export function annualBillingTerms(catalog: PublicCatalog): AnnualBillingTerms {
   if (paidPlans.length === 0) {
     throw new Error('PRICING_MODEL_NO_PURCHASABLE_PLAN')
   }
-  const terms = paidPlans.map((plan) => {
-    const monthly = plan.prices.monthly.amount_cents
-    const annual = plan.prices.annual.amount_cents
-    const yearAtMonthlyRate = MONTHS_OF_SERVICE_PER_YEAR * monthly
-    return {
-      monthsCharged: annual / monthly,
-      savingRatio: (yearAtMonthlyRate - annual) / yearAtMonthlyRate,
+  // priceForChannels bills tiered plans from price_tiers, not from
+  // plan.prices, so the annual/monthly ratio must hold on every tier too:
+  // a single divergent tier would silently break the advertised terms.
+  const ratios: number[] = []
+  for (const plan of paidPlans) {
+    ratios.push(plan.prices.annual.amount_cents / plan.prices.monthly.amount_cents)
+    for (const tier of plan.price_tiers) {
+      if (tier.monthly.amount_cents <= 0) {
+        throw new Error('PRICING_MODEL_INCONSISTENT_ANNUAL_TERMS')
+      }
+      ratios.push(tier.annual.amount_cents / tier.monthly.amount_cents)
     }
-  })
-  const [reference] = terms
-  if (terms.some(term => Math.abs(term.monthsCharged - reference!.monthsCharged) > 1e-9)) {
+  }
+  const [reference] = ratios
+  if (ratios.some(ratio => Math.abs(ratio - reference!) > 1e-9)) {
     throw new Error('PRICING_MODEL_INCONSISTENT_ANNUAL_TERMS')
   }
   return {
-    monthsCharged: reference!.monthsCharged,
+    monthsCharged: reference!,
     monthsOfService: MONTHS_OF_SERVICE_PER_YEAR,
-    savingRatio: reference!.savingRatio,
+    savingRatio: (MONTHS_OF_SERVICE_PER_YEAR - reference!) / MONTHS_OF_SERVICE_PER_YEAR,
   }
 }
 

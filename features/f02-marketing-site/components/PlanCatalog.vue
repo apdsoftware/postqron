@@ -62,6 +62,13 @@ const annualTermsParams = computed(() => ({
 }))
 const benchmarkChannels = computed(() =>
   selection.value.quantity === OVER_MAX_QUANTITY ? null : selection.value.quantity)
+const selectionAnnouncement = computed(() => interpolate(copy.value.selectedPlanAnnouncement, {
+  plan: displayName(currentPlan.value),
+  quantity: quantityOptionLabel(selection.value.quantity),
+  interval: selection.value.interval === 'monthly' ? copy.value.monthly : copy.value.annual,
+  total: `${formatMoney(total(currentPlan.value), locale.value)}${
+    selection.value.interval === 'monthly' ? copy.value.perMonth : copy.value.perYear}`,
+}))
 const benchmarkPlans = computed(() =>
   benchmarkChannels.value === null
     ? []
@@ -203,6 +210,7 @@ function href(plan: PublicPlan): string {
     <div class="pricing-controls">
       <div
         class="billing-toggle"
+        role="group"
         :aria-label="copy.intervalLabel"
       >
         <button
@@ -249,7 +257,7 @@ function href(plan: PublicPlan): string {
       class="sr-only"
       aria-live="polite"
     >
-      {{ interpolate(copy.selectedPlanAnnouncement, { plan: displayName(currentPlan) }) }}
+      {{ selectionAnnouncement }}
     </p>
 
     <div
@@ -276,6 +284,7 @@ function href(plan: PublicPlan): string {
           :checked="isSelected(plan)"
           :disabled="!compatible(plan)"
           :aria-label="displayName(plan)"
+          :aria-describedby="compatible(plan) ? undefined : `plan-incompatible-${plan.code}`"
           @change="choose(plan)"
         >
         <span
@@ -325,7 +334,10 @@ function href(plan: PublicPlan): string {
           </a>
         </template>
         <template v-else>
-          <p class="plan-card__incompatible">
+          <p
+            :id="`plan-incompatible-${plan.code}`"
+            class="plan-card__incompatible"
+          >
             {{ incompatibleReason(plan) }}
           </p>
         </template>

@@ -210,6 +210,43 @@ test('annual terms are derived from the catalog: 10 instalments, 12 months, 16.6
   assert.throws(() => annualBillingTerms(inconsistent), /INCONSISTENT_ANNUAL_TERMS/)
 })
 
+test('a single divergent price tier fails the annual terms closed', () => {
+  // priceForChannels bills Pro and Team from price_tiers, so a tier whose
+  // annual price is 11 monthly instalments must be rejected even when
+  // plan.prices still advertises 10.
+  const elevenTimes = buildCatalog()
+  const pro = elevenTimes.plans.find(entry => entry.code === 'pro')!
+  pro.price_tiers[0]!.annual = money(pro.price_tiers[0]!.monthly.amount_cents * 11)
+  assert.throws(() => annualBillingTerms(elevenTimes), /INCONSISTENT_ANNUAL_TERMS/)
+
+  const deepTier = buildCatalog()
+  const team = deepTier.plans.find(entry => entry.code === 'team')!
+  team.price_tiers[2]!.annual = money(team.price_tiers[2]!.monthly.amount_cents * 11)
+  assert.throws(() => annualBillingTerms(deepTier), /INCONSISTENT_ANNUAL_TERMS/)
+
+  const freeTier = buildCatalog()
+  freeTier.plans.find(entry => entry.code === 'pro')!.price_tiers[1]!.monthly = money(0)
+  assert.throws(() => annualBillingTerms(freeTier), /INCONSISTENT_ANNUAL_TERMS/)
+})
+
+test('billed annual totals match the advertised instalments at every purchasable quantity', () => {
+  const terms = annualBillingTerms(catalog)
+  for (const code of ['pro', 'team'] as const) {
+    const paid = plan(code)
+    for (let quantity = 1; quantity <= paid.limits.channels!; quantity += 1) {
+      assert.equal(
+        planTotal(paid, 'annual', quantity).amount_cents,
+        terms.monthsCharged * planTotal(paid, 'monthly', quantity).amount_cents,
+        `${code} at ${quantity} channels`,
+      )
+    }
+  }
+  assert.equal(
+    planTotal(plan('unlimited'), 'annual', OVER_MAX_QUANTITY).amount_cents,
+    terms.monthsCharged * planTotal(plan('unlimited'), 'monthly', OVER_MAX_QUANTITY).amount_cents,
+  )
+})
+
 test('annual saving equals two monthly instalments for the selected quantity', () => {
   assert.equal(annualSaving(plan('pro'), 4).amount_cents, 3_600)
   assert.equal(annualSaving(plan('team'), 9).amount_cents, 16_200)
@@ -247,6 +284,12 @@ test('the selector copy exists in all five locales and states the required guara
     assert.match(copy.annualExplainer, /\{serviceMonths\}/)
     assert.match(copy.annualExplainer, /\{percent\}/)
     assert.doesNotMatch(copy.quantityHelp, /\d/)
+    for (const parameter of ['{plan}', '{quantity}', '{interval}', '{total}']) {
+      assert.ok(
+        copy.selectedPlanAnnouncement.includes(parameter),
+        `${locale}.selectedPlanAnnouncement must announce ${parameter}`,
+      )
+    }
   }
 
   const terms = annualBillingTerms(catalog)
@@ -273,9 +316,13 @@ test('the pricing component consumes the shared model without duplicating rules'
   assert.match(component, /from '~\/src\/pricing-model'/)
   assert.match(component, /initialPricingSelection\(\)/)
   assert.match(component, /role="radiogroup"/)
+  assert.match(component, /role="group"/)
   assert.match(component, /type="radio"/)
   assert.match(component, /:disabled="!compatible\(plan\)"/)
   assert.match(component, /aria-live="polite"/)
+  assert.match(component, /selectionAnnouncement/)
+  assert.match(component, /aria-describedby/)
+  assert.match(component, /plan-incompatible-\$\{plan\.code\}/)
   assert.match(component, /checkoutIntentFor/)
   assert.doesNotMatch(component, /channels = ref\(3\)/)
   assert.doesNotMatch(component, /amount_cents:\s*\d/)
