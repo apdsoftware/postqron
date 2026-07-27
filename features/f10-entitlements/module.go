@@ -233,7 +233,19 @@ func (database sqlDatabase) QueryRow(
 	query string,
 	args ...any,
 ) pgx.Row {
-	return database.QueryRowContext(ctx, query, args...)
+	return sqlRow{Row: database.QueryRowContext(ctx, query, args...)}
+}
+
+type sqlRow struct {
+	*sql.Row
+}
+
+func (row sqlRow) Scan(dest ...any) error {
+	err := row.Row.Scan(dest...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return pgx.ErrNoRows
+	}
+	return err
 }
 
 type sqlRows struct {
