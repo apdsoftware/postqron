@@ -21,7 +21,6 @@ import {
   overMaxThreshold,
   perChannelPrice,
   planTotal,
-  quantityOptions,
   selectedPlan,
   withInterval,
   withPlan,
@@ -40,7 +39,8 @@ const copy = computed(() => pricingCopy(prelaunch.locale.value))
 const selection = ref(initialPricingSelection())
 const plans = computed(() => orderedPlans(props.catalog))
 const currentPlan = computed(() => selectedPlan(props.catalog, selection.value))
-const channelOptions = computed(() => quantityOptions(props.catalog))
+const sliderMaximum = computed(() => overMaxThreshold(props.catalog))
+const thresholdMarkers = computed(() => [1, 3, 6, 9, sliderMaximum.value])
 const annualTerms = computed(() => annualBillingTerms(props.catalog))
 const annualTermsParams = computed(() => ({
   months: number(annualTerms.value.monthsCharged),
@@ -71,22 +71,28 @@ function displayName(plan: PublicPlan): string {
 
 function quantityOptionLabel(option: ChannelQuantity): string {
   return option === OVER_MAX_QUANTITY
-    ? interpolate(copy.value.quantityOverMax, {
-        count: number(overMaxThreshold(props.catalog)),
-      })
+    ? `${number(sliderMaximum.value)}+`
     : number(option)
+}
+
+function quantityValueText(option: ChannelQuantity): string {
+  const label = quantityOptionLabel(option)
+  const key = option === 1 ? copy.value.channel : copy.value.channels
+  return interpolate(key, { count: label })
 }
 
 function setBillingInterval(interval: BillingInterval) {
   selection.value = withInterval(selection.value, interval)
 }
 
-const quantityValue = computed({
-  get: () => String(selection.value.quantity),
-  set: (raw: string) => {
-    const quantity: ChannelQuantity = raw === OVER_MAX_QUANTITY
+const sliderPosition = computed({
+  get: () => selection.value.quantity === OVER_MAX_QUANTITY
+    ? sliderMaximum.value
+    : selection.value.quantity,
+  set: (position: number) => {
+    const quantity: ChannelQuantity = position === sliderMaximum.value
       ? OVER_MAX_QUANTITY
-      : Number(raw)
+      : position
     selection.value = withQuantity(props.catalog, selection.value, quantity)
   },
 })
@@ -229,22 +235,43 @@ function incompatibleReason(plan: PublicPlan): string {
         {{ interpolate(copy.annualExplainer, annualTermsParams) }}
       </p>
 
-      <label class="prelaunch-pricing__quantity">
-        <strong>{{ copy.quantityLabel }}</strong>
-        <select
-          id="prelaunch-channel-quantity"
-          v-model="quantityValue"
-        >
-          <option
-            v-for="option in channelOptions"
-            :key="String(option)"
-            :value="String(option)"
+      <div class="prelaunch-pricing__quantity">
+        <div class="prelaunch-pricing__quantity-heading">
+          <label for="prelaunch-channel-quantity">
+            <strong>{{ copy.quantityLabel }}</strong>
+          </label>
+          <output
+            for="prelaunch-channel-quantity"
+            aria-live="polite"
           >
-            {{ quantityOptionLabel(option) }}
-          </option>
-        </select>
+            {{ quantityValueText(selection.quantity) }}
+          </output>
+        </div>
+        <input
+          id="prelaunch-channel-quantity"
+          v-model.number="sliderPosition"
+          type="range"
+          min="1"
+          :max="sliderMaximum"
+          step="1"
+          :aria-valuetext="quantityValueText(selection.quantity)"
+        >
+        <div
+          class="prelaunch-pricing__markers"
+          aria-hidden="true"
+        >
+          <span
+            v-for="marker in thresholdMarkers"
+            :key="marker"
+          >
+            {{ marker === sliderMaximum ? `${number(marker)}+` : number(marker) }}
+          </span>
+        </div>
+        <p class="prelaunch-pricing__guide">
+          {{ prelaunch.translate('pricing.sliderGuide') }}
+        </p>
         <small>{{ copy.quantityHelp }}</small>
-      </label>
+      </div>
     </div>
 
     <p
@@ -442,20 +469,53 @@ function incompatibleReason(plan: PublicPlan): string {
 
 .prelaunch-pricing__quantity {
   display: grid;
-  width: min(30rem, 100%);
-  gap: 0.5rem;
+  width: min(38rem, 100%);
+  gap: 0.65rem;
   color: var(--pq-color-text);
 }
 
-.prelaunch-pricing__quantity select {
+.prelaunch-pricing__quantity-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+}
+
+.prelaunch-pricing__quantity output {
+  color: var(--pq-color-brand);
+  font-weight: var(--pq-font-weight-bold);
+}
+
+.prelaunch-pricing__quantity input[type="range"] {
   width: 100%;
   min-height: var(--pq-size-target-min);
-  border: 1px solid var(--pq-color-border);
+  margin: 0;
+  accent-color: var(--pq-color-brand);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.prelaunch-pricing__quantity input[type="range"]:focus-visible {
   border-radius: var(--pq-radius-md);
-  padding: 0.65rem 0.8rem;
+  outline: 3px solid var(--pq-color-brand);
+  outline-offset: 2px;
+}
+
+.prelaunch-pricing__markers {
+  display: flex;
+  justify-content: space-between;
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.prelaunch-pricing__guide {
+  margin: 0;
   color: var(--pq-color-text);
-  background: #fff;
-  font: inherit;
+  font-size: var(--pq-font-size-sm);
+  font-weight: var(--pq-font-weight-semibold);
+  text-align: center;
 }
 
 .prelaunch-pricing__quantity small {
