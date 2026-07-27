@@ -16,19 +16,25 @@ const (
 )
 
 type readerStub struct {
-	dashboardCalls int
-	searchCalls    int
-	planCalls      int
-	auditCalls     int
-	detailCalls    int
-	plans          []PlanRow
-	auditEvents    []AuditEvent
-	planTotal      int
-	auditTotal     int
-	lastPlanQuery  PlanQuery
-	lastAuditQuery AuditQuery
-	lastPlanPage   PageRequest
-	lastAuditPage  PageRequest
+	dashboardCalls  int
+	searchCalls     int
+	planCalls       int
+	auditCalls      int
+	detailCalls     int
+	plans           []PlanRow
+	auditEvents     []AuditEvent
+	planTotal       int
+	auditTotal      int
+	lastPlanQuery   PlanQuery
+	lastAuditQuery  AuditQuery
+	lastPlanPage    PageRequest
+	lastAuditPage   PageRequest
+	userListCalls   []UserDirectoryQuery
+	workspaceCalls  []WorkspaceDirectoryQuery
+	userPage        UserDirectoryPage
+	workspacePage   WorkspaceDirectoryPage
+	userDetail      UserDirectoryItem
+	userDetailFound bool
 }
 
 func (reader *readerStub) Dashboard(context.Context) (Dashboard, error) {
@@ -109,6 +115,29 @@ func (reader *readerStub) AuditEvent(
 		}
 	}
 	return AuditEvent{}, false, nil
+}
+
+func (reader *readerStub) ListUsers(
+	_ context.Context,
+	query UserDirectoryQuery,
+) (UserDirectoryPage, error) {
+	reader.userListCalls = append(reader.userListCalls, query)
+	return reader.userPage, nil
+}
+
+func (reader *readerStub) User(
+	context.Context,
+	string,
+) (UserDirectoryItem, bool, error) {
+	return reader.userDetail, reader.userDetailFound, nil
+}
+
+func (reader *readerStub) ListWorkspaces(
+	_ context.Context,
+	query WorkspaceDirectoryQuery,
+) (WorkspaceDirectoryPage, error) {
+	reader.workspaceCalls = append(reader.workspaceCalls, query)
+	return reader.workspacePage, nil
 }
 
 type planStub struct {

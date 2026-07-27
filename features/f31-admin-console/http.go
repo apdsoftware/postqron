@@ -53,6 +53,11 @@ func NewHandler(
 	mux.HandleFunc("GET /api/v1/admin/audit", admin.audit)
 	mux.HandleFunc("GET /api/v1/admin/audit/export", admin.exportAudit)
 	mux.HandleFunc("GET /api/v1/admin/audit/{event_id}", admin.auditDetail)
+	mux.HandleFunc("GET /api/v1/admin/users", admin.users)
+	mux.HandleFunc("GET /api/v1/admin/users/export", admin.exportUsers)
+	mux.HandleFunc("GET /api/v1/admin/users/{account_id}", admin.user)
+	mux.HandleFunc("GET /api/v1/admin/workspaces", admin.workspaces)
+	mux.HandleFunc("GET /api/v1/admin/workspaces/export", admin.exportWorkspaces)
 	mux.HandleFunc(
 		"PUT /api/v1/admin/workspaces/{workspace_id}/internal-plan",
 		admin.assignInternalPlan,
@@ -278,6 +283,20 @@ func (handler *HTTPHandler) plans(writer http.ResponseWriter, request *http.Requ
 	writeJSON(writer, http.StatusOK, value)
 }
 
+func (handler *HTTPHandler) users(writer http.ResponseWriter, request *http.Request) {
+	query, err := parseUserDirectoryQuery(request.URL.Query())
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTERS")
+		return
+	}
+	value, err := handler.service.ListUsers(request.Context(), query)
+	if err != nil {
+		writeDirectoryError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
 func (handler *HTTPHandler) audit(writer http.ResponseWriter, request *http.Request) {
 	query, page, err := parseAuditQuery(request.URL.Query())
 	if err != nil {
@@ -310,6 +329,18 @@ func (handler *HTTPHandler) auditDetail(writer http.ResponseWriter, request *htt
 		default:
 			writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
 		}
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
+func (handler *HTTPHandler) user(writer http.ResponseWriter, request *http.Request) {
+	value, err := handler.service.User(
+		request.Context(),
+		request.PathValue("account_id"),
+	)
+	if err != nil {
+		writeDirectoryError(writer, err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, value)
@@ -413,6 +444,206 @@ func writeExportError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, ErrInvalidRequest):
 		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
 	case errors.Is(err, ErrExportLimitExceeded):
+		writeError(writer, http.StatusRequestEntityTooLarge, "ADMIN_EXPORT_LIMIT_EXCEEDED")
+	default:
+		writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
+	}
+}
+
+func (handler *HTTPHandler) workspaces(writer http.ResponseWriter, request *http.Request) {
+	query, err := parseWorkspaceDirectoryQuery(request.URL.Query())
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTERS")
+		return
+	}
+	value, err := handler.service.ListWorkspaces(request.Context(), query)
+	if err != nil {
+		writeDirectoryError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
+func (handler *HTTPHandler) exportUsers(writer http.ResponseWriter, request *http.Request) {
+	query, err := parseUserDirectoryQuery(request.URL.Query())
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTERS")
+		return
+	}
+	value, err := handler.service.ExportUsers(
+		request.Context(),
+		query,
+		request.URL.Query().Get("format"),
+	)
+	if err != nil {
+		writeDirectoryError(writer, err)
+		return
+	}
+	writeExport(writer, value)
+}
+
+func (handler *HTTPHandler) exportWorkspaces(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	query, err := parseWorkspaceDirectoryQuery(request.URL.Query())
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTERS")
+		return
+	}
+	value, err := handler.service.ExportWorkspaces(
+		request.Context(),
+		query,
+		request.URL.Query().Get("format"),
+	)
+	if err != nil {
+		writeDirectoryError(writer, err)
+		return
+	}
+	writeExport(writer, value)
+}
+
+func parseUserDirectoryQuery(values url.Values) (UserDirectoryQuery, error) {
+	page, pageSize, err := parseDirectoryPage(values)
+	if err != nil {
+		return UserDirectoryQuery{}, err
+	}
+	verified, err := optionalBool(values.Get("email_verified"))
+	if err != nil {
+		return UserDirectoryQuery{}, err
+	}
+	registeredFrom, registeredTo, err := parseDateRange(
+		values.Get("registered_from"),
+		values.Get("registered_to"),
+	)
+	if err != nil {
+		return UserDirectoryQuery{}, err
+	}
+	lastLoginFrom, lastLoginTo, err := parseDateRange(
+		values.Get("last_login_from"),
+		values.Get("last_login_to"),
+	)
+	if err != nil {
+		return UserDirectoryQuery{}, err
+	}
+	return normalizeUserDirectoryQuery(UserDirectoryQuery{
+		Search:         values.Get("q"),
+		Status:         values.Get("status"),
+		EmailVerified:  verified,
+		Plan:           values.Get("plan"),
+		LoginMethod:    values.Get("login_method"),
+		RegisteredFrom: registeredFrom,
+		RegisteredTo:   registeredTo,
+		LastLoginFrom:  lastLoginFrom,
+		LastLoginTo:    lastLoginTo,
+		Page:           page,
+		PageSize:       pageSize,
+		Sort:           values.Get("sort"),
+		Direction:      values.Get("direction"),
+	})
+}
+
+func parseWorkspaceDirectoryQuery(values url.Values) (WorkspaceDirectoryQuery, error) {
+	page, pageSize, err := parseDirectoryPage(values)
+	if err != nil {
+		return WorkspaceDirectoryQuery{}, err
+	}
+	createdFrom, createdTo, err := parseDateRange(
+		values.Get("created_from"),
+		values.Get("created_to"),
+	)
+	if err != nil {
+		return WorkspaceDirectoryQuery{}, err
+	}
+	updatedFrom, updatedTo, err := parseDateRange(
+		values.Get("updated_from"),
+		values.Get("updated_to"),
+	)
+	if err != nil {
+		return WorkspaceDirectoryQuery{}, err
+	}
+	return normalizeWorkspaceDirectoryQuery(WorkspaceDirectoryQuery{
+		Search:      values.Get("q"),
+		Status:      values.Get("status"),
+		Plan:        values.Get("plan"),
+		Owner:       values.Get("owner"),
+		CreatedFrom: createdFrom,
+		CreatedTo:   createdTo,
+		UpdatedFrom: updatedFrom,
+		UpdatedTo:   updatedTo,
+		Page:        page,
+		PageSize:    pageSize,
+		Sort:        values.Get("sort"),
+		Direction:   values.Get("direction"),
+	})
+}
+
+func parseDirectoryPage(values url.Values) (int, int, error) {
+	page, pageSize := 1, DefaultDirectoryPageSize
+	var err error
+	if values.Get("page") != "" {
+		page, err = strconv.Atoi(values.Get("page"))
+		if err != nil {
+			return 0, 0, ErrInvalidRequest
+		}
+	}
+	if values.Get("page_size") != "" {
+		pageSize, err = strconv.Atoi(values.Get("page_size"))
+		if err != nil {
+			return 0, 0, ErrInvalidRequest
+		}
+	}
+	return page, pageSize, nil
+}
+
+func optionalBool(value string) (*bool, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil, ErrInvalidRequest
+	}
+	return &parsed, nil
+}
+
+func parseDateRange(from, to string) (*time.Time, *time.Time, error) {
+	parse := func(value string) (*time.Time, error) {
+		if value == "" {
+			return nil, nil
+		}
+		parsed, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			return nil, ErrInvalidRequest
+		}
+		parsed = parsed.UTC()
+		return &parsed, nil
+	}
+	start, err := parse(from)
+	if err != nil {
+		return nil, nil, err
+	}
+	end, err := parse(to)
+	if err != nil {
+		return nil, nil, err
+	}
+	if end != nil {
+		inclusiveEnd := end.AddDate(0, 0, 1)
+		end = &inclusiveEnd
+	}
+	if !validRange(start, end) {
+		return nil, nil, ErrInvalidRequest
+	}
+	return start, end, nil
+}
+
+func writeDirectoryError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrInvalidRequest):
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTERS")
+	case errors.Is(err, ErrAdminNotFound):
+		writeError(writer, http.StatusNotFound, "ADMIN_NOT_FOUND")
+	case errors.Is(err, ErrAdminExportTooLarge):
 		writeError(writer, http.StatusRequestEntityTooLarge, "ADMIN_EXPORT_LIMIT_EXCEEDED")
 	default:
 		writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
@@ -529,6 +760,19 @@ func parseOptionalPositiveInt(value string) (int, error) {
 		return 0, ErrInvalidRequest
 	}
 	return result, nil
+}
+
+func writeExport(writer http.ResponseWriter, value DirectoryExport) {
+	writer.Header().Set("Content-Type", value.ContentType)
+	writer.Header().Set(
+		"Content-Disposition",
+		`attachment; filename="`+value.Filename+`"`,
+	)
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
+	writer.Header().Set("Referrer-Policy", "no-referrer")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(value.Body)
 }
 
 func (handler *HTTPHandler) assignInternalPlan(

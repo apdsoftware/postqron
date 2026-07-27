@@ -99,7 +99,7 @@
   min-height: 4.5rem;
   border-bottom: 1px solid var(--pq-color-border);
   padding: var(--pq-space-3) clamp(1rem, 4vw, 2.5rem);
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: var(--pq-space-4);
   align-items: center;
   background: color-mix(in srgb, var(--pq-color-surface) 94%, transparent);
@@ -122,6 +122,45 @@
 
 .admin-profile-menu {
   position: relative;
+}
+
+.admin-logout {
+  position: relative;
+}
+
+.admin-logout__button {
+  min-height: 2.75rem;
+  border: 1px solid var(--pq-color-border);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-2) var(--pq-space-3);
+  color: var(--pq-color-danger, #9d1c1c);
+  background: var(--pq-color-surface);
+  font-weight: var(--pq-font-weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.admin-logout__button:hover {
+  background: var(--pq-color-danger-surface, #fbeaea);
+}
+
+.admin-logout__button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.admin-logout__error {
+  position: absolute;
+  top: calc(100% + var(--pq-space-2));
+  right: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  border: 1px solid var(--pq-color-danger, #9d1c1c);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-2) var(--pq-space-3);
+  color: var(--pq-color-danger, #9d1c1c);
+  background: var(--pq-color-danger-surface, #fbeaea);
+  box-shadow: var(--pq-shadow-md);
+  font-size: var(--pq-font-size-sm);
 }
 
 .admin-profile-menu summary {
@@ -425,6 +464,35 @@
   margin: var(--pq-space-4) 0 0;
   color: var(--pq-color-text-muted);
   font-size: var(--pq-font-size-sm);
+}
+
+.admin-password {
+  width: min(40rem, 100%);
+}
+
+.admin-password > p {
+  color: var(--pq-color-text-muted);
+}
+
+.admin-password form {
+  display: grid;
+  margin-top: var(--pq-space-5);
+  gap: var(--pq-space-3);
+}
+
+.admin-password input {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--pq-color-border-strong);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-3);
+  color: var(--pq-color-text);
+  background: var(--pq-color-surface);
+}
+
+.admin-password form > button {
+  width: fit-content;
+  margin-top: var(--pq-space-2);
 }
 
 .admin-confirmation {

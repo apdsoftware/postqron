@@ -1,7 +1,7 @@
 schema_version: 1
 id: admin-console
 kind: web
-version: 0.1.0
+version: 0.2.0
 entrypoints:
   server: ./module.go
   web: ./runtime.ts
@@ -12,6 +12,8 @@ dependencies:
   - f11-internal-plan
   - i18n
   - operations
+  - scheduling
+  - social-connections
   - workspaces
 migrations:
   - ./migrations/000001_create_admin_console.sql
@@ -79,6 +81,46 @@ server:
       methods: [GET]
       visibility: private
     - path: /admin/audit/{event_id}
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/users
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/users
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/users/export
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/users/export
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/users/{account_id}
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/users/{account_id}
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/workspaces
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/workspaces
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/workspaces/export
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/workspaces/export
       handler: Admin
       methods: [OPTIONS]
       visibility: "public"

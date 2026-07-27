@@ -23,9 +23,20 @@ const (
 	defaultPasswordSaltLength  = 16
 	defaultPasswordKeyLength   = 32
 	defaultPasswordSessionTTL  = 30 * 24 * time.Hour
+	defaultPasswordReauthLimit = 5 * time.Minute
 )
 
-var ErrInvalidCredentials = errors.New("invalid email or password")
+var (
+	ErrInvalidCredentials        = errors.New("invalid email or password")
+	ErrPasswordUnauthenticated   = errors.New("password session is unavailable")
+	ErrPasswordCSRFInvalid       = errors.New("password CSRF token is invalid")
+	ErrPasswordReauthRequired    = errors.New("recent password authentication is required")
+	ErrCurrentPasswordInvalid    = errors.New("current password is invalid")
+	ErrPasswordConfirmation      = errors.New("password confirmation does not match")
+	ErrPasswordPolicy            = errors.New("password does not satisfy policy")
+	ErrPasswordChangeRateLimited = errors.New("password change is rate limited")
+	ErrPasswordChangeConflict    = errors.New("password changed concurrently")
+)
 
 type PasswordParameters struct {
 	Memory      uint32
@@ -160,17 +171,41 @@ type PasswordSession struct {
 	ExpiresAt       time.Time
 }
 
+type PasswordSessionContext struct {
+	AccountID         string
+	PasswordHash      string
+	AuthenticatedAt   time.Time
+	ChangeLockedUntil *time.Time
+}
+
+type PasswordChange struct {
+	AccountID               string
+	CurrentPasswordHash     string
+	CurrentSessionTokenHash string
+	NewPasswordHash         string
+	NewSession              PasswordSession
+}
+
 type PasswordStore interface {
 	CredentialByEmail(context.Context, string) (PasswordCredential, bool, error)
 	RecordPasswordFailure(context.Context, string, time.Time) error
 	CompletePasswordLogin(context.Context, PasswordSession, string, time.Time) error
+	PasswordSession(
+		context.Context,
+		string,
+		time.Time,
+	) (PasswordSessionContext, bool, error)
+	RecordPasswordChangeFailure(context.Context, string, string, time.Time) error
+	CompletePasswordChange(context.Context, PasswordChange, string, time.Time) error
+	RevokePasswordSession(context.Context, string, string, time.Time) error
 }
 
 type PasswordService struct {
-	store      PasswordStore
-	now        func() time.Time
-	sessionTTL time.Duration
-	dummyHash  string
+	store        PasswordStore
+	now          func() time.Time
+	sessionTTL   time.Duration
+	reauthWindow time.Duration
+	dummyHash    string
 }
 
 func NewPasswordService(
@@ -198,10 +233,11 @@ func NewPasswordService(
 		return nil, err
 	}
 	return &PasswordService{
-		store:      store,
-		now:        now,
-		sessionTTL: sessionTTL,
-		dummyHash:  dummyHash,
+		store:        store,
+		now:          now,
+		sessionTTL:   sessionTTL,
+		reauthWindow: defaultPasswordReauthLimit,
+		dummyHash:    dummyHash,
 	}, nil
 }
 
@@ -250,6 +286,124 @@ func (service *PasswordService) Login(
 		return "", time.Time{}, err
 	}
 	return token, expiry, nil
+}
+
+func (service *PasswordService) ChangePassword(
+	ctx context.Context,
+	sessionToken, csrfToken, currentPassword, newPassword, confirmation string,
+) (string, time.Time, error) {
+	if strings.TrimSpace(sessionToken) == "" {
+		return "", time.Time{}, ErrPasswordUnauthenticated
+	}
+	if !validPasswordCSRFToken(sessionToken, csrfToken) {
+		return "", time.Time{}, ErrPasswordCSRFInvalid
+	}
+	if newPassword != confirmation {
+		return "", time.Time{}, ErrPasswordConfirmation
+	}
+	if err := validatePassword(newPassword); err != nil {
+		return "", time.Time{}, ErrPasswordPolicy
+	}
+
+	now := service.now().UTC()
+	tokenHash := tokenDigest(sessionToken)
+	session, exists, err := service.store.PasswordSession(ctx, tokenHash, now)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !exists {
+		return "", time.Time{}, ErrPasswordUnauthenticated
+	}
+	if session.ChangeLockedUntil != nil && session.ChangeLockedUntil.After(now) {
+		return "", time.Time{}, ErrPasswordChangeRateLimited
+	}
+	if session.AuthenticatedAt.After(now) ||
+		now.Sub(session.AuthenticatedAt) > service.reauthWindow {
+		return "", time.Time{}, ErrPasswordReauthRequired
+	}
+	valid, err := VerifyPassword(session.PasswordHash, currentPassword)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !valid {
+		if recordErr := service.store.RecordPasswordChangeFailure(
+			ctx,
+			session.AccountID,
+			secureEventID(),
+			now,
+		); recordErr != nil {
+			return "", time.Time{}, recordErr
+		}
+		return "", time.Time{}, ErrCurrentPasswordInvalid
+	}
+	samePassword, err := VerifyPassword(session.PasswordHash, newPassword)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if samePassword {
+		return "", time.Time{}, ErrPasswordPolicy
+	}
+	newHash, err := HashPassword(newPassword, DefaultPasswordParameters())
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	newToken, err := randomToken(32)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	sessionID, err := randomToken(18)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	expiry := now.Add(service.sessionTTL)
+	change := PasswordChange{
+		AccountID:               session.AccountID,
+		CurrentPasswordHash:     session.PasswordHash,
+		CurrentSessionTokenHash: tokenHash,
+		NewPasswordHash:         newHash,
+		NewSession: PasswordSession{
+			ID:              sessionID,
+			AccountID:       session.AccountID,
+			TokenHash:       tokenDigest(newToken),
+			CreatedAt:       now,
+			AuthenticatedAt: now,
+			ExpiresAt:       expiry,
+		},
+	}
+	if err := service.store.CompletePasswordChange(
+		ctx,
+		change,
+		secureEventID(),
+		now,
+	); err != nil {
+		return "", time.Time{}, err
+	}
+	return newToken, expiry, nil
+}
+
+func (service *PasswordService) Logout(
+	ctx context.Context,
+	sessionToken, csrfToken string,
+) error {
+	if strings.TrimSpace(sessionToken) == "" {
+		return nil
+	}
+	if !validPasswordCSRFToken(sessionToken, csrfToken) {
+		return ErrPasswordCSRFInvalid
+	}
+	return service.store.RevokePasswordSession(
+		ctx,
+		tokenDigest(sessionToken),
+		secureEventID(),
+		service.now().UTC(),
+	)
+}
+
+func validPasswordCSRFToken(sessionToken, supplied string) bool {
+	expected := sha256.Sum256([]byte("postqron-admin-csrf\x00" + sessionToken))
+	expectedHex := hex.EncodeToString(expected[:])
+	return len(supplied) == len(expectedHex) &&
+		subtle.ConstantTimeCompare([]byte(supplied), []byte(expectedHex)) == 1
 }
 
 func normalizePasswordEmail(value string) (string, error) {

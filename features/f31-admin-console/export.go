@@ -23,7 +23,7 @@ func writeTabularExport(
 ) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "csv":
-		content, err := encodeCSV(data)
+		content, err := encodeTabularCSV(data)
 		if err != nil {
 			writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
 			return
@@ -35,7 +35,7 @@ func writeTabularExport(
 			content,
 		)
 	case "xlsx":
-		content, err := encodeXLSX(data)
+		content, err := encodeTabularXLSX(data)
 		if err != nil {
 			writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
 			return
@@ -68,7 +68,7 @@ func writeDownload(
 	_, _ = writer.Write(content)
 }
 
-func encodeCSV(data tabularExport) ([]byte, error) {
+func encodeTabularCSV(data tabularExport) ([]byte, error) {
 	var content bytes.Buffer
 	content.WriteString("\xEF\xBB\xBF")
 	output := csv.NewWriter(&content)
@@ -87,7 +87,7 @@ func encodeCSV(data tabularExport) ([]byte, error) {
 	return content.Bytes(), nil
 }
 
-func encodeXLSX(data tabularExport) ([]byte, error) {
+func encodeTabularXLSX(data tabularExport) ([]byte, error) {
 	var content bytes.Buffer
 	archive := zip.NewWriter(&content)
 	files := map[string]string{
@@ -110,7 +110,7 @@ func encodeXLSX(data tabularExport) ([]byte, error) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
 </Relationships>`,
-		"xl/worksheets/sheet1.xml": worksheetXML(data),
+		"xl/worksheets/sheet1.xml": tabularWorksheetXML(data),
 	}
 	for _, name := range []string{
 		"[Content_Types].xml",
@@ -133,7 +133,7 @@ func encodeXLSX(data tabularExport) ([]byte, error) {
 	return content.Bytes(), nil
 }
 
-func worksheetXML(data tabularExport) string {
+func tabularWorksheetXML(data tabularExport) string {
 	var content strings.Builder
 	content.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
 	content.WriteString(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)

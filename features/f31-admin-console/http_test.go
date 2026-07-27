@@ -178,8 +178,8 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 		t.Fatal(err)
 	}
 	source := string(manifest)
-	if strings.Count(source, "methods: [OPTIONS]") != 10 ||
-		strings.Count(source, `visibility: "public"`) != 11 {
+	if strings.Count(source, "methods: [OPTIONS]") != 15 ||
+		strings.Count(source, `visibility: "public"`) != 16 {
 		t.Fatalf("public session/preflight routes are incomplete:\n%s", source)
 	}
 	if !strings.Contains(source, "methods: [GET]\n      visibility: \"public\"") {
@@ -196,6 +196,11 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 		{"/admin/audit", "[GET]"},
 		{"/admin/audit/export", "[GET]"},
 		{"/admin/audit/{event_id}", "[GET]"},
+		{"/admin/users", "[GET]"},
+		{"/admin/users/export", "[GET]"},
+		{"/admin/users/{account_id}", "[GET]"},
+		{"/admin/workspaces", "[GET]"},
+		{"/admin/workspaces/export", "[GET]"},
 		{"/admin/workspaces/{workspace_id}/internal-plan", "[PUT, DELETE]"},
 		{"/admin/admins/{account_id}", "[PUT, DELETE]"},
 	} {
@@ -207,8 +212,8 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 			t.Fatalf("admin data route left the private channel: %s", route.path)
 		}
 	}
-	// Nine server data routes and all six admin web routes must remain private.
-	if strings.Count(source, "\n      visibility: private") != 15 {
+	// Fourteen server data routes and all six admin web routes must remain private.
+	if strings.Count(source, "\n      visibility: private") != 20 {
 		t.Fatalf("admin data and web routes no longer remain private:\n%s", source)
 	}
 	for _, methods := range []string{
