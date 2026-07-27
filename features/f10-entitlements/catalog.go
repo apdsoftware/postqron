@@ -5,7 +5,15 @@ import (
 	"slices"
 )
 
-const CatalogVersion = "d09-v1"
+const (
+	// CatalogVersion identifies the public entitlement contract. It changes
+	// when public limits change so consumers that pin the contract fail closed.
+	CatalogVersion = "d09-v2"
+
+	// PaddleCatalogVersion remains unchanged because the Product Owner decision
+	// changes entitlements only, not Paddle products, prices, or quantity bounds.
+	PaddleCatalogVersion = "d09-v1"
+)
 
 type PlanCode string
 
@@ -102,10 +110,10 @@ var publicCatalog = []PublicPlan{
 		},
 		PriceTiers: paidTiers(450, 300, 225),
 		Limits: PlanLimits{
-			Members:                         limit(1),
+			Members:                         limit(3),
 			Channels:                        limit(6),
-			ScheduledPublications:           limit(500),
-			ScheduledPublicationsPerChannel: limit(500),
+			ScheduledPublications:           limit(250),
+			ScheduledPublicationsPerChannel: limit(250),
 		},
 	},
 	{
@@ -118,14 +126,14 @@ var publicCatalog = []PublicPlan{
 		},
 		PriceTiers: paidTiers(900, 300, 225),
 		Limits: PlanLimits{
-			Members:                         limit(9),
+			Members:                         limit(6),
 			Channels:                        limit(9),
 			ScheduledPublications:           limit(500),
 			ScheduledPublicationsPerChannel: limit(500),
 		},
 		Trial: &TrialTerms{
 			Days:                            14,
-			Members:                         9,
+			Members:                         6,
 			Channels:                        9,
 			ScheduledPublicationsPerChannel: 500,
 		},

@@ -1,7 +1,7 @@
 schema_version: 1
 id: f10-entitlements
 kind: api
-version: 0.5.0
+version: 0.6.0
 entrypoints:
   server: ./module.go
 dependencies:
@@ -11,6 +11,7 @@ migrations:
   - ./migrations/000002_paddle_d07.sql
   - ./migrations/000003_paddle_dunning_30_days.sql
   - ./migrations/000004_d09_public_unlimited.sql
+  - ./migrations/000005_po_20260727_plan_limits.sql
 server:
   routes:
     - path: /billing/plans

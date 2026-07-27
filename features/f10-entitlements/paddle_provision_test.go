@@ -29,7 +29,7 @@ func loadTestPaddleManifest(t *testing.T) PaddleCatalogManifest {
 
 func TestPaddleCatalogManifestExactlyMatchesD09(t *testing.T) {
 	manifest := loadTestPaddleManifest(t)
-	if manifest.Version != CatalogVersion || len(manifest.Products) != 3 {
+	if manifest.Version != PaddleCatalogVersion || len(manifest.Products) != 3 {
 		t.Fatalf("manifest = %#v", manifest)
 	}
 	manifest.Products[2].Prices[0].UnitAmountCents++
