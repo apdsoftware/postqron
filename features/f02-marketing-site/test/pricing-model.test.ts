@@ -356,7 +356,7 @@ test('the pricing component consumes the shared model without duplicating rules'
   assert.match(component, /:max="sliderMaximum"/)
   assert.match(component, /step="1"/)
   assert.match(component, /:aria-valuetext="quantityOptionLabel\(selection\.quantity\)"/)
-  assert.match(component, /@input="onQuantityInput"/)
+  assert.match(component, /@input="setQuantity/)
   assert.match(component, /quantity-control__markers/)
   assert.match(component, /sliderMarkers/)
   assert.doesNotMatch(component, /<select/)
