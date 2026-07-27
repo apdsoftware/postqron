@@ -49,8 +49,9 @@ never serialized into public contracts or provider errors.
 ## Catalog dry-run
 
 The check is read-only. It fetches each configured Paddle price and verifies its
-product, active status, EUR amount, and billing interval without changing the
-local database or Paddle:
+product, active status, EUR amount, billing interval, location-based tax mode,
+absence of a Paddle trial, and D09 quantity bounds without changing the local
+database or Paddle:
 
 ```sh
 cd features/f10-entitlements
@@ -59,6 +60,24 @@ GOWORK=off go run ./cmd/paddle-catalog-check
 
 Run it once with sandbox credentials and once with production credentials
 before a catalog cutover.
+
+## Catalog provisioning
+
+`infra/paddle/catalog-d09-v1.json` is the versioned desired catalog and contains
+no credentials or provider IDs. The provisioner accepts IDs only from Paddle
+responses, is read-only by default, and creates missing marked resources only
+when `--apply` is explicit:
+
+```sh
+cd features/f10-entitlements
+GOWORK=off go run ./cmd/paddle-catalog-provision \
+  --manifest ../../infra/paddle/catalog-d09-v1.json
+```
+
+Use the protected `Paddle catalog` GitHub workflow for real environments and
+follow `docs/operations/paddle-catalog.md`. Its apply artifact contains the
+provider-generated mapping to transfer into the matching environment's
+`PADDLE_CATALOG_JSON` secret.
 
 ## Runtime discovery
 
@@ -83,5 +102,6 @@ cd features/f10-entitlements
 GOWORK=off go test ./...
 ```
 
-Set `TEST_DATABASE_URL` to enable PostgreSQL integration tests. Set the Paddle
-sandbox variables above to enable opt-in sandbox lifecycle tests.
+Set `TEST_DATABASE_URL` to enable PostgreSQL integration tests. Live Paddle
+catalog and lifecycle evidence is collected only through the protected workflow
+and the operations runbook.
