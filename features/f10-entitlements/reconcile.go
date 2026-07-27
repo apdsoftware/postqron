@@ -46,6 +46,7 @@ func (client *PaddleClient) DryRunCatalog(
 				ID        string `json:"id"`
 				ProductID string `json:"product_id"`
 				Status    string `json:"status"`
+				TaxMode   string `json:"tax_mode"`
 				UnitPrice struct {
 					Amount       string `json:"amount"`
 					CurrencyCode string `json:"currency_code"`
@@ -54,6 +55,11 @@ func (client *PaddleClient) DryRunCatalog(
 					Interval  string `json:"interval"`
 					Frequency int64  `json:"frequency"`
 				} `json:"billing_cycle"`
+				TrialPeriod any `json:"trial_period"`
+				Quantity    struct {
+					Minimum int64 `json:"minimum"`
+					Maximum int64 `json:"maximum"`
+				} `json:"quantity"`
 			} `json:"data"`
 		}
 		err := client.doJSON(
@@ -74,6 +80,7 @@ func (client *PaddleClient) DryRunCatalog(
 			interval = "year"
 		}
 		wantAmount := fmt.Sprintf("%d", mapping.UnitAmountCents)
+		wantMinimum, wantMaximum, quantityErr := ExpectedPaddleQuantity(key)
 		switch {
 		case response.Data.ID != mapping.PriceID:
 			check.Reason = "price ID differs"
@@ -85,10 +92,18 @@ func (client *PaddleClient) DryRunCatalog(
 			check.Reason = "unit amount differs"
 		case response.Data.UnitPrice.CurrencyCode != "EUR":
 			check.Reason = "base currency is not EUR"
+		case response.Data.TaxMode != "location":
+			check.Reason = "tax mode is not location-based"
 		case response.Data.BillingCycle == nil ||
 			response.Data.BillingCycle.Interval != interval ||
 			response.Data.BillingCycle.Frequency != 1:
 			check.Reason = "billing interval differs"
+		case response.Data.TrialPeriod != nil:
+			check.Reason = "unexpected Paddle trial"
+		case quantityErr != nil ||
+			response.Data.Quantity.Minimum != wantMinimum ||
+			response.Data.Quantity.Maximum != wantMaximum:
+			check.Reason = "quantity limits differ"
 		default:
 			check.OK = true
 		}

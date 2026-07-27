@@ -200,6 +200,10 @@ jobs:
           ADMIN_PASSWORD_HASH_B64: ${{ secrets.ADMIN_PASSWORD_HASH_B64 }}
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
+          PADDLE_CATALOG_JSON: ${{ secrets.PADDLE_CATALOG_JSON }}
+          PADDLE_ENVIRONMENT: ${{ inputs.environment == 'production' && 'production' || 'sandbox' }}
+          PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
           RUNTIME_ENV: ${{ secrets.RUNTIME_ENV }}
         run: |
           if [[ -z "$ADMIN_PASSWORD_HASH_B64" ]]; then
@@ -208,6 +212,47 @@ jobs:
           fi
           install -m 0600 /dev/null "$RUNNER_TEMP/runtime.env"
           printf '%s\n' "$RUNTIME_ENV" > "$RUNNER_TEMP/runtime.env"
+          if grep --quiet '^PADDLE_' "$RUNNER_TEMP/runtime.env"; then
+            echo "Paddle values must use dedicated GitHub Environment secrets" >&2
+            exit 1
+          fi
+
+          paddle_values=(
+            "$PADDLE_API_KEY"
+            "$PADDLE_CATALOG_JSON"
+            "$PADDLE_WEBHOOK_SECRET"
+          )
+          configured_paddle_values=0
+          for value in "${paddle_values[@]}"; do
+            if [[ -n "$value" ]]; then
+              configured_paddle_values=$((configured_paddle_values + 1))
+            fi
+          done
+          if (( configured_paddle_values != 0 && configured_paddle_values != 3 )); then
+            echo "Paddle runtime configuration is incomplete" >&2
+            exit 1
+          fi
+          if (( configured_paddle_values == 3 )); then
+            if [[ "$PADDLE_ENVIRONMENT" == "sandbox" &&
+              "$PADDLE_API_KEY" != pdl_sdbx_apikey_* ]] ||
+              [[ "$PADDLE_ENVIRONMENT" == "production" &&
+              "$PADDLE_API_KEY" != pdl_live_apikey_* ]]; then
+              echo "Paddle API key does not match the delivery environment" >&2
+              exit 1
+            fi
+            paddle_catalog=$(jq --compact-output \
+              'if type == "array" and length == 14 then . else error("invalid mapping") end' \
+              <<<"$PADDLE_CATALOG_JSON") || {
+                echo "PADDLE_CATALOG_JSON is invalid" >&2
+                exit 1
+              }
+            {
+              printf 'PADDLE_ENVIRONMENT=%s\n' "$PADDLE_ENVIRONMENT"
+              printf 'PADDLE_API_KEY=%s\n' "$PADDLE_API_KEY"
+              printf 'PADDLE_WEBHOOK_SECRET=%s\n' "$PADDLE_WEBHOOK_SECRET"
+              printf 'PADDLE_CATALOG_JSON=%s\n' "$paddle_catalog"
+            } >> "$RUNNER_TEMP/runtime.env"
+          fi
           {
             printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
             printf 'APP_DOMAIN=%s\n' "$APP_DOMAIN"

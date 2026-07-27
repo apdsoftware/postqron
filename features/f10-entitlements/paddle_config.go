@@ -67,23 +67,29 @@ var (
 )
 
 func (config PaddleConfig) Validate() error {
-	if config.Environment != PaddleSandbox &&
-		config.Environment != PaddleProduction {
-		return fmt.Errorf("%w: environment must be sandbox or production", ErrInvalidPaddleConfig)
-	}
-	match := paddleAPIKeyPattern.FindStringSubmatch(config.APIKey)
-	if len(match) != 2 {
-		return fmt.Errorf("%w: current-format API key is required", ErrInvalidPaddleConfig)
-	}
-	if (config.Environment == PaddleSandbox && match[1] != "sdbx") ||
-		(config.Environment == PaddleProduction && match[1] != "live") {
-		return fmt.Errorf("%w: API key environment mismatch", ErrInvalidPaddleConfig)
+	if err := validatePaddleEnvironmentAndKey(config.Environment, config.APIKey); err != nil {
+		return err
 	}
 	if strings.TrimSpace(config.WebhookSecret) == "" {
 		return fmt.Errorf("%w: webhook secret is required", ErrInvalidPaddleConfig)
 	}
 	if err := config.Catalog.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validatePaddleEnvironmentAndKey(environment PaddleEnvironment, apiKey string) error {
+	if environment != PaddleSandbox && environment != PaddleProduction {
+		return fmt.Errorf("%w: environment must be sandbox or production", ErrInvalidPaddleConfig)
+	}
+	match := paddleAPIKeyPattern.FindStringSubmatch(apiKey)
+	if len(match) != 2 {
+		return fmt.Errorf("%w: current-format API key is required", ErrInvalidPaddleConfig)
+	}
+	if (environment == PaddleSandbox && match[1] != "sdbx") ||
+		(environment == PaddleProduction && match[1] != "live") {
+		return fmt.Errorf("%w: API key environment mismatch", ErrInvalidPaddleConfig)
 	}
 	return nil
 }
