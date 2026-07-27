@@ -141,7 +141,7 @@ func (handler *HTTPHandler) createCheckout(
 	var payload struct {
 		Plan           PlanCode        `json:"plan"`
 		Interval       BillingInterval `json:"interval"`
-		Channels       int64           `json:"channels"`
+		Channels       *int64          `json:"channels"`
 		IdempotencyKey string          `json:"idempotency_key"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16<<10))

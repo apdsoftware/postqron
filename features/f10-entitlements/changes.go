@@ -19,7 +19,7 @@ type SubscriptionChangeRequest struct {
 	AccountID      string
 	Plan           PlanCode
 	Interval       BillingInterval
-	Channels       int64
+	Channels       *int64
 	IdempotencyKey string
 }
 
@@ -173,8 +173,8 @@ func (service *SubscriptionChangeService) prepare(
 	if !validInterval(request.Interval) {
 		return ProviderSubscriptionChange{}, "", ErrInvalidInterval
 	}
-	if request.Channels < 1 || request.Channels > target.Limits.Channels {
-		return ProviderSubscriptionChange{}, "", ErrInvalidChannels
+	if err := validateChannelQuantity(target, request.Channels); err != nil {
+		return ProviderSubscriptionChange{}, "", err
 	}
 	owner, err := service.authorizer.IsOwner(ctx, request.WorkspaceID, request.AccountID)
 	if err != nil {
@@ -217,7 +217,12 @@ func classifyChange(
 ) (ChangeDirection, error) {
 	var upgrades, downgrades int
 	if current.Plan != target.Plan {
-		if current.Plan == PlanPro && target.Plan == PlanTeam {
+		currentRank, currentOK := paidPlanRank(current.Plan)
+		targetRank, targetOK := paidPlanRank(target.Plan)
+		if !currentOK || !targetOK {
+			return "", ErrUnknownPlan
+		}
+		if currentRank < targetRank {
 			upgrades++
 		} else {
 			downgrades++
@@ -230,10 +235,18 @@ func classifyChange(
 			downgrades++
 		}
 	}
-	if current.Channels < target.Channels {
-		upgrades++
-	} else if current.Channels > target.Channels {
-		downgrades++
+	if current.Channels != nil && target.Channels != nil {
+		if *current.Channels < *target.Channels {
+			upgrades++
+		} else if *current.Channels > *target.Channels {
+			downgrades++
+		}
+	} else if current.Plan == target.Plan {
+		if current.Plan != PlanUnlimited ||
+			current.Channels != nil ||
+			target.Channels != nil {
+			return "", ErrEventConflict
+		}
 	}
 	if upgrades > 0 && downgrades > 0 {
 		return "", ErrMixedSubscriptionChange
@@ -242,4 +255,17 @@ func classifyChange(
 		return ChangeDowngrade, nil
 	}
 	return ChangeUpgrade, nil
+}
+
+func paidPlanRank(plan PlanCode) (int, bool) {
+	switch plan {
+	case PlanPro:
+		return 1, true
+	case PlanTeam:
+		return 2, true
+	case PlanUnlimited:
+		return 3, true
+	default:
+		return 0, false
+	}
 }

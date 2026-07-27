@@ -17,7 +17,7 @@ type CheckoutRequest struct {
 	AccountID      string
 	Plan           PlanCode
 	Interval       BillingInterval
-	Channels       int64
+	Channels       *int64
 	IdempotencyKey string
 }
 
@@ -28,7 +28,7 @@ type ProviderCheckoutRequest struct {
 	CatalogVersion string
 	Plan           PlanCode
 	Interval       BillingInterval
-	Channels       int64
+	Channels       *int64
 	IdempotencyKey string
 }
 
@@ -47,7 +47,7 @@ type CheckoutRegistration struct {
 	WorkspaceID    string
 	Plan           PlanCode
 	Interval       BillingInterval
-	Channels       int64
+	Channels       *int64
 	CatalogVersion string
 	Items          []PaddleItem
 	ExpiresAt      time.Time
@@ -121,8 +121,8 @@ func (service *CheckoutService) Create(
 	if !validInterval(request.Interval) {
 		return CheckoutSession{}, ErrInvalidInterval
 	}
-	if request.Channels < 1 || request.Channels > plan.Limits.Channels {
-		return CheckoutSession{}, ErrInvalidChannels
+	if err := validateChannelQuantity(plan, request.Channels); err != nil {
+		return CheckoutSession{}, err
 	}
 	owner, err := service.authorizer.IsOwner(ctx, request.WorkspaceID, request.AccountID)
 	if err != nil {
@@ -176,7 +176,7 @@ type BillingBinding struct {
 	WorkspaceID    string
 	Plan           PlanCode
 	Interval       BillingInterval
-	Channels       int64
+	Channels       *int64
 	CustomerID     string
 	SubscriptionID string
 	TransactionID  string
@@ -191,7 +191,7 @@ type BillingEvent struct {
 	WorkspaceID     string
 	Plan            PlanCode
 	Interval        BillingInterval
-	Channels        int64
+	Channels        *int64
 	State           BillingState
 	CustomerID      string
 	SubscriptionID  string

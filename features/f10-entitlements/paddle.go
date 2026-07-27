@@ -43,6 +43,16 @@ func (client *PaddleClient) CreateCheckout(
 	ctx context.Context,
 	request ProviderCheckoutRequest,
 ) (CheckoutSession, error) {
+	customData := map[string]any{
+		"postqron_workspace_id": request.WorkspaceID,
+		"catalog_version":       request.CatalogVersion,
+		"plan":                  request.Plan,
+		"interval":              request.Interval,
+		"idempotency_key":       request.IdempotencyKey,
+	}
+	if request.Channels != nil {
+		customData["channels"] = *request.Channels
+	}
 	payload := struct {
 		Items          []PaddleItem `json:"items"`
 		CollectionMode string       `json:"collection_mode"`
@@ -53,14 +63,7 @@ func (client *PaddleClient) CreateCheckout(
 	}{
 		Items:          request.Items,
 		CollectionMode: "automatic",
-		CustomData: map[string]any{
-			"postqron_workspace_id": request.WorkspaceID,
-			"catalog_version":       request.CatalogVersion,
-			"plan":                  request.Plan,
-			"interval":              request.Interval,
-			"channels":              request.Channels,
-			"idempotency_key":       request.IdempotencyKey,
-		},
+		CustomData:     customData,
 	}
 	payload.Checkout.URL = request.CheckoutURL
 	var response struct {
@@ -511,7 +514,7 @@ func (handler *PaddleWebhookHandler) processSubscription(
 	case "subscription.canceled":
 		event.Plan = PlanStart
 		event.Interval = IntervalMonthly
-		event.Channels = 3
+		event.Channels = limit(3)
 		event.State = StateCanceled
 		event.ApplyState = true
 	case "subscription.updated":
@@ -527,7 +530,7 @@ func (handler *PaddleWebhookHandler) processSubscription(
 		case "canceled":
 			event.Plan = PlanStart
 			event.Interval = IntervalMonthly
-			event.Channels = 3
+			event.Channels = limit(3)
 			event.State = StateCanceled
 			event.ApplyState = true
 		default:

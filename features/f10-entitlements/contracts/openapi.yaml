@@ -1,15 +1,15 @@
 openapi: 3.1.0
 info:
   title: Postqron entitlements API
-  version: 0.3.0
+  version: 0.4.0
 paths:
   /api/v1/billing/plans:
     get:
-      summary: List the three public plans
+      summary: List the four public plans
       operationId: listPublicPlans
       responses:
         "200":
-          description: D07 catalog in EUR with progressive Paddle pricing
+          description: D09 catalog in EUR with public Unlimited
           content:
             application/json:
               schema:
@@ -42,23 +42,10 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [plan, interval, channels, idempotency_key]
-              properties:
-                plan:
-                  $ref: "#/components/schemas/PlanCode"
-                interval:
-                  type: string
-                  enum: [monthly, annual]
-                channels:
-                  type: integer
-                  minimum: 1
-                  maximum: 50
-                idempotency_key:
-                  type: string
-                  minLength: 1
-                  maxLength: 255
+              oneOf:
+                - $ref: "#/components/schemas/ProCheckoutRequest"
+                - $ref: "#/components/schemas/TeamCheckoutRequest"
+                - $ref: "#/components/schemas/UnlimitedCheckoutRequest"
       responses:
         "201":
           description: Paddle-hosted Checkout transaction
@@ -123,7 +110,61 @@ components:
   schemas:
     PlanCode:
       type: string
-      enum: [start, pro, team]
+      enum: [start, pro, team, unlimited]
+    BillingInterval:
+      type: string
+      enum: [monthly, annual]
+    IdempotencyKey:
+      type: string
+      minLength: 1
+      maxLength: 255
+    ProCheckoutRequest:
+      type: object
+      additionalProperties: false
+      required: [plan, interval, channels, idempotency_key]
+      properties:
+        plan:
+          type: string
+          const: pro
+        interval:
+          $ref: "#/components/schemas/BillingInterval"
+        channels:
+          type: integer
+          minimum: 1
+          maximum: 6
+        idempotency_key:
+          $ref: "#/components/schemas/IdempotencyKey"
+    TeamCheckoutRequest:
+      type: object
+      additionalProperties: false
+      required: [plan, interval, channels, idempotency_key]
+      properties:
+        plan:
+          type: string
+          const: team
+        interval:
+          $ref: "#/components/schemas/BillingInterval"
+        channels:
+          type: integer
+          minimum: 1
+          maximum: 9
+        idempotency_key:
+          $ref: "#/components/schemas/IdempotencyKey"
+    UnlimitedCheckoutRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Unlimited is flat-priced. No channel quantity is accepted or
+        synthesized for checkout.
+      required: [plan, interval, idempotency_key]
+      properties:
+        plan:
+          type: string
+          const: unlimited
+        interval:
+          $ref: "#/components/schemas/BillingInterval"
+        idempotency_key:
+          $ref: "#/components/schemas/IdempotencyKey"
     Money:
       type: object
       required: [amount_cents, currency]
@@ -161,13 +202,21 @@ components:
             - scheduled_publications_per_channel
           properties:
             members:
-              type: integer
+              type: [integer, "null"]
+              minimum: 1
+              description: Null means that no commercial plan quota applies.
             channels:
-              type: integer
+              type: [integer, "null"]
+              minimum: 1
+              description: Null means that no commercial plan quota applies.
             scheduled_publications:
-              type: integer
+              type: [integer, "null"]
+              minimum: 1
+              description: Null means that no commercial plan quota applies.
             scheduled_publications_per_channel:
-              type: integer
+              type: [integer, "null"]
+              minimum: 1
+              description: Null means that no commercial plan quota applies.
         price_tiers:
           type: array
           maxItems: 3
@@ -183,6 +232,26 @@ components:
                 $ref: "#/components/schemas/Money"
               annual:
                 $ref: "#/components/schemas/Money"
+        trial:
+          type: object
+          required:
+            - days
+            - members
+            - channels
+            - scheduled_publications_per_channel
+          properties:
+            days:
+              type: integer
+              const: 14
+            members:
+              type: integer
+              const: 9
+            channels:
+              type: integer
+              const: 9
+            scheduled_publications_per_channel:
+              type: integer
+              const: 500
     PublicCatalog:
       type: object
       required: [provider, catalog_version, currency, plans]
@@ -192,14 +261,14 @@ components:
           const: paddle
         catalog_version:
           type: string
-          const: d07-v1
+          const: d09-v1
         currency:
           type: string
           const: EUR
         plans:
           type: array
-          minItems: 3
-          maxItems: 3
+          minItems: 4
+          maxItems: 4
           items:
             $ref: "#/components/schemas/PublicPlan"
     Usage:
@@ -213,11 +282,13 @@ components:
           type: integer
           format: int64
         limit:
-          type: integer
+          type: [integer, "null"]
           format: int64
+          description: Null means that no commercial plan quota applies.
         remaining:
-          type: integer
+          type: [integer, "null"]
           format: int64
+          description: Null means that no commercial plan quota applies.
         over_limit:
           type: boolean
     Overview:

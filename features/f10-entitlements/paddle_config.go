@@ -24,6 +24,7 @@ const (
 	TierOne   PriceTierCode = "1-10"
 	TierTwo   PriceTierCode = "11-25"
 	TierThree PriceTierCode = "26-50"
+	TierFlat  PriceTierCode = "flat"
 )
 
 type PaddlePriceKey struct {
@@ -62,7 +63,7 @@ var (
 	)
 	ErrInvalidPaddleConfig = errors.New("invalid Paddle configuration")
 	ErrMissingPaddlePrice  = errors.New("Paddle price is not configured")
-	ErrCatalogMismatch     = errors.New("Paddle catalog does not match D07")
+	ErrCatalogMismatch     = errors.New("Paddle catalog does not match D09")
 )
 
 func (config PaddleConfig) Validate() error {
@@ -121,16 +122,20 @@ func (config PaddleConfig) APIBaseURL() string {
 }
 
 func (catalog PaddleCatalog) Validate() error {
-	const expectedMappings = 2 * 2 * 3
+	const expectedMappings = 2*2*3 + 2
 	if len(catalog) != expectedMappings {
 		return fmt.Errorf("%w: exactly %d paid price mappings are required", ErrCatalogMismatch, expectedMappings)
 	}
 	seenPrices := make(map[string]struct{}, expectedMappings)
-	products := make(map[PlanCode]string, 2)
-	for _, plan := range []PlanCode{PlanPro, PlanTeam} {
+	products := make(map[PlanCode]string, 3)
+	for _, plan := range []PlanCode{PlanPro, PlanTeam, PlanUnlimited} {
 		publicPlan, _ := PublicPlanByCode(plan)
 		for _, interval := range []BillingInterval{IntervalMonthly, IntervalAnnual} {
-			for tierIndex, tierCode := range []PriceTierCode{TierOne, TierTwo, TierThree} {
+			tiers := []PriceTierCode{TierOne, TierTwo, TierThree}
+			if plan == PlanUnlimited {
+				tiers = []PriceTierCode{TierFlat}
+			}
+			for tierIndex, tierCode := range tiers {
 				key := PaddlePriceKey{Plan: plan, Interval: interval, Tier: tierCode}
 				mapping, ok := catalog[key]
 				if !ok {
@@ -155,9 +160,17 @@ func (catalog PaddleCatalog) Validate() error {
 					return fmt.Errorf("%w: duplicate price ID", ErrCatalogMismatch)
 				}
 				seenPrices[mapping.PriceID] = struct{}{}
-				want := publicPlan.PriceTiers[tierIndex].Monthly.AmountCents
-				if interval == IntervalAnnual {
-					want = publicPlan.PriceTiers[tierIndex].Annual.AmountCents
+				var want int64
+				if plan == PlanUnlimited {
+					want = publicPlan.Prices.Monthly.AmountCents
+					if interval == IntervalAnnual {
+						want = publicPlan.Prices.Annual.AmountCents
+					}
+				} else {
+					want = publicPlan.PriceTiers[tierIndex].Monthly.AmountCents
+					if interval == IntervalAnnual {
+						want = publicPlan.PriceTiers[tierIndex].Annual.AmountCents
+					}
 				}
 				if mapping.UnitAmountCents != want {
 					return fmt.Errorf(
@@ -173,8 +186,11 @@ func (catalog PaddleCatalog) Validate() error {
 			}
 		}
 	}
-	if products[PlanPro] == products[PlanTeam] {
-		return fmt.Errorf("%w: Pro and Team must use different products", ErrCatalogMismatch)
+	if len(products) != 3 ||
+		products[PlanPro] == products[PlanTeam] ||
+		products[PlanPro] == products[PlanUnlimited] ||
+		products[PlanTeam] == products[PlanUnlimited] {
+		return fmt.Errorf("%w: paid plans must use distinct products", ErrCatalogMismatch)
 	}
 	return nil
 }
@@ -182,7 +198,7 @@ func (catalog PaddleCatalog) Validate() error {
 func (catalog PaddleCatalog) ExpectedItems(
 	plan PlanCode,
 	interval BillingInterval,
-	channels int64,
+	channels *int64,
 ) ([]PaddleItem, error) {
 	publicPlan, err := PublicPlanByCode(plan)
 	if err != nil {
@@ -194,8 +210,19 @@ func (catalog PaddleCatalog) ExpectedItems(
 	if !validInterval(interval) {
 		return nil, ErrInvalidInterval
 	}
-	if channels < 1 || channels > publicPlan.Limits.Channels {
-		return nil, ErrInvalidChannels
+	if err := validateChannelQuantity(publicPlan, channels); err != nil {
+		return nil, err
+	}
+	if plan == PlanUnlimited {
+		mapping, ok := catalog[PaddlePriceKey{
+			Plan:     plan,
+			Interval: interval,
+			Tier:     TierFlat,
+		}]
+		if !ok {
+			return nil, fmt.Errorf("%w for %s/%s/%s", ErrMissingPaddlePrice, plan, interval, TierFlat)
+		}
+		return []PaddleItem{{PriceID: mapping.PriceID, Quantity: 1}}, nil
 	}
 	tiers := []struct {
 		code PriceTierCode
@@ -208,7 +235,7 @@ func (catalog PaddleCatalog) ExpectedItems(
 	}
 	items := make([]PaddleItem, 0, 3)
 	for _, tier := range tiers {
-		quantity := tierQuantity(channels, tier.from, tier.to)
+		quantity := tierQuantity(*channels, tier.from, tier.to)
 		if quantity == 0 {
 			continue
 		}
@@ -227,18 +254,27 @@ func (catalog PaddleCatalog) ExpectedItems(
 
 func (catalog PaddleCatalog) ResolveItems(
 	items []PaddleItem,
-) (PlanCode, BillingInterval, int64, bool) {
-	for _, plan := range []PlanCode{PlanPro, PlanTeam} {
+) (PlanCode, BillingInterval, *int64, bool) {
+	for _, plan := range []PlanCode{PlanPro, PlanTeam, PlanUnlimited} {
 		for _, interval := range []BillingInterval{IntervalMonthly, IntervalAnnual} {
-			for channels := int64(1); channels <= 50; channels++ {
-				expected, err := catalog.ExpectedItems(plan, interval, channels)
+			if plan == PlanUnlimited {
+				expected, err := catalog.ExpectedItems(plan, interval, nil)
 				if err == nil && SamePaddleItems(expected, items) {
-					return plan, interval, channels, true
+					return plan, interval, nil, true
+				}
+				continue
+			}
+			publicPlan, _ := PublicPlanByCode(plan)
+			for channels := int64(1); channels <= *publicPlan.Limits.Channels; channels++ {
+				quantity := channels
+				expected, err := catalog.ExpectedItems(plan, interval, &quantity)
+				if err == nil && SamePaddleItems(expected, items) {
+					return plan, interval, &quantity, true
 				}
 			}
 		}
 	}
-	return "", "", 0, false
+	return "", "", nil, false
 }
 
 func SamePaddleItems(left, right []PaddleItem) bool {

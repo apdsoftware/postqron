@@ -84,7 +84,7 @@ func TestPaddleClientUsesVersionedServerAPIAndComposedItems(t *testing.T) {
 		Items:          []PaddleItem{{PriceID: "pri_test", Quantity: 10}},
 		CheckoutURL:    "https://app.postqron.test/checkout",
 		CatalogVersion: CatalogVersion,
-		Plan:           PlanPro, Interval: IntervalMonthly, Channels: 10,
+		Plan:           PlanPro, Interval: IntervalMonthly, Channels: limit(6),
 		IdempotencyKey: "checkout-1",
 	})
 	if err != nil {
@@ -96,11 +96,31 @@ func TestPaddleClientUsesVersionedServerAPIAndComposedItems(t *testing.T) {
 	}
 	custom := received["custom_data"].(map[string]any)
 	if custom["postqron_workspace_id"] != "workspace" ||
-		custom["catalog_version"] != CatalogVersion {
+		custom["catalog_version"] != CatalogVersion ||
+		custom["channels"] != float64(6) {
 		t.Fatalf("custom data = %#v", custom)
 	}
 	if _, exists := received["api_key"]; exists {
 		t.Fatal("request body exposed API key")
+	}
+	if _, err := client.CreateCheckout(
+		context.Background(),
+		ProviderCheckoutRequest{
+			WorkspaceID:    "workspace",
+			Items:          []PaddleItem{{PriceID: "pri_unlimited", Quantity: 1}},
+			CheckoutURL:    "https://app.postqron.test/checkout",
+			CatalogVersion: CatalogVersion,
+			Plan:           PlanUnlimited,
+			Interval:       IntervalMonthly,
+			Channels:       nil,
+			IdempotencyKey: "checkout-unlimited",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	custom = received["custom_data"].(map[string]any)
+	if _, exists := custom["channels"]; exists {
+		t.Fatalf("Unlimited custom data contains fake channel quantity: %#v", custom)
 	}
 }
 
@@ -134,10 +154,10 @@ func (stub *changeProviderStub) CancelSubscription(
 	return nil
 }
 
-func TestSubscriptionChangesApplyD07ProrationAndCancellation(t *testing.T) {
+func TestSubscriptionChangesApplyD09ProrationAndCancellation(t *testing.T) {
 	provider := &changeProviderStub{}
 	store := portalStoreStub{binding: BillingBinding{
-		Plan: PlanPro, Interval: IntervalMonthly, Channels: 10,
+		Plan: PlanPro, Interval: IntervalMonthly, Channels: limit(6),
 		SubscriptionID: "sub_server",
 	}}
 	service, err := NewSubscriptionChangeService(
@@ -148,7 +168,7 @@ func TestSubscriptionChangesApplyD07ProrationAndCancellation(t *testing.T) {
 	}
 	upgrade := SubscriptionChangeRequest{
 		WorkspaceID: "workspace", AccountID: "owner", Plan: PlanTeam,
-		Interval: IntervalMonthly, Channels: 10, IdempotencyKey: "upgrade",
+		Interval: IntervalMonthly, Channels: limit(9), IdempotencyKey: "upgrade",
 	}
 	preview, err := service.Preview(context.Background(), upgrade)
 	if err != nil {
@@ -160,13 +180,13 @@ func TestSubscriptionChangesApplyD07ProrationAndCancellation(t *testing.T) {
 		t.Fatalf("upgrade preview=%#v change=%#v", preview, provider.change)
 	}
 	store.binding = BillingBinding{
-		Plan: PlanTeam, Interval: IntervalAnnual, Channels: 25,
+		Plan: PlanTeam, Interval: IntervalAnnual, Channels: limit(9),
 		SubscriptionID: "sub_server",
 	}
 	service.store = store
 	downgrade := SubscriptionChangeRequest{
 		WorkspaceID: "workspace", AccountID: "owner", Plan: PlanPro,
-		Interval: IntervalAnnual, Channels: 25, IdempotencyKey: "downgrade",
+		Interval: IntervalAnnual, Channels: limit(6), IdempotencyKey: "downgrade",
 	}
 	if err := service.Apply(context.Background(), downgrade); err != nil {
 		t.Fatal(err)
@@ -181,5 +201,23 @@ func TestSubscriptionChangesApplyD07ProrationAndCancellation(t *testing.T) {
 	}
 	if provider.canceled != "sub_server" {
 		t.Fatalf("canceled %q", provider.canceled)
+	}
+
+	store.binding = BillingBinding{
+		Plan: PlanTeam, Interval: IntervalMonthly, Channels: limit(9),
+		SubscriptionID: "sub_server",
+	}
+	service.store = store
+	toUnlimited := SubscriptionChangeRequest{
+		WorkspaceID: "workspace", AccountID: "owner", Plan: PlanUnlimited,
+		Interval: IntervalMonthly, Channels: nil, IdempotencyKey: "to-unlimited",
+	}
+	if err := service.Apply(context.Background(), toUnlimited); err != nil {
+		t.Fatal(err)
+	}
+	if provider.change.ProrationMode != "prorated_immediately" ||
+		len(provider.change.Items) != 1 ||
+		provider.change.Items[0].Quantity != 1 {
+		t.Fatalf("Unlimited upgrade change = %#v", provider.change)
 	}
 }
