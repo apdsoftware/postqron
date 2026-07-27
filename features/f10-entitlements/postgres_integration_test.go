@@ -87,8 +87,8 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatalf("channel usage after concurrency = %#v", channels)
 	}
 	members := usageFor(t, overview, ResourceMembers)
-	if members.Limit == nil || *members.Limit != 9 {
-		t.Fatalf("Team trial member limit = %#v, want 9", members.Limit)
+	if members.Limit == nil || *members.Limit != 6 {
+		t.Fatalf("Team trial member limit = %#v, want 6", members.Limit)
 	}
 	publications := usageFor(t, overview, ResourceScheduledPublications)
 	if publications.Limit == nil || *publications.Limit != 500 {
@@ -219,7 +219,118 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 
 	testBillingLifecycle(t, pool, store, workspaceID, now)
 	testUnlimitedEntitlementAndConservativeDowngrade(t, pool, store, now)
+	testProductOwnerPlanLimitBoundaries(t, pool, store, now)
 	testMonthlyQuotaWindow(t, pool)
+}
+
+func testProductOwnerPlanLimitBoundaries(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	store *SQLStore,
+	now time.Time,
+) {
+	t.Helper()
+	ctx := context.Background()
+	workspaceID := "bc688d50-4a8f-4d73-b4f7-bfed67e9568c"
+	created, err := store.ProvisionTrial(ctx, workspaceID, now)
+	if err != nil || !created {
+		t.Fatalf("provision plan-limit fixture = %v, %v", created, err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE f10_workspace_billing
+		    SET plan_code = 'pro',
+		        billing_state = 'active',
+		        channel_quantity = 6,
+		        updated_at = $2
+		  WHERE workspace_id = $1`,
+		workspaceID,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(store)
+	service.now = func() time.Time { return now.Add(time.Minute) }
+	for _, boundary := range []struct {
+		resource Resource
+		limit    int64
+	}{
+		{ResourceMembers, 3},
+		{ResourceChannels, 6},
+		{ResourceScheduledPublications, 250},
+	} {
+		accepted, err := service.Reserve(
+			ctx,
+			workspaceID,
+			boundary.resource,
+			boundary.limit,
+			"pro:boundary:"+string(boundary.resource),
+		)
+		if err != nil || !accepted.Accepted ||
+			accepted.Usage.Limit == nil ||
+			*accepted.Usage.Limit != boundary.limit ||
+			accepted.Usage.Remaining == nil ||
+			*accepted.Usage.Remaining != 0 {
+			t.Fatalf("Pro %s boundary = %#v, %v", boundary.resource, accepted, err)
+		}
+		denied, err := service.Reserve(
+			ctx,
+			workspaceID,
+			boundary.resource,
+			1,
+			"pro:over:"+string(boundary.resource),
+		)
+		if err != nil || denied.Accepted || denied.Code != "limit_reached" {
+			t.Fatalf("Pro %s overage = %#v, %v", boundary.resource, denied, err)
+		}
+	}
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE f10_workspace_billing
+		    SET plan_code = 'team',
+		        channel_quantity = 9,
+		        updated_at = $2
+		  WHERE workspace_id = $1`,
+		workspaceID,
+		now.Add(2*time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, boundary := range []struct {
+		resource Resource
+		delta    int64
+		limit    int64
+	}{
+		{ResourceMembers, 3, 6},
+		{ResourceChannels, 3, 9},
+		{ResourceScheduledPublications, 250, 500},
+	} {
+		accepted, err := service.Reserve(
+			ctx,
+			workspaceID,
+			boundary.resource,
+			boundary.delta,
+			"team:boundary:"+string(boundary.resource),
+		)
+		if err != nil || !accepted.Accepted ||
+			accepted.Usage.Limit == nil ||
+			*accepted.Usage.Limit != boundary.limit ||
+			accepted.Usage.Used != boundary.limit {
+			t.Fatalf("Team %s boundary = %#v, %v", boundary.resource, accepted, err)
+		}
+		denied, err := service.Reserve(
+			ctx,
+			workspaceID,
+			boundary.resource,
+			1,
+			"team:over:"+string(boundary.resource),
+		)
+		if err != nil || denied.Accepted || denied.Code != "limit_reached" {
+			t.Fatalf("Team %s overage = %#v, %v", boundary.resource, denied, err)
+		}
+	}
 }
 
 func testUnlimitedEntitlementAndConservativeDowngrade(
@@ -819,6 +930,51 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 			unlimitedChannels,
 		)
 	}
+	limitsMigration, err := os.ReadFile(filepath.Join(
+		"migrations",
+		"000005_po_20260727_plan_limits.sql",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for replay := 0; replay < 2; replay++ {
+		if _, err := pool.Exec(ctx, string(limitsMigration)); err != nil {
+			t.Fatalf("2026-07-27 limits migration replay %d: %v", replay, err)
+		}
+	}
+	for _, expected := range []struct {
+		code                  PlanCode
+		members               *int64
+		channels              *int64
+		scheduledPublications *int64
+	}{
+		{PlanStart, limit(1), limit(3), limit(10)},
+		{PlanPro, limit(3), limit(6), limit(250)},
+		{PlanTeam, limit(6), limit(9), limit(500)},
+		{PlanUnlimited, nil, nil, nil},
+	} {
+		var members, channels, publications *int64
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT member_limit, channel_limit, scheduled_publication_limit
+			   FROM f10_public_plans
+			  WHERE code = $1`,
+			expected.code,
+		).Scan(&members, &channels, &publications); err != nil {
+			t.Fatal(err)
+		}
+		if !equalLimit(members, expected.members) ||
+			!equalLimit(channels, expected.channels) ||
+			!equalLimit(publications, expected.scheduledPublications) {
+			t.Fatalf(
+				"%s database limits = members %v, channels %v, publications %v",
+				expected.code,
+				members,
+				channels,
+				publications,
+			)
+		}
+	}
 
 	t.Cleanup(func() {
 		pool.Close()
@@ -826,4 +982,9 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 		admin.Close()
 	})
 	return pool
+}
+
+func equalLimit(left, right *int64) bool {
+	return left == nil && right == nil ||
+		left != nil && right != nil && *left == *right
 }

@@ -50,8 +50,12 @@ func DecodePaddleCatalogManifest(reader io.Reader) (PaddleCatalogManifest, error
 }
 
 func (manifest PaddleCatalogManifest) Validate() error {
-	if manifest.Version != CatalogVersion {
-		return fmt.Errorf("%w: manifest version must be %s", ErrCatalogMismatch, CatalogVersion)
+	if manifest.Version != PaddleCatalogVersion {
+		return fmt.Errorf(
+			"%w: manifest version must be %s",
+			ErrCatalogMismatch,
+			PaddleCatalogVersion,
+		)
 	}
 	if manifest.Currency != "EUR" {
 		return fmt.Errorf("%w: manifest currency must be EUR", ErrCatalogMismatch)

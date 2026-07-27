@@ -25,7 +25,7 @@ func (workspaceViewerStub) CanViewBilling(
 	return false, nil
 }
 
-func TestPublicPlansEndpointOnlyContainsD09PaddleCatalog(t *testing.T) {
+func TestPublicPlansEndpointOnlyContainsPublicCatalog(t *testing.T) {
 	handler := NewHTTPHandler(
 		NewService(&serviceStoreStub{}),
 		nil,
@@ -49,7 +49,7 @@ func TestPublicPlansEndpointOnlyContainsD09PaddleCatalog(t *testing.T) {
 	payload := strings.ToLower(string(body))
 	for _, required := range []string{
 		`"provider":"paddle"`,
-		`"catalog_version":"d09-v1"`,
+		`"catalog_version":"d09-v2"`,
 		`"start"`,
 		`"pro"`,
 		`"team"`,

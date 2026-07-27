@@ -48,7 +48,7 @@ func testPaddleCatalog() PaddleCatalog {
 	return catalog
 }
 
-func TestPublicCatalogMatchesD09(t *testing.T) {
+func TestPublicCatalogMatchesProductOwnerDecision20260727(t *testing.T) {
 	plans := PublicPlans()
 	if len(plans) != 4 {
 		t.Fatalf("PublicPlans() returned %d plans, want 4", len(plans))
@@ -62,14 +62,18 @@ func TestPublicCatalogMatchesD09(t *testing.T) {
 		t.Fatalf("Start = %#v", start)
 	}
 	if pro.Code != PlanPro || !pro.Purchasable ||
-		*pro.Limits.Members != 1 || *pro.Limits.Channels != 6 ||
-		*pro.Limits.ScheduledPublicationsPerChannel != 500 {
+		*pro.Limits.Members != 3 || *pro.Limits.Channels != 6 ||
+		*pro.Limits.ScheduledPublications != 250 ||
+		*pro.Limits.ScheduledPublicationsPerChannel != 250 {
 		t.Fatalf("Pro = %#v", pro)
 	}
 	if team.Code != PlanTeam || !team.Purchasable ||
-		*team.Limits.Members != 9 || *team.Limits.Channels != 9 ||
+		*team.Limits.Members != 6 || *team.Limits.Channels != 9 ||
+		*team.Limits.ScheduledPublications != 500 ||
+		*team.Limits.ScheduledPublicationsPerChannel != 500 ||
 		team.Trial == nil || team.Trial.Days != 14 ||
-		team.Trial.Channels != 9 || team.Trial.Members != 9 {
+		team.Trial.Channels != 9 || team.Trial.Members != 6 ||
+		team.Trial.ScheduledPublicationsPerChannel != 500 {
 		t.Fatalf("Team = %#v", team)
 	}
 	if unlimited.Code != PlanUnlimited || !unlimited.Purchasable ||
@@ -105,7 +109,7 @@ func TestPublicCatalogMatchesD09(t *testing.T) {
 	}
 }
 
-func TestD09PriceBoundariesAndAnnualTotals(t *testing.T) {
+func TestPlanChannelBoundariesAndAnnualTotals(t *testing.T) {
 	for _, test := range []struct {
 		plan     PlanCode
 		channels *int64
@@ -142,7 +146,7 @@ func TestD09PriceBoundariesAndAnnualTotals(t *testing.T) {
 	}
 }
 
-func TestPaddleCatalogHasExactDistinctD09Mappings(t *testing.T) {
+func TestPaddleCatalogHasExactDistinctMappings(t *testing.T) {
 	catalog := testPaddleCatalog()
 	if err := catalog.Validate(); err != nil {
 		t.Fatal(err)
@@ -223,7 +227,9 @@ func TestPublicPlansReturnsIndependentData(t *testing.T) {
 	*plans[1].Limits.Channels = 1
 	if PublicPlans()[1].Name != "Pro" ||
 		PublicPlans()[1].PriceTiers[0].Monthly.AmountCents != 450 ||
-		*PublicPlans()[1].Limits.Channels != 6 {
+		*PublicPlans()[1].Limits.Channels != 6 ||
+		*PublicPlans()[1].Limits.Members != 3 ||
+		*PublicPlans()[1].Limits.ScheduledPublicationsPerChannel != 250 {
 		t.Fatal("PublicPlans() exposed mutable catalog storage")
 	}
 }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Postqron entitlements API
-  version: 0.5.0
+  version: 0.6.0
 paths:
   /api/v1/billing/plans:
     get:
@@ -9,7 +9,9 @@ paths:
       operationId: listPublicPlans
       responses:
         "200":
-          description: D09 catalog in EUR with public Unlimited
+          description: >-
+            D09 v2 catalog in EUR with the Product Owner limits decided on
+            2026-07-27 and public Unlimited
           content:
             application/json:
               schema:
@@ -275,19 +277,28 @@ components:
             members:
               type: [integer, "null"]
               minimum: 1
-              description: Null means that no commercial plan quota applies.
+              description: >-
+                Start 1, Pro 3, Team 6. Null means that no commercial plan
+                quota applies to Unlimited.
             channels:
               type: [integer, "null"]
               minimum: 1
-              description: Null means that no commercial plan quota applies.
+              description: >-
+                Start 3, Pro 6, Team 9. Null means that no commercial plan
+                quota applies to Unlimited.
             scheduled_publications:
               type: [integer, "null"]
               minimum: 1
-              description: Null means that no commercial plan quota applies.
+              description: >-
+                Compatibility representation of the per-channel scheduled post
+                quota: Start 10, Pro 250, Team 500. Null means that no
+                commercial plan quota applies to Unlimited.
             scheduled_publications_per_channel:
               type: [integer, "null"]
               minimum: 1
-              description: Null means that no commercial plan quota applies.
+              description: >-
+                Start 10, Pro 250, Team 500. Null means that no commercial plan
+                quota applies to Unlimited.
         price_tiers:
           type: array
           maxItems: 3
@@ -316,7 +327,7 @@ components:
               const: 14
             members:
               type: integer
-              const: 9
+              const: 6
             channels:
               type: integer
               const: 9
@@ -332,7 +343,7 @@ components:
           const: paddle
         catalog_version:
           type: string
-          const: d09-v1
+          const: d09-v2
         currency:
           type: string
           const: EUR
