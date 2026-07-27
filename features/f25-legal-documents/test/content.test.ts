@@ -9,7 +9,7 @@ test('every draft artifact parses with a matching path, digest, and status', asy
   assert.equal(artifacts.length, 25)
   for (const artifact of artifacts) {
     assert.equal(artifact.jurisdiction, 'IT')
-    assert.equal(artifact.version, '0.1')
+    assert.equal(artifact.version, artifact.document === 'terms' ? '0.2' : '0.1')
     assert.equal(artifact.status, 'approved')
     assert.match(artifact.digestSha256, /^[a-f0-9]{64}$/u)
     assert.equal(await sha256(artifact.content), artifact.digestSha256)
