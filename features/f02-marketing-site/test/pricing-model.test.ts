@@ -283,6 +283,14 @@ test('checkout intents keep only valid plan, quantity, and interval combinations
 })
 
 test('the selector copy exists in all five locales and states the required guarantees', () => {
+  const overMaxLabels = {
+    en: '10+ social channels',
+    it: '10+ canali social',
+    es: '10+ canales sociales',
+    fr: '10+ canaux sociaux',
+    de: '10+ Social-Media-Kanäle',
+  } as const
+
   for (const locale of PRICING_LOCALES) {
     const copy = PRICING_COPY[locale]
     for (const key of [
@@ -298,6 +306,11 @@ test('the selector copy exists in all five locales and states the required guara
     assert.match(copy.annualExplainer, /\{serviceMonths\}/)
     assert.match(copy.annualExplainer, /\{percent\}/)
     assert.doesNotMatch(copy.quantityHelp, /\d/)
+    assert.equal(
+      interpolate(copy.quantityOverMax, { count: 10 }),
+      overMaxLabels[locale],
+      `${locale}.quantityOverMax must localize the slider endpoint`,
+    )
     for (const parameter of ['{plan}', '{quantity}', '{interval}', '{total}']) {
       assert.ok(
         copy.selectedPlanAnnouncement.includes(parameter),
@@ -338,6 +351,15 @@ test('the pricing component consumes the shared model without duplicating rules'
   assert.match(component, /aria-describedby/)
   assert.match(component, /plan-incompatible-\$\{plan\.code\}/)
   assert.match(component, /checkoutIntentFor/)
+  assert.match(component, /type="range"/)
+  assert.match(component, /min="1"/)
+  assert.match(component, /:max="sliderMaximum"/)
+  assert.match(component, /step="1"/)
+  assert.match(component, /:aria-valuetext="quantityOptionLabel\(selection\.quantity\)"/)
+  assert.match(component, /@input="onQuantityInput"/)
+  assert.match(component, /quantity-control__markers/)
+  assert.match(component, /sliderMarkers/)
+  assert.doesNotMatch(component, /<select/)
   assert.doesNotMatch(component, /channels = ref\(3\)/)
   assert.doesNotMatch(component, /amount_cents:\s*\d/)
 })
