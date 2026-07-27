@@ -137,7 +137,7 @@ test('the real BUNDLED_LEGAL_RELEASE resolves the approved F25 release without a
   const body = response.body as { document: string, locale: string, version: string }
   assert.equal(body.document, 'terms')
   assert.equal(body.locale, 'it')
-  assert.equal(body.version, '0.1')
+  assert.equal(body.version, '0.2')
 })
 
 test('an F25 approved release body survives the client-side parser with content, version, and fallback metadata intact', async () => {

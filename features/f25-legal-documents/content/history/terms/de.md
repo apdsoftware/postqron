@@ -1,15 +1,15 @@
 ---
 document: terms
 locale: de
-version: "0.2"
+version: "0.1"
 title: "Allgemeine Geschäftsbedingungen von Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — Betreiberin von Postqron (Marke APDSoftware)"
 contactEmail: legal@postqron.com
 status: approved
 jurisdiction: IT
-proposedEffectiveDate: "2026-07-27"
+proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Genehmigt nach der Bestätigung des Product Owners einer externen rechtlichen Prüfung, festgehalten unter https://github.com/apdsoftware/postqron/issues/179#issuecomment-5090088911; Version 0.2 veröffentlicht, wodurch Abschnitt 6 (Pläne und Preise) an den Beschluss D09 und den Laufzeit-Katalog F10 mit vier Plänen (Start, Pro, Team und der neue öffentliche Plan Unlimited) angeglichen wird."
+revisionSummary: "Nach externer rechtlicher Prüfung genehmigt (Ref. LEGAL-APPROVAL-2026-07-25-F25); Version 0.1 veröffentlicht."
 ---
 
 # Allgemeine Geschäftsbedingungen von Postqron
@@ -36,14 +36,13 @@ Nutzer dürfen den Dienst nicht verwenden, um rechtswidrige, Rechte Dritter verl
 
 ## 6. Pläne und Preise
 
-Postqron bietet vier öffentlich verfügbare Abonnementpläne an, deren Preise ausschließlich in Euro (EUR) angegeben werden:
+Postqron bietet drei öffentlich verfügbare Abonnementpläne an, deren Preise ausschließlich in Euro (EUR) angegeben werden:
 
 - **Start** — dauerhaft kostenlos, keine Zahlungskarte erforderlich, umfasst bis zu 3 verbundene Kanäle, 1 Nutzer und bis zu 10 gleichzeitig geplante Beiträge pro Kanal.
-- **Pro** — 1 Nutzer, bis zu 6 verbundene Kanäle, bis zu 500 gleichzeitig geplante Beiträge pro Kanal, abgerechnet zu 4,50 €/Kanal/Monat (bis zu 27,00 €/Monat bei 6 Kanälen). Der Jahrespreis entspricht dem Zehnfachen des monatlichen Gesamtbetrags (entsprechend zwei kostenlosen Monaten).
-- **Team** — bis zu 9 Nutzer, bis zu 9 verbundene Kanäle, bis zu 500 gleichzeitig geplante Beiträge pro Kanal, abgerechnet zu 9,00 €/Kanal/Monat (bis zu 81,00 €/Monat bei 9 Kanälen). Der Jahrespreis entspricht dem Zehnfachen des monatlichen Gesamtbetrags (entsprechend zwei kostenlosen Monaten).
-- **Unlimited** — Festpreisplan zu 129,00 €/Monat oder 1.290,00 €/Jahr (entspricht zehn Monatsraten), ohne kommerzielle Obergrenze für die Anzahl verbundener Kanäle, Nutzer oder gleichzeitig planbarer Beiträge pro Kanal. Technische Sicherheitsvorkehrungen und Ratenbegrenzungen (zum Beispiel die eigenen API-Ratenbegrenzungen verbundener Social-Media-Plattformen, Anti-Abuse-Schutzmaßnahmen und Durchsatzgrenzen der Infrastruktur) bleiben unabhängig vom Plan bestehen und werden niemals als Planlimit dargestellt.
+- **Pro** — 1 Nutzer, 1 bis 50 verbundene Kanäle, bis zu 500 gleichzeitig geplante Beiträge pro Kanal, abgerechnet nach progressiven Kanal-Preisstufen: 4,50 €/Kanal/Monat für die Kanäle 1–10, 3,00 €/Kanal/Monat für die Kanäle 11–25 und 2,25 €/Kanal/Monat für die Kanäle 26–50. Der Jahrespreis entspricht dem Zehnfachen des monatlichen Gesamtbetrags (entsprechend zwei kostenlosen Monaten).
+- **Team** — bis zu 15 Nutzer, dieselben Kanal-Preisstufen und Beitragsgrenzen wie bei Pro, abgerechnet zu: 9,00 €/Kanal/Monat für die Kanäle 1–10, 3,00 €/Kanal/Monat für die Kanäle 11–25 und 2,25 €/Kanal/Monat für die Kanäle 26–50.
 
-Postqron unterhält außerdem einen nicht öffentlichen Plan „Internal Unlimited" (intern unbegrenzt), der für Kunden weder käuflich erwerbbar noch anfragbar ist. Er kann ausschließlich von einem autorisierten Postqron-Administrator bestimmten, namentlich aufgeführten Konten zugewiesen werden, und seine Nutzung wird vollständig protokolliert. Der oben beschriebene öffentliche Plan Unlimited ist ein eigenständiges, separat erwerbbares Angebot, das sich von Internal Unlimited durch Sichtbarkeit, Käuflichkeit, Zuweisung, Abrechnung und Kontrolle unterscheidet; kein Kunde kann Internal Unlimited anfragen oder erhalten, und dessen interner Zuweisungsmechanismus wird hier nicht offengelegt.
+Postqron unterhält außerdem einen nicht öffentlichen Plan „Internal Unlimited" (intern unbegrenzt), der für Kunden weder käuflich erwerbbar noch anfragbar ist. Er kann ausschließlich von einem autorisierten Postqron-Administrator bestimmten, namentlich aufgeführten Konten zugewiesen werden, und seine Nutzung wird vollständig protokolliert. Er wird hier nur erwähnt, um klarzustellen, dass kein Kunde ihn anfragen oder erhalten kann.
 
 Jeder berechtigte neue Arbeitsbereich kann eine 14-tägige, kartenlose Testphase des Team-Plans aktivieren. Läuft die Testphase ohne kostenpflichtigen Kauf ab, kehrt der Arbeitsbereich automatisch zum Start-Plan zurück, wobei konservative Regeln zur Ressourcenerhaltung gelten: bestehende Kanäle, Mitglieder und Inhalte bleiben erhalten, überschüssige Ressourcen, die die Grenzen des Start-Plans übersteigen, werden jedoch pausiert und nicht gelöscht.
 

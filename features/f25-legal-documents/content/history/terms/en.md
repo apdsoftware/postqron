@@ -1,15 +1,15 @@
 ---
 document: terms
 locale: en
-version: "0.2"
+version: "0.1"
 title: "Postqron Terms of Service"
 controllerName: "Apdsoftware di Carlo Zuffetti — operator of Postqron (trading as APDSoftware)"
 contactEmail: legal@postqron.com
 status: approved
 jurisdiction: IT
-proposedEffectiveDate: "2026-07-27"
+proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Approved following the Product Owner's attestation of external legal review, recorded at https://github.com/apdsoftware/postqron/issues/179#issuecomment-5090088911; version 0.2 published, aligning Plans and pricing (Section 6) with decision D09 and the F10 four-plan catalog (Start, Pro, Team, and the new public Unlimited plan)."
+revisionSummary: "Approved following external legal review (ref. LEGAL-APPROVAL-2026-07-25-F25); version 0.1 published."
 ---
 
 # Postqron Terms of Service
@@ -36,14 +36,13 @@ Users must not use the Service to publish, schedule or distribute content that i
 
 ## 6. Plans and pricing
 
-Postqron offers four publicly available subscription plans, priced exclusively in euros (EUR):
+Postqron offers three publicly available subscription plans, priced exclusively in euros (EUR):
 
 - **Start** — permanently free, requires no payment card, includes up to 3 connected channels, 1 user, and up to 10 concurrently scheduled posts per channel.
-- **Pro** — 1 user, up to 6 connected channels, up to 500 concurrently scheduled posts per channel, billed at €4.50 per channel/month (up to €27.00/month at 6 channels). The annual price equals ten times the monthly total (equivalent to two free months).
-- **Team** — up to 9 users, up to 9 connected channels, up to 500 concurrently scheduled posts per channel, billed at €9.00 per channel/month (up to €81.00/month at 9 channels). The annual price equals ten times the monthly total (equivalent to two free months).
-- **Unlimited** — a flat-priced plan at €129.00/month or €1,290.00/year (equal to ten monthly payments), with no commercial quota on the number of connected channels, users, or concurrently scheduled posts per channel. Technical security protections and rate limits (for example, connected social-media platforms' own API rate limits, anti-abuse safeguards, and infrastructure throughput limits) remain in force regardless of plan and are never presented as a plan limit.
+- **Pro** — 1 user, from 1 to 50 connected channels, up to 500 concurrently scheduled posts per channel, billed on progressive per-channel tiers: €4.50 per channel/month for channels 1–10, €3.00 per channel/month for channels 11–25, and €2.25 per channel/month for channels 26–50. The annual price equals ten times the monthly total (equivalent to two free months).
+- **Team** — up to 15 users, the same channel tiers and post limits as Pro, billed at: €9.00 per channel/month for channels 1–10, €3.00 per channel/month for channels 11–25, and €2.25 per channel/month for channels 26–50.
 
-Postqron also maintains a non-public "Internal Unlimited" plan, which is not available for purchase or request by customers. It may only be assigned by an authorized Postqron administrator to specifically listed accounts, and its use is fully audited. The public Unlimited plan described above is a separate, purchasable offering, distinct from Internal Unlimited in visibility, purchasability, assignment, billing and audit; no customer may request or obtain Internal Unlimited, and its internal assignment mechanism is not disclosed here.
+Postqron also maintains a non-public "Internal Unlimited" plan, which is not available for purchase or request by customers. It may only be assigned by an authorized Postqron administrator to specifically listed accounts, and its use is fully audited. It is mentioned here solely to clarify that no customer may request or obtain it.
 
 Each eligible new workspace may activate one 14-day, cardless trial of the Team-tier plan. If the trial expires without a paid purchase, the workspace automatically reverts to the Start plan under conservative resource-retention rules: existing channels, members and content are preserved, but any resources exceeding Start plan limits are paused rather than deleted.
 

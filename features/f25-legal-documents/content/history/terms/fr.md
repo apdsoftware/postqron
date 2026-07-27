@@ -1,15 +1,15 @@
 ---
 document: terms
 locale: fr
-version: "0.2"
+version: "0.1"
 title: "Conditions Générales d'Utilisation de Postqron"
 controllerName: "Apdsoftware di Carlo Zuffetti — exploitant de Postqron (marque APDSoftware)"
 contactEmail: legal@postqron.com
 status: approved
 jurisdiction: IT
-proposedEffectiveDate: "2026-07-27"
+proposedEffectiveDate: "2026-09-01"
 changeType: material
-revisionSummary: "Approuvé après attestation du Product Owner d'une relecture juridique externe, enregistrée sur https://github.com/apdsoftware/postqron/issues/179#issuecomment-5090088911 ; version 0.2 publiée, alignant la Section 6 (Plans et tarifs) sur la décision D09 et le catalogue runtime F10 à quatre plans (Start, Pro, Team et le nouveau plan public Unlimited)."
+revisionSummary: "Approuvé après relecture juridique externe (réf. LEGAL-APPROVAL-2026-07-25-F25) ; version 0.1 publiée."
 ---
 
 # Conditions Générales d'Utilisation de Postqron
@@ -36,14 +36,13 @@ Les utilisateurs ne doivent pas utiliser le Service pour publier, planifier ou d
 
 ## 6. Plans et tarifs
 
-Postqron propose quatre plans d'abonnement publics, dont les prix sont exprimés exclusivement en euros (EUR) :
+Postqron propose trois plans d'abonnement publics, dont les prix sont exprimés exclusivement en euros (EUR) :
 
 - **Start** — gratuit de manière permanente, ne nécessite aucune carte de paiement, comprend jusqu'à 3 canaux connectés, 1 utilisateur et jusqu'à 10 publications planifiées simultanément par canal.
-- **Pro** — 1 utilisateur, jusqu'à 6 canaux connectés, jusqu'à 500 publications planifiées simultanément par canal, facturé à 4,50 €/canal/mois (jusqu'à 27,00 €/mois pour 6 canaux). Le prix annuel équivaut à dix fois le total mensuel (soit l'équivalent de deux mois offerts).
-- **Team** — jusqu'à 9 utilisateurs, jusqu'à 9 canaux connectés, jusqu'à 500 publications planifiées simultanément par canal, facturé à 9,00 €/canal/mois (jusqu'à 81,00 €/mois pour 9 canaux). Le prix annuel équivaut à dix fois le total mensuel (soit l'équivalent de deux mois offerts).
-- **Unlimited** — plan à prix fixe de 129,00 €/mois ou 1 290,00 €/an (soit dix mensualités), sans aucun quota commercial sur le nombre de canaux connectés, d'utilisateurs ou de publications planifiables simultanément par canal. Les protections techniques de sécurité et les limites de fréquence (par exemple les limites de fréquence des API des plateformes sociales connectées, les protections anti-abus et les limites de débit de l'infrastructure) restent en vigueur quel que soit le plan et ne sont jamais présentées comme une limite de plan.
+- **Pro** — 1 utilisateur, de 1 à 50 canaux connectés, jusqu'à 500 publications planifiées simultanément par canal, facturé selon des paliers progressifs par canal : 4,50 €/canal/mois pour les canaux 1 à 10, 3,00 €/canal/mois pour les canaux 11 à 25, et 2,25 €/canal/mois pour les canaux 26 à 50. Le prix annuel équivaut à dix fois le total mensuel (soit l'équivalent de deux mois offerts).
+- **Team** — jusqu'à 15 utilisateurs, les mêmes paliers par canal et les mêmes limites de publications que le plan Pro, facturé à : 9,00 €/canal/mois pour les canaux 1 à 10, 3,00 €/canal/mois pour les canaux 11 à 25, et 2,25 €/canal/mois pour les canaux 26 à 50.
 
-Postqron maintient également un plan non public, « Internal Unlimited » (interne illimité), qui n'est ni achetable ni accessible sur demande par les clients. Il ne peut être attribué que par un administrateur Postqron autorisé à des comptes spécifiquement désignés, et son utilisation fait l'objet d'un contrôle intégral. Le plan public Unlimited décrit ci-dessus est une offre distincte et achetable séparément, différente d'Internal Unlimited par sa visibilité, son achetabilité, son attribution, sa facturation et son contrôle ; aucun client ne peut demander ni obtenir Internal Unlimited, et son mécanisme d'attribution interne n'est pas divulgué ici.
+Postqron maintient également un plan non public, « Internal Unlimited » (interne illimité), qui n'est ni achetable ni accessible sur demande par les clients. Il ne peut être attribué que par un administrateur Postqron autorisé à des comptes spécifiquement désignés, et son utilisation fait l'objet d'un contrôle intégral. Il est mentionné ici uniquement pour préciser qu'aucun client ne peut le demander ni l'obtenir.
 
 Chaque nouvel espace de travail éligible peut activer un essai de 14 jours du plan Team, sans carte de paiement. Si l'essai expire sans achat payant, l'espace de travail revient automatiquement au plan Start selon des règles prudentes de conservation des ressources : les canaux, membres et contenus existants sont conservés, mais les ressources excédant les limites du plan Start sont mises en pause plutôt que supprimées.
 

@@ -42,9 +42,20 @@ test('the bundled release is complete, approved, and publication succeeds', asyn
   const repository = await LegalRepository.create(BUNDLED_LEGAL_RELEASE)
   assert.equal(repository.ready, true)
   const current = repository.current('terms', 'it', '2026-07-30T00:00:00.000Z')
-  assert.equal(current?.version, '0.1')
+  assert.equal(current?.version, '0.2')
   assert.equal(current?.locale, 'it')
-  assert.equal(current?.approvalReference, 'LEGAL-APPROVAL-2026-07-25-F25')
+  assert.equal(
+    current?.approvalReference,
+    'https://github.com/apdsoftware/postqron/issues/179#issuecomment-5090088911',
+  )
+
+  const historicalTerms = repository.version('terms', '0.1', 'it', '2026-07-30T00:00:00.000Z')
+  assert.equal(historicalTerms?.version, '0.1')
+  assert.equal(historicalTerms?.approvalReference, 'LEGAL-APPROVAL-2026-07-25-F25')
+
+  const currentPrivacy = repository.current('privacy', 'it', '2026-07-30T00:00:00.000Z')
+  assert.equal(currentPrivacy?.version, '0.1')
+  assert.equal(currentPrivacy?.approvalReference, 'LEGAL-APPROVAL-2026-07-25-F25')
 })
 
 test('a complete synthetic bundle exposes current and immutable history', async () => {
