@@ -202,10 +202,15 @@ export function perChannelPrice(
 }
 
 export function annualBillingTerms(catalog: PublicCatalog): AnnualBillingTerms {
-  const paidPlans = catalog.plans
-    .filter(plan => plan.purchasable && plan.prices.monthly.amount_cents > 0)
+  const paidPlans = catalog.plans.filter(plan => plan.purchasable)
   if (paidPlans.length === 0) {
     throw new Error('PRICING_MODEL_NO_PURCHASABLE_PLAN')
+  }
+  // Every purchasable plan participates: a purchasable plan with a
+  // non-positive monthly base price cannot express an annual/monthly ratio
+  // and must fail closed instead of being skipped with its tiers unchecked.
+  if (paidPlans.some(plan => plan.prices.monthly.amount_cents <= 0)) {
+    throw new Error('PRICING_MODEL_INCONSISTENT_ANNUAL_TERMS')
   }
   // priceForChannels bills tiered plans from price_tiers, not from
   // plan.prices, so the annual/monthly ratio must hold on every tier too:

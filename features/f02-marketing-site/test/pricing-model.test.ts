@@ -229,6 +229,20 @@ test('a single divergent price tier fails the annual terms closed', () => {
   assert.throws(() => annualBillingTerms(freeTier), /INCONSISTENT_ANNUAL_TERMS/)
 })
 
+test('a purchasable plan with a zero monthly base cannot dodge tier validation', () => {
+  // With the old base-price filter, Pro would have been excluded entirely
+  // and its 11-instalment tier would have gone unchecked.
+  const zeroBase = buildCatalog()
+  const pro = zeroBase.plans.find(entry => entry.code === 'pro')!
+  pro.prices.monthly = money(0)
+  pro.price_tiers[0]!.annual = money(pro.price_tiers[0]!.monthly.amount_cents * 11)
+  assert.throws(() => annualBillingTerms(zeroBase), /INCONSISTENT_ANNUAL_TERMS/)
+
+  const zeroBaseOnly = buildCatalog()
+  zeroBaseOnly.plans.find(entry => entry.code === 'team')!.prices.monthly = money(0)
+  assert.throws(() => annualBillingTerms(zeroBaseOnly), /INCONSISTENT_ANNUAL_TERMS/)
+})
+
 test('billed annual totals match the advertised instalments at every purchasable quantity', () => {
   const terms = annualBillingTerms(catalog)
   for (const code of ['pro', 'team'] as const) {
