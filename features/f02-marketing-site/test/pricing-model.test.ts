@@ -341,3 +341,16 @@ test('the pricing component consumes the shared model without duplicating rules'
   assert.doesNotMatch(component, /channels = ref\(3\)/)
   assert.doesNotMatch(component, /amount_cents:\s*\d/)
 })
+
+test('disabled plan cards stay distinct without attenuating text contrast', async () => {
+  const component = await source('components/PlanCatalog.vue')
+  const disabledRule = component.match(/\.plan-card--disabled\s*\{[^}]*\}/u)?.[0]
+  assert.ok(disabledRule, 'PlanCatalog must style the disabled plan card state')
+  // Opacity composites token colors below the WCAG AA 4.5:1 contrast ratio
+  // (QA measured 2.55:1 at 55% opacity); the disabled state must rely on
+  // non-text cues instead.
+  assert.doesNotMatch(component, /plan-card--disabled[^}]*opacity/u)
+  assert.doesNotMatch(disabledRule!, /opacity|filter|color:/u)
+  assert.match(disabledRule!, /border-style: dashed/)
+  assert.match(disabledRule!, /--pq-color-surface-subtle/)
+})

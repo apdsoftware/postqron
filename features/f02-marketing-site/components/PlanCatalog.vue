@@ -493,8 +493,12 @@ function href(plan: PublicPlan): string {
   box-shadow: var(--pq-shadow-md);
 }
 
+/* The disabled state must stay visually distinct without attenuating
+   text: opacity would push token colors below the WCAG AA 4.5:1 ratio. */
 .plan-card--disabled {
-  opacity: 0.55;
+  border-style: dashed;
+  background: var(--pq-color-surface-subtle);
+  box-shadow: none;
 }
 
 .plan-card:focus-within {
