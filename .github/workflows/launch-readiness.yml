@@ -37,15 +37,15 @@ jobs:
       LAUNCH_PRELAUNCH_URL: ${{ inputs.prelaunch_url }}
       LAUNCH_FIXTURE_URL: ${{ inputs.fixture_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
@@ -76,7 +76,7 @@ jobs:
           fi
       - name: Upload private diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: launch-readiness-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

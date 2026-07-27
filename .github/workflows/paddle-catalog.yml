@@ -45,8 +45,8 @@ jobs:
       PADDLE_ENVIRONMENT: ${{ inputs.environment }}
       PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26.5"
           cache-dependency-path: features/f10-entitlements/go.sum
@@ -92,7 +92,7 @@ jobs:
         run: GOWORK=off go run ./cmd/paddle-catalog-check
       - name: Upload provider-generated mapping
         if: inputs.operation == 'apply'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: paddle-catalog-${{ inputs.environment }}-${{ inputs.catalog_version }}
           path: ${{ runner.temp }}/paddle-catalog-mapping.json
