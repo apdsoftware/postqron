@@ -63,7 +63,7 @@ const it = {
   'landing.note': 'Durante il pre-lancio non è disponibile alcun acquisto.',
   'pricing.eyebrow': 'Piani di lancio',
   'pricing.title': 'Parti in modo semplice. Cresci insieme al calendario.',
-  'pricing.description': 'Confronta i quattro piani ufficiali Postqron, incluso Unlimited, partendo da uno scenario pratico con tre canali.',
+  'pricing.description': 'Confronta i quattro piani ufficiali Postqron, incluso Illimitato, partendo da uno scenario pratico con tre canali.',
   'pricing.loading': 'Caricamento del catalogo ufficiale…',
   'pricing.unavailable': 'I prezzi ufficiali non sono momentaneamente disponibili. Puoi comunque richiedere l’accesso anticipato: confermeremo i piani prima del lancio.',
   'pricing.cta': 'Richiedi accesso anticipato',

@@ -52,7 +52,7 @@ const {
   error,
   refresh,
   status,
-} = await useFetch('/api/plans', { key: 'public-plan-catalog-d09-v1' })
+} = await useFetch('/api/plans', { key: 'public-plan-catalog-d09-v2' })
 
 const catalog = computed(() => {
   if (!rawCatalog.value) {

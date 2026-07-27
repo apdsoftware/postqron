@@ -40,7 +40,7 @@ export interface PublicPlan {
 
 export interface PublicCatalog {
   provider: 'paddle'
-  catalog_version: 'd09-v1'
+  catalog_version: 'd09-v2'
   currency: 'EUR'
   plans: PublicPlan[]
 }
@@ -102,7 +102,7 @@ export interface PricingCopy {
 export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
   en: {
     seoTitle: 'Pricing and plans — Postqron',
-    seoDescription: 'Compare Start, Pro, and Team with progressive pricing, clear limits, and a transparent Buffer benchmark.',
+    seoDescription: 'Compare Start, Pro, Team, and Unlimited with progressive pricing, clear limits, and a transparent Buffer benchmark.',
     eyebrow: 'Pricing',
     heroTitle: 'A clear price for every channel.',
     heroDescription: 'Choose monthly or annual billing, set the number of channels, and see the complete recurring total before checkout.',
@@ -151,11 +151,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer converted to EUR',
     saving: 'You save {amount}',
     comparisonScope: 'Pro is compared with Buffer Essentials; Team with Buffer Team. Start matches Buffer Free up to 3 channels.',
-    comparisonLimits: 'This is a commercial comparison, not feature parity: at launch Postqron supports fewer social networks, 500 scheduled posts per channel, up to 9 Team users, and does not include Buffer analytics, inbox, AI, API, or approval workflows.',
+    comparisonLimits: 'This is a commercial comparison, not feature parity: at launch Postqron supports fewer social networks and does not include Buffer analytics, inbox, AI, API, or approval workflows.',
   },
   it: {
     seoTitle: 'Prezzi e piani — Postqron',
-    seoDescription: 'Confronta Start, Pro e Team con prezzi progressivi, limiti chiari e un benchmark trasparente con Buffer.',
+    seoDescription: 'Confronta Start, Pro, Team e Illimitato con prezzi progressivi, limiti chiari e un benchmark trasparente con Buffer.',
     eyebrow: 'Prezzi',
     heroTitle: 'Un prezzo chiaro per ogni canale.',
     heroDescription: 'Scegli mensile o annuale, imposta il numero di canali e consulta il totale ricorrente completo prima del checkout.',
@@ -204,11 +204,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer convertito in EUR',
     saving: 'Risparmi {amount}',
     comparisonScope: 'Pro è confrontato con Buffer Essentials; Team con Buffer Team. Start è pari a Buffer Free fino a 3 canali.',
-    comparisonLimits: 'È un confronto commerciale, non una parità di funzioni: al lancio Postqron supporta meno social, 500 post programmati per canale, fino a 9 utenti Team e non include analytics, inbox, AI, API o approvazioni di Buffer.',
+    comparisonLimits: 'È un confronto commerciale, non una parità di funzioni: al lancio Postqron supporta meno social e non include analytics, inbox, AI, API o approvazioni di Buffer.',
   },
   es: {
     seoTitle: 'Precios y planes — Postqron',
-    seoDescription: 'Compara Start, Pro y Team con precios progresivos, límites claros y una referencia transparente de Buffer.',
+    seoDescription: 'Compara Start, Pro, Team e Ilimitado con precios progresivos, límites claros y una referencia transparente de Buffer.',
     eyebrow: 'Precios',
     heroTitle: 'Un precio claro para cada canal.',
     heroDescription: 'Elige facturación mensual o anual, fija el número de canales y consulta el total recurrente completo antes del pago.',
@@ -257,11 +257,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer convertido a EUR',
     saving: 'Ahorras {amount}',
     comparisonScope: 'Pro se compara con Buffer Essentials; Team con Buffer Team. Start iguala Buffer Free hasta 3 canales.',
-    comparisonLimits: 'Es una comparación comercial, no equivalencia funcional: al lanzamiento Postqron admite menos redes, 500 publicaciones programadas por canal, hasta 9 usuarios Team y no incluye analytics, bandeja, IA, API ni aprobaciones de Buffer.',
+    comparisonLimits: 'Es una comparación comercial, no equivalencia funcional: al lanzamiento Postqron admite menos redes y no incluye analytics, bandeja, IA, API ni aprobaciones de Buffer.',
   },
   fr: {
     seoTitle: 'Tarifs et abonnements — Postqron',
-    seoDescription: 'Comparez Start, Pro et Team avec une tarification progressive, des limites claires et une référence Buffer transparente.',
+    seoDescription: 'Comparez Start, Pro, Team et Illimité avec une tarification progressive, des limites claires et une référence Buffer transparente.',
     eyebrow: 'Tarifs',
     heroTitle: 'Un prix clair pour chaque canal.',
     heroDescription: 'Choisissez une facturation mensuelle ou annuelle, le nombre de canaux et consultez le total récurrent complet avant le paiement.',
@@ -310,11 +310,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer converti en EUR',
     saving: 'Vous économisez {amount}',
     comparisonScope: 'Pro est comparé à Buffer Essentials ; Team à Buffer Team. Start égale Buffer Free jusqu’à 3 canaux.',
-    comparisonLimits: 'Il s’agit d’une comparaison commerciale, pas d’une équivalence fonctionnelle : au lancement, Postqron prend en charge moins de réseaux, 500 publications par canal, jusqu’à 9 utilisateurs Team et n’inclut pas les analytics, la boîte de réception, l’IA, l’API ni les approbations de Buffer.',
+    comparisonLimits: 'Il s’agit d’une comparaison commerciale, pas d’une équivalence fonctionnelle : au lancement, Postqron prend en charge moins de réseaux et n’inclut pas les analytics, la boîte de réception, l’IA, l’API ni les approbations de Buffer.',
   },
   de: {
     seoTitle: 'Preise und Tarife — Postqron',
-    seoDescription: 'Vergleiche Start, Pro und Team mit Staffelpreisen, klaren Limits und einem transparenten Buffer-Benchmark.',
+    seoDescription: 'Vergleiche Start, Pro, Team und Unbegrenzt mit Staffelpreisen, klaren Limits und einem transparenten Buffer-Benchmark.',
     eyebrow: 'Preise',
     heroTitle: 'Ein klarer Preis für jeden Kanal.',
     heroDescription: 'Wähle monatliche oder jährliche Abrechnung und die Kanalanzahl und sieh vor dem Checkout den vollständigen wiederkehrenden Gesamtpreis.',
@@ -363,7 +363,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer in EUR umgerechnet',
     saving: 'Du sparst {amount}',
     comparisonScope: 'Pro wird mit Buffer Essentials verglichen, Team mit Buffer Team. Start entspricht Buffer Free bis zu 3 Kanälen.',
-    comparisonLimits: 'Dies ist ein kommerzieller Vergleich, keine Funktionsgleichheit: Zum Start unterstützt Postqron weniger Netzwerke, 500 geplante Beiträge pro Kanal, bis zu 9 Team-Benutzer und enthält nicht Buffers Analytics, Inbox, KI, API oder Freigaben.',
+    comparisonLimits: 'Dies ist ein kommerzieller Vergleich, keine Funktionsgleichheit: Zum Start unterstützt Postqron weniger Netzwerke und enthält nicht Buffers Analytics, Inbox, KI, API oder Freigaben.',
   },
 }
 
@@ -468,7 +468,7 @@ export function parsePublicCatalog(value: unknown): PublicCatalog {
   }
   if (
     value.provider !== 'paddle'
-    || value.catalog_version !== 'd09-v1'
+    || value.catalog_version !== 'd09-v2'
     || value.currency !== 'EUR'
     || !Array.isArray(value.plans)
     || value.plans.length !== 4
