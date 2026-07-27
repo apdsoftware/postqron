@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 )
 
 const productSessionCookie = "__Host-postqron_session"
@@ -29,31 +31,33 @@ func NewPostgresSessionAuthentication(
 				return
 			}
 			digest := sha256.Sum256([]byte(cookie.Value))
-			var authenticated bool
+			var accountID string
 			err = database.QueryRowContext(request.Context(), `
-				SELECT EXISTS (
-					SELECT 1
-					FROM auth_sessions
-					WHERE token_hash = $1
-					  AND revoked_at IS NULL
-					  AND expires_at > $2
-				)`,
+				SELECT account_id
+				  FROM auth_sessions
+				 WHERE token_hash = $1
+				   AND revoked_at IS NULL
+				   AND expires_at > $2`,
 				hex.EncodeToString(digest[:]),
 				clock().UTC(),
-			).Scan(&authenticated)
+			).Scan(&accountID)
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					writeJSON(writer, http.StatusUnauthorized, map[string]string{
+						"error": "ADMIN_UNAUTHENTICATED",
+					})
+					return
+				}
 				writeJSON(writer, http.StatusServiceUnavailable, map[string]string{
 					"error": "ADMIN_UNAVAILABLE",
 				})
 				return
 			}
-			if !authenticated {
-				writeJSON(writer, http.StatusUnauthorized, map[string]string{
-					"error": "ADMIN_UNAUTHENTICATED",
-				})
-				return
-			}
-			next.ServeHTTP(writer, request)
+			ctx := featureruntime.WithAuthenticatedAccount(
+				request.Context(),
+				accountID,
+			)
+			next.ServeHTTP(writer, request.WithContext(ctx))
 		})
 	}, nil
 }

@@ -228,31 +228,29 @@ jobs:
               configured_paddle_values=$((configured_paddle_values + 1))
             fi
           done
-          if (( configured_paddle_values != 0 && configured_paddle_values != 3 )); then
+          if (( configured_paddle_values != 3 )); then
             echo "Paddle runtime configuration is incomplete" >&2
             exit 1
           fi
-          if (( configured_paddle_values == 3 )); then
-            if [[ "$PADDLE_ENVIRONMENT" == "sandbox" &&
-              "$PADDLE_API_KEY" != pdl_sdbx_apikey_* ]] ||
-              [[ "$PADDLE_ENVIRONMENT" == "production" &&
-              "$PADDLE_API_KEY" != pdl_live_apikey_* ]]; then
-              echo "Paddle API key does not match the delivery environment" >&2
-              exit 1
-            fi
-            paddle_catalog=$(jq --compact-output \
-              'if type == "array" and length == 14 then . else error("invalid mapping") end' \
-              <<<"$PADDLE_CATALOG_JSON") || {
-                echo "PADDLE_CATALOG_JSON is invalid" >&2
-                exit 1
-              }
-            {
-              printf 'PADDLE_ENVIRONMENT=%s\n' "$PADDLE_ENVIRONMENT"
-              printf 'PADDLE_API_KEY=%s\n' "$PADDLE_API_KEY"
-              printf 'PADDLE_WEBHOOK_SECRET=%s\n' "$PADDLE_WEBHOOK_SECRET"
-              printf 'PADDLE_CATALOG_JSON=%s\n' "$paddle_catalog"
-            } >> "$RUNNER_TEMP/runtime.env"
+          if [[ "$PADDLE_ENVIRONMENT" == "sandbox" &&
+            "$PADDLE_API_KEY" != pdl_sdbx_apikey_* ]] ||
+            [[ "$PADDLE_ENVIRONMENT" == "production" &&
+            "$PADDLE_API_KEY" != pdl_live_apikey_* ]]; then
+            echo "Paddle API key does not match the delivery environment" >&2
+            exit 1
           fi
+          paddle_catalog=$(jq --compact-output \
+            'if type == "array" and length == 14 then . else error("invalid mapping") end' \
+            <<<"$PADDLE_CATALOG_JSON") || {
+              echo "PADDLE_CATALOG_JSON is invalid" >&2
+              exit 1
+            }
+          {
+            printf 'PADDLE_ENVIRONMENT=%s\n' "$PADDLE_ENVIRONMENT"
+            printf 'PADDLE_API_KEY=%s\n' "$PADDLE_API_KEY"
+            printf 'PADDLE_WEBHOOK_SECRET=%s\n' "$PADDLE_WEBHOOK_SECRET"
+            printf 'PADDLE_CATALOG_JSON=%s\n' "$paddle_catalog"
+          } >> "$RUNNER_TEMP/runtime.env"
           {
             printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
             printf 'APP_DOMAIN=%s\n' "$APP_DOMAIN"
@@ -262,6 +260,16 @@ jobs:
             printf 'API_IMAGE=ghcr.io/%s-api:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             printf 'WORKER_IMAGE=ghcr.io/%s-worker:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
           } >> "$RUNNER_TEMP/runtime.env"
+          printf '%s\n' \
+            'services:' \
+            '  api:' \
+            '    environment:' \
+            '      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}' \
+            '      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:?PADDLE_ENVIRONMENT is required}' \
+            '      PADDLE_API_KEY: ${PADDLE_API_KEY:?PADDLE_API_KEY is required}' \
+            '      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:?PADDLE_WEBHOOK_SECRET is required}' \
+            '      PADDLE_CATALOG_JSON: ${PADDLE_CATALOG_JSON:?PADDLE_CATALOG_JSON is required}' \
+            > "$RUNNER_TEMP/compose.override.yaml"
       - name: Wait for cloud-init
         if: inputs.operation == 'release'
         run: |
@@ -277,6 +285,7 @@ jobs:
         run: |
           scp infra/deploy/compose.yaml infra/deploy/Caddyfile postqron@"$DEPLOYMENT_HOST":/opt/postqron/
           scp "$RUNNER_TEMP/runtime.env" postqron@"$DEPLOYMENT_HOST":/opt/postqron/runtime.env
+          scp "$RUNNER_TEMP/compose.override.yaml" postqron@"$DEPLOYMENT_HOST":/opt/postqron/compose.override.yaml
       - name: Pull images and restart
         if: inputs.operation == 'release'
         env:

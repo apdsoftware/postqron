@@ -95,8 +95,22 @@ func validatePaddleEnvironmentAndKey(environment PaddleEnvironment, apiKey strin
 }
 
 func NewPaddleConfigFromEnv() (PaddleConfig, error) {
+	return NewPaddleConfig(
+		os.Getenv("PADDLE_ENVIRONMENT"),
+		os.Getenv("PADDLE_API_KEY"),
+		os.Getenv("PADDLE_WEBHOOK_SECRET"),
+		os.Getenv("PADDLE_CATALOG_JSON"),
+	)
+}
+
+func NewPaddleConfig(
+	environment string,
+	apiKey string,
+	webhookSecret string,
+	catalogJSON string,
+) (PaddleConfig, error) {
 	var mappings []PaddlePriceMapping
-	if err := json.Unmarshal([]byte(os.Getenv("PADDLE_CATALOG_JSON")), &mappings); err != nil {
+	if err := json.Unmarshal([]byte(catalogJSON), &mappings); err != nil {
 		return PaddleConfig{}, fmt.Errorf("%w: decode PADDLE_CATALOG_JSON", ErrInvalidPaddleConfig)
 	}
 	catalog := make(PaddleCatalog, len(mappings))
@@ -112,9 +126,9 @@ func NewPaddleConfigFromEnv() (PaddleConfig, error) {
 		catalog[key] = mapping
 	}
 	config := PaddleConfig{
-		Environment:   PaddleEnvironment(os.Getenv("PADDLE_ENVIRONMENT")),
-		APIKey:        os.Getenv("PADDLE_API_KEY"),
-		WebhookSecret: os.Getenv("PADDLE_WEBHOOK_SECRET"),
+		Environment:   PaddleEnvironment(environment),
+		APIKey:        apiKey,
+		WebhookSecret: webhookSecret,
 		Catalog:       catalog,
 	}
 	return config, config.Validate()

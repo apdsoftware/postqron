@@ -30,6 +30,7 @@ func TestPublicPlansEndpointOnlyContainsD09PaddleCatalog(t *testing.T) {
 		NewService(&serviceStoreStub{}),
 		nil,
 		nil,
+		nil,
 		http.NotFoundHandler(),
 		requestAuthenticatorStub{},
 		workspaceViewerStub{},

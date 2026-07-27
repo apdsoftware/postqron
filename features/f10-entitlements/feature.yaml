@@ -1,7 +1,7 @@
 schema_version: 1
 id: f10-entitlements
 kind: api
-version: 0.4.0
+version: 0.5.0
 entrypoints:
   server: ./module.go
 dependencies:
@@ -16,4 +16,32 @@ server:
     - path: /billing/plans
       handler: PublicPlans
       methods: [GET]
+      visibility: public
+    - path: /workspaces/{workspace_id}/billing
+      handler: BillingOverview
+      methods: [GET]
+      visibility: private
+    - path: /workspaces/{workspace_id}/billing/checkout
+      handler: BillingCheckout
+      methods: [POST]
+      visibility: private
+    - path: /workspaces/{workspace_id}/billing/portal
+      handler: BillingPortal
+      methods: [POST]
+      visibility: private
+    - path: /workspaces/{workspace_id}/billing/subscription/preview
+      handler: PreviewSubscriptionChange
+      methods: [POST]
+      visibility: private
+    - path: /workspaces/{workspace_id}/billing/subscription
+      handler: ApplySubscriptionChange
+      methods: [PATCH]
+      visibility: private
+    - path: /workspaces/{workspace_id}/billing/subscription/cancel
+      handler: CancelSubscription
+      methods: [POST]
+      visibility: private
+    - path: /billing/paddle/webhook
+      handler: PaddleWebhook
+      methods: [POST]
       visibility: public

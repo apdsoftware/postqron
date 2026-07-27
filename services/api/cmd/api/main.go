@@ -58,8 +58,13 @@ func run(logger *slog.Logger) error {
 		featurehost.Dependencies{
 			PostgreSQL: database,
 			Config: map[string]string{
-				"address": address,
-				"version": version,
+				"address":                       address,
+				"version":                       version,
+				"billing.app_domain":            os.Getenv("APP_DOMAIN"),
+				"billing.paddle_environment":    os.Getenv("PADDLE_ENVIRONMENT"),
+				"billing.paddle_api_key":        os.Getenv("PADDLE_API_KEY"),
+				"billing.paddle_webhook_secret": os.Getenv("PADDLE_WEBHOOK_SECRET"),
+				"billing.paddle_catalog_json":   os.Getenv("PADDLE_CATALOG_JSON"),
 			},
 			Logger: logger,
 			Clock:  time.Now,
