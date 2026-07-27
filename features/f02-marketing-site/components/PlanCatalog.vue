@@ -11,7 +11,6 @@ import {
   interpolate,
   localeFromPath,
   monthlyEquivalent,
-  priceForChannels,
   pricingCopy,
   purchaseHref,
   savingsAgainstBuffer,
@@ -19,26 +18,61 @@ import {
   type PublicCatalog,
   type PublicPlan,
 } from '~/src/catalog'
-import { displayedChannelLimit, quantityForPlan } from '~/src/plan-display'
+import { displayedChannelLimit } from '~/src/plan-display'
+import {
+  OVER_MAX_QUANTITY,
+  annualBillingTerms,
+  annualSaving,
+  billedChannels,
+  checkoutIntentFor,
+  formatPercent,
+  initialPricingSelection,
+  isPlanCompatible,
+  orderedPlans,
+  overMaxThreshold,
+  perChannelPrice,
+  planTotal,
+  quantityOptions,
+  selectedPlan,
+  withInterval,
+  withPlan,
+  withQuantity,
+  type ChannelQuantity,
+} from '~/src/pricing-model'
 
 const props = defineProps<{
   catalog: PublicCatalog
 }>()
 const config = useRuntimeConfig()
 const route = useRoute()
-const interval = ref<BillingInterval>('monthly')
-const channels = ref(3)
+const selection = ref(initialPricingSelection())
 const locale = computed(() => localeFromPath(route.fullPath))
 const copy = computed(() => pricingCopy(locale.value))
+const plans = computed(() => orderedPlans(props.catalog))
 const paidPlans = computed(() =>
   props.catalog.plans.filter((plan): plan is PublicPlan & { code: 'pro' | 'team' } =>
     plan.code === 'pro' || plan.code === 'team'))
-const maxChannels = computed(() => Math.max(
-  1,
-  ...props.catalog.plans
-    .filter(plan => plan.purchasable && plan.limits.channels !== null)
-    .map(plan => plan.limits.channels as number),
-))
+const currentPlan = computed(() => selectedPlan(props.catalog, selection.value))
+const channelOptions = computed(() => quantityOptions(props.catalog))
+const annualTerms = computed(() => annualBillingTerms(props.catalog))
+const annualTermsParams = computed(() => ({
+  months: number(annualTerms.value.monthsCharged),
+  serviceMonths: number(annualTerms.value.monthsOfService),
+  percent: formatPercent(annualTerms.value.savingRatio, locale.value),
+}))
+const benchmarkChannels = computed(() =>
+  selection.value.quantity === OVER_MAX_QUANTITY ? null : selection.value.quantity)
+const selectionAnnouncement = computed(() => interpolate(copy.value.selectedPlanAnnouncement, {
+  plan: displayName(currentPlan.value),
+  quantity: quantityOptionLabel(selection.value.quantity),
+  interval: selection.value.interval === 'monthly' ? copy.value.monthly : copy.value.annual,
+  total: `${formatMoney(total(currentPlan.value), locale.value)}${
+    selection.value.interval === 'monthly' ? copy.value.perMonth : copy.value.perYear}`,
+}))
+const benchmarkPlans = computed(() =>
+  benchmarkChannels.value === null
+    ? []
+    : paidPlans.value.filter(plan => isPlanCompatible(plan, benchmarkChannels.value as number)))
 
 function number(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
@@ -48,20 +82,82 @@ function displayName(plan: PublicPlan): string {
   return plan.code === 'unlimited' ? copy.value.unlimitedName : plan.name
 }
 
-function quantityFor(plan: PublicPlan): number | null {
-  return quantityForPlan(plan, channels.value)
+function quantityOptionLabel(option: ChannelQuantity): string {
+  return option === OVER_MAX_QUANTITY
+    ? interpolate(copy.value.quantityOverMax, { count: number(overMaxThreshold(props.catalog)) })
+    : number(option)
+}
+
+function setBillingInterval(interval: BillingInterval) {
+  selection.value = withInterval(selection.value, interval)
+}
+
+const quantityValue = computed({
+  get: () => String(selection.value.quantity),
+  set: (raw: string) => {
+    const quantity: ChannelQuantity = raw === OVER_MAX_QUANTITY
+      ? OVER_MAX_QUANTITY
+      : Number(raw)
+    selection.value = withQuantity(props.catalog, selection.value, quantity)
+  },
+})
+
+function compatible(plan: PublicPlan): boolean {
+  return isPlanCompatible(plan, selection.value.quantity)
+}
+
+function isSelected(plan: PublicPlan): boolean {
+  return currentPlan.value.code === plan.code
+}
+
+function choose(plan: PublicPlan) {
+  if (compatible(plan)) {
+    selection.value = withPlan(props.catalog, selection.value, plan.code)
+  }
 }
 
 function total(plan: PublicPlan) {
-  return priceForChannels(plan, interval.value, quantityFor(plan))
+  return planTotal(plan, selection.value.interval, selection.value.quantity)
 }
 
-function members(plan: PublicPlan): string {
-  if (plan.limits.members === null) {
-    return copy.value.unlimitedMembers
+function totalForChannelsLine(plan: PublicPlan): string | null {
+  if (!plan.purchasable) {
+    return null
   }
-  const key = plan.limits.members === 1 ? copy.value.member : copy.value.members
-  return interpolate(key, { count: number(plan.limits.members) })
+  const channels = billedChannels(plan, selection.value.quantity)
+  if (channels === null) {
+    return null
+  }
+  return channels === 1
+    ? copy.value.totalForChannel
+    : interpolate(copy.value.totalForChannels, { count: number(channels) })
+}
+
+function perChannelLine(plan: PublicPlan): string | null {
+  const unit = perChannelPrice(plan, selection.value.interval, selection.value.quantity)
+  if (unit === null) {
+    return null
+  }
+  const key = selection.value.interval === 'monthly'
+    ? copy.value.perChannelMonthly
+    : copy.value.perChannelAnnual
+  return interpolate(key, { amount: formatMoney(unit, locale.value) })
+}
+
+function annualSavingLine(plan: PublicPlan): string {
+  return interpolate(copy.value.annualSavingAmount, {
+    amount: formatMoney(annualSaving(plan, selection.value.quantity), locale.value),
+  })
+}
+
+function membersLine(plan: PublicPlan): string {
+  if (plan.limits.members === null) {
+    return copy.value.usersIncludedUnlimited
+  }
+  if (plan.limits.members === 1) {
+    return copy.value.usersIncludedOne
+  }
+  return interpolate(copy.value.usersIncludedMany, { count: number(plan.limits.members) })
 }
 
 function channelLimit(plan: PublicPlan): string {
@@ -82,6 +178,13 @@ function scheduledLimit(plan: PublicPlan): string {
   })
 }
 
+function incompatibleReason(plan: PublicPlan): string {
+  return interpolate(copy.value.incompatibleChannels, {
+    plan: displayName(plan),
+    count: number(plan.limits.channels ?? 0),
+  })
+}
+
 function cta(plan: PublicPlan): string {
   return plan.purchasable
     ? interpolate(copy.value.choosePlan, { plan: displayName(plan) })
@@ -89,15 +192,15 @@ function cta(plan: PublicPlan): string {
 }
 
 function href(plan: PublicPlan): string {
-  const quantity = quantityFor(plan)
-  const quantityPart = quantity === null ? '' : `&quantity=${quantity}`
-  const runtimeIntent = `${config.public.appUrl}?plan=${plan.code}&interval=${interval.value}${quantityPart}`
+  const intent = checkoutIntentFor(plan, selection.value.interval, selection.value.quantity)
+  const quantityPart = intent.quantity === null ? '' : `&quantity=${intent.quantity}`
+  const runtimeIntent = `${config.public.appUrl}?plan=${intent.plan}&interval=${intent.interval}${quantityPart}`
   return purchaseHref(
     runtimeIntent,
     locale.value,
     plan,
-    interval.value,
-    quantity,
+    intent.interval,
+    intent.quantity,
   )
 }
 </script>
@@ -107,49 +210,83 @@ function href(plan: PublicPlan): string {
     <div class="pricing-controls">
       <div
         class="billing-toggle"
+        role="group"
         :aria-label="copy.intervalLabel"
       >
         <button
           type="button"
-          :aria-pressed="interval === 'monthly'"
-          @click="interval = 'monthly'"
+          :aria-pressed="selection.interval === 'monthly'"
+          @click="setBillingInterval('monthly')"
         >
           {{ copy.monthly }}
         </button>
         <button
           type="button"
-          :aria-pressed="interval === 'annual'"
-          @click="interval = 'annual'"
+          :aria-pressed="selection.interval === 'annual'"
+          @click="setBillingInterval('annual')"
         >
-          {{ copy.annual }}
-          <span>{{ copy.annualBadge }}</span>
+          {{ interpolate(copy.annualOption, annualTermsParams) }}
         </button>
       </div>
+
+      <p class="annual-explainer">
+        {{ interpolate(copy.annualExplainer, annualTermsParams) }}
+      </p>
 
       <label class="quantity-control">
         <span>
           <strong>{{ copy.quantityLabel }}</strong>
-          <output for="pricing-channel-quantity">{{ number(channels) }}</output>
         </span>
-        <input
+        <select
           id="pricing-channel-quantity"
-          v-model.number="channels"
-          type="range"
-          min="1"
-          :max="maxChannels"
-          step="1"
+          v-model="quantityValue"
         >
+          <option
+            v-for="option in channelOptions"
+            :key="String(option)"
+            :value="String(option)"
+          >
+            {{ quantityOptionLabel(option) }}
+          </option>
+        </select>
         <small>{{ copy.quantityHelp }}</small>
       </label>
     </div>
 
-    <div class="pricing-grid">
+    <p
+      class="sr-only"
+      aria-live="polite"
+    >
+      {{ selectionAnnouncement }}
+    </p>
+
+    <div
+      class="pricing-grid"
+      role="radiogroup"
+      :aria-label="copy.planGroupLabel"
+    >
       <article
-        v-for="plan in props.catalog.plans"
+        v-for="plan in plans"
         :key="plan.code"
         class="plan-card"
-        :class="{ 'plan-card--featured': plan.code === 'pro' }"
+        :class="{
+          'plan-card--featured': plan.code === 'pro',
+          'plan-card--selected': isSelected(plan),
+          'plan-card--disabled': !compatible(plan),
+        }"
       >
+        <input
+          :id="`plan-choice-${plan.code}`"
+          class="plan-card__input"
+          type="radio"
+          name="public-plan-choice"
+          :value="plan.code"
+          :checked="isSelected(plan)"
+          :disabled="!compatible(plan)"
+          :aria-label="displayName(plan)"
+          :aria-describedby="compatible(plan) ? undefined : `plan-incompatible-${plan.code}`"
+          @change="choose(plan)"
+        >
         <span
           v-if="plan.code === 'pro'"
           class="plan-card__badge"
@@ -157,40 +294,55 @@ function href(plan: PublicPlan): string {
         <p class="plan-card__name">
           {{ displayName(plan) }}
         </p>
-        <p class="plan-card__price">
-          <strong>{{ formatMoney(total(plan), locale) }}</strong>
-          <span>{{ interval === 'monthly' ? copy.perMonth : copy.perYear }}</span>
-        </p>
-        <div class="plan-card__billing">
-          <template v-if="!plan.purchasable">
-            {{ copy.freeForever }}
-          </template>
-          <template v-else-if="interval === 'annual'">
-            <span>
-              {{ interpolate(copy.annualBilling, {
-                total: formatMoney(total(plan), locale),
-              }) }}
-            </span>
-            <span>
-              {{ interpolate(copy.annualEquivalent, {
-                monthly: formatMoney(monthlyEquivalent(total(plan), interval), locale),
-              }) }}
-            </span>
-          </template>
-          <template v-else>
-            {{ copy.monthlyBilling }}
-          </template>
-          <span v-if="plan.limits.channels === null">{{ copy.unlimitedFlatPricing }}</span>
-        </div>
-        <a
-          class="pq-button"
-          :class="{ 'pq-button--secondary': plan.code !== 'pro' }"
-          :href="href(plan)"
-        >
-          {{ cta(plan) }}
-        </a>
+        <template v-if="compatible(plan)">
+          <p class="plan-card__price">
+            <strong>{{ formatMoney(total(plan), locale) }}</strong>
+            <span>{{ selection.interval === 'monthly' ? copy.perMonth : copy.perYear }}</span>
+          </p>
+          <div class="plan-card__billing">
+            <span v-if="totalForChannelsLine(plan)">{{ totalForChannelsLine(plan) }}</span>
+            <span v-if="perChannelLine(plan)">{{ perChannelLine(plan) }}</span>
+            <template v-if="!plan.purchasable">
+              <span>{{ copy.freeForever }}</span>
+              <span>{{ copy.startSelectorNote }}</span>
+            </template>
+            <template v-else-if="selection.interval === 'annual'">
+              <span>
+                {{ interpolate(copy.annualBilling, {
+                  total: formatMoney(total(plan), locale),
+                }) }}
+              </span>
+              <span>
+                {{ interpolate(copy.annualEquivalent, {
+                  monthly: formatMoney(monthlyEquivalent(total(plan), selection.interval), locale),
+                }) }}
+              </span>
+              <span>{{ interpolate(copy.annualPayForService, annualTermsParams) }}</span>
+              <span>{{ annualSavingLine(plan) }}</span>
+            </template>
+            <template v-else>
+              <span>{{ copy.monthlyBilling }}</span>
+            </template>
+            <span v-if="plan.limits.channels === null">{{ copy.unlimitedFlatIndependent }}</span>
+          </div>
+          <a
+            class="pq-button"
+            :class="{ 'pq-button--secondary': plan.code !== 'pro' }"
+            :href="href(plan)"
+          >
+            {{ cta(plan) }}
+          </a>
+        </template>
+        <template v-else>
+          <p
+            :id="`plan-incompatible-${plan.code}`"
+            class="plan-card__incompatible"
+          >
+            {{ incompatibleReason(plan) }}
+          </p>
+        </template>
         <ul>
-          <li>{{ members(plan) }}</li>
+          <li>{{ membersLine(plan) }}</li>
           <li>{{ channelLimit(plan) }}</li>
           <li>{{ scheduledLimit(plan) }}</li>
           <li v-if="plan.trial">
@@ -205,6 +357,7 @@ function href(plan: PublicPlan): string {
     </p>
 
     <section
+      v-if="benchmarkPlans.length > 0"
       class="benchmark"
       aria-labelledby="buffer-benchmark-title"
     >
@@ -232,7 +385,7 @@ function href(plan: PublicPlan): string {
           </thead>
           <tbody>
             <tr
-              v-for="plan in paidPlans"
+              v-for="plan in benchmarkPlans"
               :key="plan.code"
             >
               <th scope="row">
@@ -241,12 +394,15 @@ function href(plan: PublicPlan): string {
               </th>
               <td>{{ formatMoney(total(plan), locale) }}</td>
               <td>
-                {{ formatMoney(bufferBenchmark(plan.code, interval, channels), locale) }}
+                {{ formatMoney(
+                  bufferBenchmark(plan.code, selection.interval, benchmarkChannels as number),
+                  locale,
+                ) }}
               </td>
               <td>
                 {{ interpolate(copy.saving, {
                   amount: formatMoney(
-                    savingsAgainstBuffer(plan, interval, channels),
+                    savingsAgainstBuffer(plan, selection.interval, benchmarkChannels as number),
                     locale,
                   ),
                 }) }}
@@ -275,6 +431,14 @@ function href(plan: PublicPlan): string {
   margin-bottom: 0;
 }
 
+.annual-explainer {
+  max-width: 42rem;
+  margin: 0;
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-sm);
+  text-align: center;
+}
+
 .quantity-control {
   display: grid;
   width: min(30rem, 100%);
@@ -283,22 +447,74 @@ function href(plan: PublicPlan): string {
 }
 
 .quantity-control > span {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   color: var(--pq-color-text);
 }
 
-.quantity-control output {
-  color: var(--pq-color-brand);
-  font-size: var(--pq-font-size-xl);
-  font-weight: var(--pq-font-weight-bold);
-}
-
-.quantity-control input {
+.quantity-control select {
   width: 100%;
   min-height: var(--pq-size-target-min);
-  accent-color: var(--pq-color-brand);
+  border: 1px solid var(--pq-color-border);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-2) var(--pq-space-3);
+  color: var(--pq-color-text);
+  background: var(--pq-color-surface);
+  font-size: var(--pq-font-size-md);
+}
+
+.sr-only {
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  white-space: nowrap;
+}
+
+.plan-card__input {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.plan-card__input:disabled {
+  cursor: not-allowed;
+}
+
+.plan-card--selected {
+  border-color: var(--pq-color-brand);
+  box-shadow: var(--pq-shadow-md);
+}
+
+/* The disabled state must stay visually distinct without attenuating
+   text: opacity would push token colors below the WCAG AA 4.5:1 ratio. */
+.plan-card--disabled {
+  border-style: dashed;
+  background: var(--pq-color-surface-subtle);
+  box-shadow: none;
+}
+
+.plan-card:focus-within {
+  outline: 3px solid var(--pq-color-brand);
+  outline-offset: 2px;
+}
+
+.plan-card .pq-button {
+  position: relative;
+  z-index: 1;
+}
+
+.plan-card__incompatible {
+  margin: var(--pq-space-5) 0 0;
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-sm);
 }
 
 .plan-card__billing {
