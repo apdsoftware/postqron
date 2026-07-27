@@ -132,9 +132,15 @@ export class AdminApi {
     }
   }
 
-  async dashboard(headers?: Readonly<Record<string, string>>): Promise<AdminDashboard> {
+  async dashboard(options?: Readonly<{
+    headers?: Readonly<Record<string, string>>
+    signal?: AbortSignal
+  }>): Promise<AdminDashboard> {
     try {
-      return parseDashboard(await this.#request('/api/v1/admin/dashboard', { headers }))
+      return parseDashboard(await this.#request('/api/v1/admin/dashboard', {
+        headers: options?.headers,
+        signal: options?.signal,
+      }))
     } catch (error) {
       if (error instanceof AdminApiError) {
         throw error

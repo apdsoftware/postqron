@@ -75,6 +75,7 @@ function reset() {
     entitlement: 'start',
     internal: false,
     audit: [],
+    health: 'operational',
   }
 }
 reset()
@@ -205,6 +206,13 @@ const server = createServer(async (request, response) => {
     json(response, 200, { reset: true })
     return
   }
+  if (request.method === 'POST' && url.pathname === '/__fixture/health') {
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const allowed = ['operational', 'degraded', 'outage', 'unknown', 'api_failure']
+    state.health = allowed.includes(input.status) ? input.status : 'operational'
+    json(response, 200, { health: state.health })
+    return
+  }
   if (request.method === 'POST' && url.pathname === '/__fixture/shutdown') {
     json(response, 200, { stopped: true })
     setImmediate(stop)
@@ -298,8 +306,25 @@ const server = createServer(async (request, response) => {
       error(response, role ? 403 : 401, 'ADMIN_FORBIDDEN')
       return
     }
+    if (state.health === 'api_failure') {
+      error(response, 503, 'ADMIN_UNAVAILABLE')
+      return
+    }
+    const staleCheckedAt = '2026-07-25T10:00:00.000Z'
+    const services = state.health === 'unknown'
+      ? [
+          { code: 'api', status: 'operational', checked_at: now },
+          { code: 'database', status: 'operational', checked_at: now },
+          { code: 'worker_queue', status: 'unknown', checked_at: staleCheckedAt },
+        ]
+      : state.health === 'degraded' || state.health === 'outage'
+        ? [
+            { code: 'api', status: 'operational', checked_at: now },
+            { code: 'database', status: state.health, checked_at: now },
+          ]
+        : [{ code: 'api', status: 'operational', checked_at: now }]
     json(response, 200, {
-      services: [{ code: 'api', status: 'healthy', checked_at: now }],
+      services,
       entitlements: [{
         workspace_id: 'workspace-fixture',
         plan_code: state.internal ? 'internal' : state.entitlement,

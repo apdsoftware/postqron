@@ -12,6 +12,8 @@ dependencies:
   - f11-internal-plan
   - i18n
   - operations
+  - publishing
+  - scheduling
   - workspaces
 migrations:
   - ./migrations/000001_create_admin_console.sql

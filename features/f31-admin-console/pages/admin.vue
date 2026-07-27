@@ -19,24 +19,50 @@ definePageMeta({
   middleware: 'admin-access',
 })
 
+// Controlled background refresh, not an aggressive loop: one request a
+// minute, cancelled on navigation and backed off on repeated failure.
+const dashboardRefreshIntervalMs = 60_000
+
 const api = useAdminApi()
 const dashboard = useAdminDashboardState()
 const { date, t } = useAdminI18n()
 const { loading, errorCode, reload } = useAdminSectionLoad(
   dashboard,
-  () => api.dashboard(),
+  signal => api.dashboard({ signal }),
+  { intervalMs: dashboardRefreshIntervalMs },
 )
 
 useHead(computed(() => ({
   title: t('document.title'),
 })))
 
+function healthStatusLabel(status: string): string {
+  switch (status) {
+    case 'operational':
+      return t('health.healthy')
+    case 'degraded':
+      return t('health.degraded')
+    case 'outage':
+      return t('health.outage')
+    default:
+      return t('health.unknown')
+  }
+}
+
+const degradedServices = computed(() => (dashboard.value?.services ?? [])
+  .filter(service => service.status !== 'operational'))
+
+const latestDegradedCheckedAt = computed(() => {
+  const timestamps = degradedServices.value.map(service => service.checked_at).sort()
+  return timestamps.at(-1)
+})
+
 const kpis = computed<AdminKpi[]>(() => {
   const data = dashboard.value
   if (!data) {
     return []
   }
-  const healthy = data.services.filter(service => service.status === 'healthy').length
+  const healthy = data.services.filter(service => service.status === 'operational').length
   const internal = data.entitlements.filter(entitlement => entitlement.internal).length
   return [
     {
@@ -78,7 +104,17 @@ const kpis = computed<AdminKpi[]>(() => {
     />
 
     <AdminAlert
-      v-if="loading"
+      v-if="degradedServices.length > 0"
+      variant="error"
+    >
+      {{ t('dashboard.alertDegraded', {
+        services: degradedServices.map(service => service.code).join(', '),
+        checkedAt: latestDegradedCheckedAt ? date(latestDegradedCheckedAt) : '',
+      }) }}
+    </AdminAlert>
+
+    <AdminAlert
+      v-if="loading && !dashboard"
       variant="info"
     >
       {{ t('status.loading') }}
@@ -98,6 +134,20 @@ const kpis = computed<AdminKpi[]>(() => {
     </AdminAlert>
 
     <template v-else-if="dashboard">
+      <AdminAlert
+        v-if="errorCode"
+        variant="error"
+      >
+        {{ t(`error.${errorCode}` as never) }}
+        <button
+          class="pq-button pq-button--secondary"
+          type="button"
+          @click="reload"
+        >
+          {{ t('status.retry') }}
+        </button>
+      </AdminAlert>
+
       <AdminKpiCards :items="kpis" />
 
       <section
@@ -118,7 +168,7 @@ const kpis = computed<AdminKpi[]>(() => {
               aria-hidden="true"
             />
             <strong>{{ service.code }}</strong>
-            <span>{{ service.status === 'healthy' ? t('health.healthy') : t('health.degraded') }}</span>
+            <span>{{ healthStatusLabel(service.status) }}</span>
             <time :datetime="service.checked_at">{{ date(service.checked_at) }}</time>
           </li>
         </ul>

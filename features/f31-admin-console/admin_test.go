@@ -23,7 +23,7 @@ func (reader *readerStub) Dashboard(context.Context) (Dashboard, error) {
 	return Dashboard{
 		Services: []ServiceHealth{{
 			Code:      "api",
-			Status:    "healthy",
+			Status:    "operational",
 			CheckedAt: testNow,
 		}},
 		Entitlements: []EntitlementSummary{{

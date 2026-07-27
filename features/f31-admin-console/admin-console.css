@@ -326,11 +326,23 @@
   width: 0.75rem;
   height: 0.75rem;
   border-radius: 50%;
+  background: var(--pq-color-text-muted, #6b7280);
+}
+
+.admin-status-dot[data-status="operational"] {
+  background: var(--pq-color-success, #16784b);
+}
+
+.admin-status-dot[data-status="degraded"] {
   background: var(--pq-color-warning, #a86b00);
 }
 
-.admin-status-dot[data-status="healthy"] {
-  background: var(--pq-color-success, #16784b);
+.admin-status-dot[data-status="outage"] {
+  background: var(--pq-color-danger, #9d1c1c);
+}
+
+.admin-status-dot[data-status="unknown"] {
+  background: var(--pq-color-text-muted, #6b7280);
 }
 
 .admin-search {
