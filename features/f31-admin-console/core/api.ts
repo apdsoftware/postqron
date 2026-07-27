@@ -1,14 +1,46 @@
 import {
   assertSafeIdentifier,
   parseAdminSession,
+  parseAuditEvent,
+  parseAuditList,
   parseDashboard,
   parseMutationResult,
+  parsePlanList,
   parseSearchResults,
   type AdminDashboard,
   type AdminSession,
+  type AuditEvent,
+  type AuditList,
   type MutationResult,
+  type PlanList,
   type SearchResults,
 } from './contracts.ts'
+
+export interface AdminPlanQuery {
+  q?: string
+  plan?: string
+  status?: string
+  type?: string
+  from?: string
+  to?: string
+  sort?: string
+  direction?: 'asc' | 'desc'
+  page?: number
+  page_size?: number
+}
+
+export interface AdminAuditQuery {
+  action?: string
+  actor?: string
+  subject?: string
+  outcome?: string
+  from?: string
+  to?: string
+  sort?: string
+  direction?: 'asc' | 'desc'
+  page?: number
+  page_size?: number
+}
 
 export type AdminFetch = (
   path: string,
@@ -71,6 +103,18 @@ export function normalizeAdminApiError(error: unknown): AdminApiError {
       ? 'ADMIN_FORBIDDEN'
       : 'ADMIN_UNAVAILABLE'
   return new AdminApiError(remoteCode(error) ?? fallback, status, error)
+}
+
+function queryString(
+  input: Readonly<Record<string, string | number | undefined>>,
+): string {
+  const parameters = new URLSearchParams()
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined && value !== '') {
+      parameters.set(key, String(value))
+    }
+  }
+  return parameters.toString()
 }
 
 export class AdminApi {
@@ -159,6 +203,70 @@ export class AdminApi {
       }
       throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
     }
+  }
+
+  async plans(query: AdminPlanQuery): Promise<PlanList> {
+    try {
+      return parsePlanList(await this.#request(
+        `/api/v1/admin/plans?${queryString({ ...query })}`,
+      ))
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  async audit(query: AdminAuditQuery): Promise<AuditList> {
+    try {
+      return parseAuditList(await this.#request(
+        `/api/v1/admin/audit?${queryString({ ...query })}`,
+      ))
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  async auditEvent(eventId: string): Promise<AuditEvent> {
+    const safeEventId = assertSafeIdentifier(eventId)
+    try {
+      return parseAuditEvent(await this.#request(
+        `/api/v1/admin/audit/${encodeURIComponent(safeEventId)}`,
+      ))
+    } catch (error) {
+      if (error instanceof AdminApiError) {
+        throw error
+      }
+      throw new AdminApiError('ADMIN_UNAVAILABLE', undefined, error)
+    }
+  }
+
+  plansExportURL(
+    query: AdminPlanQuery,
+    format: 'csv' | 'xlsx',
+  ): string {
+    return `${this.#baseURL}/api/v1/admin/plans/export?${queryString({
+      ...query,
+      page: undefined,
+      page_size: undefined,
+      format,
+    })}`
+  }
+
+  auditExportURL(
+    query: AdminAuditQuery,
+    format: 'csv' | 'xlsx',
+  ): string {
+    return `${this.#baseURL}/api/v1/admin/audit/export?${queryString({
+      ...query,
+      page: undefined,
+      page_size: undefined,
+      format,
+    })}`
   }
 
   async changeInternalPlan(input: {

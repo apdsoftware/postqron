@@ -117,6 +117,36 @@ test('admin plans page exposes an accessible confirmation dialog and never reque
   )
 })
 
+test('plan and audit pages expose shareable filters, server sorting, exports, and mobile cards', async () => {
+  const [plans, audit, openapi] = await Promise.all([
+    readFile(new URL('../pages/admin-plans.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../pages/admin-audit.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../contracts/admin.openapi.yaml', import.meta.url), 'utf8'),
+  ])
+  for (const page of [plans, audit]) {
+    assert.match(page, /route\.query/u)
+    assert.match(page, /router\.push/u)
+    assert.match(page, /AdminExportActions/u)
+    assert.match(page, /AdminSortButton/u)
+    assert.match(page, /admin-mobile-list/u)
+    assert.match(page, /AdminPagination/u)
+  }
+  assert.match(audit, /api\.auditEvent/u)
+  assert.match(audit, /<dialog/u)
+  for (const endpoint of [
+    '/api/v1/admin/plans:',
+    '/api/v1/admin/plans/export:',
+    '/api/v1/admin/audit:',
+    '/api/v1/admin/audit/export:',
+    '/api/v1/admin/audit/{event_id}:',
+  ]) {
+    assert.ok(openapi.includes(endpoint), endpoint)
+  }
+  assert.match(openapi, /maximum: 100/u)
+  assert.match(openapi, /10,000-row/u)
+  assert.match(openapi, /formula injection/u)
+})
+
 test('sidebar declares one route per required admin section', () => {
   const paths = new Set(
     (Object.entries(ADMIN_CATALOGS.en) as Array<[string, string]>)
@@ -159,6 +189,11 @@ test('manifest owns only protected web and server routes with security dependenc
     '/admin/session',
     '/admin/dashboard',
     '/admin/search',
+    '/admin/plans',
+    '/admin/plans/export',
+    '/admin/audit',
+    '/admin/audit/export',
+    '/admin/audit/{event_id}',
     '/admin/workspaces/{workspace_id}/internal-plan',
     '/admin/admins/{account_id}',
   ]) {
@@ -176,6 +211,6 @@ test('manifest owns only protected web and server routes with security dependenc
   }
   assert.equal(
     manifest.match(/visibility: private/gu)?.length,
-    11,
+    16,
   )
 })

@@ -311,6 +311,299 @@ func (store *PostgresStore) Search(
 	return result, workspaceRows.Err()
 }
 
+func (store *PostgresStore) ListPlans(
+	ctx context.Context,
+	query PlanQuery,
+	page PageRequest,
+) (PlanPage, error) {
+	conditions := []string{"TRUE"}
+	arguments := []any{}
+	add := func(value any) string {
+		arguments = append(arguments, value)
+		return fmt.Sprintf("$%d", len(arguments))
+	}
+	if query.Search != "" {
+		parameter := add("%" + escapeLike(query.Search) + "%")
+		conditions = append(conditions, fmt.Sprintf(
+			"(workspace.name ILIKE %s ESCAPE '\\' OR owner.normalized_email ILIKE %s ESCAPE '\\' OR billing.workspace_id::text ILIKE %s ESCAPE '\\')",
+			parameter, parameter, parameter,
+		))
+	}
+	if query.Plan != "" {
+		conditions = append(conditions, "billing.plan_code = "+add(query.Plan))
+	}
+	if query.Status != "" {
+		conditions = append(conditions, "usage.billing_state = "+add(query.Status))
+	}
+	switch query.Type {
+	case "internal":
+		conditions = append(conditions, "COALESCE(internal.active, false)")
+	case "public":
+		conditions = append(conditions, "NOT COALESCE(internal.active, false)")
+	}
+	if query.From != nil {
+		conditions = append(conditions, "billing.updated_at >= "+add(query.From.UTC()))
+	}
+	if query.To != nil {
+		conditions = append(conditions, "billing.updated_at <= "+add(query.To.UTC()))
+	}
+	sortColumns := map[string]string{
+		"workspace":  "workspace_name",
+		"owner":      "owner_email",
+		"plan":       "plan_code",
+		"status":     "billing_state",
+		"type":       "internal_active",
+		"created_at": "workspace_created_at",
+		"updated_at": "plan_updated_at",
+	}
+	sortColumn := sortColumns[query.Sort]
+	direction := "DESC"
+	if query.Direction == "asc" {
+		direction = "ASC"
+	}
+	limit := add(page.PageSize)
+	offset := add((page.Page - 1) * page.PageSize)
+	statement := fmt.Sprintf(`
+		WITH plan_rows AS (
+			SELECT
+				billing.workspace_id::text AS workspace_id,
+				workspace.name AS workspace_name,
+				owner.email AS owner_email,
+				billing.plan_code,
+				max(usage.billing_state) AS billing_state,
+				COALESCE(internal.active, false) AS internal_active,
+				max(usage.used) FILTER (WHERE usage.resource = 'members') AS members_used,
+				max(usage.quota_limit) FILTER (WHERE usage.resource = 'members') AS members_limit,
+				max(usage.remaining) FILTER (WHERE usage.resource = 'members') AS members_remaining,
+				max(usage.used) FILTER (WHERE usage.resource = 'channels') AS channels_used,
+				max(usage.quota_limit) FILTER (WHERE usage.resource = 'channels') AS channels_limit,
+				max(usage.remaining) FILTER (WHERE usage.resource = 'channels') AS channels_remaining,
+				max(usage.used) FILTER (WHERE usage.resource = 'scheduled_publications') AS scheduled_used,
+				max(usage.quota_limit) FILTER (WHERE usage.resource = 'scheduled_publications') AS scheduled_limit,
+				max(usage.remaining) FILTER (WHERE usage.resource = 'scheduled_publications') AS scheduled_remaining,
+				workspace.created_at AS workspace_created_at,
+				billing.updated_at AS plan_updated_at,
+				max(usage.period_start) AS period_start,
+				max(usage.period_end) AS period_end,
+				CASE WHEN internal.active THEN internal.assigned_at END AS internal_assigned_at
+			FROM f10_workspace_billing billing
+			JOIN f04_workspaces workspace
+			  ON workspace.id = billing.workspace_id::text
+			JOIN auth_accounts owner
+			  ON owner.id = workspace.personal_account_id
+			JOIN f10_public_entitlement_usage usage
+			  ON usage.workspace_id = billing.workspace_id
+			LEFT JOIN f10_internal_entitlement_overrides internal
+			  ON internal.workspace_id = billing.workspace_id
+			WHERE %s
+			GROUP BY
+				billing.workspace_id, workspace.name, owner.email,
+				billing.plan_code, internal.active, internal.assigned_at,
+				workspace.created_at, billing.updated_at
+		)
+		SELECT plan_rows.*, count(*) OVER()
+		FROM plan_rows
+		ORDER BY %s %s, workspace_id ASC
+		LIMIT %s OFFSET %s`,
+		strings.Join(conditions, " AND "),
+		sortColumn,
+		direction,
+		limit,
+		offset,
+	)
+	rows, err := store.database.QueryContext(ctx, statement, arguments...)
+	if err != nil {
+		return PlanPage{}, err
+	}
+	defer rows.Close()
+	result := PlanPage{Items: []PlanRow{}}
+	for rows.Next() {
+		var item PlanRow
+		var membersLimit, membersRemaining sql.NullInt64
+		var channelsLimit, channelsRemaining sql.NullInt64
+		var scheduledLimit, scheduledRemaining sql.NullInt64
+		var internalAssignedAt sql.NullTime
+		if err := rows.Scan(
+			&item.WorkspaceID,
+			&item.WorkspaceName,
+			&item.OwnerEmail,
+			&item.PlanCode,
+			&item.Status,
+			&item.Internal,
+			&item.Usage.Members.Used,
+			&membersLimit,
+			&membersRemaining,
+			&item.Usage.Channels.Used,
+			&channelsLimit,
+			&channelsRemaining,
+			&item.Usage.ScheduledPublications.Used,
+			&scheduledLimit,
+			&scheduledRemaining,
+			&item.WorkspaceCreatedAt,
+			&item.PlanUpdatedAt,
+			&item.PeriodStart,
+			&item.PeriodEnd,
+			&internalAssignedAt,
+			&result.Total,
+		); err != nil {
+			return PlanPage{}, err
+		}
+		item.InternalAssignedAt = nullableTime(internalAssignedAt)
+		item.Usage.Members = planUsage(item.Usage.Members.Used, membersLimit, membersRemaining, item.Internal)
+		item.Usage.Channels = planUsage(item.Usage.Channels.Used, channelsLimit, channelsRemaining, item.Internal)
+		item.Usage.ScheduledPublications = planUsage(
+			item.Usage.ScheduledPublications.Used,
+			scheduledLimit,
+			scheduledRemaining,
+			item.Internal,
+		)
+		result.Items = append(result.Items, item)
+	}
+	return result, rows.Err()
+}
+
+func (store *PostgresStore) ListAudit(
+	ctx context.Context,
+	query AuditQuery,
+	page PageRequest,
+) (AuditPage, error) {
+	conditions := []string{"TRUE"}
+	arguments := []any{}
+	add := func(value any) string {
+		arguments = append(arguments, value)
+		return fmt.Sprintf("$%d", len(arguments))
+	}
+	if query.Action != "" {
+		conditions = append(conditions, "code = "+add(query.Action))
+	}
+	if query.Actor != "" {
+		conditions = append(conditions,
+			"actor_id ILIKE "+add("%"+escapeLike(query.Actor)+"%")+" ESCAPE '\\'")
+	}
+	if query.Subject != "" {
+		conditions = append(conditions,
+			"subject_id ILIKE "+add("%"+escapeLike(query.Subject)+"%")+" ESCAPE '\\'")
+	}
+	if query.Outcome != "" {
+		conditions = append(conditions, "outcome = "+add(query.Outcome))
+	}
+	if query.From != nil {
+		conditions = append(conditions, "occurred_at >= "+add(query.From.UTC()))
+	}
+	if query.To != nil {
+		conditions = append(conditions, "occurred_at <= "+add(query.To.UTC()))
+	}
+	sortColumns := map[string]string{
+		"occurred_at": "occurred_at",
+		"code":        "code",
+		"actor":       "actor_id",
+		"subject":     "subject_id",
+		"outcome":     "outcome",
+	}
+	direction := "DESC"
+	if query.Direction == "asc" {
+		direction = "ASC"
+	}
+	limit := add(page.PageSize)
+	offset := add((page.Page - 1) * page.PageSize)
+	statement := fmt.Sprintf(`
+		SELECT
+			id, code, actor_id, subject_id, reason, outcome,
+			correlation_id, occurred_at, count(*) OVER()
+		FROM f31_admin_audit_events
+		WHERE %s
+		ORDER BY %s %s, id ASC
+		LIMIT %s OFFSET %s`,
+		strings.Join(conditions, " AND "),
+		sortColumns[query.Sort],
+		direction,
+		limit,
+		offset,
+	)
+	rows, err := store.database.QueryContext(ctx, statement, arguments...)
+	if err != nil {
+		return AuditPage{}, err
+	}
+	defer rows.Close()
+	result := AuditPage{Items: []AuditEvent{}}
+	for rows.Next() {
+		var item AuditEvent
+		if err := rows.Scan(
+			&item.ID,
+			&item.Code,
+			&item.ActorID,
+			&item.SubjectID,
+			&item.Reason,
+			&item.Outcome,
+			&item.CorrelationID,
+			&item.OccurredAt,
+			&result.Total,
+		); err != nil {
+			return AuditPage{}, err
+		}
+		result.Items = append(result.Items, item)
+	}
+	return result, rows.Err()
+}
+
+func (store *PostgresStore) AuditEvent(
+	ctx context.Context,
+	eventID string,
+) (AuditEvent, bool, error) {
+	var event AuditEvent
+	err := store.database.QueryRowContext(ctx, `
+		SELECT
+			id, code, actor_id, subject_id, reason, outcome,
+			correlation_id, occurred_at
+		FROM f31_admin_audit_events
+		WHERE id = $1`,
+		eventID,
+	).Scan(
+		&event.ID,
+		&event.Code,
+		&event.ActorID,
+		&event.SubjectID,
+		&event.Reason,
+		&event.Outcome,
+		&event.CorrelationID,
+		&event.OccurredAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuditEvent{}, false, nil
+	}
+	return event, err == nil, err
+}
+
+func nullableTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	instant := value.Time.UTC()
+	return &instant
+}
+
+func nullableInt(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Int64
+	return &result
+}
+
+func planUsage(
+	used int64,
+	limit sql.NullInt64,
+	remaining sql.NullInt64,
+	unlimited bool,
+) UsageSummary {
+	result := UsageSummary{Used: used, Unlimited: unlimited}
+	if !unlimited {
+		result.Limit = nullableInt(limit)
+		result.Remaining = nullableInt(remaining)
+	}
+	return result
+}
+
 func (store *PostgresStore) Change(
 	ctx context.Context,
 	change InternalPlanChange,

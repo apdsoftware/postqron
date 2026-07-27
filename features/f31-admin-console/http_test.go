@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -177,8 +178,8 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 		t.Fatal(err)
 	}
 	source := string(manifest)
-	if strings.Count(source, "methods: [OPTIONS]") != 5 ||
-		strings.Count(source, `visibility: "public"`) != 6 {
+	if strings.Count(source, "methods: [OPTIONS]") != 10 ||
+		strings.Count(source, `visibility: "public"`) != 11 {
 		t.Fatalf("public session/preflight routes are incomplete:\n%s", source)
 	}
 	if !strings.Contains(source, "methods: [GET]\n      visibility: \"public\"") {
@@ -190,6 +191,11 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 	}{
 		{"/admin/dashboard", "[GET]"},
 		{"/admin/search", "[GET]"},
+		{"/admin/plans", "[GET]"},
+		{"/admin/plans/export", "[GET]"},
+		{"/admin/audit", "[GET]"},
+		{"/admin/audit/export", "[GET]"},
+		{"/admin/audit/{event_id}", "[GET]"},
 		{"/admin/workspaces/{workspace_id}/internal-plan", "[PUT, DELETE]"},
 		{"/admin/admins/{account_id}", "[PUT, DELETE]"},
 	} {
@@ -201,8 +207,8 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 			t.Fatalf("admin data route left the private channel: %s", route.path)
 		}
 	}
-	// Four server data routes and all six admin web routes must remain private.
-	if strings.Count(source, "\n      visibility: private") != 10 {
+	// Nine server data routes and all six admin web routes must remain private.
+	if strings.Count(source, "\n      visibility: private") != 15 {
 		t.Fatalf("admin data and web routes no longer remain private:\n%s", source)
 	}
 	for _, methods := range []string{
@@ -265,6 +271,196 @@ func TestUnauthorizedRequestsReturnBeforeAdminDataIsRead(t *testing.T) {
 		strings.Contains(forbidden.Body.String(), initialAdminEmail) {
 		t.Fatalf("forbidden response leaked authorization detail: %s", forbidden.Body.String())
 	}
+}
+
+func TestPlanAndAuditHTTPListsUseCombinedServerSideQueries(t *testing.T) {
+	fixture := newServiceFixture(t, initialAdminEmail)
+	fixture.reader.plans = []PlanRow{{
+		WorkspaceID: "workspace-1", WorkspaceName: "Studio",
+		OwnerEmail: "owner@example.test", PlanCode: "pro",
+		Status: "active", PlanUpdatedAt: testNow,
+		WorkspaceCreatedAt: testNow, PeriodStart: testNow,
+		PeriodEnd: testNow.Add(30 * 24 * time.Hour),
+	}}
+	fixture.reader.auditEvents = []AuditEvent{{
+		ID: "audit-event-1", Code: "internal_plan.assign",
+		ActorID: "account-admin", SubjectID: "workspace-1",
+		Reason: "Approved operation", Outcome: "succeeded",
+		CorrelationID: "correlation-1", OccurredAt: testNow,
+	}}
+	handler := testHandler(t, fixture, map[string]Session{"admin": validSession()})
+
+	anonymous := request(
+		t, handler, http.MethodGet, "/api/v1/admin/plans", "", nil, nil,
+	)
+	if anonymous.Code != http.StatusUnauthorized || fixture.reader.planCalls != 0 {
+		t.Fatalf("anonymous plans = %d, calls = %d", anonymous.Code, fixture.reader.planCalls)
+	}
+
+	from := testNow.Add(-time.Hour).Format(time.RFC3339)
+	to := testNow.Add(time.Hour).Format(time.RFC3339)
+	plansPath := "/api/v1/admin/plans?q=Studio&plan=pro&status=active" +
+		"&type=internal&from=" + url.QueryEscape(from) +
+		"&to=" + url.QueryEscape(to) +
+		"&sort=owner&direction=asc&page=1&page_size=10"
+	plans := request(t, handler, http.MethodGet, plansPath, "admin", nil, nil)
+	if plans.Code != http.StatusOK ||
+		!strings.Contains(plans.Body.String(), `"total":1`) {
+		t.Fatalf("plans = %d %s", plans.Code, plans.Body.String())
+	}
+	if fixture.reader.lastPlanQuery.Search != "Studio" ||
+		fixture.reader.lastPlanQuery.Status != "active" ||
+		fixture.reader.lastPlanQuery.Type != "internal" ||
+		fixture.reader.lastPlanQuery.Sort != "owner" ||
+		fixture.reader.lastPlanPage.PageSize != 10 {
+		t.Fatalf(
+			"plan query/page = %+v / %+v",
+			fixture.reader.lastPlanQuery,
+			fixture.reader.lastPlanPage,
+		)
+	}
+
+	auditPath := "/api/v1/admin/audit?action=internal_plan.assign" +
+		"&actor=account&subject=workspace&outcome=succeeded" +
+		"&sort=code&direction=asc&page=1&page_size=25"
+	audit := request(t, handler, http.MethodGet, auditPath, "admin", nil, nil)
+	if audit.Code != http.StatusOK ||
+		!strings.Contains(audit.Body.String(), "internal_plan.assign") {
+		t.Fatalf("audit = %d %s", audit.Code, audit.Body.String())
+	}
+	detail := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/audit/audit-event-1",
+		"admin",
+		nil,
+		nil,
+	)
+	if detail.Code != http.StatusOK ||
+		!strings.Contains(detail.Body.String(), "correlation-1") {
+		t.Fatalf("detail = %d %s", detail.Code, detail.Body.String())
+	}
+
+	beforeInvalid := fixture.reader.planCalls
+	invalid := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/plans?sort=secret&unexpected=value",
+		"admin",
+		nil,
+		nil,
+	)
+	if invalid.Code != http.StatusBadRequest ||
+		fixture.reader.planCalls != beforeInvalid {
+		t.Fatalf("invalid filter = %d, calls = %d", invalid.Code, fixture.reader.planCalls)
+	}
+}
+
+func TestAdminExportsAreAuthorizedLimitedAndFormulaSafe(t *testing.T) {
+	fixture := newServiceFixture(t, initialAdminEmail)
+	fixture.reader.plans = []PlanRow{{
+		WorkspaceID:   "workspace-1",
+		WorkspaceName: "=HYPERLINK(\"https://attacker.example\")",
+		OwnerEmail:    "+owner@example.test",
+		PlanCode:      "pro", Status: "active",
+		WorkspaceCreatedAt: testNow, PlanUpdatedAt: testNow,
+		PeriodStart: testNow, PeriodEnd: testNow.Add(30 * 24 * time.Hour),
+		Usage: EntitlementUsage{
+			Members: UsageSummary{
+				Used: 1, Limit: int64Pointer(5), Remaining: int64Pointer(4),
+			},
+			Channels: UsageSummary{
+				Used: 2, Limit: int64Pointer(10), Remaining: int64Pointer(8),
+			},
+			ScheduledPublications: UsageSummary{
+				Used: 3, Limit: int64Pointer(100), Remaining: int64Pointer(97),
+			},
+		},
+	}}
+	handler := testHandler(t, fixture, map[string]Session{"admin": validSession()})
+
+	anonymous := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/plans/export?format=csv",
+		"",
+		nil,
+		nil,
+	)
+	if anonymous.Code != http.StatusUnauthorized || fixture.reader.planCalls != 0 {
+		t.Fatalf("anonymous export = %d, calls = %d", anonymous.Code, fixture.reader.planCalls)
+	}
+	csvExport := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/plans/export?format=csv&type=public",
+		"admin",
+		nil,
+		nil,
+	)
+	if csvExport.Code != http.StatusOK ||
+		!strings.HasPrefix(csvExport.Header().Get("Content-Type"), "text/csv") ||
+		!strings.Contains(csvExport.Body.String(), `'=HYPERLINK`) ||
+		!strings.Contains(csvExport.Body.String(), `'+owner@example.test`) {
+		t.Fatalf(
+			"CSV export = %d %v %q",
+			csvExport.Code,
+			csvExport.Header(),
+			csvExport.Body.String(),
+		)
+	}
+	xlsxExport := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/plans/export?format=xlsx",
+		"admin",
+		nil,
+		nil,
+	)
+	if xlsxExport.Code != http.StatusOK ||
+		!bytes.HasPrefix(xlsxExport.Body.Bytes(), []byte("PK")) ||
+		!strings.Contains(
+			xlsxExport.Header().Get("Content-Disposition"),
+			"postqron-admin-plans.xlsx",
+		) {
+		t.Fatalf("XLSX export = %d %v", xlsxExport.Code, xlsxExport.Header())
+	}
+	invalid := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/plans/export?format=pdf",
+		"admin",
+		nil,
+		nil,
+	)
+	if invalid.Code != http.StatusBadRequest ||
+		!strings.Contains(invalid.Body.String(), "ADMIN_INVALID_EXPORT_FORMAT") {
+		t.Fatalf("invalid export = %d %s", invalid.Code, invalid.Body.String())
+	}
+	fixture.reader.planTotal = maxAdminExportRows + 1
+	limited := request(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/admin/plans/export?format=csv",
+		"admin",
+		nil,
+		nil,
+	)
+	if limited.Code != http.StatusRequestEntityTooLarge ||
+		!strings.Contains(limited.Body.String(), "ADMIN_EXPORT_LIMIT_EXCEEDED") {
+		t.Fatalf("limited export = %d %s", limited.Code, limited.Body.String())
+	}
+}
+
+func int64Pointer(value int64) *int64 {
+	return &value
 }
 
 func TestAdminEndToEndLoginAssignAndRevokeInternalPlan(t *testing.T) {

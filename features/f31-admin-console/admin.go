@@ -28,6 +28,8 @@ var (
 	ErrRecentReauthRequired      = errors.New("recent re-authentication required")
 	ErrIdempotencyKeyRequired    = errors.New("idempotency key required")
 	ErrAuditUnavailable          = errors.New("admin audit unavailable")
+	ErrAuditEventNotFound        = errors.New("admin audit event not found")
+	ErrExportLimitExceeded       = errors.New("admin export limit exceeded")
 	ErrAdministrationUnavailable = errors.New("administration unavailable")
 )
 
@@ -85,6 +87,87 @@ type AuditEvent struct {
 	OccurredAt    time.Time `json:"occurred_at"`
 }
 
+type UsageSummary struct {
+	Used      int64  `json:"used"`
+	Limit     *int64 `json:"limit"`
+	Remaining *int64 `json:"remaining"`
+	Unlimited bool   `json:"unlimited"`
+}
+
+type EntitlementUsage struct {
+	Members               UsageSummary `json:"members"`
+	Channels              UsageSummary `json:"channels"`
+	ScheduledPublications UsageSummary `json:"scheduled_publications"`
+}
+
+type PlanRow struct {
+	WorkspaceID        string           `json:"workspace_id"`
+	WorkspaceName      string           `json:"workspace_name"`
+	OwnerEmail         string           `json:"owner_email"`
+	PlanCode           string           `json:"plan_code"`
+	Status             string           `json:"status"`
+	Internal           bool             `json:"internal"`
+	Usage              EntitlementUsage `json:"usage"`
+	WorkspaceCreatedAt time.Time        `json:"workspace_created_at"`
+	PlanUpdatedAt      time.Time        `json:"plan_updated_at"`
+	PeriodStart        time.Time        `json:"period_start"`
+	PeriodEnd          time.Time        `json:"period_end"`
+	InternalAssignedAt *time.Time       `json:"internal_assigned_at"`
+}
+
+type PageInfo struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+	Total    int `json:"total"`
+}
+
+type PlanList struct {
+	Items      []PlanRow `json:"items"`
+	Pagination PageInfo  `json:"pagination"`
+}
+
+type AuditList struct {
+	Items      []AuditEvent `json:"items"`
+	Pagination PageInfo     `json:"pagination"`
+}
+
+type PlanQuery struct {
+	Search    string
+	Plan      string
+	Status    string
+	Type      string
+	From      *time.Time
+	To        *time.Time
+	Sort      string
+	Direction string
+}
+
+type AuditQuery struct {
+	Action    string
+	Actor     string
+	Subject   string
+	Outcome   string
+	From      *time.Time
+	To        *time.Time
+	Sort      string
+	Direction string
+}
+
+type PageRequest struct {
+	Page     int
+	PageSize int
+}
+
+type PlanPage struct {
+	Items []PlanRow
+	Total int
+}
+
+type AuditPage struct {
+	Items []AuditEvent
+	Total int
+}
+
 type Dashboard struct {
 	Services     []ServiceHealth      `json:"services"`
 	Entitlements []EntitlementSummary `json:"entitlements"`
@@ -116,6 +199,12 @@ type AdminDirectory interface {
 type Reader interface {
 	Dashboard(context.Context) (Dashboard, error)
 	Search(context.Context, string) (SearchResults, error)
+}
+
+type DataBrowser interface {
+	ListPlans(context.Context, PlanQuery, PageRequest) (PlanPage, error)
+	ListAudit(context.Context, AuditQuery, PageRequest) (AuditPage, error)
+	AuditEvent(context.Context, string) (AuditEvent, bool, error)
 }
 
 type InternalPlanChange struct {
@@ -151,6 +240,7 @@ type Config struct {
 	Allowlist    []string
 	Directory    AdminDirectory
 	Reader       Reader
+	Browser      DataBrowser
 	InternalPlan InternalPlan
 	Audit        AuditWriter
 	Idempotency  IdempotencyStore
@@ -163,6 +253,7 @@ type Service struct {
 	allowlist    map[string]struct{}
 	directory    AdminDirectory
 	reader       Reader
+	browser      DataBrowser
 	internalPlan InternalPlan
 	audit        AuditWriter
 	idempotency  IdempotencyStore
@@ -222,7 +313,8 @@ func NormalizeEmail(value string) (string, error) {
 }
 
 func NewService(config Config) (*Service, error) {
-	if config.Directory == nil || config.Reader == nil || config.InternalPlan == nil ||
+	if config.Directory == nil || config.Reader == nil || config.Browser == nil ||
+		config.InternalPlan == nil ||
 		config.Audit == nil || config.Idempotency == nil {
 		return nil, errors.New("all admin service dependencies are required")
 	}
@@ -253,6 +345,7 @@ func NewService(config Config) (*Service, error) {
 		allowlist:    allowlist,
 		directory:    config.Directory,
 		reader:       config.Reader,
+		browser:      config.Browser,
 		internalPlan: config.InternalPlan,
 		audit:        config.Audit,
 		idempotency:  config.Idempotency,
@@ -260,6 +353,207 @@ func NewService(config Config) (*Service, error) {
 		reauthWindow: config.ReauthWindow,
 		newID:        config.NewID,
 	}, nil
+}
+
+const (
+	defaultAdminPageSize = 25
+	maxAdminPageSize     = 100
+	maxAdminExportRows   = 10_000
+)
+
+var (
+	planSortFields = map[string]struct{}{
+		"workspace": {}, "owner": {}, "plan": {}, "status": {},
+		"type": {}, "created_at": {}, "updated_at": {},
+	}
+	auditSortFields = map[string]struct{}{
+		"occurred_at": {}, "code": {}, "actor": {}, "subject": {}, "outcome": {},
+	}
+	billingStates = map[string]struct{}{
+		"trialing": {}, "active": {}, "past_due": {}, "trial_expired": {},
+		"payment_restricted": {}, "canceled": {},
+	}
+)
+
+func (service *Service) Plans(
+	ctx context.Context,
+	query PlanQuery,
+	page PageRequest,
+) (PlanList, error) {
+	query, page, err := validatePlanQuery(query, page)
+	if err != nil {
+		return PlanList{}, err
+	}
+	result, err := service.browser.ListPlans(ctx, query, page)
+	if err != nil {
+		return PlanList{}, errors.Join(ErrAdministrationUnavailable, err)
+	}
+	return PlanList{
+		Items: result.Items,
+		Pagination: PageInfo{
+			Page: page.Page, PageSize: page.PageSize, Total: result.Total,
+		},
+	}, nil
+}
+
+func (service *Service) Audit(
+	ctx context.Context,
+	query AuditQuery,
+	page PageRequest,
+) (AuditList, error) {
+	query, page, err := validateAuditQuery(query, page)
+	if err != nil {
+		return AuditList{}, err
+	}
+	result, err := service.browser.ListAudit(ctx, query, page)
+	if err != nil {
+		return AuditList{}, errors.Join(ErrAdministrationUnavailable, err)
+	}
+	return AuditList{
+		Items: result.Items,
+		Pagination: PageInfo{
+			Page: page.Page, PageSize: page.PageSize, Total: result.Total,
+		},
+	}, nil
+}
+
+func (service *Service) AuditDetail(
+	ctx context.Context,
+	eventID string,
+) (AuditEvent, error) {
+	if !safeAdminIdentifier(eventID) {
+		return AuditEvent{}, ErrInvalidRequest
+	}
+	event, exists, err := service.browser.AuditEvent(ctx, eventID)
+	if err != nil {
+		return AuditEvent{}, errors.Join(ErrAdministrationUnavailable, err)
+	}
+	if !exists {
+		return AuditEvent{}, ErrAuditEventNotFound
+	}
+	return event, nil
+}
+
+func (service *Service) ExportPlans(
+	ctx context.Context,
+	query PlanQuery,
+) ([]PlanRow, error) {
+	query, _, err := validatePlanQuery(query, PageRequest{Page: 1, PageSize: defaultAdminPageSize})
+	if err != nil {
+		return nil, err
+	}
+	result, err := service.browser.ListPlans(ctx, query, PageRequest{
+		Page: 1, PageSize: maxAdminExportRows + 1,
+	})
+	if err != nil {
+		return nil, errors.Join(ErrAdministrationUnavailable, err)
+	}
+	if result.Total > maxAdminExportRows || len(result.Items) > maxAdminExportRows {
+		return nil, ErrExportLimitExceeded
+	}
+	return result.Items, nil
+}
+
+func (service *Service) ExportAudit(
+	ctx context.Context,
+	query AuditQuery,
+) ([]AuditEvent, error) {
+	query, _, err := validateAuditQuery(query, PageRequest{Page: 1, PageSize: defaultAdminPageSize})
+	if err != nil {
+		return nil, err
+	}
+	result, err := service.browser.ListAudit(ctx, query, PageRequest{
+		Page: 1, PageSize: maxAdminExportRows + 1,
+	})
+	if err != nil {
+		return nil, errors.Join(ErrAdministrationUnavailable, err)
+	}
+	if result.Total > maxAdminExportRows || len(result.Items) > maxAdminExportRows {
+		return nil, ErrExportLimitExceeded
+	}
+	return result.Items, nil
+}
+
+func validatePlanQuery(query PlanQuery, page PageRequest) (PlanQuery, PageRequest, error) {
+	query.Search = strings.TrimSpace(query.Search)
+	query.Plan = strings.TrimSpace(query.Plan)
+	query.Status = strings.TrimSpace(query.Status)
+	query.Type = strings.TrimSpace(query.Type)
+	query.Sort = strings.TrimSpace(query.Sort)
+	query.Direction = strings.ToLower(strings.TrimSpace(query.Direction))
+	if page.Page == 0 {
+		page.Page = 1
+	}
+	if page.PageSize == 0 {
+		page.PageSize = defaultAdminPageSize
+	}
+	if query.Sort == "" {
+		query.Sort = "updated_at"
+	}
+	if query.Direction == "" {
+		query.Direction = "desc"
+	}
+	if page.Page < 1 || page.PageSize < 1 || page.PageSize > maxAdminPageSize ||
+		len(query.Search) > 120 || len(query.Plan) > 32 ||
+		len(query.Status) > 32 || (query.Type != "" &&
+		query.Type != "public" && query.Type != "internal") {
+		return PlanQuery{}, PageRequest{}, ErrInvalidRequest
+	}
+	if query.Plan != "" && query.Plan != "start" && query.Plan != "pro" &&
+		query.Plan != "team" {
+		return PlanQuery{}, PageRequest{}, ErrInvalidRequest
+	}
+	if query.Status != "" {
+		if _, valid := billingStates[query.Status]; !valid {
+			return PlanQuery{}, PageRequest{}, ErrInvalidRequest
+		}
+	}
+	if _, valid := planSortFields[query.Sort]; !valid ||
+		(query.Direction != "asc" && query.Direction != "desc") ||
+		!validTimeRange(query.From, query.To) {
+		return PlanQuery{}, PageRequest{}, ErrInvalidRequest
+	}
+	return query, page, nil
+}
+
+func validateAuditQuery(query AuditQuery, page PageRequest) (AuditQuery, PageRequest, error) {
+	query.Action = strings.TrimSpace(query.Action)
+	query.Actor = strings.TrimSpace(query.Actor)
+	query.Subject = strings.TrimSpace(query.Subject)
+	query.Outcome = strings.TrimSpace(query.Outcome)
+	query.Sort = strings.TrimSpace(query.Sort)
+	query.Direction = strings.ToLower(strings.TrimSpace(query.Direction))
+	if page.Page == 0 {
+		page.Page = 1
+	}
+	if page.PageSize == 0 {
+		page.PageSize = defaultAdminPageSize
+	}
+	if query.Sort == "" {
+		query.Sort = "occurred_at"
+	}
+	if query.Direction == "" {
+		query.Direction = "desc"
+	}
+	if page.Page < 1 || page.PageSize < 1 || page.PageSize > maxAdminPageSize ||
+		len(query.Action) > 128 || len(query.Actor) > 128 ||
+		len(query.Subject) > 128 || len(query.Outcome) > 64 {
+		return AuditQuery{}, PageRequest{}, ErrInvalidRequest
+	}
+	if _, valid := auditSortFields[query.Sort]; !valid ||
+		(query.Direction != "asc" && query.Direction != "desc") ||
+		!validTimeRange(query.From, query.To) {
+		return AuditQuery{}, PageRequest{}, ErrInvalidRequest
+	}
+	return query, page, nil
+}
+
+func validTimeRange(from, to *time.Time) bool {
+	return from == nil || to == nil || !from.After(*to)
+}
+
+func safeAdminIdentifier(value string) bool {
+	return len(value) <= 128 && idempotencyKeyPattern.MatchString(value)
 }
 
 // BootstrapAdmins reconciles active administrators with server configuration.

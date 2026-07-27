@@ -32,6 +32,48 @@ export interface AuditEvent {
   occurred_at: string
 }
 
+export interface UsageSummary {
+  used: number
+  limit: number | null
+  remaining: number | null
+  unlimited: boolean
+}
+
+export interface PlanRow {
+  workspace_id: string
+  workspace_name: string
+  owner_email: string
+  plan_code: string
+  status: string
+  internal: boolean
+  usage: {
+    members: UsageSummary
+    channels: UsageSummary
+    scheduled_publications: UsageSummary
+  }
+  workspace_created_at: string
+  plan_updated_at: string
+  period_start: string
+  period_end: string
+  internal_assigned_at: string | null
+}
+
+export interface PageInfo {
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface PlanList {
+  items: PlanRow[]
+  pagination: PageInfo
+}
+
+export interface AuditList {
+  items: AuditEvent[]
+  pagination: PageInfo
+}
+
 export interface AdminDashboard {
   services: ServiceHealth[]
   entitlements: EntitlementSummary[]
@@ -89,6 +131,21 @@ function instant(value: unknown, field: string): string {
   return result
 }
 
+function integer(value: unknown, field: string): number {
+  if (
+    typeof value !== 'number'
+    || !Number.isSafeInteger(value)
+    || value < 0
+  ) {
+    throw new Error(`ADMIN_INVALID_RESPONSE:${field}`)
+  }
+  return value
+}
+
+function nullableInstant(value: unknown, field: string): string | null {
+  return value === null ? null : instant(value, field)
+}
+
 function list<T>(
   value: unknown,
   field: string,
@@ -135,19 +192,107 @@ export function parseDashboard(value: unknown): AdminDashboard {
         internal: entitlement.internal,
       }
     }),
-    recent_audit: list(source.recent_audit, 'recent_audit', (item) => {
-      const event = record(item)
+    recent_audit: list(source.recent_audit, 'recent_audit', parseAuditEvent),
+  }
+}
+
+function parsePageInfo(value: unknown): PageInfo {
+  const source = record(value)
+  const page = integer(source.page, 'pagination.page')
+  const pageSize = integer(source.page_size, 'pagination.page_size')
+  if (page < 1 || pageSize < 1 || pageSize > 100) {
+    throw new Error('ADMIN_INVALID_RESPONSE:pagination')
+  }
+  return {
+    page,
+    page_size: pageSize,
+    total: integer(source.total, 'pagination.total'),
+  }
+}
+
+function parseUsageSummary(value: unknown, field: string): UsageSummary {
+  const source = record(value)
+  if (typeof source.unlimited !== 'boolean') {
+    throw new Error(`ADMIN_INVALID_RESPONSE:${field}.unlimited`)
+  }
+  const parseNullable = (candidate: unknown, name: string): number | null =>
+    candidate === null ? null : integer(candidate, `${field}.${name}`)
+  const limit = parseNullable(source.limit, 'limit')
+  const remaining = parseNullable(source.remaining, 'remaining')
+  if (
+    (source.unlimited && (limit !== null || remaining !== null))
+    || (!source.unlimited && (limit === null || remaining === null))
+  ) {
+    throw new Error(`ADMIN_INVALID_RESPONSE:${field}.capacity`)
+  }
+  return {
+    used: integer(source.used, `${field}.used`),
+    limit,
+    remaining,
+    unlimited: source.unlimited,
+  }
+}
+
+export function parsePlanList(value: unknown): PlanList {
+  const source = record(value)
+  return {
+    items: list(source.items, 'items', (item) => {
+      const plan = record(item)
+      const usage = record(plan.usage)
+      if (typeof plan.internal !== 'boolean') {
+        throw new Error('ADMIN_INVALID_RESPONSE:plans.internal')
+      }
       return {
-        id: text(event.id, 'audit.id', true),
-        code: text(event.code, 'audit.code', true),
-        actor_id: text(event.actor_id, 'audit.actor_id', true),
-        subject_id: text(event.subject_id, 'audit.subject_id', true),
-        reason: text(event.reason, 'audit.reason'),
-        outcome: text(event.outcome, 'audit.outcome', true),
-        correlation_id: text(event.correlation_id, 'audit.correlation_id', true),
-        occurred_at: instant(event.occurred_at, 'audit.occurred_at'),
+        workspace_id: text(plan.workspace_id, 'plans.workspace_id', true),
+        workspace_name: text(plan.workspace_name, 'plans.workspace_name'),
+        owner_email: text(plan.owner_email, 'plans.owner_email'),
+        plan_code: text(plan.plan_code, 'plans.plan_code', true),
+        status: text(plan.status, 'plans.status', true),
+        internal: plan.internal,
+        usage: {
+          members: parseUsageSummary(usage.members, 'plans.usage.members'),
+          channels: parseUsageSummary(usage.channels, 'plans.usage.channels'),
+          scheduled_publications: parseUsageSummary(
+            usage.scheduled_publications,
+            'plans.usage.scheduled_publications',
+          ),
+        },
+        workspace_created_at: instant(
+          plan.workspace_created_at,
+          'plans.workspace_created_at',
+        ),
+        plan_updated_at: instant(plan.plan_updated_at, 'plans.plan_updated_at'),
+        period_start: instant(plan.period_start, 'plans.period_start'),
+        period_end: instant(plan.period_end, 'plans.period_end'),
+        internal_assigned_at: nullableInstant(
+          plan.internal_assigned_at,
+          'plans.internal_assigned_at',
+        ),
       }
     }),
+    pagination: parsePageInfo(source.pagination),
+  }
+}
+
+export function parseAuditEvent(value: unknown): AuditEvent {
+  const event = record(value)
+  return {
+    id: text(event.id, 'audit.id', true),
+    code: text(event.code, 'audit.code', true),
+    actor_id: text(event.actor_id, 'audit.actor_id', true),
+    subject_id: text(event.subject_id, 'audit.subject_id', true),
+    reason: text(event.reason, 'audit.reason'),
+    outcome: text(event.outcome, 'audit.outcome', true),
+    correlation_id: text(event.correlation_id, 'audit.correlation_id', true),
+    occurred_at: instant(event.occurred_at, 'audit.occurred_at'),
+  }
+}
+
+export function parseAuditList(value: unknown): AuditList {
+  const source = record(value)
+  return {
+    items: list(source.items, 'items', parseAuditEvent),
+    pagination: parsePageInfo(source.pagination),
   }
 }
 

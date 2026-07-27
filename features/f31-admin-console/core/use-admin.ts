@@ -8,6 +8,8 @@ import { AdminApi, type AdminFetch } from './api.ts'
 import type {
   AdminDashboard,
   AdminSession,
+  AuditList,
+  PlanList,
   SearchResults,
 } from './contracts.ts'
 import type { AdminMessageKey } from './catalogs.ts'
@@ -46,6 +48,20 @@ export function useAdminDashboardState() {
 export function useAdminSearchState() {
   return useState<SearchResults | undefined>(
     'postqron.admin.search',
+    () => undefined,
+  )
+}
+
+export function useAdminPlanListState() {
+  return useState<PlanList | undefined>(
+    'postqron.admin.plans',
+    () => undefined,
+  )
+}
+
+export function useAdminAuditListState() {
+  return useState<AuditList | undefined>(
+    'postqron.admin.audit',
     () => undefined,
   )
 }

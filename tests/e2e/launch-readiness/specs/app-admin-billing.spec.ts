@@ -69,7 +69,7 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
 
   await adminPage.getByRole('link', { name: /^plans$/iu }).click()
   await expect(adminPage).toHaveURL(/\/admin\/plans$/u)
-  await adminPage.getByRole('button', { name: /assign/iu }).click()
+  await adminPage.getByRole('button', { name: /assign/iu }).first().click()
   await adminPage.getByLabel(/reason/iu).fill('Approved launch fixture action')
   await adminPage.getByRole('checkbox').check()
   await adminPage.getByRole('button', { name: /confirm operation/iu }).click()
@@ -78,9 +78,67 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
 
   await adminPage.getByRole('link', { name: /^audit$/iu }).click()
   await expect(adminPage).toHaveURL(/\/admin\/audit$/u)
-  await expect(adminPage.getByText('internal_plan.assign')).toBeVisible()
-  await expect(adminPage.getByText('Approved launch fixture action')).toBeVisible()
+  const auditTable = adminPage.locator('.admin-audit-desktop')
+  await expect(auditTable.getByText('internal_plan.assign')).toBeVisible()
+  await expect(auditTable.getByText('Approved launch fixture action')).toBeVisible()
+  await auditTable.getByRole('button', { name: /view details/iu }).click()
+  await expect(adminPage.getByRole('heading', {
+    name: /audit event details/iu,
+  })).toBeVisible()
+  const auditDialog = adminPage.getByRole('dialog')
+  await expect(auditDialog.getByText('correlation-1')).toBeVisible()
+  await auditDialog.getByRole('button', { name: /close details/iu }).click()
+  const auditCSV = await adminPage.getByRole('link', {
+    name: /export csv/iu,
+  }).getAttribute('href')
+  const exportResult = await adminPage.evaluate(async (href) => {
+    const result = await fetch(String(href))
+    return {
+      status: result.status,
+      disposition: result.headers.get('content-disposition'),
+    }
+  }, auditCSV)
+  expect(exportResult.status).toBe(200)
+  expect(exportResult.disposition).toContain('postqron-admin-audit.csv')
   await admin.close()
+})
+
+test('admin plan filters and pagination persist in query string and remain usable on mobile', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN')
+  const context = await browser.newContext()
+  await session(context, 'admin')
+  const page = await context.newPage()
+
+  await page.goto(`${offBaseURL}/admin/plans`)
+  await expect(page.getByText(/page 1 of 2/iu)).toBeVisible()
+  await page.getByRole('button', { name: /next page/iu }).click()
+  await expect(page).toHaveURL(/\/admin\/plans\?.*page=2/u)
+  await expect(page.getByText(/page 2 of 2/iu)).toBeVisible()
+
+  await page.getByLabel(/workspace or owner/iu).fill('Studio')
+  await page.locator('form.admin-data-filters select').first().selectOption('pro')
+  await page.getByRole('button', { name: /apply filters/iu }).click()
+  await expect(page).toHaveURL(/\/admin\/plans\?.*q=Studio/u)
+  await expect(page).toHaveURL(/\/admin\/plans\?.*plan=pro/u)
+  await expect(page.getByLabel(/workspace or owner/iu)).toHaveValue('Studio')
+  await expect(page.locator('form.admin-data-filters select').first())
+    .toHaveValue('pro')
+
+  const plansCSV = await page.getByRole('link', {
+    name: /export csv/iu,
+  }).getAttribute('href')
+  expect(plansCSV).toContain('q=Studio')
+  expect(plansCSV).toContain('plan=pro')
+  expect(plansCSV).not.toContain('page=')
+
+  await page.setViewportSize({ width: 320, height: 700 })
+  await expect(page.locator('.admin-mobile-list')).toBeVisible()
+  const horizontalOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth > globalThis.innerWidth)
+  expect(horizontalOverflow).toBe(false)
+  await context.close()
 })
 
 test('admin signs in with email and password without an OAuth provider', async ({
