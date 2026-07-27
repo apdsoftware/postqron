@@ -1,0 +1,100 @@
+name: Paddle catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Isolated Paddle environment
+        required: true
+        type: choice
+        options:
+          - sandbox
+          - production
+      operation:
+        description: Read-only plan, explicit apply, or runtime mapping verification
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - verify
+      catalog_version:
+        description: Approved catalog version
+        required: true
+        default: d09-v1
+        type: choice
+        options:
+          - d09-v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paddle-catalog-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    name: ${{ inputs.operation }} ${{ inputs.environment }} catalog
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment == 'sandbox' && 'staging' || 'production' }}
+    env:
+      PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
+      PADDLE_CATALOG_JSON: ${{ secrets.PADDLE_CATALOG_JSON }}
+      PADDLE_ENVIRONMENT: ${{ inputs.environment }}
+      PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: features/f10-entitlements/go.sum
+      - name: Validate protected configuration
+        run: |
+          set -euo pipefail
+          if [[ "$INPUT_CATALOG_VERSION" != "d09-v1" ]]; then
+            echo "unsupported catalog version" >&2
+            exit 1
+          fi
+          if [[ -z "$PADDLE_API_KEY" ]]; then
+            echo "PADDLE_API_KEY is not configured in the selected GitHub environment" >&2
+            exit 1
+          fi
+          if [[ "$INPUT_OPERATION" == "verify" ]] &&
+            { [[ -z "$PADDLE_CATALOG_JSON" ]] || [[ -z "$PADDLE_WEBHOOK_SECRET" ]]; }; then
+            echo "PADDLE_CATALOG_JSON and PADDLE_WEBHOOK_SECRET are required for verification" >&2
+            exit 1
+          fi
+        env:
+          INPUT_CATALOG_VERSION: ${{ inputs.catalog_version }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+      - name: Plan or apply versioned catalog
+        if: inputs.operation != 'verify'
+        run: |
+          set -euo pipefail
+          arguments=(
+            --manifest "$GITHUB_WORKSPACE/infra/paddle/catalog-d09-v1.json"
+          )
+          if [[ "$INPUT_OPERATION" == "apply" ]]; then
+            arguments+=(
+              --apply
+              --mapping-out "$RUNNER_TEMP/paddle-catalog-mapping.json"
+            )
+          fi
+          cd "$GITHUB_WORKSPACE/features/f10-entitlements"
+          GOWORK=off go run ./cmd/paddle-catalog-provision "${arguments[@]}"
+        env:
+          INPUT_OPERATION: ${{ inputs.operation }}
+      - name: Verify resolved runtime mapping
+        if: inputs.operation == 'verify'
+        working-directory: features/f10-entitlements
+        run: GOWORK=off go run ./cmd/paddle-catalog-check
+      - name: Upload provider-generated mapping
+        if: inputs.operation == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: paddle-catalog-${{ inputs.environment }}-${{ inputs.catalog_version }}
+          path: ${{ runner.temp }}/paddle-catalog-mapping.json
+          if-no-files-found: error
+          retention-days: 7

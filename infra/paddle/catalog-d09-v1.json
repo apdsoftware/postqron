@@ -1,0 +1,157 @@
+{
+  "version": "d09-v1",
+  "currency": "EUR",
+  "tax_mode": "location",
+  "products": [
+    {
+      "plan": "pro",
+      "name": "Postqron Pro",
+      "description": "Postqron Pro subscription",
+      "tax_category": "saas",
+      "prices": [
+        {
+          "interval": "monthly",
+          "tier": "1-10",
+          "name": "Monthly — channels 1–6",
+          "description": "D09 Pro monthly, first progressive tier",
+          "unit_amount_cents": 450,
+          "quantity_minimum": 1,
+          "quantity_maximum": 6
+        },
+        {
+          "interval": "monthly",
+          "tier": "11-25",
+          "name": "Monthly — retained tier 11–25",
+          "description": "D09 Pro monthly, retained D07 migration tier",
+          "unit_amount_cents": 300,
+          "quantity_minimum": 1,
+          "quantity_maximum": 15
+        },
+        {
+          "interval": "monthly",
+          "tier": "26-50",
+          "name": "Monthly — retained tier 26–50",
+          "description": "D09 Pro monthly, retained D07 migration tier",
+          "unit_amount_cents": 225,
+          "quantity_minimum": 1,
+          "quantity_maximum": 25
+        },
+        {
+          "interval": "annual",
+          "tier": "1-10",
+          "name": "Annual — channels 1–6",
+          "description": "D09 Pro annual prepaid, first progressive tier",
+          "unit_amount_cents": 4500,
+          "quantity_minimum": 1,
+          "quantity_maximum": 6
+        },
+        {
+          "interval": "annual",
+          "tier": "11-25",
+          "name": "Annual — retained tier 11–25",
+          "description": "D09 Pro annual prepaid, retained D07 migration tier",
+          "unit_amount_cents": 3000,
+          "quantity_minimum": 1,
+          "quantity_maximum": 15
+        },
+        {
+          "interval": "annual",
+          "tier": "26-50",
+          "name": "Annual — retained tier 26–50",
+          "description": "D09 Pro annual prepaid, retained D07 migration tier",
+          "unit_amount_cents": 2250,
+          "quantity_minimum": 1,
+          "quantity_maximum": 25
+        }
+      ]
+    },
+    {
+      "plan": "team",
+      "name": "Postqron Team",
+      "description": "Postqron Team subscription",
+      "tax_category": "saas",
+      "prices": [
+        {
+          "interval": "monthly",
+          "tier": "1-10",
+          "name": "Monthly — channels 1–9",
+          "description": "D09 Team monthly, first progressive tier",
+          "unit_amount_cents": 900,
+          "quantity_minimum": 1,
+          "quantity_maximum": 9
+        },
+        {
+          "interval": "monthly",
+          "tier": "11-25",
+          "name": "Monthly — retained tier 11–25",
+          "description": "D09 Team monthly, retained D07 migration tier",
+          "unit_amount_cents": 300,
+          "quantity_minimum": 1,
+          "quantity_maximum": 15
+        },
+        {
+          "interval": "monthly",
+          "tier": "26-50",
+          "name": "Monthly — retained tier 26–50",
+          "description": "D09 Team monthly, retained D07 migration tier",
+          "unit_amount_cents": 225,
+          "quantity_minimum": 1,
+          "quantity_maximum": 25
+        },
+        {
+          "interval": "annual",
+          "tier": "1-10",
+          "name": "Annual — channels 1–9",
+          "description": "D09 Team annual prepaid, first progressive tier",
+          "unit_amount_cents": 9000,
+          "quantity_minimum": 1,
+          "quantity_maximum": 9
+        },
+        {
+          "interval": "annual",
+          "tier": "11-25",
+          "name": "Annual — retained tier 11–25",
+          "description": "D09 Team annual prepaid, retained D07 migration tier",
+          "unit_amount_cents": 3000,
+          "quantity_minimum": 1,
+          "quantity_maximum": 15
+        },
+        {
+          "interval": "annual",
+          "tier": "26-50",
+          "name": "Annual — retained tier 26–50",
+          "description": "D09 Team annual prepaid, retained D07 migration tier",
+          "unit_amount_cents": 2250,
+          "quantity_minimum": 1,
+          "quantity_maximum": 25
+        }
+      ]
+    },
+    {
+      "plan": "unlimited",
+      "name": "Postqron Unlimited",
+      "description": "Postqron Unlimited subscription",
+      "tax_category": "saas",
+      "prices": [
+        {
+          "interval": "monthly",
+          "tier": "flat",
+          "name": "Monthly",
+          "description": "D09 Unlimited monthly flat price",
+          "unit_amount_cents": 12900,
+          "quantity_minimum": 1,
+          "quantity_maximum": 1
+        },
+        {
+          "interval": "annual",
+          "tier": "flat",
+          "name": "Annual",
+          "description": "D09 Unlimited annual prepaid flat price",
+          "unit_amount_cents": 129000,
+          "quantity_minimum": 1,
+          "quantity_maximum": 1
+        }
+      ]
+    }
+  ]
+}
