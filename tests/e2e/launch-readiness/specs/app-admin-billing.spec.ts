@@ -494,11 +494,33 @@ test('Paddle sandbox checkout stays pending until signed webhook, then opens por
     })
   })
 
+  const checkoutCalls: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && /\/billing\/checkout$/u.test(request.url())) {
+      checkoutCalls.push(request.url())
+    }
+  })
+
   await page.goto(
     `${offBaseURL}/app/billing/checkout?plan=pro&interval=monthly&quantity=6`,
   )
+  // The summary must be readable before Paddle ever opens: no auto-open.
+  await expect(page.getByText(
+    /6 social channels|6 canali social|6 canales sociales|6 canaux sociaux|6 social-media-kanäle/iu,
+  )).toBeVisible()
+  await expect(page.getByText(
+    /base recurring total|totale ricorrente base|total recurrente base|total récurrent de base|wiederkehrender basispreis/iu,
+  )).toBeVisible()
+  const openCheckoutButton = page.getByRole('button', {
+    name: /open secure checkout|apri il checkout sicuro|abrir el pago seguro|ouvrir le paiement sécurisé|sicheren checkout öffnen/iu,
+  })
+  await expect(openCheckoutButton).toBeVisible()
+  expect(checkoutCalls, 'no checkout call before the CTA is clicked').toHaveLength(0)
+
+  await openCheckoutButton.click()
   await expect(page.getByText(/processing|elaborazione|procesando|traitement|verarbeitet/iu))
     .toBeVisible()
+  expect(checkoutCalls.length).toBeGreaterThan(0)
 
   const timestamp = 1_753_444_800
   const event = JSON.stringify({
@@ -551,6 +573,35 @@ test('Paddle sandbox checkout stays pending until signed webhook, then opens por
   await context.close()
 })
 
+test('an incompatible plan and quantity combination is rejected before any checkout call', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-PADDLE', 'LR-NEGATIVE')
+  const context = await browser.newContext()
+  await session(context, 'authenticated')
+  const page = await context.newPage()
+  const checkoutCalls: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && /\/billing\/checkout$/u.test(request.url())) {
+      checkoutCalls.push(request.url())
+    }
+  })
+
+  // Pro's catalog limit is 6 channels: 7 is a well-formed but incompatible
+  // quantity that must never reach the checkout endpoint.
+  await page.goto(
+    `${offBaseURL}/app/billing/checkout?plan=pro&interval=monthly&quantity=7`,
+  )
+  await expect(page.getByRole('alert')).toContainText(
+    /no longer compatible|non sono più compatibili|ya no son compatibles|ne sont plus compatibles|nicht mehr kompatibel/iu,
+  )
+  await expect(page.getByRole('button', {
+    name: /open secure checkout|apri il checkout sicuro|abrir el pago seguro|ouvrir le paiement sécurisé|sicheren checkout öffnen/iu,
+  })).toHaveCount(0)
+  expect(checkoutCalls, 'no checkout call for an incompatible intent').toHaveLength(0)
+  await context.close()
+})
+
 test('Unlimited checkout is flat-rate, sends no channel quantity, and passes WCAG checks', async ({
   browser,
 }, testInfo) => {
@@ -578,7 +629,13 @@ test('Unlimited checkout is flat-rate, sends no channel quantity, and passes WCA
     })
   })
 
+  const paddleOpenCount = () => page.evaluate(() =>
+    (globalThis as unknown as { __paddleOpen?: unknown[] }).__paddleOpen?.length ?? 0)
+
   for (const interval of ['monthly', 'annual'] as const) {
+    // Each iteration is a full navigation to a fresh document, so
+    // window.__paddleOpen starts empty again every time: the expectation
+    // below is always "exactly one open on this page", not a running total.
     await page.goto(
       `${offBaseURL}/app/billing/checkout?plan=unlimited&interval=${interval}`,
     )
@@ -592,6 +649,19 @@ test('Unlimited checkout is flat-rate, sends no channel quantity, and passes WCA
     const blocking = results.violations.filter(violation =>
       violation.impact === 'serious' || violation.impact === 'critical')
     expect(blocking, interval).toEqual([])
+
+    // Paddle only opens after the explicit CTA, never automatically.
+    await page.getByRole('button', {
+      name: /open secure checkout|apri il checkout sicuro|abrir el pago seguro|ouvrir le paiement sécurisé|sicheren checkout öffnen/iu,
+    }).click()
+    // "Preparing…" renders synchronously on click, before the async
+    // checkout POST resolves and Paddle.Checkout.open actually runs, so it
+    // cannot be used to confirm the transaction opened. Poll the fixture's
+    // own record of Paddle.Checkout.open calls instead, before navigating
+    // away to the next interval.
+    await expect.poll(paddleOpenCount, {
+      message: `Paddle.Checkout.open was not recorded for ${interval}`,
+    }).toBe(1)
   }
 
   openedTransactions.push(

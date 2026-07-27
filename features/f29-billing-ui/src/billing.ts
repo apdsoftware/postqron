@@ -1,7 +1,10 @@
 import {
+  monthlyEquivalent,
   parsePublicCatalog,
   parsePublicPlan,
+  priceForChannels,
   type BillingInterval,
+  type Money,
   type PricingLocale,
   type PublicCatalog,
   type PublicPlan,
@@ -90,7 +93,6 @@ export class BillingApiError extends Error {
 }
 
 const plans = new Set<PublicPlanCode>(['start', 'pro', 'team', 'unlimited'])
-const quantityMaximums: Partial<Record<PublicPlanCode, number>> = { start: 3, pro: 6, team: 9 }
 const intervals = new Set<BillingInterval>(['monthly', 'annual'])
 const states = new Set<BillingOverview['state']>([
   'trialing',
@@ -156,14 +158,65 @@ export function parsePurchaseIntent(
     throw new Error('BILLING_INVALID_PURCHASE_INTENT')
   }
   const parsedQuantity = Number(quantity)
-  const maximum = quantityMaximums[plan as PublicPlanCode] ?? 0
-  if (!Number.isSafeInteger(parsedQuantity) || parsedQuantity > maximum) {
+  if (!Number.isSafeInteger(parsedQuantity)) {
     throw new Error('BILLING_INVALID_PURCHASE_INTENT')
   }
   return {
     plan: plan as PublicPlanCode,
     interval: interval as BillingInterval,
     quantity: parsedQuantity,
+  }
+}
+
+// Per-plan channel ceilings are never duplicated client-side: the fetched
+// catalog's plan.limits.channels is the only source of truth for whether a
+// parsed intent is actually purchasable at that quantity.
+export function intentCompatibleWithPlan(
+  plan: PublicPlan,
+  intent: PurchaseIntent,
+): boolean {
+  if (plan.code !== intent.plan) {
+    return false
+  }
+  if (plan.limits.channels === null) {
+    return intent.quantity === undefined
+  }
+  return intent.quantity !== undefined && intent.quantity <= plan.limits.channels
+}
+
+export interface AnnualCheckoutSummary {
+  // The amount charged upfront today, covering 12 months of service.
+  total: Money
+  // The plan's nominal monthly rate for the same plan/quantity, so the
+  // annual total can be shown as "10 monthly payments of X".
+  monthlyPrice: Money
+  // The annual total spread evenly across 12 months, for comparison.
+  monthlyEquivalent: Money
+  // What is saved versus paying the monthly rate for 12 months.
+  savings: Money
+}
+
+// Every amount here comes from the catalog's own monthly/annual prices
+// (via priceForChannels): nothing is hardcoded, so the 10-for-12 framing
+// and the savings amount always match whatever the backend prices.
+export function annualCheckoutSummary(
+  plan: PublicPlan,
+  intent: PurchaseIntent,
+): AnnualCheckoutSummary | undefined {
+  if (intent.interval !== 'annual' || !plan.purchasable || !intentCompatibleWithPlan(plan, intent)) {
+    return undefined
+  }
+  const channels = intent.quantity ?? null
+  const total = priceForChannels(plan, 'annual', channels)
+  const monthlyPrice = priceForChannels(plan, 'monthly', channels)
+  return {
+    total,
+    monthlyPrice,
+    monthlyEquivalent: monthlyEquivalent(total, 'annual'),
+    savings: {
+      amount_cents: Math.max(0, monthlyPrice.amount_cents * 12 - total.amount_cents),
+      currency: total.currency,
+    },
   }
 }
 
