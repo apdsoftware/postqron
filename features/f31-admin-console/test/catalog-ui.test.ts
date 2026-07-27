@@ -95,7 +95,19 @@ test('admin shell exposes an accessible sidebar, drawer, and inline login gate',
   assert.match(layout, /:data-open="menuOpen"/u)
   assert.match(layout, /:aria-expanded="menuOpen"/u)
   assert.match(layout, /@keydown\.esc="menuOpen = false"/u)
-  assert.match(layout, /shell\.logout/u)
+  assert.match(layout, /AdminLogoutButton/u)
+})
+
+test('profile exposes account metadata and an accessible password change form', async () => {
+  const profile = await readFile(
+    new URL('../pages/admin-profile.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(profile, /session\?\.account\.id/u)
+  assert.match(profile, /aria-labelledby="admin-password-title"/u)
+  assert.match(profile, /aria-describedby="admin-password-policy"/u)
+  assert.match(profile, /role="alert"/u)
+  assert.match(profile, /role="status"/u)
 })
 
 test('admin plans page exposes an accessible confirmation dialog and never requests secrets', async () => {

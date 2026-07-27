@@ -25,6 +25,15 @@ const authenticating = ref(false)
 const email = ref('')
 const password = ref('')
 const errorCode = ref<AdminApiError['code']>()
+const loginNotice = computed(() => {
+  if (route.query.signed_out === '1') {
+    return t('logout.success')
+  }
+  if (route.query.session_expired === '1') {
+    return t('error.ADMIN_UNAUTHENTICATED')
+  }
+  return undefined
+})
 
 const home = computed(() => localizeUrl(
   locale.value as 'en' | 'it' | 'es' | 'fr' | 'de',
@@ -60,10 +69,6 @@ async function login() {
   }
 }
 
-function logout() {
-  session.value = undefined
-  menuOpen.value = false
-}
 </script>
 
 <template>
@@ -143,6 +148,7 @@ function logout() {
           >
             {{ currentSectionLabel }}
           </p>
+          <AdminLogoutButton />
           <details class="admin-profile-menu">
             <summary>
               <span
@@ -161,12 +167,6 @@ function logout() {
               <a :href="localizeUrl(locale as 'en' | 'it' | 'es' | 'fr' | 'de', '/admin/profile')">
                 {{ t('nav.profile') }}
               </a>
-              <button
-                type="button"
-                @click="logout"
-              >
-                {{ t('shell.logout') }}
-              </button>
             </div>
           </details>
         </header>
@@ -203,6 +203,13 @@ function logout() {
           {{ t('login.title') }}
         </h2>
         <p>{{ t('login.description') }}</p>
+        <p
+          v-if="loginNotice"
+          class="admin-inline-success"
+          role="status"
+        >
+          {{ loginNotice }}
+        </p>
         <form @submit.prevent="login">
           <label for="admin-email">{{ t('login.email') }}</label>
           <input

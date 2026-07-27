@@ -254,17 +254,25 @@ function reset() {
     entitlement: 'start',
     internal: false,
     audit: [],
+    adminVerifier: 'fixture-admin-password',
+    adminSessions: new Set(['admin']),
+    nextAdminSession: 1,
   }
 }
 reset()
 
-function sessionRole(request) {
+function fixtureSessionToken(request) {
   const cookie = request.headers.cookie || ''
-  return /(?:^|;\s*)postqron_fixture_session=admin(?:;|$)/u.test(cookie)
+  return /(?:^|;\s*)postqron_fixture_session=([^;]+)(?:;|$)/u.exec(cookie)?.[1]
+}
+
+function sessionRole(request) {
+  const token = fixtureSessionToken(request)
+  return token && state.adminSessions.has(token)
     ? 'admin'
-    : /(?:^|;\s*)postqron_fixture_session=normal(?:;|$)/u.test(cookie)
+    : token === 'normal'
       ? 'normal'
-      : /(?:^|;\s*)postqron_fixture_session=authenticated(?:;|$)/u.test(cookie)
+      : token === 'authenticated'
         ? 'authenticated'
         : undefined
 }
@@ -409,13 +417,72 @@ const server = createServer(async (request, response) => {
     const input = JSON.parse((await body(request)).toString('utf8') || '{}')
     if (
       input.email !== 'admin@example.test'
-      || input.password !== 'fixture-admin-password'
+      || input.password !== state.adminVerifier
     ) {
       error(response, 401, 'AUTH_INVALID_CREDENTIALS')
       return
     }
+    const token = `admin-login-${state.nextAdminSession++}`
+    state.adminSessions.add(token)
     json(response, 200, { authenticated: true }, {
-      'set-cookie': 'postqron_fixture_session=admin; Path=/; HttpOnly; SameSite=Lax',
+      'set-cookie': `postqron_fixture_session=${token}; Path=/; HttpOnly; SameSite=Lax`,
+    })
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/auth/logout') {
+    if (role !== 'admin') {
+      response.writeHead(204, {
+        'set-cookie': 'postqron_fixture_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+      })
+      response.end()
+      return
+    }
+    if (request.headers['x-csrf-token'] !== 'fixture-csrf') {
+      error(response, 403, 'AUTH_CSRF_INVALID')
+      return
+    }
+    state.adminSessions.delete(fixtureSessionToken(request))
+    response.writeHead(204, {
+      'set-cookie': 'postqron_fixture_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+    })
+    response.end()
+    return
+  }
+  if (
+    request.method === 'POST'
+    && url.pathname === '/api/v1/auth/password/change'
+  ) {
+    if (role !== 'admin') {
+      error(response, 401, 'AUTH_UNAUTHENTICATED')
+      return
+    }
+    if (request.headers['x-csrf-token'] !== 'fixture-csrf') {
+      error(response, 403, 'AUTH_CSRF_INVALID')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    if (input.new_password !== input.confirmation) {
+      error(response, 400, 'AUTH_PASSWORD_CONFIRMATION_MISMATCH')
+      return
+    }
+    if (
+      typeof input.new_password !== 'string'
+      || input.new_password.length < 12
+      || input.new_password === state.adminVerifier
+    ) {
+      error(response, 400, 'AUTH_PASSWORD_WEAK')
+      return
+    }
+    if (input.current_password !== state.adminVerifier) {
+      error(response, 400, 'AUTH_CURRENT_PASSWORD_INVALID')
+      return
+    }
+    state.adminVerifier = input.new_password
+    state.adminSessions.clear()
+    const token = `admin-rotated-${state.nextAdminSession++}`
+    state.adminSessions.add(token)
+    json(response, 200, { changed: true }, {
+      'set-cookie': `postqron_fixture_session=${token}; Path=/; HttpOnly; SameSite=Lax`,
     })
     return
   }

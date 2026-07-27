@@ -20,13 +20,28 @@ The layout shows a persistent sidebar with the six sections above on desktop
 and a focus-managed, `Escape`-dismissible drawer below `~980px`. The top bar
 carries the current section title, the administrator identity, a link to the
 profile route, the compact `<select>`-based `PostqronLanguageSwitcher`, and a
-reserved sign-out control. When no admin session is present, the layout
+sign-out button that remains visible on desktop and mobile. Sign-out calls
+F3's server-side `POST /api/v1/auth/logout` with the session CSRF token, waits
+for revocation and cookie expiry, clears client session state, and returns to
+the admin login gate with an accessible confirmation. When no admin session is
+present, the layout
 renders an inline email/password login gate instead of the sidebar and
 delegates to the same `admin-access` middleware and session state used by
 every route, so no page can bypass the gate. Reusable building blocks
 (`components/AdminPageHeader.vue`, `AdminAlert.vue`, `AdminKpiCards.vue`,
 `AdminTable.vue`, `AdminPagination.vue`, `AdminSearchFilter.vue`) keep every
 page's heading, empty/error state, table, and pagination consistent.
+
+`/admin/profile` displays only the administrator account identifier, verified
+email supplied by the protected session, and authentication time. Its
+accessible password form sends the current password, new password,
+confirmation, and CSRF token directly to F3. On success it discards every
+password field and reloads the protected session so the browser uses the
+rotated cookie and CSRF token; all other account sessions have already been
+revoked atomically by F3. Stable errors cover invalid current password,
+confirmation mismatch, policy failure, invalid CSRF, stale/expired sessions,
+concurrent changes, rate limiting, and temporary unavailability without
+echoing submitted values.
 
 ## Security boundary
 
