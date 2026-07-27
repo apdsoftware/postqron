@@ -67,6 +67,185 @@ const catalog = {
   ],
 }
 
+const adminUsers = [
+  {
+    id: 'account-admin',
+    email: 'admin@example.test',
+    display_name: 'Fixture Admin',
+    account_status: 'active',
+    email_verified: true,
+    login_methods: ['password'],
+    registered_at: '2026-05-01T09:00:00.000Z',
+    last_login_at: now,
+    active_sessions: 1,
+    workspaces: [{
+      id: 'workspace-fixture',
+      name: 'Fixture Workspace',
+      role: 'owner',
+      plan_code: 'pro',
+      plan_status: 'active',
+    }],
+  },
+  {
+    id: 'account-locked',
+    email: 'locked@example.test',
+    display_name: 'Locked Fixture',
+    account_status: 'locked',
+    email_verified: false,
+    login_methods: ['google', 'linkedin'],
+    registered_at: '2026-06-15T11:00:00.000Z',
+    last_login_at: '2026-07-01T08:00:00.000Z',
+    active_sessions: 0,
+    workspaces: [{
+      id: 'workspace-locked',
+      name: 'Locked Studio',
+      role: 'member',
+      plan_code: 'team',
+      plan_status: 'past_due',
+    }],
+  },
+  {
+    id: 'account-empty',
+    email: 'no-workspace@example.test',
+    display_name: 'No Workspace',
+    account_status: 'active',
+    email_verified: true,
+    login_methods: ['apple'],
+    registered_at: '2026-07-20T10:00:00.000Z',
+    last_login_at: null,
+    active_sessions: 0,
+    workspaces: [],
+  },
+]
+
+const adminWorkspaces = [
+  {
+    id: 'workspace-fixture',
+    name: 'Fixture Workspace',
+    owner_id: 'account-admin',
+    owner_email: 'admin@example.test',
+    owner_display_name: 'Fixture Admin',
+    status: 'active',
+    plan_code: 'pro',
+    plan_status: 'active',
+    member_count: 3,
+    channel_count: 4,
+    post_count: 18,
+    created_at: '2026-05-01T09:00:00.000Z',
+    updated_at: now,
+  },
+  {
+    id: 'workspace-locked',
+    name: 'Locked Studio',
+    owner_id: 'account-locked',
+    owner_email: 'locked@example.test',
+    owner_display_name: 'Locked Fixture',
+    status: 'deletion_pending',
+    plan_code: 'team',
+    plan_status: 'past_due',
+    member_count: 1,
+    channel_count: 0,
+    post_count: 2,
+    created_at: '2026-06-15T11:00:00.000Z',
+    updated_at: '2026-07-10T08:00:00.000Z',
+  },
+]
+
+function directoryPage(items, url, defaultSort) {
+  const page = Math.max(1, Number(url.searchParams.get('page')) || 1)
+  const pageSize = [10, 25, 50, 100].includes(
+    Number(url.searchParams.get('page_size')),
+  )
+    ? Number(url.searchParams.get('page_size'))
+    : 25
+  const sort = url.searchParams.get('sort') || defaultSort
+  const direction = url.searchParams.get('direction') === 'asc' ? 'asc' : 'desc'
+  const ordered = [...items].sort((left, right) => {
+    const first = left[sort] ?? ''
+    const second = right[sort] ?? ''
+    const comparison = typeof first === 'number'
+      ? first - Number(second)
+      : String(first).localeCompare(String(second))
+    return direction === 'asc' ? comparison : -comparison
+  })
+  const offset = (page - 1) * pageSize
+  return {
+    items: ordered.slice(offset, offset + pageSize),
+    page,
+    page_size: pageSize,
+    total: ordered.length,
+    sort,
+    direction,
+  }
+}
+
+function filteredAdminUsers(url) {
+  const search = (url.searchParams.get('q') || '').toLowerCase()
+  return adminUsers.filter((user) => {
+    const planCodes = user.workspaces.map(workspace => workspace.plan_code)
+    return (
+      (!search || `${user.email} ${user.display_name}`.toLowerCase().includes(search))
+      && (!url.searchParams.get('status')
+        || user.account_status === url.searchParams.get('status'))
+      && (!url.searchParams.has('email_verified')
+        || user.email_verified === (url.searchParams.get('email_verified') === 'true'))
+      && (!url.searchParams.get('plan')
+        || planCodes.includes(url.searchParams.get('plan')))
+      && (!url.searchParams.get('login_method')
+        || user.login_methods.includes(url.searchParams.get('login_method')))
+      && (!url.searchParams.get('registered_from')
+        || user.registered_at.slice(0, 10) >= url.searchParams.get('registered_from'))
+      && (!url.searchParams.get('registered_to')
+        || user.registered_at.slice(0, 10) <= url.searchParams.get('registered_to'))
+      && (!url.searchParams.get('last_login_from')
+        || (user.last_login_at
+          && user.last_login_at.slice(0, 10) >= url.searchParams.get('last_login_from')))
+      && (!url.searchParams.get('last_login_to')
+        || (user.last_login_at
+          && user.last_login_at.slice(0, 10) <= url.searchParams.get('last_login_to')))
+    )
+  })
+}
+
+function filteredAdminWorkspaces(url) {
+  const search = (url.searchParams.get('q') || '').toLowerCase()
+  const owner = (url.searchParams.get('owner') || '').toLowerCase()
+  return adminWorkspaces.filter(workspace => (
+    (!search || `${workspace.id} ${workspace.name} ${workspace.owner_email}`
+      .toLowerCase().includes(search))
+    && (!owner || `${workspace.owner_email} ${workspace.owner_display_name}`
+      .toLowerCase().includes(owner))
+    && (!url.searchParams.get('status')
+      || workspace.status === url.searchParams.get('status'))
+    && (!url.searchParams.get('plan')
+      || workspace.plan_code === url.searchParams.get('plan'))
+    && (!url.searchParams.get('created_from')
+      || workspace.created_at.slice(0, 10) >= url.searchParams.get('created_from'))
+    && (!url.searchParams.get('created_to')
+      || workspace.created_at.slice(0, 10) <= url.searchParams.get('created_to'))
+    && (!url.searchParams.get('updated_from')
+      || workspace.updated_at.slice(0, 10) >= url.searchParams.get('updated_from'))
+    && (!url.searchParams.get('updated_to')
+      || workspace.updated_at.slice(0, 10) <= url.searchParams.get('updated_to'))
+  ))
+}
+
+function csvCell(value) {
+  const text = String(value ?? '')
+  const safe = /^[=+\-@\t\r]/u.test(text) ? `'${text}` : text
+  return `"${safe.replaceAll('"', '""')}"`
+}
+
+function directoryCSV(subject, items) {
+  const fields = subject === 'users'
+    ? ['email', 'display_name', 'account_status', 'email_verified', 'registered_at']
+    : ['name', 'owner_email', 'status', 'plan_code', 'member_count', 'channel_count', 'post_count']
+  return `\uFEFF${[
+    fields.map(csvCell).join(','),
+    ...items.map(item => fields.map(field => csvCell(item[field])).join(',')),
+  ].join('\r\n')}\r\n`
+}
+
 let state
 
 function reset() {
@@ -307,6 +486,95 @@ const server = createServer(async (request, response) => {
       }],
       recent_audit: [...state.audit].reverse(),
     })
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/admin/users') {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, role ? 'ADMIN_FORBIDDEN' : 'ADMIN_UNAUTHENTICATED')
+      return
+    }
+    json(response, 200, directoryPage(
+      filteredAdminUsers(url),
+      url,
+      'registered_at',
+    ))
+    return
+  }
+  if (
+    request.method === 'GET'
+    && url.pathname === '/api/v1/admin/users/export'
+  ) {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, role ? 'ADMIN_FORBIDDEN' : 'ADMIN_UNAUTHENTICATED')
+      return
+    }
+    const format = url.searchParams.get('format')
+    const contentType = format === 'xlsx'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'text/csv; charset=utf-8'
+    const payload = format === 'xlsx'
+      ? Buffer.from('PK\u0003\u0004fixture-xlsx')
+      : Buffer.from(directoryCSV('users', filteredAdminUsers(url)), 'utf8')
+    response.writeHead(200, {
+      'content-type': contentType,
+      'content-disposition': `attachment; filename="postqron-admin-users-20260725.${format}"`,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    response.end(payload)
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/admin\/users\/[^/]+$/u.test(url.pathname)
+  ) {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, role ? 'ADMIN_FORBIDDEN' : 'ADMIN_UNAUTHENTICATED')
+      return
+    }
+    const accountId = decodeURIComponent(url.pathname.split('/').at(-1))
+    const user = adminUsers.find(item => item.id === accountId)
+    if (!user) {
+      error(response, 404, 'ADMIN_NOT_FOUND')
+      return
+    }
+    json(response, 200, user)
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/admin/workspaces') {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, role ? 'ADMIN_FORBIDDEN' : 'ADMIN_UNAUTHENTICATED')
+      return
+    }
+    json(response, 200, directoryPage(
+      filteredAdminWorkspaces(url),
+      url,
+      'updated_at',
+    ))
+    return
+  }
+  if (
+    request.method === 'GET'
+    && url.pathname === '/api/v1/admin/workspaces/export'
+  ) {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, role ? 'ADMIN_FORBIDDEN' : 'ADMIN_UNAUTHENTICATED')
+      return
+    }
+    const format = url.searchParams.get('format')
+    const contentType = format === 'xlsx'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'text/csv; charset=utf-8'
+    const payload = format === 'xlsx'
+      ? Buffer.from('PK\u0003\u0004fixture-xlsx')
+      : Buffer.from(directoryCSV('workspaces', filteredAdminWorkspaces(url)), 'utf8')
+    response.writeHead(200, {
+      'content-type': contentType,
+      'content-disposition': `attachment; filename="postqron-admin-workspaces-20260725.${format}"`,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    response.end(payload)
     return
   }
   if (

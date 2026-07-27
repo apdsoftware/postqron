@@ -57,6 +57,95 @@ export interface SearchResults {
   workspaces: WorkspaceSummary[]
 }
 
+export type DirectoryDirection = 'asc' | 'desc'
+export type ExportFormat = 'csv' | 'xlsx'
+
+export interface UserWorkspaceMembership {
+  id: string
+  name: string
+  role: string
+  plan_code: string
+  plan_status: string
+}
+
+export interface UserDirectoryItem {
+  id: string
+  email: string
+  display_name: string
+  account_status: string
+  email_verified: boolean
+  login_methods: string[]
+  registered_at: string
+  last_login_at: string | null
+  active_sessions: number
+  workspaces: UserWorkspaceMembership[]
+}
+
+export interface UserDirectoryPage {
+  items: UserDirectoryItem[]
+  page: number
+  page_size: number
+  total: number
+  sort: string
+  direction: DirectoryDirection
+}
+
+export interface UserDirectoryParams {
+  q?: string
+  status?: string
+  email_verified?: boolean
+  plan?: string
+  login_method?: string
+  registered_from?: string
+  registered_to?: string
+  last_login_from?: string
+  last_login_to?: string
+  page?: number
+  page_size?: number
+  sort?: string
+  direction?: DirectoryDirection
+}
+
+export interface WorkspaceDirectoryItem {
+  id: string
+  name: string
+  owner_id: string
+  owner_email: string
+  owner_display_name: string
+  status: string
+  plan_code: string
+  plan_status: string
+  member_count: number
+  channel_count: number
+  post_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkspaceDirectoryPage {
+  items: WorkspaceDirectoryItem[]
+  page: number
+  page_size: number
+  total: number
+  sort: string
+  direction: DirectoryDirection
+}
+
+export interface WorkspaceDirectoryParams {
+  q?: string
+  status?: string
+  plan?: string
+  owner?: string
+  created_from?: string
+  created_to?: string
+  updated_from?: string
+  updated_to?: string
+  page?: number
+  page_size?: number
+  sort?: string
+  direction?: DirectoryDirection
+}
+
 export interface MutationResult {
   code: string
   correlation_id: string
@@ -98,6 +187,79 @@ function list<T>(
     throw new Error(`ADMIN_INVALID_RESPONSE:${field}`)
   }
   return value.map(parser)
+}
+
+function nonNegativeInteger(value: unknown, field: string): number {
+  if (
+    typeof value !== 'number'
+    || !Number.isSafeInteger(value)
+    || value < 0
+  ) {
+    throw new Error(`ADMIN_INVALID_RESPONSE:${field}`)
+  }
+  return value
+}
+
+function nullableInstant(value: unknown, field: string): string | null {
+  return value === null ? null : instant(value, field)
+}
+
+function direction(value: unknown): DirectoryDirection {
+  if (value !== 'asc' && value !== 'desc') {
+    throw new Error('ADMIN_INVALID_RESPONSE:direction')
+  }
+  return value
+}
+
+function parseUserDirectoryItem(value: unknown): UserDirectoryItem {
+  const user = record(value)
+  if (typeof user.email_verified !== 'boolean') {
+    throw new Error('ADMIN_INVALID_RESPONSE:users.email_verified')
+  }
+  return {
+    id: text(user.id, 'users.id', true),
+    email: text(user.email, 'users.email'),
+    display_name: text(user.display_name, 'users.display_name'),
+    account_status: text(user.account_status, 'users.account_status', true),
+    email_verified: user.email_verified,
+    login_methods: list(user.login_methods, 'users.login_methods', method =>
+      text(method, 'users.login_methods.method', true)),
+    registered_at: instant(user.registered_at, 'users.registered_at'),
+    last_login_at: nullableInstant(user.last_login_at, 'users.last_login_at'),
+    active_sessions: nonNegativeInteger(user.active_sessions, 'users.active_sessions'),
+    workspaces: list(user.workspaces, 'users.workspaces', (item) => {
+      const workspace = record(item)
+      return {
+        id: text(workspace.id, 'users.workspaces.id', true),
+        name: text(workspace.name, 'users.workspaces.name'),
+        role: text(workspace.role, 'users.workspaces.role', true),
+        plan_code: text(workspace.plan_code, 'users.workspaces.plan_code', true),
+        plan_status: text(workspace.plan_status, 'users.workspaces.plan_status', true),
+      }
+    }),
+  }
+}
+
+function parseWorkspaceDirectoryItem(value: unknown): WorkspaceDirectoryItem {
+  const workspace = record(value)
+  return {
+    id: text(workspace.id, 'workspaces.id', true),
+    name: text(workspace.name, 'workspaces.name'),
+    owner_id: text(workspace.owner_id, 'workspaces.owner_id', true),
+    owner_email: text(workspace.owner_email, 'workspaces.owner_email'),
+    owner_display_name: text(
+      workspace.owner_display_name,
+      'workspaces.owner_display_name',
+    ),
+    status: text(workspace.status, 'workspaces.status', true),
+    plan_code: text(workspace.plan_code, 'workspaces.plan_code', true),
+    plan_status: text(workspace.plan_status, 'workspaces.plan_status', true),
+    member_count: nonNegativeInteger(workspace.member_count, 'workspaces.member_count'),
+    channel_count: nonNegativeInteger(workspace.channel_count, 'workspaces.channel_count'),
+    post_count: nonNegativeInteger(workspace.post_count, 'workspaces.post_count'),
+    created_at: instant(workspace.created_at, 'workspaces.created_at'),
+    updated_at: instant(workspace.updated_at, 'workspaces.updated_at'),
+  }
 }
 
 export function parseAdminSession(value: unknown): AdminSession {
@@ -182,6 +344,52 @@ export function parseSearchResults(value: unknown): SearchResults {
         member_count: workspace.member_count,
       }
     }),
+  }
+}
+
+export function parseUserDirectoryPage(value: unknown): UserDirectoryPage {
+  const source = record(value)
+  const page = nonNegativeInteger(source.page, 'page')
+  if (page < 1) {
+    throw new Error('ADMIN_INVALID_RESPONSE:page')
+  }
+  const pageSize = nonNegativeInteger(source.page_size, 'page_size')
+  if (![10, 25, 50, 100].includes(pageSize)) {
+    throw new Error('ADMIN_INVALID_RESPONSE:page_size')
+  }
+  return {
+    items: list(source.items, 'items', parseUserDirectoryItem),
+    page,
+    page_size: pageSize,
+    total: nonNegativeInteger(source.total, 'total'),
+    sort: text(source.sort, 'sort', true),
+    direction: direction(source.direction),
+  }
+}
+
+export function parseUserDirectoryDetail(value: unknown): UserDirectoryItem {
+  return parseUserDirectoryItem(value)
+}
+
+export function parseWorkspaceDirectoryPage(
+  value: unknown,
+): WorkspaceDirectoryPage {
+  const source = record(value)
+  const page = nonNegativeInteger(source.page, 'page')
+  if (page < 1) {
+    throw new Error('ADMIN_INVALID_RESPONSE:page')
+  }
+  const pageSize = nonNegativeInteger(source.page_size, 'page_size')
+  if (![10, 25, 50, 100].includes(pageSize)) {
+    throw new Error('ADMIN_INVALID_RESPONSE:page_size')
+  }
+  return {
+    items: list(source.items, 'items', parseWorkspaceDirectoryItem),
+    page,
+    page_size: pageSize,
+    total: nonNegativeInteger(source.total, 'total'),
+    sort: text(source.sort, 'sort', true),
+    direction: direction(source.direction),
   }
 }
 
