@@ -6,6 +6,7 @@ import {
   onMounted,
   ref,
   useAsyncData,
+  useHead,
   useRoute,
   useState,
 } from '#imports'
@@ -13,6 +14,7 @@ import {
   formatMoney,
   localizePath,
   priceForChannels,
+  pricingCopy,
 } from '../../f02-marketing-site/src/catalog.ts'
 import {
   checkoutTransition,
@@ -74,11 +76,22 @@ const { data, pending } = await useAsyncData(
 )
 const plan = computed(() =>
   data.value?.catalog.plans.find(candidate => candidate.code === intent?.plan))
+const planName = computed(() => {
+  if (!plan.value) {
+    return undefined
+  }
+  return plan.value.code === 'unlimited'
+    ? pricingCopy(locale.value).unlimitedName
+    : plan.value.name
+})
 const total = computed(() =>
   plan.value && intent
-    ? priceForChannels(plan.value, intent.interval, intent.quantity)
+    ? priceForChannels(plan.value, intent.interval, intent.quantity ?? null)
     : undefined)
 const pricingPath = computed(() => localizePath(locale.value, '/prezzi'))
+useHead(computed(() => ({
+  title: t('checkout.title', { plan: planName.value ?? intent?.plan ?? '' }),
+})))
 
 function transition(action: Parameters<typeof checkoutTransition>[1]) {
   status.value = checkoutTransition(status.value, action)
@@ -155,7 +168,7 @@ onBeforeUnmount(() => {
         {{ t('checkout.eyebrow') }}
       </p>
       <h1>
-        {{ t('checkout.title', { plan: plan?.name ?? intent?.plan ?? '' }) }}
+        {{ t('checkout.title', { plan: planName ?? intent?.plan ?? '' }) }}
       </h1>
       <p class="billing-page__lead">
         {{ t('checkout.description') }}
@@ -186,10 +199,15 @@ onBeforeUnmount(() => {
       class="billing-card"
     >
       <div class="billing-card__header">
-        <h2>{{ plan.name }}</h2>
+        <h2>{{ planName }}</h2>
         <span class="billing-badge">{{ t(`interval.${intent.interval}`) }}</span>
       </div>
-      <p>{{ t('checkout.channels', { count: number(intent.quantity) }) }}</p>
+      <p v-if="intent.quantity !== undefined">
+        {{ t('checkout.channels', { count: number(intent.quantity) }) }}
+      </p>
+      <p v-else>
+        {{ t('checkout.flatRate') }}
+      </p>
       <p v-if="total">
         <strong>{{ t('checkout.baseTotal', {
           total: formatMoney(total, locale),

@@ -33,7 +33,7 @@ const {
   data: rawCatalog,
   status: catalogStatus,
 } = await useFetch('/api/plans', {
-  key: 'prelaunch-public-plan-catalog-d07-v1',
+  key: 'prelaunch-public-plan-catalog-d09-v1',
 })
 const catalog = computed(() => {
   if (!rawCatalog.value) {

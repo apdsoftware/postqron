@@ -9,8 +9,10 @@ evidence link and outcome for every item before go-live.
 - Confirm the production Paddle client token, API key and webhook destination
   belong to the Postqron production account and are stored only in the runtime
   secret store.
-- Run the read-only production catalog check and compare all twelve product and
-  price mappings with D07; do not create or update catalog objects from CI.
+- Run the read-only production catalog check and compare all fourteen product
+  and price mappings (Pro and Team monthly/annual across three channel tiers,
+  plus Unlimited monthly/annual) with D09; do not create or update catalog
+  objects from CI.
 - Complete one production-mode checkout with an approved low-value test
   procedure, confirm the signed webhook, entitlement transition and temporary
   customer-portal session, then cancel/reconcile the test subscription.

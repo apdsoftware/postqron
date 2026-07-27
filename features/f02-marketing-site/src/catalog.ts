@@ -2,7 +2,7 @@ export const PRICING_LOCALES = ['en', 'it', 'es', 'fr', 'de'] as const
 
 export type PricingLocale = typeof PRICING_LOCALES[number]
 export type BillingInterval = 'monthly' | 'annual'
-export type PublicPlanCode = 'start' | 'pro' | 'team'
+export type PublicPlanCode = 'start' | 'pro' | 'team' | 'unlimited'
 
 export interface Money {
   amount_cents: number
@@ -23,10 +23,12 @@ export interface PublicPlan {
   prices: Record<BillingInterval, Money>
   price_tiers: PriceTier[]
   limits: {
-    members: number
-    channels: number
-    scheduled_publications: number
-    scheduled_publications_per_channel: number
+    // A null limit is an explicit absence of a commercial plan quota
+    // (Unlimited). It is never replaced by a numeric sentinel.
+    members: number | null
+    channels: number | null
+    scheduled_publications: number | null
+    scheduled_publications_per_channel: number | null
   }
   trial?: {
     days: number
@@ -38,7 +40,7 @@ export interface PublicPlan {
 
 export interface PublicCatalog {
   provider: 'paddle'
-  catalog_version: 'd07-v1'
+  catalog_version: 'd09-v1'
   currency: 'EUR'
   plans: PublicPlan[]
 }
@@ -81,6 +83,11 @@ export interface PricingCopy {
   channels: string
   scheduledPerChannel: string
   trial: string
+  unlimitedName: string
+  unlimitedMembers: string
+  unlimitedChannels: string
+  unlimitedScheduled: string
+  unlimitedFlatPricing: string
   taxNotice: string
   benchmarkTitle: string
   benchmarkIntro: string
@@ -115,7 +122,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     annual: 'Annual',
     annualBadge: '2 months free',
     quantityLabel: 'Social channels',
-    quantityHelp: 'The paid-plan total updates for 1 to 50 channels.',
+    quantityHelp: 'The Pro and Team totals update for 1 channel up to each plan’s maximum (6 for Pro, 9 for Team). Unlimited is a flat price.',
     featured: 'Most popular',
     perMonth: '/month',
     perYear: '/year',
@@ -131,6 +138,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     channels: '{count} social channels',
     scheduledPerChannel: '{count} scheduled posts per channel',
     trial: 'One 14-day Team trial, no card required',
+    unlimitedName: 'Unlimited',
+    unlimitedMembers: 'Unlimited users',
+    unlimitedChannels: 'Unlimited social channels',
+    unlimitedScheduled: 'Unlimited scheduled posts per channel',
+    unlimitedFlatPricing: 'One flat price, no channel quantity to set',
     taxNotice: 'Base catalog in EUR. Transaction taxes are calculated by Paddle for your location and shown before consent. Paddle is the Merchant of Record.',
     benchmarkTitle: 'Transparent Buffer benchmark',
     benchmarkIntro: 'D07 benchmark captured 24 July 2026. It compares the same channel quantity and billing period, before transaction taxes.',
@@ -139,7 +151,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer converted to EUR',
     saving: 'You save {amount}',
     comparisonScope: 'Pro is compared with Buffer Essentials; Team with Buffer Team. Start matches Buffer Free up to 3 channels.',
-    comparisonLimits: 'This is a commercial comparison, not feature parity: at launch Postqron supports fewer social networks, 500 scheduled posts per channel, up to 15 Team users, and does not include Buffer analytics, inbox, AI, API, or approval workflows.',
+    comparisonLimits: 'This is a commercial comparison, not feature parity: at launch Postqron supports fewer social networks, 500 scheduled posts per channel, up to 9 Team users, and does not include Buffer analytics, inbox, AI, API, or approval workflows.',
   },
   it: {
     seoTitle: 'Prezzi e piani — Postqron',
@@ -163,7 +175,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     annual: 'Annuale',
     annualBadge: '2 mesi gratis',
     quantityLabel: 'Canali social',
-    quantityHelp: 'Il totale dei piani a pagamento si aggiorna da 1 a 50 canali.',
+    quantityHelp: 'I totali di Pro e Team si aggiornano da 1 canale fino al massimo di ciascun piano (6 per Pro, 9 per Team). Unlimited ha un prezzo fisso.',
     featured: 'Più scelto',
     perMonth: '/mese',
     perYear: '/anno',
@@ -179,6 +191,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     channels: '{count} canali social',
     scheduledPerChannel: '{count} post programmati per canale',
     trial: 'Una prova Team di 14 giorni, senza carta',
+    unlimitedName: 'Illimitato',
+    unlimitedMembers: 'Utenti illimitati',
+    unlimitedChannels: 'Canali social illimitati',
+    unlimitedScheduled: 'Post programmati illimitati per canale',
+    unlimitedFlatPricing: 'Un prezzo fisso, nessuna quantità di canali da impostare',
     taxNotice: 'Catalogo base in EUR. Paddle calcola le imposte della transazione per la tua località e le mostra prima del consenso. Paddle è il Merchant of Record.',
     benchmarkTitle: 'Confronto trasparente con Buffer',
     benchmarkIntro: 'Benchmark D07 rilevato il 24 luglio 2026. Confronta lo stesso numero di canali e periodo, prima delle imposte di transazione.',
@@ -187,7 +204,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer convertito in EUR',
     saving: 'Risparmi {amount}',
     comparisonScope: 'Pro è confrontato con Buffer Essentials; Team con Buffer Team. Start è pari a Buffer Free fino a 3 canali.',
-    comparisonLimits: 'È un confronto commerciale, non una parità di funzioni: al lancio Postqron supporta meno social, 500 post programmati per canale, fino a 15 utenti Team e non include analytics, inbox, AI, API o approvazioni di Buffer.',
+    comparisonLimits: 'È un confronto commerciale, non una parità di funzioni: al lancio Postqron supporta meno social, 500 post programmati per canale, fino a 9 utenti Team e non include analytics, inbox, AI, API o approvazioni di Buffer.',
   },
   es: {
     seoTitle: 'Precios y planes — Postqron',
@@ -211,7 +228,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     annual: 'Anual',
     annualBadge: '2 meses gratis',
     quantityLabel: 'Canales sociales',
-    quantityHelp: 'El total de los planes de pago se actualiza de 1 a 50 canales.',
+    quantityHelp: 'Los totales de Pro y Team se actualizan de 1 canal hasta el máximo de cada plan (6 para Pro, 9 para Team). Unlimited tiene un precio fijo.',
     featured: 'Más elegido',
     perMonth: '/mes',
     perYear: '/año',
@@ -227,6 +244,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     channels: '{count} canales sociales',
     scheduledPerChannel: '{count} publicaciones programadas por canal',
     trial: 'Una prueba Team de 14 días, sin tarjeta',
+    unlimitedName: 'Ilimitado',
+    unlimitedMembers: 'Usuarios ilimitados',
+    unlimitedChannels: 'Canales sociales ilimitados',
+    unlimitedScheduled: 'Publicaciones programadas ilimitadas por canal',
+    unlimitedFlatPricing: 'Un precio fijo, sin cantidad de canales que configurar',
     taxNotice: 'Catálogo base en EUR. Paddle calcula los impuestos de la transacción para tu ubicación y los muestra antes del consentimiento. Paddle es el Merchant of Record.',
     benchmarkTitle: 'Comparación transparente con Buffer',
     benchmarkIntro: 'Referencia D07 capturada el 24 de julio de 2026. Compara la misma cantidad de canales y período, antes de impuestos de transacción.',
@@ -235,7 +257,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer convertido a EUR',
     saving: 'Ahorras {amount}',
     comparisonScope: 'Pro se compara con Buffer Essentials; Team con Buffer Team. Start iguala Buffer Free hasta 3 canales.',
-    comparisonLimits: 'Es una comparación comercial, no equivalencia funcional: al lanzamiento Postqron admite menos redes, 500 publicaciones programadas por canal, hasta 15 usuarios Team y no incluye analytics, bandeja, IA, API ni aprobaciones de Buffer.',
+    comparisonLimits: 'Es una comparación comercial, no equivalencia funcional: al lanzamiento Postqron admite menos redes, 500 publicaciones programadas por canal, hasta 9 usuarios Team y no incluye analytics, bandeja, IA, API ni aprobaciones de Buffer.',
   },
   fr: {
     seoTitle: 'Tarifs et abonnements — Postqron',
@@ -259,7 +281,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     annual: 'Annuel',
     annualBadge: '2 mois offerts',
     quantityLabel: 'Canaux sociaux',
-    quantityHelp: 'Le total des abonnements payants est recalculé de 1 à 50 canaux.',
+    quantityHelp: 'Les totaux Pro et Team sont recalculés de 1 canal jusqu’au maximum de chaque abonnement (6 pour Pro, 9 pour Team). Unlimited a un prix fixe.',
     featured: 'Le plus choisi',
     perMonth: '/mois',
     perYear: '/an',
@@ -275,6 +297,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     channels: '{count} canaux sociaux',
     scheduledPerChannel: '{count} publications programmées par canal',
     trial: 'Un essai Team de 14 jours, sans carte',
+    unlimitedName: 'Illimité',
+    unlimitedMembers: 'Utilisateurs illimités',
+    unlimitedChannels: 'Canaux sociaux illimités',
+    unlimitedScheduled: 'Publications programmées illimitées par canal',
+    unlimitedFlatPricing: 'Un prix fixe, aucune quantité de canaux à définir',
     taxNotice: 'Catalogue de base en EUR. Paddle calcule les taxes de transaction selon votre localisation et les affiche avant le consentement. Paddle est le Merchant of Record.',
     benchmarkTitle: 'Comparaison transparente avec Buffer',
     benchmarkIntro: 'Référence D07 relevée le 24 juillet 2026. Elle compare le même nombre de canaux et la même période, hors taxes de transaction.',
@@ -283,7 +310,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer converti en EUR',
     saving: 'Vous économisez {amount}',
     comparisonScope: 'Pro est comparé à Buffer Essentials ; Team à Buffer Team. Start égale Buffer Free jusqu’à 3 canaux.',
-    comparisonLimits: 'Il s’agit d’une comparaison commerciale, pas d’une équivalence fonctionnelle : au lancement, Postqron prend en charge moins de réseaux, 500 publications par canal, jusqu’à 15 utilisateurs Team et n’inclut pas les analytics, la boîte de réception, l’IA, l’API ni les approbations de Buffer.',
+    comparisonLimits: 'Il s’agit d’une comparaison commerciale, pas d’une équivalence fonctionnelle : au lancement, Postqron prend en charge moins de réseaux, 500 publications par canal, jusqu’à 9 utilisateurs Team et n’inclut pas les analytics, la boîte de réception, l’IA, l’API ni les approbations de Buffer.',
   },
   de: {
     seoTitle: 'Preise und Tarife — Postqron',
@@ -307,7 +334,7 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     annual: 'Jährlich',
     annualBadge: '2 Monate gratis',
     quantityLabel: 'Social-Media-Kanäle',
-    quantityHelp: 'Der Gesamtpreis der Bezahlpläne wird für 1 bis 50 Kanäle neu berechnet.',
+    quantityHelp: 'Die Gesamtpreise für Pro und Team werden von 1 Kanal bis zum Maximum des jeweiligen Tarifs neu berechnet (6 für Pro, 9 für Team). Unlimited hat einen Festpreis.',
     featured: 'Am häufigsten gewählt',
     perMonth: '/Monat',
     perYear: '/Jahr',
@@ -323,6 +350,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     channels: '{count} Social-Media-Kanäle',
     scheduledPerChannel: '{count} geplante Beiträge pro Kanal',
     trial: 'Einmalig 14 Tage Team testen, ohne Karte',
+    unlimitedName: 'Unbegrenzt',
+    unlimitedMembers: 'Unbegrenzte Benutzer',
+    unlimitedChannels: 'Unbegrenzte Social-Media-Kanäle',
+    unlimitedScheduled: 'Unbegrenzte geplante Beiträge pro Kanal',
+    unlimitedFlatPricing: 'Ein Festpreis, keine Kanalanzahl einzustellen',
     taxNotice: 'Basiskatalog in EUR. Paddle berechnet Transaktionssteuern für deinen Standort und zeigt sie vor der Zustimmung an. Paddle ist der Merchant of Record.',
     benchmarkTitle: 'Transparenter Buffer-Vergleich',
     benchmarkIntro: 'D07-Benchmark vom 24. Juli 2026. Verglichen werden dieselbe Kanalanzahl und derselbe Zeitraum vor Transaktionssteuern.',
@@ -331,11 +363,11 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     buffer: 'Buffer in EUR umgerechnet',
     saving: 'Du sparst {amount}',
     comparisonScope: 'Pro wird mit Buffer Essentials verglichen, Team mit Buffer Team. Start entspricht Buffer Free bis zu 3 Kanälen.',
-    comparisonLimits: 'Dies ist ein kommerzieller Vergleich, keine Funktionsgleichheit: Zum Start unterstützt Postqron weniger Netzwerke, 500 geplante Beiträge pro Kanal, bis zu 15 Team-Benutzer und enthält nicht Buffers Analytics, Inbox, KI, API oder Freigaben.',
+    comparisonLimits: 'Dies ist ein kommerzieller Vergleich, keine Funktionsgleichheit: Zum Start unterstützt Postqron weniger Netzwerke, 500 geplante Beiträge pro Kanal, bis zu 9 Team-Benutzer und enthält nicht Buffers Analytics, Inbox, KI, API oder Freigaben.',
   },
 }
 
-const PLAN_CODES = new Set<PublicPlanCode>(['start', 'pro', 'team'])
+const PLAN_CODES = new Set<PublicPlanCode>(['start', 'pro', 'team', 'unlimited'])
 const BUFFER_EUR_USD_RATE = 1.1377
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -344,6 +376,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 0
+}
+
+function isPositiveIntegerOrNull(value: unknown): value is number | null {
+  return value === null || isPositiveInteger(value)
 }
 
 function isMoney(value: unknown): value is Money {
@@ -383,10 +419,10 @@ function isPlan(value: unknown): value is PublicPlan {
     && isMoney(value.prices.annual)
     && Array.isArray(value.price_tiers)
     && value.price_tiers.every(isTier)
-    && isPositiveInteger(value.limits.members)
-    && isPositiveInteger(value.limits.channels)
-    && isPositiveInteger(value.limits.scheduled_publications)
-    && isPositiveInteger(value.limits.scheduled_publications_per_channel)
+    && isPositiveIntegerOrNull(value.limits.members)
+    && isPositiveIntegerOrNull(value.limits.channels)
+    && isPositiveIntegerOrNull(value.limits.scheduled_publications)
+    && isPositiveIntegerOrNull(value.limits.scheduled_publications_per_channel)
     && (value.trial === undefined || isTrial(value.trial))
 }
 
@@ -396,6 +432,14 @@ function validatePlanShape(plan: PublicPlan): boolean {
       && plan.price_tiers.length === 0
       && plan.prices.monthly.amount_cents === 0
       && plan.prices.annual.amount_cents === 0
+  }
+  if (plan.code === 'unlimited') {
+    return plan.purchasable
+      && plan.price_tiers.length === 0
+      && plan.limits.members === null
+      && plan.limits.channels === null
+      && plan.limits.scheduled_publications === null
+      && plan.limits.scheduled_publications_per_channel === null
   }
   if (!plan.purchasable || plan.price_tiers.length !== 3) {
     return false
@@ -424,10 +468,10 @@ export function parsePublicCatalog(value: unknown): PublicCatalog {
   }
   if (
     value.provider !== 'paddle'
-    || value.catalog_version !== 'd07-v1'
+    || value.catalog_version !== 'd09-v1'
     || value.currency !== 'EUR'
     || !Array.isArray(value.plans)
-    || value.plans.length !== 3
+    || value.plans.length !== 4
   ) {
     throw new Error('PUBLIC_CATALOG_INVALID')
   }
@@ -437,7 +481,7 @@ export function parsePublicCatalog(value: unknown): PublicCatalog {
   } catch {
     throw new Error('PUBLIC_CATALOG_INVALID')
   }
-  if (new Set(plans.map(plan => plan.code)).size !== 3) {
+  if (new Set(plans.map(plan => plan.code)).size !== 4) {
     throw new Error('PUBLIC_CATALOG_DUPLICATED')
   }
   return { ...value, plans } as unknown as PublicCatalog
@@ -493,10 +537,19 @@ function tierQuantity(channels: number, tier: PriceTier): number {
 export function priceForChannels(
   plan: PublicPlan,
   interval: BillingInterval,
-  channels: number,
+  channels: number | null,
 ): Money {
+  if (plan.limits.channels === null) {
+    if (channels !== null) {
+      throw new Error('PUBLIC_CATALOG_INVALID_QUANTITY')
+    }
+    return plan.purchasable
+      ? plan.prices[interval]
+      : { amount_cents: 0, currency: 'EUR' }
+  }
   if (
-    !Number.isSafeInteger(channels)
+    channels === null
+    || !Number.isSafeInteger(channels)
     || channels < 1
     || channels > plan.limits.channels
   ) {
@@ -570,7 +623,7 @@ export function purchaseHref(
   locale: PricingLocale,
   plan: PublicPlan,
   interval: BillingInterval,
-  channels: number,
+  channels: number | null,
 ): string {
   const localizedApp = /^https?:\/\//u.test(appUrl)
     ? appUrl
@@ -578,10 +631,11 @@ export function purchaseHref(
   const url = new URL(localizedApp, 'https://postqron.local')
   url.searchParams.set('plan', plan.code)
   url.searchParams.set('interval', interval)
-  url.searchParams.set(
-    'quantity',
-    String(plan.purchasable ? channels : plan.limits.channels),
-  )
+  if (channels === null) {
+    url.searchParams.delete('quantity')
+  } else {
+    url.searchParams.set('quantity', String(channels))
+  }
   return /^https?:\/\//u.test(appUrl)
     ? url.href
     : `${url.pathname}${url.search}`

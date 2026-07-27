@@ -131,7 +131,7 @@ test('public and pre-launch surfaces fit mobile viewports without horizontal ove
 }, testInfo) => {
   covers(testInfo, 'LR-WCAG', 'LR-I18N')
 
-  for (const width of [320, 375, 768]) {
+  for (const width of [320, 375, 768, 1024]) {
     await page.setViewportSize({ width, height: 900 })
     for (const url of [
       `${offBaseURL}/en`,
@@ -170,7 +170,7 @@ test('five-locale public, pricing, cookie and pre-launch matrix has no missing k
         /(?:MISSING_TRANSLATION|I18N_MISSING|translation missing)/iu,
       )
       if (path === '/prezzi') {
-        await expect(page.locator('.pricing-grid .plan-card')).toHaveCount(3)
+        await expect(page.locator('.pricing-grid .plan-card')).toHaveCount(4)
       }
     }
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
@@ -188,6 +188,8 @@ test('five-locale public, pricing, cookie and pre-launch matrix has no missing k
     )
     expect(prelaunch?.status(), `${locale} prelaunch`).toBe(200)
     await expect(page.locator('html')).toHaveAttribute('lang', locale)
+    await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan'))
+      .toHaveCount(4)
   }
 })
 

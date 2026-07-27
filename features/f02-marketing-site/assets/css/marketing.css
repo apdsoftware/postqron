@@ -660,7 +660,7 @@ button {
 
 .pricing-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--pq-space-5);
   align-items: stretch;
 }
@@ -1032,6 +1032,7 @@ button {
   }
 
   .pricing-grid {
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--pq-space-3);
   }
 

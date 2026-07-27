@@ -31,7 +31,7 @@ test('authoritative Paddle contracts verify catalog, checkout, webhook, entitlem
   covers(testInfo, 'LR-PADDLE', 'LR-NEGATIVE')
   goContract(
     'features/f10-entitlements',
-    'Test(PublicCatalogMatchesD07|CheckoutUsesOwnerAndServerComposedPaddleItems|CheckoutRejectsFreePlanAndNonOwner|CustomerPortalIsGeneratedOnDemandFromStoredBinding|VerifyPaddleSignatureUsesRawBodyAndRejectsReplay|PaddleTransactionCompletedIsVerifiedDeduplicatedAndOrdered|PaddleRejectsWrongItemsAndClientCheckoutEventCannotGrant)$',
+    'Test(PublicCatalogMatchesD09|CheckoutUsesOwnerAndServerComposedPaddleItems|CheckoutRejectsFreePlanAndNonOwner|CustomerPortalIsGeneratedOnDemandFromStoredBinding|VerifyPaddleSignatureUsesRawBodyAndRejectsReplay|PaddleTransactionCompletedIsVerifiedDeduplicatedAndOrdered|PaddleRejectsWrongItemsAndClientCheckoutEventCannotGrant)$',
   )
 })
 

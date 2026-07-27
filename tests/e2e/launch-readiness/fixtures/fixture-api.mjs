@@ -16,7 +16,7 @@ const tiers = (first, second, third) => [
 ]
 const catalog = {
   provider: 'paddle',
-  catalog_version: 'd07-v1',
+  catalog_version: 'd09-v1',
   currency: 'EUR',
   plans: [
     {
@@ -40,7 +40,7 @@ const catalog = {
       price_tiers: tiers(450, 300, 225),
       limits: {
         members: 1,
-        channels: 50,
+        channels: 6,
         scheduled_publications: 500,
         scheduled_publications_per_channel: 500,
       },
@@ -50,18 +50,31 @@ const catalog = {
       name: 'Team',
       purchasable: true,
       prices: { monthly: money(900), annual: money(9000) },
-      price_tiers: tiers(900, 600, 450),
+      price_tiers: tiers(900, 300, 225),
       limits: {
-        members: 15,
-        channels: 50,
+        members: 9,
+        channels: 9,
         scheduled_publications: 500,
         scheduled_publications_per_channel: 500,
       },
       trial: {
         days: 14,
-        members: 15,
-        channels: 10,
+        members: 9,
+        channels: 9,
         scheduled_publications_per_channel: 500,
+      },
+    },
+    {
+      code: 'unlimited',
+      name: 'Unlimited',
+      purchasable: true,
+      prices: { monthly: money(12_900), annual: money(129_000) },
+      price_tiers: [],
+      limits: {
+        members: null,
+        channels: null,
+        scheduled_publications: null,
+        scheduled_publications_per_channel: null,
       },
     },
   ],
@@ -301,9 +314,20 @@ function appSession(role = 'authenticated') {
   }
 }
 
+function usageEntry(resource, limit, used) {
+  return {
+    resource,
+    used,
+    limit,
+    remaining: limit === null ? null : Math.max(0, limit - used),
+    over_limit: limit !== null && used > limit,
+  }
+}
+
 function overview() {
   const paid = state.entitlement !== 'start'
   const plan = catalog.plans.find(item => item.code === state.entitlement)
+  const channelsUsed = paid ? Math.min(4, plan.limits.channels ?? 4) : 1
   return {
     plan,
     interval: 'monthly',
@@ -313,9 +337,9 @@ function overview() {
       end: '2026-08-01T00:00:00.000Z',
     },
     usage: [
-      { resource: 'members', used: 1, limit: plan.limits.members, remaining: plan.limits.members - 1, over_limit: false },
-      { resource: 'channels', used: paid ? 4 : 1, limit: paid ? 10 : 3, remaining: paid ? 6 : 2, over_limit: false },
-      { resource: 'scheduled_publications', used: 2, limit: plan.limits.scheduled_publications, remaining: plan.limits.scheduled_publications - 2, over_limit: false },
+      usageEntry('members', plan.limits.members, 1),
+      usageEntry('channels', plan.limits.channels, channelsUsed),
+      usageEntry('scheduled_publications', plan.limits.scheduled_publications, 2),
     ],
   }
 }

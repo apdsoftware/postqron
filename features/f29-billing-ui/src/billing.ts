@@ -31,7 +31,9 @@ export type CheckoutAction =
 export interface PurchaseIntent {
   plan: PublicPlanCode
   interval: BillingInterval
-  quantity: number
+  // Unlimited is flat-priced: no channel quantity is accepted or
+  // synthesized for it, matching the checkout contract.
+  quantity?: number
 }
 
 export interface CheckoutSession {
@@ -43,8 +45,9 @@ export interface CheckoutSession {
 export interface BillingUsage {
   resource: 'members' | 'channels' | 'scheduled_publications'
   used: number
-  limit: number
-  remaining: number
+  // A null limit/remaining means no commercial plan quota applies (Unlimited).
+  limit: number | null
+  remaining: number | null
   over_limit: boolean
 }
 
@@ -86,7 +89,8 @@ export class BillingApiError extends Error {
   }
 }
 
-const plans = new Set<PublicPlanCode>(['start', 'pro', 'team'])
+const plans = new Set<PublicPlanCode>(['start', 'pro', 'team', 'unlimited'])
+const quantityMaximums: Partial<Record<PublicPlanCode, number>> = { start: 3, pro: 6, team: 9 }
 const intervals = new Set<BillingInterval>(['monthly', 'annual'])
 const states = new Set<BillingOverview['state']>([
   'trialing',
@@ -139,13 +143,20 @@ export function parsePurchaseIntent(
     || !plans.has(plan as PublicPlanCode)
     || !interval
     || !intervals.has(interval as BillingInterval)
-    || !quantity
-    || !/^[1-9][0-9]*$/u.test(quantity)
   ) {
     throw new Error('BILLING_INVALID_PURCHASE_INTENT')
   }
+  if (plan === 'unlimited') {
+    if (quantity !== undefined) {
+      throw new Error('BILLING_INVALID_PURCHASE_INTENT')
+    }
+    return { plan: plan as PublicPlanCode, interval: interval as BillingInterval }
+  }
+  if (!quantity || !/^[1-9][0-9]*$/u.test(quantity)) {
+    throw new Error('BILLING_INVALID_PURCHASE_INTENT')
+  }
   const parsedQuantity = Number(quantity)
-  const maximum = plan === 'start' ? 3 : 50
+  const maximum = quantityMaximums[plan as PublicPlanCode] ?? 0
   if (!Number.isSafeInteger(parsedQuantity) || parsedQuantity > maximum) {
     throw new Error('BILLING_INVALID_PURCHASE_INTENT')
   }
@@ -161,11 +172,11 @@ export function checkoutPath(
   intent: PurchaseIntent,
 ): string {
   const prefix = locale === 'en' ? '' : `/${locale}`
-  const query = new URLSearchParams({
-    plan: intent.plan,
-    interval: intent.interval,
-    quantity: String(intent.quantity),
-  })
+  const params: Record<string, string> = { plan: intent.plan, interval: intent.interval }
+  if (intent.quantity !== undefined) {
+    params.quantity = String(intent.quantity)
+  }
+  const query = new URLSearchParams(params)
   return `${prefix}/app/billing/checkout?${query}`
 }
 
@@ -264,8 +275,8 @@ function parseUsage(value: unknown): BillingUsage {
     || typeof value.resource !== 'string'
     || !resources.has(value.resource as BillingUsage['resource'])
     || !Number.isInteger(value.used)
-    || !Number.isInteger(value.limit)
-    || !Number.isInteger(value.remaining)
+    || !(value.limit === null || Number.isInteger(value.limit))
+    || !(value.remaining === null || Number.isInteger(value.remaining))
     || typeof value.over_limit !== 'boolean') {
     throw new Error('BILLING_INVALID_OVERVIEW')
   }
@@ -306,10 +317,13 @@ export function entitlementConfirmed(
   intent: PurchaseIntent,
 ): boolean {
   const channels = overview.usage.find(usage => usage.resource === 'channels')
+  const channelsSatisfied = intent.quantity === undefined
+    ? true
+    : Boolean(channels && channels.limit !== null && channels.limit >= intent.quantity)
   return overview.plan.code === intent.plan
     && overview.interval === intent.interval
     && overview.state === 'active'
-    && Boolean(channels && channels.limit >= intent.quantity)
+    && channelsSatisfied
 }
 
 export class BillingApi {
@@ -356,17 +370,19 @@ export class BillingApi {
     intent: PurchaseIntent,
     idempotencyKey: string,
   ): Promise<CheckoutSession> {
+    const body: Record<string, unknown> = {
+      plan: intent.plan,
+      interval: intent.interval,
+      idempotency_key: idempotencyKey,
+    }
+    // Unlimited is flat-priced: no channels field is sent, matching the
+    // UnlimitedCheckoutRequest contract which rejects any channel quantity.
+    if (intent.quantity !== undefined) {
+      body.channels = intent.quantity
+    }
     return parseCheckoutSession(await this.#request(
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/billing/checkout`,
-      {
-        method: 'POST',
-        body: {
-          plan: intent.plan,
-          interval: intent.interval,
-          channels: intent.quantity,
-          idempotency_key: idempotencyKey,
-        },
-      },
+      { method: 'POST', body },
     ))
   }
 

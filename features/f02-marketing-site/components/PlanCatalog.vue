@@ -32,31 +32,57 @@ const copy = computed(() => pricingCopy(locale.value))
 const paidPlans = computed(() =>
   props.catalog.plans.filter((plan): plan is PublicPlan & { code: 'pro' | 'team' } =>
     plan.code === 'pro' || plan.code === 'team'))
+const maxChannels = computed(() => Math.max(
+  1,
+  ...props.catalog.plans
+    .filter(plan => plan.purchasable && plan.limits.channels !== null)
+    .map(plan => plan.limits.channels as number),
+))
 
 function number(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
 }
 
+function displayName(plan: PublicPlan): string {
+  return plan.code === 'unlimited' ? copy.value.unlimitedName : plan.name
+}
+
+// A null channel limit means the plan is flat-priced (Unlimited) and does
+// not accept a channel quantity; the shared slider does not apply to it.
+function quantityFor(plan: PublicPlan): number | null {
+  if (plan.limits.channels === null) {
+    return null
+  }
+  return plan.purchasable
+    ? Math.min(channels.value, plan.limits.channels)
+    : plan.limits.channels
+}
+
 function total(plan: PublicPlan) {
-  return priceForChannels(
-    plan,
-    interval.value,
-    plan.purchasable ? channels.value : plan.limits.channels,
-  )
+  return priceForChannels(plan, interval.value, quantityFor(plan))
 }
 
 function members(plan: PublicPlan): string {
+  if (plan.limits.members === null) {
+    return copy.value.unlimitedMembers
+  }
   const key = plan.limits.members === 1 ? copy.value.member : copy.value.members
   return interpolate(key, { count: number(plan.limits.members) })
 }
 
 function channelLimit(plan: PublicPlan): string {
-  const count = plan.purchasable ? channels.value : plan.limits.channels
+  const count = quantityFor(plan)
+  if (count === null) {
+    return copy.value.unlimitedChannels
+  }
   const key = count === 1 ? copy.value.channel : copy.value.channels
   return interpolate(key, { count: number(count) })
 }
 
 function scheduledLimit(plan: PublicPlan): string {
+  if (plan.limits.scheduled_publications_per_channel === null) {
+    return copy.value.unlimitedScheduled
+  }
   return interpolate(copy.value.scheduledPerChannel, {
     count: number(plan.limits.scheduled_publications_per_channel),
   })
@@ -64,19 +90,20 @@ function scheduledLimit(plan: PublicPlan): string {
 
 function cta(plan: PublicPlan): string {
   return plan.purchasable
-    ? interpolate(copy.value.choosePlan, { plan: plan.name })
+    ? interpolate(copy.value.choosePlan, { plan: displayName(plan) })
     : copy.value.chooseFree
 }
 
 function href(plan: PublicPlan): string {
-  const quantity = plan.purchasable ? channels.value : plan.limits.channels
-  const runtimeIntent = `${config.public.appUrl}?plan=${plan.code}&interval=${interval.value}&quantity=${quantity}`
+  const quantity = quantityFor(plan)
+  const quantityPart = quantity === null ? '' : `&quantity=${quantity}`
+  const runtimeIntent = `${config.public.appUrl}?plan=${plan.code}&interval=${interval.value}${quantityPart}`
   return purchaseHref(
     runtimeIntent,
     locale.value,
     plan,
     interval.value,
-    channels.value,
+    quantity,
   )
 }
 </script>
@@ -115,7 +142,7 @@ function href(plan: PublicPlan): string {
           v-model.number="channels"
           type="range"
           min="1"
-          max="50"
+          :max="maxChannels"
           step="1"
         >
         <small>{{ copy.quantityHelp }}</small>
@@ -134,7 +161,7 @@ function href(plan: PublicPlan): string {
           class="plan-card__badge"
         >{{ copy.featured }}</span>
         <p class="plan-card__name">
-          {{ plan.name }}
+          {{ displayName(plan) }}
         </p>
         <p class="plan-card__price">
           <strong>{{ formatMoney(total(plan), locale) }}</strong>
@@ -159,6 +186,7 @@ function href(plan: PublicPlan): string {
           <template v-else>
             {{ copy.monthlyBilling }}
           </template>
+          <span v-if="plan.limits.channels === null">{{ copy.unlimitedFlatPricing }}</span>
         </div>
         <a
           class="pq-button"

@@ -4,8 +4,10 @@ import {
   definePageMeta,
   ref,
   useAsyncData,
+  useHead,
   useState,
 } from '#imports'
+import { pricingCopy } from '../../f02-marketing-site/src/catalog.ts'
 import { createIdempotencyKey } from '../src/billing.ts'
 import { useBillingApi, useBillingI18n } from '../src/use-billing.ts'
 
@@ -17,7 +19,8 @@ interface Session {
 
 const session = useState<Session | undefined>('postqron.app-shell.session')
 const api = useBillingApi()
-const { date, number, t } = useBillingI18n()
+const { date, locale, number, t } = useBillingI18n()
+useHead(computed(() => ({ title: t('nav.title') })))
 const portalOpening = ref(false)
 const portalError = ref(false)
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
@@ -26,6 +29,13 @@ const { data: overview, pending, refresh, status } = await useAsyncData(
   'billing-overview',
   () => api.overview(workspaceId.value),
 )
+
+const planName = computed(() => {
+  if (overview.value?.plan.code === 'unlimited') {
+    return pricingCopy(locale.value).unlimitedName
+  }
+  return overview.value?.plan.name
+})
 
 async function openPortal() {
   portalOpening.value = true
@@ -80,7 +90,7 @@ async function openPortal() {
       <div class="billing-card__header">
         <div>
           <small>{{ t('overview.currentPlan') }}</small>
-          <h2>{{ overview.plan.name }}</h2>
+          <h2>{{ planName }}</h2>
         </div>
         <span class="billing-badge">{{ t(`state.${overview.state}`) }}</span>
       </div>
@@ -100,10 +110,13 @@ async function openPortal() {
           :key="usage.resource"
         >
           <strong>{{ t(`resource.${usage.resource}`) }}</strong>
-          <span>{{ t('overview.used', {
+          <span v-if="usage.limit === null">{{ t('overview.usedUnlimited', {
+            used: number(usage.used),
+          }) }}</span>
+          <span v-else>{{ t('overview.used', {
             used: number(usage.used),
             limit: number(usage.limit),
-            remaining: number(usage.remaining),
+            remaining: number(usage.remaining ?? 0),
           }) }}</span>
         </article>
       </div>
