@@ -22,7 +22,7 @@ const tiers = (first: number, second: number, third: number) => [
 ]
 const catalog: PublicCatalog = {
   provider: 'paddle',
-  catalog_version: 'd09-v1',
+  catalog_version: 'd09-v2',
   currency: 'EUR',
   plans: [
     {
@@ -34,14 +34,14 @@ const catalog: PublicCatalog = {
       code: 'pro', name: 'Pro', purchasable: true,
       prices: { monthly: money(450), annual: money(4500) },
       price_tiers: tiers(450, 300, 225),
-      limits: { members: 1, channels: 6, scheduled_publications: 500, scheduled_publications_per_channel: 500 },
+      limits: { members: 3, channels: 6, scheduled_publications: 250, scheduled_publications_per_channel: 250 },
     },
     {
       code: 'team', name: 'Team', purchasable: true,
       prices: { monthly: money(900), annual: money(9000) },
       price_tiers: tiers(900, 300, 225),
-      limits: { members: 9, channels: 9, scheduled_publications: 500, scheduled_publications_per_channel: 500 },
-      trial: { days: 14, members: 9, channels: 9, scheduled_publications_per_channel: 500 },
+      limits: { members: 6, channels: 9, scheduled_publications: 500, scheduled_publications_per_channel: 500 },
+      trial: { days: 14, members: 6, channels: 9, scheduled_publications_per_channel: 500 },
     },
     {
       code: 'unlimited', name: 'Unlimited', purchasable: true,
@@ -61,12 +61,30 @@ test('validates the server-owned Paddle D09 catalog without fallback prices', ()
   assert.deepEqual(parsePublicCatalog(withoutFreeTiers).plans[0]!.price_tiers, [])
   assert.throws(() => parsePublicCatalog(undefined), /UNAVAILABLE/)
   assert.throws(() => parsePublicCatalog({ ...catalog, provider: 'stripe' }), /INVALID/)
-  assert.throws(() => parsePublicCatalog({ ...catalog, catalog_version: 'd07-v1' }), /INVALID/)
+  assert.throws(() => parsePublicCatalog({ ...catalog, catalog_version: 'd09-v1' }), /INVALID/)
   assert.throws(() => parsePublicCatalog({ ...catalog, plans: catalog.plans.slice(1) }), /INVALID/)
   assert.throws(() => parsePublicCatalog({
     ...catalog,
     plans: [...catalog.plans, catalog.plans[3]],
   }), /INVALID/)
+})
+
+test('plan limits reflect the Product Owner d09-v2 decision without local overrides', () => {
+  const parsed = parsePublicCatalog(catalog)
+  assert.deepEqual(
+    parsed.plans.map(plan => ({
+      code: plan.code,
+      members: plan.limits.members,
+      channels: plan.limits.channels,
+      scheduled: plan.limits.scheduled_publications_per_channel,
+    })),
+    [
+      { code: 'start', members: 1, channels: 3, scheduled: 10 },
+      { code: 'pro', members: 3, channels: 6, scheduled: 250 },
+      { code: 'team', members: 6, channels: 9, scheduled: 500 },
+      { code: 'unlimited', members: null, channels: null, scheduled: null },
+    ],
+  )
 })
 
 test('progressive monthly and annual totals match D09 at every tier edge', () => {

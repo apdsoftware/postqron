@@ -16,7 +16,7 @@ const tiers = (first, second, third) => [
 ]
 const catalog = {
   provider: 'paddle',
-  catalog_version: 'd09-v1',
+  catalog_version: 'd09-v2',
   currency: 'EUR',
   plans: [
     {
@@ -39,10 +39,10 @@ const catalog = {
       prices: { monthly: money(450), annual: money(4500) },
       price_tiers: tiers(450, 300, 225),
       limits: {
-        members: 1,
+        members: 3,
         channels: 6,
-        scheduled_publications: 500,
-        scheduled_publications_per_channel: 500,
+        scheduled_publications: 250,
+        scheduled_publications_per_channel: 250,
       },
     },
     {
@@ -52,14 +52,14 @@ const catalog = {
       prices: { monthly: money(900), annual: money(9000) },
       price_tiers: tiers(900, 300, 225),
       limits: {
-        members: 9,
+        members: 6,
         channels: 9,
         scheduled_publications: 500,
         scheduled_publications_per_channel: 500,
       },
       trial: {
         days: 14,
-        members: 9,
+        members: 6,
         channels: 9,
         scheduled_publications_per_channel: 500,
       },
