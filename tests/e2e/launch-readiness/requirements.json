@@ -54,5 +54,9 @@
   {
     "id": "LR-NEGATIVE",
     "description": "Every critical security and launch guard has an explicit failing-path assertion"
+  },
+  {
+    "id": "LR-PRICING",
+    "description": "F2/F34 shared channel-quantity/interval selectors: default state, plan compatibility transitions, explicit-choice preservation and fallback, annual terms and totals, and CTA validity"
   }
 ]
