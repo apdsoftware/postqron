@@ -1,27 +1,27 @@
 openapi: 3.1.0
 info:
   title: Postqron private administration console
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Private-channel contract. Every operation requires a verified, active,
     server-allowlisted administrator session and must never be mounted on the
-    public API mux. Directory projections intentionally exclude credentials,
-    OAuth tokens, password hashes, and complete payment data.
+    public API mux. Projections intentionally exclude credentials, OAuth
+    tokens, password hashes, payment data, and hidden audit payloads.
 servers:
   - url: https://admin.internal
+security:
+  - productSession: []
 paths:
   /api/v1/admin/session:
     get:
       operationId: resolveAdminSession
-      security:
-        - productSession: []
       responses:
-        '200':
+        "200":
           description: Verified and server-allowlisted administrator session.
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/dashboard:
     get:
       operationId: getAdminDashboard
@@ -36,7 +36,7 @@ paths:
       security:
         - productSession: []
       responses:
-        '200':
+        "200":
           description: Minimal service health, entitlement, and recent audit projection.
           content:
             application/json:
@@ -53,32 +53,144 @@ paths:
     get:
       operationId: searchAdminSubjects
       deprecated: true
-      description: Retained for entitlement workflows; directory pages use the paginated endpoints.
-      security:
-        - productSession: []
+      description: Retained for entitlement workflows; directory pages use paginated endpoints.
       parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 2
-            maxLength: 120
+        - $ref: "#/components/parameters/Search"
       responses:
-        '200':
+        "200":
           description: Minimal user and workspace results without secrets or payment data.
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        "400":
+          $ref: "#/components/responses/InvalidFilter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/admin/plans:
+    get:
+      operationId: listAdminPlans
+      description: Returns workspace entitlements with real usage and remaining capacity.
+      parameters:
+        - $ref: "#/components/parameters/Plan"
+        - $ref: "#/components/parameters/BillingStatus"
+        - $ref: "#/components/parameters/PlanType"
+        - $ref: "#/components/parameters/WorkspaceOwner"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/PlanSort"
+        - $ref: "#/components/parameters/Direction"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Filtered plan page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanList"
+        "400":
+          $ref: "#/components/responses/InvalidFilter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/admin/plans/export:
+    get:
+      operationId: exportAdminPlans
+      description: >
+        Exports the complete filtered result with an allowlisted column set,
+        formula injection mitigation, and a hard 10,000-row limit.
+      parameters:
+        - $ref: "#/components/parameters/ExportFormat"
+        - $ref: "#/components/parameters/Plan"
+        - $ref: "#/components/parameters/BillingStatus"
+        - $ref: "#/components/parameters/PlanType"
+        - $ref: "#/components/parameters/WorkspaceOwner"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/PlanSort"
+        - $ref: "#/components/parameters/Direction"
+      responses:
+        "200":
+          $ref: "#/components/responses/TabularExport"
+        "400":
+          $ref: "#/components/responses/InvalidFilter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/ExportLimit"
+  /api/v1/admin/audit:
+    get:
+      operationId: listAdminAudit
+      description: Reads the immutable, allowlisted audit projection.
+      parameters:
+        - $ref: "#/components/parameters/AuditAction"
+        - $ref: "#/components/parameters/AuditActor"
+        - $ref: "#/components/parameters/AuditSubject"
+        - $ref: "#/components/parameters/AuditOutcome"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/AuditSort"
+        - $ref: "#/components/parameters/Direction"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Filtered audit page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditList"
+        "400":
+          $ref: "#/components/responses/InvalidFilter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/admin/audit/export:
+    get:
+      operationId: exportAdminAudit
+      description: >
+        Exports the complete filtered immutable projection with formula
+        injection mitigation and a hard 10,000-row limit.
+      parameters:
+        - $ref: "#/components/parameters/ExportFormat"
+        - $ref: "#/components/parameters/AuditAction"
+        - $ref: "#/components/parameters/AuditActor"
+        - $ref: "#/components/parameters/AuditSubject"
+        - $ref: "#/components/parameters/AuditOutcome"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/AuditSort"
+        - $ref: "#/components/parameters/Direction"
+      responses:
+        "200":
+          $ref: "#/components/responses/TabularExport"
+        "400":
+          $ref: "#/components/responses/InvalidFilter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/ExportLimit"
+  /api/v1/admin/audit/{event_id}:
+    parameters:
+      - $ref: "#/components/parameters/EventID"
+    get:
+      operationId: getAdminAuditEvent
+      responses:
+        "200":
+          description: Audit event without hidden payloads or secrets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEvent"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/admin/users:
     get:
       operationId: listAdminUsers
-      description: Lists all matching accounts with server-side filters, ordering, and pagination.
-      security:
-        - productSession: []
+      description: Lists matching safe account projections with server-side pagination.
       parameters:
-        - $ref: '#/components/parameters/Search'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
         - name: status
           in: query
           schema:
@@ -88,214 +200,130 @@ paths:
           in: query
           schema:
             type: boolean
-        - $ref: '#/components/parameters/Plan'
+        - $ref: "#/components/parameters/Plan"
         - name: login_method
           in: query
           schema:
             type: string
             enum: [password, google, apple, facebook, linkedin]
-        - $ref: '#/components/parameters/RegisteredFrom'
-        - $ref: '#/components/parameters/RegisteredTo'
-        - $ref: '#/components/parameters/LastLoginFrom'
-        - $ref: '#/components/parameters/LastLoginTo'
+        - $ref: "#/components/parameters/RegisteredFrom"
+        - $ref: "#/components/parameters/RegisteredTo"
+        - $ref: "#/components/parameters/LastLoginFrom"
+        - $ref: "#/components/parameters/LastLoginTo"
         - name: sort
           in: query
           schema:
             type: string
-            default: registered_at
-            enum:
-              - email
-              - display_name
-              - status
-              - email_verified
-              - registered_at
-              - last_login_at
-              - active_sessions
-        - $ref: '#/components/parameters/Direction'
+            enum: [email, display_name, status, registered_at, last_login_at]
+        - $ref: "#/components/parameters/Direction"
       responses:
-        '200':
-          description: A server-paginated account directory and the total number of filtered rows.
+        "200":
+          description: Filtered user directory page.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserDirectoryPage'
-        '400':
-          $ref: '#/components/responses/InvalidFilters'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '503':
-          $ref: '#/components/responses/Unavailable'
+                $ref: "#/components/schemas/UserDirectoryPage"
+        "400":
+          $ref: "#/components/responses/InvalidFilters"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/users/{account_id}:
     parameters:
-      - $ref: '#/components/parameters/AccountID'
+      - $ref: "#/components/parameters/AccountID"
     get:
       operationId: getAdminUser
-      description: Returns a safe account drill-down using only directory-visible fields.
-      security:
-        - productSession: []
       responses:
-        '200':
-          description: Safe account detail.
+        "200":
+          description: Safe user drill-down.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserDirectoryItem'
-        '404':
-          description: Account not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/UserDirectoryItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/users/export:
     get:
       operationId: exportAdminUsers
-      description: |
-        Exports all rows matching the same user filters and ordering, not only
-        the visible page. Formula-like cell values are escaped. The request is
-        rejected with 413 when more than 10,000 rows match.
-      security:
-        - productSession: []
+      description: Exports the complete safe filtered user directory up to 10,000 rows.
       parameters:
-        - $ref: '#/components/parameters/ExportFormat'
-        - $ref: '#/components/parameters/Search'
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [active, locked]
-        - name: email_verified
-          in: query
-          schema:
-            type: boolean
-        - $ref: '#/components/parameters/Plan'
-        - name: login_method
-          in: query
-          schema:
-            type: string
-            enum: [password, google, apple, facebook, linkedin]
-        - $ref: '#/components/parameters/RegisteredFrom'
-        - $ref: '#/components/parameters/RegisteredTo'
-        - $ref: '#/components/parameters/LastLoginFrom'
-        - $ref: '#/components/parameters/LastLoginTo'
-        - name: sort
-          in: query
-          schema:
-            type: string
-            default: registered_at
-            enum: [email, display_name, status, email_verified, registered_at, last_login_at, active_sessions]
-        - $ref: '#/components/parameters/Direction'
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Plan"
+        - $ref: "#/components/parameters/Direction"
+        - $ref: "#/components/parameters/ExportFormat"
       responses:
-        '200':
-          $ref: '#/components/responses/DirectoryExport'
-        '400':
-          $ref: '#/components/responses/InvalidFilters'
-        '413':
-          $ref: '#/components/responses/ExportTooLarge'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        "200":
+          $ref: "#/components/responses/DirectoryExport"
+        "400":
+          $ref: "#/components/responses/InvalidFilters"
+        "413":
+          $ref: "#/components/responses/ExportTooLarge"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/workspaces:
     get:
       operationId: listAdminWorkspaces
-      description: Lists workspaces with server-side filters, ordering, and pagination.
-      security:
-        - productSession: []
+      description: Lists matching safe workspace projections with server-side pagination.
       parameters:
-        - $ref: '#/components/parameters/Search'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Plan"
         - name: status
           in: query
           schema:
             type: string
             enum: [active, deletion_pending]
-        - $ref: '#/components/parameters/Plan'
         - name: owner
           in: query
-          description: Case-insensitive partial owner email or display name.
           schema:
             type: string
             maxLength: 120
-        - $ref: '#/components/parameters/CreatedFrom'
-        - $ref: '#/components/parameters/CreatedTo'
-        - $ref: '#/components/parameters/UpdatedFrom'
-        - $ref: '#/components/parameters/UpdatedTo'
+        - $ref: "#/components/parameters/CreatedFrom"
+        - $ref: "#/components/parameters/CreatedTo"
+        - $ref: "#/components/parameters/UpdatedFrom"
+        - $ref: "#/components/parameters/UpdatedTo"
         - name: sort
           in: query
           schema:
             type: string
-            default: updated_at
-            enum: [name, owner_email, status, plan_code, member_count, channel_count, post_count, created_at, updated_at]
-        - $ref: '#/components/parameters/Direction'
+            enum: [name, owner, status, plan, created_at, updated_at]
+        - $ref: "#/components/parameters/Direction"
       responses:
-        '200':
-          description: A server-paginated workspace directory and filtered total.
+        "200":
+          description: Filtered workspace directory page.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkspaceDirectoryPage'
-        '400':
-          $ref: '#/components/responses/InvalidFilters'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '503':
-          $ref: '#/components/responses/Unavailable'
+                $ref: "#/components/schemas/WorkspaceDirectoryPage"
+        "400":
+          $ref: "#/components/responses/InvalidFilters"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/workspaces/export:
     get:
       operationId: exportAdminWorkspaces
-      description: |
-        Exports every workspace matching the same filters and ordering. Formula
-        injection is mitigated and datasets over 10,000 rows receive 413.
-      security:
-        - productSession: []
+      description: Exports the complete safe filtered workspace directory up to 10,000 rows.
       parameters:
-        - $ref: '#/components/parameters/ExportFormat'
-        - $ref: '#/components/parameters/Search'
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [active, deletion_pending]
-        - $ref: '#/components/parameters/Plan'
-        - name: owner
-          in: query
-          schema:
-            type: string
-            maxLength: 120
-        - $ref: '#/components/parameters/CreatedFrom'
-        - $ref: '#/components/parameters/CreatedTo'
-        - $ref: '#/components/parameters/UpdatedFrom'
-        - $ref: '#/components/parameters/UpdatedTo'
-        - name: sort
-          in: query
-          schema:
-            type: string
-            default: updated_at
-            enum: [name, owner_email, status, plan_code, member_count, channel_count, post_count, created_at, updated_at]
-        - $ref: '#/components/parameters/Direction'
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Plan"
+        - $ref: "#/components/parameters/Direction"
+        - $ref: "#/components/parameters/ExportFormat"
       responses:
-        '200':
-          $ref: '#/components/responses/DirectoryExport'
-        '400':
-          $ref: '#/components/responses/InvalidFilters'
-        '413':
-          $ref: '#/components/responses/ExportTooLarge'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        "200":
+          $ref: "#/components/responses/DirectoryExport"
+        "400":
+          $ref: "#/components/responses/InvalidFilters"
+        "413":
+          $ref: "#/components/responses/ExportTooLarge"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/workspaces/{workspace_id}/internal-plan:
     parameters:
-      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: "#/components/parameters/WorkspaceID"
     put:
       operationId: assignAdminInternalPlan
       security:
@@ -304,12 +332,14 @@ paths:
           recentReauth: []
           idempotencyKey: []
       requestBody:
-        $ref: '#/components/requestBodies/ConfirmedReason'
+        $ref: "#/components/requestBodies/ConfirmedReason"
       responses:
-        '200':
+        "200":
           description: F11 assignment accepted and immutably audited.
-        '403':
-          description: Server authorization or CSRF check failed.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     delete:
       operationId: revokeAdminInternalPlan
       security:
@@ -318,30 +348,31 @@ paths:
           recentReauth: []
           idempotencyKey: []
       requestBody:
-        $ref: '#/components/requestBodies/ConfirmedReason'
+        $ref: "#/components/requestBodies/ConfirmedReason"
       responses:
-        '200':
+        "200":
           description: F11 revocation accepted and immutably audited.
-        '403':
-          description: Server authorization or CSRF check failed.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/admin/admins/{account_id}:
     parameters:
-      - $ref: '#/components/parameters/AccountID'
+      - $ref: "#/components/parameters/AccountID"
     put:
       operationId: addConfiguredAdministrator
-      description: The target email must also be present in the server allowlist.
       security:
         - productSession: []
           csrfToken: []
           recentReauth: []
           idempotencyKey: []
       requestBody:
-        $ref: '#/components/requestBodies/ConfirmedAdminReason'
+        $ref: "#/components/requestBodies/ConfirmedAdminReason"
       responses:
-        '200':
+        "200":
           description: Administrator activation accepted and immutably audited.
-        '403':
-          description: Target is not server-configured or authorization failed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
     delete:
       operationId: removeConfiguredAdministrator
       security:
@@ -350,12 +381,12 @@ paths:
           recentReauth: []
           idempotencyKey: []
       requestBody:
-        $ref: '#/components/requestBodies/ConfirmedAdminReason'
+        $ref: "#/components/requestBodies/ConfirmedAdminReason"
       responses:
-        '200':
+        "200":
           description: Administrator removal accepted and immutably audited.
-        '403':
-          description: Target is not server-configured or authorization failed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   securitySchemes:
     productSession:
@@ -370,7 +401,7 @@ components:
       type: apiKey
       in: cookie
       name: __Host-postqron_session
-      description: The server validates authenticated_at against the re-authentication window.
+      description: Server validates authenticated_at against the re-authentication window.
     idempotencyKey:
       type: apiKey
       in: header
@@ -381,17 +412,23 @@ components:
       in: path
       required: true
       schema:
-        $ref: '#/components/schemas/SafeID'
+        $ref: "#/components/schemas/SafeID"
     WorkspaceID:
       name: workspace_id
       in: path
       required: true
       schema:
-        $ref: '#/components/schemas/SafeID'
+        $ref: "#/components/schemas/SafeID"
+    EventID:
+      name: event_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/SafeID"
     Search:
       name: q
       in: query
-      description: Optional case-insensitive quick search; blank or at least two characters.
+      description: Optional case-insensitive search; blank or at least two characters.
       schema:
         type: string
         maxLength: 120
@@ -408,7 +445,8 @@ components:
       in: query
       schema:
         type: integer
-        enum: [10, 25, 50, 100]
+        minimum: 1
+        maximum: 100
         default: 25
     Direction:
       name: direction
@@ -423,6 +461,76 @@ components:
       schema:
         type: string
         enum: [start, pro, team, internal]
+    BillingStatus:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [trialing, active, past_due, trial_expired, payment_restricted, canceled]
+    PlanType:
+      name: type
+      in: query
+      schema:
+        type: string
+        enum: [public, internal]
+    WorkspaceOwner:
+      name: q
+      in: query
+      schema:
+        type: string
+        maxLength: 120
+    From:
+      name: from
+      in: query
+      description: Inclusive UTC lower bound.
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      description: Inclusive UTC upper bound.
+      schema:
+        type: string
+        format: date-time
+    PlanSort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [workspace, owner, plan, status, type, created_at, updated_at]
+        default: updated_at
+    AuditAction:
+      name: action
+      in: query
+      schema:
+        type: string
+        maxLength: 128
+    AuditActor:
+      name: actor
+      in: query
+      schema:
+        type: string
+        maxLength: 128
+    AuditSubject:
+      name: subject
+      in: query
+      schema:
+        type: string
+        maxLength: 128
+    AuditOutcome:
+      name: outcome
+      in: query
+      schema:
+        type: string
+        maxLength: 64
+    AuditSort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [occurred_at, code, actor, subject, outcome]
+        default: occurred_at
     ExportFormat:
       name: format
       in: query
@@ -487,7 +595,7 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+      pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
     Error:
       type: object
       additionalProperties: false
@@ -495,14 +603,148 @@ components:
       properties:
         error:
           type: string
-          pattern: '^ADMIN_[A-Z_]+$'
+          pattern: "^ADMIN_[A-Z_]+$"
+    PageInfo:
+      type: object
+      additionalProperties: false
+      required: [page, page_size, total]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+    Usage:
+      type: object
+      additionalProperties: false
+      required: [used, limit, remaining, unlimited]
+      properties:
+        used:
+          type: integer
+          minimum: 0
+        limit:
+          type: [integer, "null"]
+          minimum: 0
+        remaining:
+          type: [integer, "null"]
+          minimum: 0
+        unlimited:
+          type: boolean
+    PlanRow:
+      type: object
+      additionalProperties: false
+      required:
+        - workspace_id
+        - workspace_name
+        - owner_email
+        - plan_code
+        - status
+        - internal
+        - usage
+        - workspace_created_at
+        - plan_updated_at
+        - period_start
+        - period_end
+        - internal_assigned_at
+      properties:
+        workspace_id:
+          $ref: "#/components/schemas/SafeID"
+        workspace_name:
+          type: string
+        owner_email:
+          type: string
+          format: email
+        plan_code:
+          type: string
+          enum: [start, pro, team]
+        status:
+          type: string
+        internal:
+          type: boolean
+        usage:
+          type: object
+          required: [members, channels, scheduled_publications]
+          properties:
+            members:
+              $ref: "#/components/schemas/Usage"
+            channels:
+              $ref: "#/components/schemas/Usage"
+            scheduled_publications:
+              $ref: "#/components/schemas/Usage"
+        workspace_created_at:
+          type: string
+          format: date-time
+        plan_updated_at:
+          type: string
+          format: date-time
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        internal_assigned_at:
+          type: [string, "null"]
+          format: date-time
+    PlanList:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PlanRow"
+        pagination:
+          $ref: "#/components/schemas/PageInfo"
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, code, actor_id, subject_id, outcome, reason, correlation_id, occurred_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/SafeID"
+        code:
+          type: string
+        actor_id:
+          $ref: "#/components/schemas/SafeID"
+        subject_id:
+          $ref: "#/components/schemas/SafeID"
+        outcome:
+          type: string
+        reason:
+          type: string
+          maxLength: 500
+        correlation_id:
+          $ref: "#/components/schemas/SafeID"
+        occurred_at:
+          type: string
+          format: date-time
+    AuditList:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        pagination:
+          $ref: "#/components/schemas/PageInfo"
     UserWorkspaceMembership:
       type: object
       additionalProperties: false
       required: [id, name, role, plan_code, plan_status]
       properties:
         id:
-          $ref: '#/components/schemas/SafeID'
+          $ref: "#/components/schemas/SafeID"
         name:
           type: string
         role:
@@ -516,20 +758,10 @@ components:
     UserDirectoryItem:
       type: object
       additionalProperties: false
-      required:
-        - id
-        - email
-        - display_name
-        - account_status
-        - email_verified
-        - login_methods
-        - registered_at
-        - last_login_at
-        - active_sessions
-        - workspaces
+      required: [id, email, display_name, account_status, email_verified, login_methods, registered_at, last_login_at, active_sessions, workspaces]
       properties:
         id:
-          $ref: '#/components/schemas/SafeID'
+          $ref: "#/components/schemas/SafeID"
         email:
           type: string
           format: email
@@ -545,12 +777,11 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [password, google, apple, facebook, linkedin]
         registered_at:
           type: string
           format: date-time
         last_login_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         active_sessions:
           type: integer
@@ -558,55 +789,28 @@ components:
         workspaces:
           type: array
           items:
-            $ref: '#/components/schemas/UserWorkspaceMembership'
+            $ref: "#/components/schemas/UserWorkspaceMembership"
     UserDirectoryPage:
-      type: object
-      additionalProperties: false
-      required: [items, page, page_size, total, sort, direction]
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: '#/components/schemas/UserDirectoryItem'
-        page:
-          type: integer
-          minimum: 1
-        page_size:
-          type: integer
-          enum: [10, 25, 50, 100]
-        total:
-          type: integer
-          minimum: 0
-        sort:
-          type: string
-        direction:
-          type: string
-          enum: [asc, desc]
+      allOf:
+        - $ref: "#/components/schemas/DirectoryPage"
+        - type: object
+          properties:
+            items:
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/UserDirectoryItem"
     WorkspaceDirectoryItem:
       type: object
       additionalProperties: false
-      required:
-        - id
-        - name
-        - owner_id
-        - owner_email
-        - owner_display_name
-        - status
-        - plan_code
-        - plan_status
-        - member_count
-        - channel_count
-        - post_count
-        - created_at
-        - updated_at
+      required: [id, name, owner_id, owner_email, owner_display_name, status, plan_code, plan_status, member_count, channel_count, post_count, created_at, updated_at]
       properties:
         id:
-          $ref: '#/components/schemas/SafeID'
+          $ref: "#/components/schemas/SafeID"
         name:
           type: string
         owner_id:
-          $ref: '#/components/schemas/SafeID'
+          $ref: "#/components/schemas/SafeID"
         owner_email:
           type: string
           format: email
@@ -614,10 +818,8 @@ components:
           type: string
         status:
           type: string
-          enum: [active, deletion_pending]
         plan_code:
           type: string
-          enum: [start, pro, team, internal, unassigned]
         plan_status:
           type: string
         member_count:
@@ -636,15 +838,22 @@ components:
           type: string
           format: date-time
     WorkspaceDirectoryPage:
+      allOf:
+        - $ref: "#/components/schemas/DirectoryPage"
+        - type: object
+          properties:
+            items:
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/WorkspaceDirectoryItem"
+    DirectoryPage:
       type: object
-      additionalProperties: false
       required: [items, page, page_size, total, sort, direction]
       properties:
         items:
           type: array
-          maxItems: 100
-          items:
-            $ref: '#/components/schemas/WorkspaceDirectoryItem'
+          items: {}
         page:
           type: integer
           minimum: 1
@@ -702,38 +911,68 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     Forbidden:
-      description: Administration is forbidden without reading or disclosing directory data.
+      description: Administration is forbidden without disclosing protected data.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
+    InvalidFilter:
+      description: A Plans/Audit filter, range, ordering, or page is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     InvalidFilters:
-      description: Filter, date range, ordering, page, or page size is invalid.
+      description: A directory filter, date range, ordering, page, or page size is invalid.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
+    InvalidRequest:
+      description: Confirmation, reason, identifier, or idempotency key is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Requested safe projection no longer exists.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unavailable:
-      description: Protected directory storage is temporarily unavailable.
+      description: Protected administration storage is temporarily unavailable.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
+    ExportLimit:
+      description: More than 10,000 rows matched; narrow the filters and retry.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     ExportTooLarge:
       description: More than 10,000 rows matched; narrow the filters and retry.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
-    DirectoryExport:
-      description: Filtered export with a safe attachment filename.
-      headers:
-        Content-Disposition:
+            $ref: "#/components/schemas/Error"
+    TabularExport:
+      description: Filtered CSV or XLSX export with formula injection mitigation.
+      content:
+        text/csv:
           schema:
             type: string
-          description: attachment filename containing only a stable prefix, date, and extension.
+            contentEncoding: binary
+        application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+          schema:
+            type: string
+            contentEncoding: binary
+    DirectoryExport:
+      description: Filtered export with safe fields and attachment filename.
       content:
         text/csv:
           schema:

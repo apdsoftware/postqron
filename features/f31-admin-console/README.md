@@ -104,6 +104,11 @@ The adapter provides:
 - `GET /api/v1/admin/session`
 - `GET /api/v1/admin/dashboard`
 - `GET /api/v1/admin/search?q=…`
+- `GET /api/v1/admin/plans`
+- `GET /api/v1/admin/plans/export?format=csv|xlsx`
+- `GET /api/v1/admin/audit`
+- `GET /api/v1/admin/audit/{event_id}`
+- `GET /api/v1/admin/audit/export?format=csv|xlsx`
 - `GET /api/v1/admin/users`
 - `GET /api/v1/admin/users/{account_id}`
 - `GET /api/v1/admin/users/export?format=csv|xlsx`
@@ -114,6 +119,36 @@ The adapter provides:
 
 The Nuxt runtime expects that private listener behind its configured API
 boundary. No provider credential is sent to the browser.
+
+## Plans and audit data
+
+`/admin/plans` and `/admin/audit` read dedicated server-side projections
+instead of the small dashboard aggregates. Both lists apply filters,
+ordering, and pagination in PostgreSQL; the current values remain in the URL
+query string so a protected view can be bookmarked or shared with another
+authorized administrator.
+
+Plan filters cover the public plan, billing state, public/internal type,
+workspace or owner, and an inclusive UTC update interval. Every row includes
+the workspace and owner, billing state, relevant dates, and current
+member/channel/scheduled-publication usage. Internal rows retain the real
+used values and mark capacity as unlimited. The assign/revoke dialog still
+uses the existing F11 boundary with server allowlist, CSRF, recent
+re-authentication, explicit confirmation, required reason, idempotency, and
+immutable audit checks.
+
+Audit filters cover inclusive UTC occurrence interval, action, actor,
+subject, and outcome. The detail endpoint returns only the same allowlisted
+immutable projection shown in the list: event ID, time, action, actor,
+subject, outcome, reason, and correlation ID. It never returns a request
+payload, token, secret, or provider data.
+
+CSV and XLSX exports always re-run authorization and export the entire
+filtered result rather than the visible page. Both formats have a hard limit
+of 10,000 rows and an allowlisted column set. Spreadsheet-formula prefixes
+are neutralized before serialization; exceeding the limit returns
+`413 ADMIN_EXPORT_LIMIT_EXCEEDED` so the administrator can narrow the
+filters.
 
 ## Dashboard service health
 

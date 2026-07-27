@@ -45,6 +45,46 @@ server:
       handler: Admin
       methods: [OPTIONS]
       visibility: "public"
+    - path: /admin/plans
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/plans
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/plans/export
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/plans/export
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/audit
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/audit
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/audit/export
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/audit/export
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /admin/audit/{event_id}
+      handler: Admin
+      methods: [GET]
+      visibility: private
+    - path: /admin/audit/{event_id}
+      handler: Admin
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /admin/users
       handler: Admin
       methods: [GET]

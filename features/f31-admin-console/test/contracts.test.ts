@@ -3,7 +3,9 @@ import test from 'node:test'
 import {
   assertSafeIdentifier,
   parseAdminSession,
+  parseAuditList,
   parseDashboard,
+  parsePlanList,
   parseSearchResults,
 } from '../core/contracts.ts'
 
@@ -32,6 +34,68 @@ test('strict response contracts reject malformed or excessive administration dat
     }],
   }))
   assert.throws(() => assertSafeIdentifier('../workspace'))
+})
+
+test('plan and audit list contracts keep only safe paginated projections', () => {
+  const plan = parsePlanList({
+    items: [{
+      workspace_id: 'workspace-1',
+      workspace_name: 'Studio',
+      owner_email: 'owner@example.test',
+      plan_code: 'pro',
+      status: 'active',
+      internal: false,
+      usage: {
+        members: { used: 1, limit: 5, remaining: 4, unlimited: false },
+        channels: { used: 2, limit: 10, remaining: 8, unlimited: false },
+        scheduled_publications: {
+          used: 3,
+          limit: 100,
+          remaining: 97,
+          unlimited: false,
+        },
+      },
+      workspace_created_at: '2026-07-25T12:00:00Z',
+      plan_updated_at: '2026-07-25T12:00:00Z',
+      period_start: '2026-07-01T00:00:00Z',
+      period_end: '2026-08-01T00:00:00Z',
+      internal_assigned_at: null,
+      payment_method: 'secret',
+    }],
+    pagination: { page: 1, page_size: 25, total: 1 },
+    raw_payload: 'secret',
+  })
+  assert.equal(plan.items[0]?.workspace_name, 'Studio')
+  assert.equal('payment_method' in (plan.items[0] ?? {}), false)
+  assert.equal('raw_payload' in plan, false)
+
+  const audit = parseAuditList({
+    items: [{
+      id: 'audit-event-1',
+      code: 'internal_plan.assign',
+      actor_id: 'account-admin',
+      subject_id: 'workspace-1',
+      reason: 'Approved operation',
+      outcome: 'succeeded',
+      correlation_id: 'correlation-1',
+      occurred_at: '2026-07-25T12:00:00Z',
+      request_payload: 'secret',
+    }],
+    pagination: { page: 1, page_size: 25, total: 1 },
+  })
+  assert.equal(audit.items[0]?.correlation_id, 'correlation-1')
+  assert.equal('request_payload' in (audit.items[0] ?? {}), false)
+
+  assert.throws(() => parsePlanList({
+    items: [{
+      ...plan.items[0],
+      usage: {
+        ...plan.items[0]?.usage,
+        members: { used: 1, limit: 5, remaining: 4, unlimited: true },
+      },
+    }],
+    pagination: { page: 1, page_size: 101, total: 1 },
+  }))
 })
 
 test('dashboard service status is restricted to the operational vocabulary', () => {

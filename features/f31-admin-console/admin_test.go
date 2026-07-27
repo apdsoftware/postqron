@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,6 +18,17 @@ const (
 type readerStub struct {
 	dashboardCalls  int
 	searchCalls     int
+	planCalls       int
+	auditCalls      int
+	detailCalls     int
+	plans           []PlanRow
+	auditEvents     []AuditEvent
+	planTotal       int
+	auditTotal      int
+	lastPlanQuery   PlanQuery
+	lastAuditQuery  AuditQuery
+	lastPlanPage    PageRequest
+	lastAuditPage   PageRequest
 	userListCalls   []UserDirectoryQuery
 	workspaceCalls  []WorkspaceDirectoryQuery
 	userPage        UserDirectoryPage
@@ -43,6 +56,65 @@ func (reader *readerStub) Dashboard(context.Context) (Dashboard, error) {
 func (reader *readerStub) Search(context.Context, string) (SearchResults, error) {
 	reader.searchCalls++
 	return SearchResults{}, nil
+}
+
+func (reader *readerStub) ListPlans(
+	_ context.Context,
+	query PlanQuery,
+	page PageRequest,
+) (PlanPage, error) {
+	reader.planCalls++
+	reader.lastPlanQuery = query
+	reader.lastPlanPage = page
+	total := reader.planTotal
+	if total == 0 {
+		total = len(reader.plans)
+	}
+	start := (page.Page - 1) * page.PageSize
+	if start >= len(reader.plans) {
+		return PlanPage{Items: []PlanRow{}, Total: total}, nil
+	}
+	end := min(start+page.PageSize, len(reader.plans))
+	return PlanPage{
+		Items: append([]PlanRow(nil), reader.plans[start:end]...),
+		Total: total,
+	}, nil
+}
+
+func (reader *readerStub) ListAudit(
+	_ context.Context,
+	query AuditQuery,
+	page PageRequest,
+) (AuditPage, error) {
+	reader.auditCalls++
+	reader.lastAuditQuery = query
+	reader.lastAuditPage = page
+	total := reader.auditTotal
+	if total == 0 {
+		total = len(reader.auditEvents)
+	}
+	start := (page.Page - 1) * page.PageSize
+	if start >= len(reader.auditEvents) {
+		return AuditPage{Items: []AuditEvent{}, Total: total}, nil
+	}
+	end := min(start+page.PageSize, len(reader.auditEvents))
+	return AuditPage{
+		Items: append([]AuditEvent(nil), reader.auditEvents[start:end]...),
+		Total: total,
+	}, nil
+}
+
+func (reader *readerStub) AuditEvent(
+	_ context.Context,
+	eventID string,
+) (AuditEvent, bool, error) {
+	reader.detailCalls++
+	for _, event := range reader.auditEvents {
+		if event.ID == eventID {
+			return event, true, nil
+		}
+	}
+	return AuditEvent{}, false, nil
 }
 
 func (reader *readerStub) ListUsers(
@@ -112,6 +184,7 @@ func newServiceFixture(t *testing.T, allowlist ...string) serviceFixture {
 		Allowlist:    allowlist,
 		Directory:    directory,
 		Reader:       reader,
+		Browser:      reader,
 		InternalPlan: plan,
 		Audit:        audit,
 		Idempotency:  NewMemoryIdempotencyStore(),
@@ -215,6 +288,145 @@ func TestInitialAdministratorComesFromNormalizedServerConfiguration(t *testing.T
 		return "", false
 	}); err == nil {
 		t.Fatal("missing server allowlist did not fail closed")
+	}
+}
+
+func TestPlanAndAuditListsValidateCombinedFiltersAndServerPagination(t *testing.T) {
+	fixture := newServiceFixture(t, initialAdminEmail)
+	from := testNow.Add(-24 * time.Hour)
+	to := testNow.Add(time.Hour)
+	fixture.reader.plans = []PlanRow{
+		{WorkspaceID: "workspace-1"},
+		{WorkspaceID: "workspace-2"},
+		{WorkspaceID: "workspace-3"},
+	}
+	plans, err := fixture.service.Plans(
+		context.Background(),
+		PlanQuery{
+			Search: " Studio ",
+			Plan:   "pro", Status: "active", Type: "internal",
+			From: &from, To: &to, Sort: "owner", Direction: "asc",
+		},
+		PageRequest{Page: 2, PageSize: 2},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans.Items) != 1 || plans.Items[0].WorkspaceID != "workspace-3" ||
+		plans.Pagination.Total != 3 || plans.Pagination.Page != 2 {
+		t.Fatalf("plans = %+v", plans)
+	}
+	if fixture.reader.lastPlanQuery.Search != "Studio" ||
+		fixture.reader.lastPlanQuery.Type != "internal" ||
+		fixture.reader.lastPlanPage != (PageRequest{Page: 2, PageSize: 2}) {
+		t.Fatalf(
+			"plan query/page = %+v / %+v",
+			fixture.reader.lastPlanQuery,
+			fixture.reader.lastPlanPage,
+		)
+	}
+
+	fixture.reader.auditEvents = []AuditEvent{{
+		ID: "audit-event-1", Code: "internal_plan.assign",
+		ActorID: "account-admin", SubjectID: "workspace-1",
+		Outcome: "succeeded", Reason: "approved operation",
+		CorrelationID: "correlation-1", OccurredAt: testNow,
+	}}
+	audit, err := fixture.service.Audit(
+		context.Background(),
+		AuditQuery{
+			Action: " internal_plan.assign ", Actor: "account",
+			Subject: "workspace", Outcome: "succeeded",
+			From: &from, To: &to, Sort: "code", Direction: "asc",
+		},
+		PageRequest{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit.Items) != 1 ||
+		fixture.reader.lastAuditQuery.Action != "internal_plan.assign" ||
+		fixture.reader.lastAuditPage.PageSize != defaultAdminPageSize {
+		t.Fatalf("audit = %+v, query = %+v", audit, fixture.reader.lastAuditQuery)
+	}
+	detail, err := fixture.service.AuditDetail(context.Background(), "audit-event-1")
+	if err != nil || detail.CorrelationID != "correlation-1" {
+		t.Fatalf("detail = %+v, error = %v", detail, err)
+	}
+
+	invalidQueries := []func() error{
+		func() error {
+			_, err := fixture.service.Plans(
+				context.Background(),
+				PlanQuery{Sort: "secret_column"},
+				PageRequest{},
+			)
+			return err
+		},
+		func() error {
+			_, err := fixture.service.Plans(
+				context.Background(),
+				PlanQuery{From: &to, To: &from},
+				PageRequest{},
+			)
+			return err
+		},
+		func() error {
+			_, err := fixture.service.Audit(
+				context.Background(),
+				AuditQuery{Direction: "sideways"},
+				PageRequest{PageSize: 101},
+			)
+			return err
+		},
+	}
+	for _, operation := range invalidQueries {
+		if err := operation(); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("invalid query error = %v", err)
+		}
+	}
+}
+
+func TestExportsEnforceExplicitWholeResultLimit(t *testing.T) {
+	fixture := newServiceFixture(t, initialAdminEmail)
+	fixture.reader.planTotal = maxAdminExportRows + 1
+	if _, err := fixture.service.ExportPlans(
+		context.Background(),
+		PlanQuery{},
+	); !errors.Is(err, ErrExportLimitExceeded) {
+		t.Fatalf("plan export error = %v", err)
+	}
+	fixture.reader.auditTotal = maxAdminExportRows + 1
+	if _, err := fixture.service.ExportAudit(
+		context.Background(),
+		AuditQuery{},
+	); !errors.Is(err, ErrExportLimitExceeded) {
+		t.Fatalf("audit export error = %v", err)
+	}
+	if fixture.reader.lastPlanPage.PageSize != maxAdminExportRows+1 ||
+		fixture.reader.lastAuditPage.PageSize != maxAdminExportRows+1 {
+		t.Fatalf(
+			"export page limits = %d/%d",
+			fixture.reader.lastPlanPage.PageSize,
+			fixture.reader.lastAuditPage.PageSize,
+		)
+	}
+}
+
+func TestAuditStorageMigrationRemainsAppendOnly(t *testing.T) {
+	migration, err := os.ReadFile("migrations/000001_create_admin_console.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(migration)
+	for _, invariant := range []string{
+		"BEFORE UPDATE OR DELETE ON f31_admin_audit_events",
+		"ENABLE ALWAYS TRIGGER f31_admin_audit_events_append_only",
+		"REVOKE UPDATE, DELETE, TRUNCATE ON f31_admin_audit_events FROM PUBLIC",
+	} {
+		if !strings.Contains(source, invariant) {
+			t.Fatalf("append-only audit invariant missing: %s", invariant)
+		}
 	}
 }
 
@@ -456,6 +668,7 @@ func TestAuditFailureBlocksInternalPlanMutation(t *testing.T) {
 		Allowlist:    []string{initialAdminEmail},
 		Directory:    directory,
 		Reader:       &readerStub{},
+		Browser:      &readerStub{},
 		InternalPlan: plan,
 		Audit:        failingAudit{},
 		Idempotency:  NewMemoryIdempotencyStore(),

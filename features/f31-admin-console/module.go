@@ -40,6 +40,7 @@ func NewPostgresModule(
 		Allowlist:    allowlist,
 		Directory:    store,
 		Reader:       store,
+		Browser:      store,
 		InternalPlan: store,
 		Audit:        store,
 		Idempotency:  store,

@@ -48,6 +48,11 @@ func NewHandler(
 	mux.HandleFunc("GET /api/v1/admin/session", admin.session)
 	mux.HandleFunc("GET /api/v1/admin/dashboard", admin.dashboard)
 	mux.HandleFunc("GET /api/v1/admin/search", admin.search)
+	mux.HandleFunc("GET /api/v1/admin/plans", admin.plans)
+	mux.HandleFunc("GET /api/v1/admin/plans/export", admin.exportPlans)
+	mux.HandleFunc("GET /api/v1/admin/audit", admin.audit)
+	mux.HandleFunc("GET /api/v1/admin/audit/export", admin.exportAudit)
+	mux.HandleFunc("GET /api/v1/admin/audit/{event_id}", admin.auditDetail)
 	mux.HandleFunc("GET /api/v1/admin/users", admin.users)
 	mux.HandleFunc("GET /api/v1/admin/users/export", admin.exportUsers)
 	mux.HandleFunc("GET /api/v1/admin/users/{account_id}", admin.user)
@@ -260,6 +265,24 @@ func (handler *HTTPHandler) search(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, value)
 }
 
+func (handler *HTTPHandler) plans(writer http.ResponseWriter, request *http.Request) {
+	query, page, err := parsePlanQuery(request.URL.Query())
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+		return
+	}
+	value, err := handler.service.Plans(request.Context(), query, page)
+	if err != nil {
+		if errors.Is(err, ErrInvalidRequest) {
+			writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+			return
+		}
+		writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
 func (handler *HTTPHandler) users(writer http.ResponseWriter, request *http.Request) {
 	query, err := parseUserDirectoryQuery(request.URL.Query())
 	if err != nil {
@@ -269,6 +292,43 @@ func (handler *HTTPHandler) users(writer http.ResponseWriter, request *http.Requ
 	value, err := handler.service.ListUsers(request.Context(), query)
 	if err != nil {
 		writeDirectoryError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
+func (handler *HTTPHandler) audit(writer http.ResponseWriter, request *http.Request) {
+	query, page, err := parseAuditQuery(request.URL.Query())
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+		return
+	}
+	value, err := handler.service.Audit(request.Context(), query, page)
+	if err != nil {
+		if errors.Is(err, ErrInvalidRequest) {
+			writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+			return
+		}
+		writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
+		return
+	}
+	writeJSON(writer, http.StatusOK, value)
+}
+
+func (handler *HTTPHandler) auditDetail(writer http.ResponseWriter, request *http.Request) {
+	value, err := handler.service.AuditDetail(
+		request.Context(),
+		request.PathValue("event_id"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidRequest):
+			writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_REQUEST")
+		case errors.Is(err, ErrAuditEventNotFound):
+			writeError(writer, http.StatusNotFound, "ADMIN_AUDIT_NOT_FOUND")
+		default:
+			writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
+		}
 		return
 	}
 	writeJSON(writer, http.StatusOK, value)
@@ -284,6 +344,110 @@ func (handler *HTTPHandler) user(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusOK, value)
+}
+
+func (handler *HTTPHandler) exportPlans(writer http.ResponseWriter, request *http.Request) {
+	values := request.URL.Query()
+	query, _, err := parsePlanQuery(values)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+		return
+	}
+	items, err := handler.service.ExportPlans(request.Context(), query)
+	if err != nil {
+		writeExportError(writer, err)
+		return
+	}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			item.WorkspaceID,
+			item.WorkspaceName,
+			item.OwnerEmail,
+			item.PlanCode,
+			item.Status,
+			strconv.FormatBool(item.Internal),
+			strconv.FormatInt(item.Usage.Members.Used, 10),
+			optionalInt(item.Usage.Members.Limit, item.Usage.Members.Unlimited),
+			optionalInt(item.Usage.Members.Remaining, item.Usage.Members.Unlimited),
+			strconv.FormatInt(item.Usage.Channels.Used, 10),
+			optionalInt(item.Usage.Channels.Limit, item.Usage.Channels.Unlimited),
+			optionalInt(item.Usage.Channels.Remaining, item.Usage.Channels.Unlimited),
+			strconv.FormatInt(item.Usage.ScheduledPublications.Used, 10),
+			optionalInt(
+				item.Usage.ScheduledPublications.Limit,
+				item.Usage.ScheduledPublications.Unlimited,
+			),
+			optionalInt(
+				item.Usage.ScheduledPublications.Remaining,
+				item.Usage.ScheduledPublications.Unlimited,
+			),
+			item.WorkspaceCreatedAt.UTC().Format(time.RFC3339),
+			item.PlanUpdatedAt.UTC().Format(time.RFC3339),
+			item.PeriodStart.UTC().Format(time.RFC3339),
+			item.PeriodEnd.UTC().Format(time.RFC3339),
+			optionalTime(item.InternalAssignedAt),
+		})
+	}
+	writeTabularExport(writer, values.Get("format"), tabularExport{
+		filename: "postqron-admin-plans",
+		headers: []string{
+			"workspace_id", "workspace_name", "owner_email", "plan_code",
+			"status", "internal", "members_used", "members_limit",
+			"members_remaining", "channels_used", "channels_limit",
+			"channels_remaining", "scheduled_publications_used",
+			"scheduled_publications_limit", "scheduled_publications_remaining",
+			"workspace_created_at", "plan_updated_at", "period_start",
+			"period_end", "internal_assigned_at",
+		},
+		rows: rows,
+	})
+}
+
+func (handler *HTTPHandler) exportAudit(writer http.ResponseWriter, request *http.Request) {
+	values := request.URL.Query()
+	query, _, err := parseAuditQuery(values)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+		return
+	}
+	items, err := handler.service.ExportAudit(request.Context(), query)
+	if err != nil {
+		writeExportError(writer, err)
+		return
+	}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			item.OccurredAt.UTC().Format(time.RFC3339),
+			item.Code,
+			item.ActorID,
+			item.SubjectID,
+			item.Outcome,
+			item.Reason,
+			item.CorrelationID,
+			item.ID,
+		})
+	}
+	writeTabularExport(writer, values.Get("format"), tabularExport{
+		filename: "postqron-admin-audit",
+		headers: []string{
+			"occurred_at", "code", "actor_id", "subject_id", "outcome",
+			"reason", "correlation_id", "event_id",
+		},
+		rows: rows,
+	})
+}
+
+func writeExportError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrInvalidRequest):
+		writeError(writer, http.StatusBadRequest, "ADMIN_INVALID_FILTER")
+	case errors.Is(err, ErrExportLimitExceeded):
+		writeError(writer, http.StatusRequestEntityTooLarge, "ADMIN_EXPORT_LIMIT_EXCEEDED")
+	default:
+		writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
+	}
 }
 
 func (handler *HTTPHandler) workspaces(writer http.ResponseWriter, request *http.Request) {
@@ -484,6 +648,118 @@ func writeDirectoryError(writer http.ResponseWriter, err error) {
 	default:
 		writeError(writer, http.StatusServiceUnavailable, "ADMIN_UNAVAILABLE")
 	}
+}
+
+func optionalInt(value *int64, unlimited bool) string {
+	if unlimited {
+		return "unlimited"
+	}
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatInt(*value, 10)
+}
+
+func optionalTime(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func parsePlanQuery(values url.Values) (PlanQuery, PageRequest, error) {
+	if err := rejectUnknownQuery(values, map[string]struct{}{
+		"q": {}, "plan": {}, "status": {}, "type": {}, "from": {}, "to": {},
+		"sort": {}, "direction": {}, "page": {}, "page_size": {}, "format": {},
+	}); err != nil {
+		return PlanQuery{}, PageRequest{}, err
+	}
+	from, err := parseOptionalInstant(values.Get("from"))
+	if err != nil {
+		return PlanQuery{}, PageRequest{}, err
+	}
+	to, err := parseOptionalInstant(values.Get("to"))
+	if err != nil {
+		return PlanQuery{}, PageRequest{}, err
+	}
+	page, err := parseOptionalPositiveInt(values.Get("page"))
+	if err != nil {
+		return PlanQuery{}, PageRequest{}, err
+	}
+	pageSize, err := parseOptionalPositiveInt(values.Get("page_size"))
+	if err != nil {
+		return PlanQuery{}, PageRequest{}, err
+	}
+	return PlanQuery{
+		Search: values.Get("q"), Plan: values.Get("plan"),
+		Status: values.Get("status"), Type: values.Get("type"),
+		From: from, To: to, Sort: values.Get("sort"),
+		Direction: values.Get("direction"),
+	}, PageRequest{Page: page, PageSize: pageSize}, nil
+}
+
+func parseAuditQuery(values url.Values) (AuditQuery, PageRequest, error) {
+	if err := rejectUnknownQuery(values, map[string]struct{}{
+		"action": {}, "actor": {}, "subject": {}, "outcome": {},
+		"from": {}, "to": {}, "sort": {}, "direction": {},
+		"page": {}, "page_size": {}, "format": {},
+	}); err != nil {
+		return AuditQuery{}, PageRequest{}, err
+	}
+	from, err := parseOptionalInstant(values.Get("from"))
+	if err != nil {
+		return AuditQuery{}, PageRequest{}, err
+	}
+	to, err := parseOptionalInstant(values.Get("to"))
+	if err != nil {
+		return AuditQuery{}, PageRequest{}, err
+	}
+	page, err := parseOptionalPositiveInt(values.Get("page"))
+	if err != nil {
+		return AuditQuery{}, PageRequest{}, err
+	}
+	pageSize, err := parseOptionalPositiveInt(values.Get("page_size"))
+	if err != nil {
+		return AuditQuery{}, PageRequest{}, err
+	}
+	return AuditQuery{
+		Action: values.Get("action"), Actor: values.Get("actor"),
+		Subject: values.Get("subject"), Outcome: values.Get("outcome"),
+		From: from, To: to, Sort: values.Get("sort"),
+		Direction: values.Get("direction"),
+	}, PageRequest{Page: page, PageSize: pageSize}, nil
+}
+
+func rejectUnknownQuery(values url.Values, allowed map[string]struct{}) error {
+	for key, entries := range values {
+		if _, valid := allowed[key]; !valid || len(entries) != 1 {
+			return ErrInvalidRequest
+		}
+	}
+	return nil
+}
+
+func parseOptionalInstant(value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	result, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, ErrInvalidRequest
+	}
+	result = result.UTC()
+	return &result, nil
+}
+
+func parseOptionalPositiveInt(value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	result, err := strconv.Atoi(value)
+	if err != nil || result < 1 {
+		return 0, ErrInvalidRequest
+	}
+	return result, nil
 }
 
 func writeExport(writer http.ResponseWriter, value DirectoryExport) {

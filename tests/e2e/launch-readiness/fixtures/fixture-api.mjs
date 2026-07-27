@@ -580,6 +580,73 @@ const server = createServer(async (request, response) => {
     })
     return
   }
+  if (request.method === 'GET' && url.pathname === '/api/v1/admin/plans') {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, 'ADMIN_FORBIDDEN')
+      return
+    }
+    const all = Array.from({ length: 30 }, (_, index) => {
+      const fixture = index === 0
+      const plan = fixture
+        ? state.entitlement
+        : ['start', 'pro', 'team'][index % 3]
+      const internal = fixture && state.internal
+      return {
+        workspace_id: fixture ? 'workspace-fixture' : `workspace-${index + 1}`,
+        workspace_name: fixture ? 'Fixture Workspace' : `Studio ${index + 1}`,
+        owner_email: fixture ? 'owner@example.test' : `owner-${index + 1}@example.test`,
+        plan_code: plan,
+        status: 'active',
+        internal,
+        usage: {
+          members: {
+            used: 1,
+            limit: internal ? null : 5,
+            remaining: internal ? null : 4,
+            unlimited: internal,
+          },
+          channels: {
+            used: 2,
+            limit: internal ? null : 10,
+            remaining: internal ? null : 8,
+            unlimited: internal,
+          },
+          scheduled_publications: {
+            used: index,
+            limit: internal ? null : 100,
+            remaining: internal ? null : 100 - index,
+            unlimited: internal,
+          },
+        },
+        workspace_created_at: now,
+        plan_updated_at: now,
+        period_start: now,
+        period_end: '2026-08-25T12:00:00.000Z',
+        internal_assigned_at: internal ? now : null,
+      }
+    })
+    const search = url.searchParams.get('q')?.toLowerCase()
+    const filtered = all.filter(item =>
+      (!search
+        || item.workspace_name.toLowerCase().includes(search)
+        || item.workspace_id.toLowerCase().includes(search)
+        || item.owner_email.toLowerCase().includes(search))
+      && (!url.searchParams.get('plan')
+        || item.plan_code === url.searchParams.get('plan'))
+      && (!url.searchParams.get('status')
+        || item.status === url.searchParams.get('status'))
+      && (!url.searchParams.get('type')
+        || (url.searchParams.get('type') === 'internal'
+          ? item.internal
+          : !item.internal)))
+    const page = Number(url.searchParams.get('page') || 1)
+    const pageSize = Number(url.searchParams.get('page_size') || 25)
+    json(response, 200, {
+      items: filtered.slice((page - 1) * pageSize, page * pageSize),
+      pagination: { page, page_size: pageSize, total: filtered.length },
+    })
+    return
+  }
   if (request.method === 'GET' && url.pathname === '/api/v1/admin/users') {
     if (role !== 'admin') {
       error(response, role ? 403 : 401, role ? 'ADMIN_FORBIDDEN' : 'ADMIN_UNAUTHENTICATED')
@@ -590,6 +657,52 @@ const server = createServer(async (request, response) => {
       url,
       'registered_at',
     ))
+    return
+  }
+  if (
+    request.method === 'GET'
+    && url.pathname === '/api/v1/admin/plans/export'
+  ) {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, 'ADMIN_FORBIDDEN')
+      return
+    }
+    const format = url.searchParams.get('format')
+    if (format !== 'csv' && format !== 'xlsx') {
+      error(response, 400, 'ADMIN_INVALID_EXPORT_FORMAT')
+      return
+    }
+    response.writeHead(200, {
+      'content-type': format === 'csv'
+        ? 'text/csv; charset=utf-8'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'content-disposition': `attachment; filename="postqron-admin-plans.${format}"`,
+    })
+    response.end(format === 'csv'
+      ? 'workspace_id,workspace_name\nworkspace-fixture,Fixture Workspace\n'
+      : 'PKfixture')
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/admin/audit') {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, 'ADMIN_FORBIDDEN')
+      return
+    }
+    const filtered = [...state.audit].reverse().filter(item =>
+      (!url.searchParams.get('action')
+        || item.code === url.searchParams.get('action'))
+      && (!url.searchParams.get('actor')
+        || item.actor_id.includes(url.searchParams.get('actor')))
+      && (!url.searchParams.get('subject')
+        || item.subject_id.includes(url.searchParams.get('subject')))
+      && (!url.searchParams.get('outcome')
+        || item.outcome === url.searchParams.get('outcome')))
+    const page = Number(url.searchParams.get('page') || 1)
+    const pageSize = Number(url.searchParams.get('page_size') || 25)
+    json(response, 200, {
+      items: filtered.slice((page - 1) * pageSize, page * pageSize),
+      pagination: { page, page_size: pageSize, total: filtered.length },
+    })
     return
   }
   if (
@@ -614,6 +727,47 @@ const server = createServer(async (request, response) => {
       'x-content-type-options': 'nosniff',
     })
     response.end(payload)
+    return
+  }
+  if (
+    request.method === 'GET'
+    && url.pathname === '/api/v1/admin/audit/export'
+  ) {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, 'ADMIN_FORBIDDEN')
+      return
+    }
+    const format = url.searchParams.get('format')
+    if (format !== 'csv' && format !== 'xlsx') {
+      error(response, 400, 'ADMIN_INVALID_EXPORT_FORMAT')
+      return
+    }
+    response.writeHead(200, {
+      'content-type': format === 'csv'
+        ? 'text/csv; charset=utf-8'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'content-disposition': `attachment; filename="postqron-admin-audit.${format}"`,
+    })
+    response.end(format === 'csv'
+      ? 'code,actor_id,subject_id\n'
+      : 'PKfixture')
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/admin\/audit\/[^/]+$/u.test(url.pathname)
+  ) {
+    if (role !== 'admin') {
+      error(response, role ? 403 : 401, 'ADMIN_FORBIDDEN')
+      return
+    }
+    const eventID = decodeURIComponent(url.pathname.split('/').at(-1))
+    const event = state.audit.find(item => item.id === eventID)
+    if (!event) {
+      error(response, 404, 'ADMIN_AUDIT_NOT_FOUND')
+      return
+    }
+    json(response, 200, event)
     return
   }
   if (
@@ -691,7 +845,7 @@ const server = createServer(async (request, response) => {
     }
     state.internal = request.method === 'PUT'
     const event = {
-      id: `audit-${state.audit.length + 1}`,
+      id: `audit-event-${state.audit.length + 1}`,
       code: state.internal ? 'internal_plan.assign' : 'internal_plan.revoke',
       actor_id: 'account-admin',
       subject_id: 'workspace-fixture',
