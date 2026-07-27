@@ -8,6 +8,14 @@ const localeExpectations = {
   de: 'Deine Social-Media-Inhalte, endlich geordnet.',
 } as const
 
+const localizedChannelValues = {
+  en: ['1 social channel', '10+ social channels'],
+  it: ['1 canale social', '10+ canali social'],
+  es: ['1 canal social', '10+ canales sociales'],
+  fr: ['1 canal social', '10+ canaux sociaux'],
+  de: ['1 Social-Media-Kanal', '10+ Social-Media-Kanäle'],
+} as const
+
 for (const [locale, heading] of Object.entries(localeExpectations)) {
   test(`renders the ${locale} pre-launch experience`, async ({ page }) => {
     await page.goto(`/${locale}/prelaunch`)
@@ -22,6 +30,17 @@ for (const [locale, heading] of Object.entries(localeExpectations)) {
     await expect(page.locator('a[href="mailto:help@postqron.com"]')).toBeVisible()
     await expect(page.locator('.prelaunch-plan')).toHaveCount(4)
     await expect(page.locator('.prelaunch-plan').first()).toContainText('Start')
+    const quantity = page.getByRole('slider')
+    await expect(quantity).toHaveValue('1')
+    await expect(quantity).toHaveAttribute(
+      'aria-valuetext',
+      localizedChannelValues[locale as keyof typeof localizedChannelValues][0],
+    )
+    await quantity.fill('10')
+    await expect(quantity).toHaveAttribute(
+      'aria-valuetext',
+      localizedChannelValues[locale as keyof typeof localizedChannelValues][1],
+    )
   })
 }
 
@@ -60,13 +79,13 @@ test('pricing controls preserve only compatible pre-launch selections', async ({
     { exact: false },
   )).toBeVisible()
 
-  await quantity.selectOption('4')
+  await quantity.fill('4')
   await expect(start.getByRole('radio')).toBeDisabled()
   await expect(start.getByRole('link')).toHaveCount(0)
   await expect(pro.getByRole('radio')).toBeChecked()
 
   await team.getByRole('radio').check()
-  await quantity.selectOption('5')
+  await quantity.fill('5')
   await expect(team.getByRole('radio')).toBeChecked()
   await annual.click()
   await expect(annual).toHaveAttribute('aria-pressed', 'true')
@@ -74,7 +93,7 @@ test('pricing controls preserve only compatible pre-launch selections', async ({
   await expect(team.getByRole('radio')).toBeChecked()
   await expect(team).toContainText('You pay 10 months, you use the service for 12')
 
-  await quantity.selectOption('over_max')
+  await quantity.fill('10')
   await expect(start.getByRole('radio')).toBeDisabled()
   await expect(pro.getByRole('radio')).toBeDisabled()
   await expect(team.getByRole('radio')).toBeDisabled()
@@ -85,6 +104,24 @@ test('pricing controls preserve only compatible pre-launch selections', async ({
   await expect(unlimited.getByRole('link')).toHaveAttribute(
     'href',
     '/en/prelaunch/access',
+  )
+  await expect(unlimited.getByRole('link')).not.toHaveAttribute('href', /\?/u)
+})
+
+test('channel slider supports discrete keyboard changes and visible thresholds', async ({
+  page,
+}) => {
+  await page.goto('/en/prelaunch')
+  const quantity = page.getByRole('slider', { name: 'Social channels' })
+  await quantity.focus()
+  await quantity.press('ArrowRight')
+  await expect(quantity).toHaveValue('2')
+  await quantity.press('End')
+  await expect(quantity).toHaveValue('10')
+  await expect(quantity).toHaveAttribute('aria-valuetext', '10+ social channels')
+  await expect(page.locator('.prelaunch-pricing__markers')).toContainText('10+')
+  await expect(page.locator('.prelaunch-pricing__guide')).toHaveText(
+    '1–3 Start · 4–6 Pro · 7–9 Team · 10+ Unlimited',
   )
 })
 
