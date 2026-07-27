@@ -323,7 +323,9 @@ test('admin changes password with safe errors, rotates this session, and revokes
     name: /administrator sign-in/iu,
   })).toBeVisible()
 
-  await page.getByRole('button', { name: /^sign out$/iu }).click()
+  const accountMenu = page.locator('.admin-profile-menu')
+  await accountMenu.locator('summary').click()
+  await accountMenu.getByRole('button', { name: /^sign out$/iu }).click()
   await page.getByLabel(/email address/iu).fill('admin@example.test')
   await page.getByLabel(/^password$/iu).fill('fixture-admin-password')
   await page.getByRole('button', { name: /^sign in$/iu }).click()
