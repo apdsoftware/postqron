@@ -3,7 +3,6 @@ import {
   computed,
   definePageMeta,
   onBeforeUnmount,
-  onMounted,
   ref,
   useAsyncData,
   useHead,
@@ -159,11 +158,9 @@ async function openCheckout() {
   }
 }
 
-onMounted(() => {
-  if (intent?.plan !== 'start' && plan.value && compatible.value) {
-    void openCheckout()
-  }
-})
+// Paddle is never opened automatically: the annual/monthly summary above
+// must stay on screen and readable until the user explicitly confirms with
+// the CTA below, before any Paddle preview or charge can happen.
 onBeforeUnmount(() => {
   stopped.value = true
 })

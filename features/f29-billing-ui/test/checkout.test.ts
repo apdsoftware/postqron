@@ -14,6 +14,7 @@ import {
   type BillingOverview,
 } from '../src/billing.ts'
 import { checkoutActionForPaddleEvent } from '../src/paddle.ts'
+import { BILLING_UI_CATALOGS } from '../src/catalogs.ts'
 import type { PublicPlan } from '../../f02-marketing-site/src/catalog.ts'
 
 const money = (amount_cents: number) => ({ amount_cents, currency: 'EUR' as const })
@@ -160,6 +161,26 @@ test('annual checkout summary is withheld for monthly billing, non-purchasable p
     annualCheckoutSummary(startPlan, { plan: 'start', interval: 'annual', quantity: 2 }),
     undefined,
   )
+})
+
+test('the annual upfront copy is qualified as a base price plus taxes, never a final-charge promise, in every locale', () => {
+  // Paddle computes the final total; the checkout summary must never state
+  // the catalog amount as the definitive charge before that preview.
+  const taxWord: Record<keyof typeof BILLING_UI_CATALOGS, RegExp> = {
+    en: /tax/iu,
+    it: /impost/iu,
+    es: /impuest/iu,
+    fr: /taxe/iu,
+    de: /steuer/iu,
+  }
+  for (const [locale, catalog] of Object.entries(BILLING_UI_CATALOGS)) {
+    const upfront = catalog['checkout.annualUpfront']
+    assert.match(
+      String(upfront),
+      taxWord[locale as keyof typeof BILLING_UI_CATALOGS]!,
+      `${locale} annualUpfront copy must mention taxes`,
+    )
+  }
 })
 
 test('Unlimited annual checkout summary needs no channel quantity', () => {
