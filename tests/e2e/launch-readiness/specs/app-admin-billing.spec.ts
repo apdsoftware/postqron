@@ -150,6 +150,84 @@ test('admin sidebar deep-links every section, marks the active route, and collap
   await context.close()
 })
 
+test('admin user and workspace directories keep server filters in the URL and export safely', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE', 'LR-WCAG')
+
+  const context = await browser.newContext({ acceptDownloads: true })
+  await session(context, 'admin')
+  const page = await context.newPage()
+
+  const userResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/v1/admin/users'
+      && url.searchParams.get('status') === 'locked'
+      && url.searchParams.get('page_size') === '10'
+  })
+  await page.goto(
+    `${offBaseURL}/admin/users?status=locked&email_verified=false`
+    + '&plan=team&login_method=linkedin&page=1&page_size=10'
+    + '&sort=email&direction=asc',
+  )
+  expect((await userResponse).status()).toBe(200)
+  await expect(page).toHaveURL(/status=locked/u)
+  await expect(page).toHaveURL(/email_verified=false/u)
+  const userTable = page.locator('.admin-table tbody')
+  await expect(userTable.getByText('locked@example.test')).toBeVisible()
+  await expect(userTable.getByText('admin@example.test')).toHaveCount(0)
+  await expect(page.getByText(/1 matching result/iu)).toBeVisible()
+
+  await page.getByRole('button', { name: /view details/iu }).click()
+  const detail = page.getByRole('dialog')
+  await expect(detail).toContainText('Locked Fixture')
+  await expect(detail).toContainText('google, linkedin')
+  await page.getByRole('button', { name: /^close$/iu }).click()
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: /export csv/iu }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('postqron-admin-users.csv')
+
+  await page.getByLabel(/quick search/iu).fill('no-result-user')
+  await page.getByRole('button', { name: /apply filters/iu }).click()
+  await expect(page).toHaveURL(/q=no-result-user/u)
+  await expect(page.getByText(/no matching administration data/iu)).toBeVisible()
+
+  await page.goto(
+    `${offBaseURL}/admin/workspaces?status=active&plan=pro`
+    + '&owner=admin%40example.test&page=1&page_size=25'
+    + '&sort=channel_count&direction=desc',
+  )
+  await expect(page.getByText('Fixture Workspace')).toBeVisible()
+  await expect(page.getByText('Locked Studio')).not.toBeVisible()
+  await expect(page.getByRole('link', {
+    name: 'Fixture Admin',
+    exact: true,
+  })).toHaveAttribute(
+    'href',
+    /\/admin\/users\?q=admin%40example\.test$/u,
+  )
+  await expect(page.getByRole('link', {
+    name: 'pro',
+    exact: true,
+  })).toHaveAttribute(
+    'href',
+    /\/admin\/plans$/u,
+  )
+
+  for (const path of ['/admin/users', '/admin/workspaces']) {
+    await page.goto(`${offBaseURL}${path}`)
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+      .analyze()
+    const blocking = results.violations.filter(violation =>
+      violation.impact === 'serious' || violation.impact === 'critical')
+    expect(blocking, path).toEqual([])
+  }
+  await context.close()
+})
+
 test('Paddle sandbox checkout stays pending until signed webhook, then opens portal', async ({
   browser,
 }, testInfo) => {

@@ -10,8 +10,8 @@ The console renders through a single layout (`layouts/admin-console.vue`)
 shared by every route:
 
 - `/admin` — Dashboard: service health and top-level KPIs.
-- `/admin/users` — search registered users.
-- `/admin/workspaces` — search workspaces.
+- `/admin/users` — complete, server-paginated registered-user directory.
+- `/admin/workspaces` — complete, server-paginated workspace directory.
 - `/admin/plans` — review entitlements and assign or revoke the internal plan.
 - `/admin/audit` — immutable audit activity.
 - `/admin/profile` — the authenticated administrator's own identity.
@@ -88,11 +88,64 @@ The adapter provides:
 - `GET /api/v1/admin/session`
 - `GET /api/v1/admin/dashboard`
 - `GET /api/v1/admin/search?q=…`
+- `GET /api/v1/admin/users`
+- `GET /api/v1/admin/users/{account_id}`
+- `GET /api/v1/admin/users/export?format=csv|xlsx`
+- `GET /api/v1/admin/workspaces`
+- `GET /api/v1/admin/workspaces/export?format=csv|xlsx`
 - `PUT|DELETE /api/v1/admin/workspaces/{id}/internal-plan`
 - `PUT|DELETE /api/v1/admin/admins/{id}`
 
 The Nuxt runtime expects that private listener behind its configured API
 boundary. No provider credential is sent to the browser.
+
+## User and workspace directories
+
+The two directory pages load the first page immediately; a text search is
+optional and never gates access to the complete list. Filter state, page size,
+page, sort column, and direction are encoded in the URL query string so a view
+can be bookmarked or shared with another authorized administrator. Each
+navigation action requests only the selected page from the server.
+
+User filters cover account status (`active` or currently password-`locked`),
+email verification, public/internal plan, password or OAuth login method,
+registration interval, and last-login interval. The safe user projection
+contains email, display name, verification, method names, timestamps, active
+session count, and active workspace membership with role and plan. It never
+contains password hashes, session tokens, OAuth tokens, provider subjects, or
+payment identifiers. `GET /users/{account_id}` applies the same authorization
+boundary to a dedicated safe drill-down.
+
+Workspace filters cover status, public/internal plan, owner name/email, created
+interval, and updated interval. The projection contains owner identity,
+billing state, active member count, non-revoked social-connection count,
+scheduled-post count, and creation/update timestamps. Counts are computed by
+PostgreSQL and are never obtained by loading another feature's complete
+dataset into the browser.
+
+All date filters use UTC calendar dates. `*_from` is inclusive and `*_to` is
+inclusive through the end of that UTC date. Supported page sizes are
+`10`, `25`, `50`, and `100`; defaults are page `1`, size `25`,
+`registered_at desc` for users, and `updated_at desc` for workspaces. Invalid
+filters, ranges, sort keys, or page values return
+`400 ADMIN_INVALID_FILTERS`.
+
+## Directory export
+
+CSV and XLSX exports run server-side after the same administrator check and
+reapply the exact directory filters and ordering. They include every filtered
+row, not just the visible page. Exported fields are the same safe fields shown
+by the directory. CSV is UTF-8 with a BOM; XLSX is an OOXML workbook with
+inline string cells. Values beginning with `=`, `+`, `-`, `@`, tab, or carriage
+return are prefixed with an apostrophe in both formats to mitigate spreadsheet
+formula injection.
+
+Exports are synchronous and limited to **10,000 rows**. Larger result sets
+return `413 ADMIN_EXPORT_LIMIT_EXCEEDED`; the administrator must narrow the
+filters and retry. Attachment names are generated only from the fixed
+`postqron-admin-{users|workspaces}` prefix, the server UTC date, and the
+selected extension. Responses use `no-store`, `nosniff`, and the appropriate
+CSV or XLSX content type.
 
 ## Tests
 
