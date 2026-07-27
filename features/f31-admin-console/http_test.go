@@ -201,7 +201,8 @@ func TestManifestRoutesOnlySessionAndPreflightsThroughPublicChannel(t *testing.T
 			t.Fatalf("admin data route left the private channel: %s", route.path)
 		}
 	}
-	if strings.Count(source, "\n      visibility: private") != 5 {
+	// Four server data routes and all six admin web routes must remain private.
+	if strings.Count(source, "\n      visibility: private") != 10 {
 		t.Fatalf("admin data and web routes no longer remain private:\n%s", source)
 	}
 	for _, methods := range []string{

@@ -1,7 +1,32 @@
 # F31 — Protected admin console
 
-This slice owns `/admin`, its five-locale catalog, the private admin HTTP
-adapter, and the security policy applied to every admin operation.
+This slice owns `/admin` and its dedicated sections, its five-locale catalog,
+the private admin HTTP adapter, and the security policy applied to every
+admin operation.
+
+## Responsive shell and navigation
+
+The console renders through a single layout (`layouts/admin-console.vue`)
+shared by every route:
+
+- `/admin` — Dashboard: service health and top-level KPIs.
+- `/admin/users` — search registered users.
+- `/admin/workspaces` — search workspaces.
+- `/admin/plans` — review entitlements and assign or revoke the internal plan.
+- `/admin/audit` — immutable audit activity.
+- `/admin/profile` — the authenticated administrator's own identity.
+
+The layout shows a persistent sidebar with the six sections above on desktop
+and a focus-managed, `Escape`-dismissible drawer below `~980px`. The top bar
+carries the current section title, the administrator identity, a link to the
+profile route, the compact `<select>`-based `PostqronLanguageSwitcher`, and a
+reserved sign-out control. When no admin session is present, the layout
+renders an inline email/password login gate instead of the sidebar and
+delegates to the same `admin-access` middleware and session state used by
+every route, so no page can bypass the gate. Reusable building blocks
+(`components/AdminPageHeader.vue`, `AdminAlert.vue`, `AdminKpiCards.vue`,
+`AdminTable.vue`, `AdminPagination.vue`, `AdminSearchFilter.vue`) keep every
+page's heading, empty/error state, table, and pagination consistent.
 
 ## Security boundary
 

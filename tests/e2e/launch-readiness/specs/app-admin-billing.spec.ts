@@ -66,10 +66,18 @@ test('normal admin access is 403 while allowlisted mutation is audited', async (
   expect(allowed?.status()).toBe(200)
   expect((await allowedSession).status()).toBe(200)
   await expect(adminPage.getByRole('heading', { level: 1 })).toBeVisible()
+
+  await adminPage.getByRole('link', { name: /^plans$/iu }).click()
+  await expect(adminPage).toHaveURL(/\/admin\/plans$/u)
   await adminPage.getByRole('button', { name: /assign/iu }).click()
   await adminPage.getByLabel(/reason/iu).fill('Approved launch fixture action')
   await adminPage.getByRole('checkbox').check()
   await adminPage.getByRole('button', { name: /confirm operation/iu }).click()
+  await expect(adminPage.getByText(/accepted and audited/iu)).toBeVisible()
+  await adminPage.getByRole('button', { name: /^cancel$/iu }).click()
+
+  await adminPage.getByRole('link', { name: /^audit$/iu }).click()
+  await expect(adminPage).toHaveURL(/\/admin\/audit$/u)
   await expect(adminPage.getByText('internal_plan.assign')).toBeVisible()
   await expect(adminPage.getByText('Approved launch fixture action')).toBeVisible()
   await admin.close()
@@ -96,6 +104,50 @@ test('admin signs in with email and password without an OAuth provider', async (
   await page.getByRole('button', { name: /^sign in$/iu }).click()
   await expect(page.getByRole('heading', { level: 2, name: /service health/iu }))
     .toBeVisible()
+})
+
+test('admin sidebar deep-links every section, marks the active route, and collapses on mobile', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN')
+
+  const context = await browser.newContext()
+  await session(context, 'admin')
+  const page = await context.newPage()
+
+  const sections: Array<[string, RegExp]> = [
+    ['Users', /\/admin\/users$/u],
+    ['Workspaces', /\/admin\/workspaces$/u],
+    ['Plans', /\/admin\/plans$/u],
+    ['Audit', /\/admin\/audit$/u],
+    ['Profile', /\/admin\/profile$/u],
+    ['Dashboard', /\/admin$/u],
+  ]
+
+  const initial = await page.goto(`${offBaseURL}/admin`)
+  expect(initial?.status()).toBe(200)
+
+  for (const [name, url] of sections) {
+    await page.getByRole('link', { name: new RegExp(`^${name}$`, 'iu') }).click()
+    await expect(page).toHaveURL(url)
+    await expect(page.getByRole('link', { name: new RegExp(`^${name}$`, 'iu') }))
+      .toHaveAttribute('aria-current', 'page')
+  }
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto(`${offBaseURL}/admin`)
+  const sidebar = page.locator('.admin-sidebar')
+  const drawerToggle = page.getByRole('button', {
+    name: /^open navigation menu$/iu,
+  })
+  await expect(drawerToggle).toBeVisible()
+  await expect(sidebar).not.toHaveAttribute('data-open', 'true')
+  await drawerToggle.click()
+  await expect(drawerToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(sidebar).toHaveAttribute('data-open', 'true')
+  await page.keyboard.press('Escape')
+  await expect(sidebar).not.toHaveAttribute('data-open', 'true')
+  await context.close()
 })
 
 test('Paddle sandbox checkout stays pending until signed webhook, then opens portal', async ({

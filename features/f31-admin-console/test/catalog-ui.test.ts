@@ -8,6 +8,15 @@ import {
 import { SUPPORTED_LOCALES } from '../../f36-i18n/src/locales.ts'
 import { ADMIN_CATALOGS } from '../core/catalogs.ts'
 
+const PAGE_FILES = [
+  '../pages/admin.vue',
+  '../pages/admin-users.vue',
+  '../pages/admin-workspaces.vue',
+  '../pages/admin-plans.vue',
+  '../pages/admin-audit.vue',
+  '../pages/admin-profile.vue',
+]
+
 test('all five admin catalogs are complete and retain technical identifiers', () => {
   validateCatalogs(ADMIN_CATALOGS)
   assert.deepEqual(Object.keys(ADMIN_CATALOGS).sort(), [
@@ -38,6 +47,15 @@ test('all five admin catalogs are complete and retain technical identifiers', ()
     ),
     'Melden Sie sich vor diesem sensiblen Vorgang erneut an.',
   )
+  assert.equal(
+    translateCatalog(
+      ADMIN_CATALOGS.fr,
+      'fr',
+      'pagination.status',
+      { page: 2, count: 5 },
+    ),
+    'Page 2 sur 5',
+  )
   // Error and audit identifiers are catalog keys/data, never localized values.
   for (const locale of SUPPORTED_LOCALES) {
     assert.ok('error.ADMIN_CSRF_INVALID' in ADMIN_CATALOGS[locale])
@@ -45,13 +63,16 @@ test('all five admin catalogs are complete and retain technical identifiers', ()
   }
 })
 
-test('admin route declares a localized non-empty document title', async () => {
-  const page = await readFile(
-    new URL('../pages/admin.vue', import.meta.url),
-    'utf8',
+test('every admin route declares a localized non-empty document title', async () => {
+  const pages = await Promise.all(
+    PAGE_FILES.map(path => readFile(new URL(path, import.meta.url), 'utf8')),
   )
-  assert.match(page, /useHead\(computed\(\(\) => \(\{/u)
-  assert.match(page, /title: t\('document\.title'\)/u)
+  for (const page of pages) {
+    assert.match(page, /useHead\(computed\(\(\) => \(\{/u)
+    assert.match(page, /title: t\('document\.title'\)/u)
+    assert.match(page, /middleware: 'admin-access'/u)
+    assert.match(page, /layout: 'admin-console'/u)
+  }
 
   const titles = SUPPORTED_LOCALES.map((locale) => {
     const title = ADMIN_CATALOGS[locale]['document.title']
@@ -62,32 +83,54 @@ test('admin route declares a localized non-empty document title', async () => {
   assert.equal(new Set(titles).size, SUPPORTED_LOCALES.length)
 })
 
-test('admin UI exposes accessible en/de confirmations and never requests secrets', async () => {
-  const [page, layout, api, useAdmin] = await Promise.all([
-    readFile(new URL('../pages/admin.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../layouts/admin-console.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../core/api.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../core/use-admin.ts', import.meta.url), 'utf8'),
-  ])
-  assert.match(page, /<h1>/u)
-  assert.match(page, /middleware: 'admin-access'/u)
-  assert.match(page, /aria-labelledby=/u)
-  assert.match(page, /aria-live="polite"/u)
-  assert.match(page, /<dialog/u)
-  assert.match(page, /confirm\.checkbox/u)
-  assert.match(page, /minlength="8"/u)
-  assert.match(page, /globalThis\.crypto\.randomUUID\(\)/u)
-  assert.match(useAdmin, /globalThis\.\$fetch/u)
+test('admin shell exposes an accessible sidebar, drawer, and inline login gate', async () => {
+  const layout = await readFile(new URL('../layouts/admin-console.vue', import.meta.url), 'utf8')
+
   assert.match(layout, /href="#admin-main"/u)
   assert.match(layout, /PostqronLanguageSwitcher/u)
+  assert.match(layout, /aria-labelledby="admin-login-title"/u)
+  assert.match(layout, /<h1>/u)
+  assert.match(layout, /minlength="8"|minlength="12"/u)
+  assert.match(layout, /:aria-current="item\.active \? 'page' : undefined"/u)
+  assert.match(layout, /:data-open="menuOpen"/u)
+  assert.match(layout, /:aria-expanded="menuOpen"/u)
+  assert.match(layout, /@keydown\.esc="menuOpen = false"/u)
+  assert.match(layout, /shell\.logout/u)
+})
+
+test('admin plans page exposes an accessible confirmation dialog and never requests secrets', async () => {
+  const [plansPage, api] = await Promise.all([
+    readFile(new URL('../pages/admin-plans.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../core/api.ts', import.meta.url), 'utf8'),
+  ])
+  assert.match(plansPage, /<dialog/u)
+  assert.match(plansPage, /confirm\.checkbox/u)
+  assert.match(plansPage, /minlength="8"/u)
+  assert.match(plansPage, /globalThis\.crypto\.randomUUID\(\)/u)
   assert.doesNotMatch(
-    `${page}\n${api}`.toLowerCase(),
+    `${plansPage}\n${api}`.toLowerCase(),
     /social[_-]?token|payment[_-]?method|card[_-]?number|client[_-]?secret/u,
   )
   assert.notEqual(
     ADMIN_CATALOGS.en['confirm.description'],
     ADMIN_CATALOGS.de['confirm.description'],
   )
+})
+
+test('sidebar declares one route per required admin section', () => {
+  const paths = new Set(
+    (Object.entries(ADMIN_CATALOGS.en) as Array<[string, string]>)
+      .filter(([key]) => key.startsWith('nav.'))
+      .map(([key]) => key),
+  )
+  assert.deepEqual([...paths].sort(), [
+    'nav.audit',
+    'nav.dashboard',
+    'nav.plans',
+    'nav.profile',
+    'nav.users',
+    'nav.workspaces',
+  ])
 })
 
 test('manifest owns only protected web and server routes with security dependencies', async () => {
@@ -98,10 +141,7 @@ test('manifest owns only protected web and server routes with security dependenc
   assert.match(manifest, /path: \/admin/u)
   assert.match(manifest, /visibility: private/u)
   assert.match(manifest, /middleware: \[admin-access\]/u)
-  assert.match(
-    manifest,
-    /plugins:\n {4}- \.\/runtime\.ts\n {2}middleware:/u,
-  )
+  assert.match(manifest, /components:\n {4}- \.\/components/u)
   for (const dependency of [
     'app-shell',
     'auth',
@@ -124,8 +164,18 @@ test('manifest owns only protected web and server routes with security dependenc
   ]) {
     assert.ok(manifest.includes(`path: ${path}`))
   }
+  for (const path of [
+    '/admin',
+    '/admin/users',
+    '/admin/workspaces',
+    '/admin/plans',
+    '/admin/audit',
+    '/admin/profile',
+  ]) {
+    assert.ok(manifest.includes(`path: ${path}\n`), path)
+  }
   assert.equal(
     manifest.match(/visibility: private/gu)?.length,
-    6,
+    11,
   )
 })
