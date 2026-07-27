@@ -50,6 +50,10 @@ type Module interface {
 	Handler(string) (http.Handler, bool)
 }
 
+type ConfigurableModule interface {
+	Configure(map[string]string) error
+}
+
 type Factory func(
 	context.Context,
 	featureruntime.Feature,
@@ -91,6 +95,11 @@ func (registry *Registry) load(
 		}
 		if module == nil {
 			return nil, fmt.Errorf("instantiate feature %q: factory returned a nil module", feature.Manifest.ID)
+		}
+		if configurable, ok := module.(ConfigurableModule); ok {
+			if err := configurable.Configure(dependencies.Config); err != nil {
+				return nil, fmt.Errorf("configure feature %q: %w", feature.Manifest.ID, err)
+			}
 		}
 		return module, nil
 	}

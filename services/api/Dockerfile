@@ -5,6 +5,7 @@ RUN apk add --no-cache bash
 COPY go.work ./
 COPY packages/runtime/go/go.mod packages/runtime/go/go.sum packages/runtime/go/
 COPY services/api/go.mod services/api/go.sum services/api/
+COPY features/f10-entitlements/go.mod features/f10-entitlements/go.sum features/f10-entitlements/
 COPY services/worker/go.mod services/worker/go.sum services/worker/
 RUN go mod download -C services/api
 

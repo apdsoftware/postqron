@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Postqron entitlements API
-  version: 0.4.0
+  version: 0.5.0
 paths:
   /api/v1/billing/plans:
     get:
@@ -98,6 +98,77 @@ paths:
                     format: uri
         "403":
           description: Only an Owner can manage billing
+  /api/v1/workspaces/{workspace_id}/billing/subscription/preview:
+    post:
+      summary: Preview an Owner-only Paddle subscription change
+      operationId: previewBillingSubscriptionChange
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ProCheckoutRequest"
+                - $ref: "#/components/schemas/TeamCheckoutRequest"
+                - $ref: "#/components/schemas/UnlimitedCheckoutRequest"
+      responses:
+        "200":
+          description: Provider preview with the classified change direction
+        "403":
+          description: Only an Owner can manage billing
+  /api/v1/workspaces/{workspace_id}/billing/subscription:
+    patch:
+      summary: Apply an Owner-only Paddle subscription change
+      operationId: applyBillingSubscriptionChange
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ProCheckoutRequest"
+                - $ref: "#/components/schemas/TeamCheckoutRequest"
+                - $ref: "#/components/schemas/UnlimitedCheckoutRequest"
+      responses:
+        "204":
+          description: Subscription change accepted by Paddle
+        "403":
+          description: Only an Owner can manage billing
+  /api/v1/workspaces/{workspace_id}/billing/subscription/cancel:
+    post:
+      summary: Cancel an Owner-only Paddle subscription at period end
+      operationId: cancelBillingSubscription
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [idempotency_key]
+              properties:
+                idempotency_key:
+                  $ref: "#/components/schemas/IdempotencyKey"
+      responses:
+        "204":
+          description: Cancellation accepted by Paddle
+        "403":
+          description: Only an Owner can manage billing
+  /api/v1/billing/paddle/webhook:
+    post:
+      summary: Apply a raw-body Paddle webhook with a valid Paddle-Signature
+      operationId: applyPaddleWebhook
+      responses:
+        "204":
+          description: Verified event accepted
+        "400":
+          description: Signature, payload, catalog, or event does not verify
 components:
   parameters:
     WorkspaceID:
