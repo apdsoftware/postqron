@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* global HTMLDetailsElement, HTMLElement */
 import {
   computed,
   ref,
@@ -21,6 +22,7 @@ const session = useAdminSessionState()
 const api = useAdminApi()
 const { locale, t } = useAdminI18n()
 const menuOpen = ref(false)
+const accountMenu = ref<HTMLDetailsElement>()
 const authenticating = ref(false)
 const email = ref('')
 const password = ref('')
@@ -50,6 +52,15 @@ const currentSectionLabel = computed(() => {
   const active = navItems.value.find(item => item.active)
   return active ? t(active.labelKey) : t('nav.dashboard')
 })
+
+function closeAccountMenu() {
+  const menu = accountMenu.value
+  if (!menu?.open) {
+    return
+  }
+  menu.open = false
+  menu.querySelector<HTMLElement>('summary')?.focus()
+}
 
 async function login() {
   authenticating.value = true
@@ -95,7 +106,6 @@ async function login() {
               src="/brand/logo-reversed.svg"
               alt="Postqron"
             >
-            <strong>{{ t('shell.console') }}</strong>
           </a>
           <button
             class="admin-sidebar__close"
@@ -148,9 +158,13 @@ async function login() {
           >
             {{ currentSectionLabel }}
           </p>
-          <AdminLogoutButton />
-          <details class="admin-profile-menu">
+          <details
+            ref="accountMenu"
+            class="admin-profile-menu"
+            @keydown.esc.stop="closeAccountMenu"
+          >
             <summary>
+              <span class="pq-visually-hidden">{{ t('shell.profile') }}:</span>
               <span
                 class="admin-profile-menu__avatar"
                 aria-hidden="true"
@@ -167,6 +181,7 @@ async function login() {
               <a :href="localizeUrl(locale as 'en' | 'it' | 'es' | 'fr' | 'de', '/admin/profile')">
                 {{ t('nav.profile') }}
               </a>
+              <AdminLogoutButton />
             </div>
           </details>
         </header>

@@ -60,6 +60,7 @@ test('all five admin catalogs are complete and retain technical identifiers', ()
   for (const locale of SUPPORTED_LOCALES) {
     assert.ok('error.ADMIN_CSRF_INVALID' in ADMIN_CATALOGS[locale])
     assert.equal('internal_plan.assign' in ADMIN_CATALOGS[locale], false)
+    assert.equal('shell.console' in ADMIN_CATALOGS[locale], false)
   }
 })
 
@@ -95,7 +96,19 @@ test('admin shell exposes an accessible sidebar, drawer, and inline login gate',
   assert.match(layout, /:data-open="menuOpen"/u)
   assert.match(layout, /:aria-expanded="menuOpen"/u)
   assert.match(layout, /@keydown\.esc="menuOpen = false"/u)
-  assert.match(layout, /AdminLogoutButton/u)
+  assert.doesNotMatch(layout, /t\('shell\.console'\)/u)
+
+  const topbarStart = layout.indexOf('<header class="admin-topbar">')
+  const topbarEnd = layout.indexOf('</header>', topbarStart)
+  const topbar = layout.slice(topbarStart, topbarEnd)
+  const accountMenuStart = topbar.indexOf('<details')
+  const accountMenuEnd = topbar.indexOf('</details>', accountMenuStart)
+  const beforeAccountMenu = topbar.slice(0, accountMenuStart)
+  const accountMenu = topbar.slice(accountMenuStart, accountMenuEnd)
+
+  assert.doesNotMatch(beforeAccountMenu, /AdminLogoutButton/u)
+  assert.match(accountMenu, /@keydown\.esc\.stop="closeAccountMenu"/u)
+  assert.ok(accountMenu.indexOf("'/admin/profile'") < accountMenu.indexOf('<AdminLogoutButton'))
 })
 
 test('profile exposes account metadata and an accessible password change form', async () => {
