@@ -68,11 +68,11 @@ function controls(page: Page, locale: Locale = 'en') {
     // Only used against the English surface; other locales never resolve
     // this locator.
     annualButton: page.getByRole('button', { name: /Annual/u }),
-    quantitySelect: page.getByRole('combobox', { name: labels.quantity }),
+    quantitySlider: page.getByRole('slider'),
     radiogroup: page.getByRole('radiogroup', { name: labels.planGroup }),
     // Scoped to `main`: the site header's language switcher also carries
     // `aria-live="polite"` status paragraphs, which would otherwise collide.
-    liveRegion: page.getByRole('main').locator('[aria-live="polite"]'),
+    liveRegion: page.getByRole('main').locator('.sr-only[aria-live="polite"]'),
   }
 }
 
@@ -174,6 +174,13 @@ const ANNUAL_EXPLAINER_PERCENT: Record<Locale, string> = {
   fr: '16,67 %',
   de: '16,67 %',
 }
+const CHANNEL_VALUE_TEXT: Record<Locale, { one: string, many: string, maximum: string }> = {
+  en: { one: '1 social channel', many: '4 social channels', maximum: '10+ social channels' },
+  it: { one: '1 canale social', many: '4 canali social', maximum: '10+ canali social' },
+  es: { one: '1 canal social', many: '4 canales sociales', maximum: '10+ canales sociales' },
+  fr: { one: '1 canal social', many: '4 canaux sociaux', maximum: '10+ canaux sociaux' },
+  de: { one: '1 Social-Media-Kanal', many: '4 Social-Media-Kanäle', maximum: '10+ Social-Media-Kanäle' },
+}
 
 test.beforeEach(async () => {
   await fixtureReset()
@@ -186,11 +193,12 @@ for (const surface of surfaces) {
     covers(testInfo, 'LR-PRICING')
 
     await page.goto(surfaceURL(surface, 'en'))
-    const { monthlyButton, annualButton, quantitySelect } = controls(page)
+    const { monthlyButton, annualButton, quantitySlider } = controls(page)
 
     await expect(monthlyButton).toHaveAttribute('aria-pressed', 'true')
     await expect(annualButton).toHaveAttribute('aria-pressed', 'false')
-    await expect(quantitySelect).toHaveValue('1')
+    await expect(quantitySlider).toHaveValue('1')
+    await expect(quantitySlider).toHaveAttribute('aria-valuetext', CHANNEL_VALUE_TEXT.en.one)
     await expect(radio(page, 'Start')).toBeChecked()
     for (const name of ['Start', 'Pro', 'Team', 'Unlimited']) {
       await expect(radio(page, name)).toBeEnabled()
@@ -203,26 +211,26 @@ for (const surface of surfaces) {
     covers(testInfo, 'LR-PRICING')
 
     await page.goto(surfaceURL(surface, 'en'))
-    const { quantitySelect } = controls(page)
+    const { quantitySlider } = controls(page)
 
     const cases: Array<{
-      quantity: string
+      quantity: number
       selected: string
       disabled: string[]
       enabled: string[]
     }> = [
-      { quantity: '1', selected: 'Start', disabled: [], enabled: ['Start', 'Pro', 'Team', 'Unlimited'] },
-      { quantity: '3', selected: 'Start', disabled: [], enabled: ['Start', 'Pro', 'Team', 'Unlimited'] },
-      { quantity: '4', selected: 'Pro', disabled: ['Start'], enabled: ['Pro', 'Team', 'Unlimited'] },
-      { quantity: '6', selected: 'Pro', disabled: ['Start'], enabled: ['Pro', 'Team', 'Unlimited'] },
-      { quantity: '7', selected: 'Team', disabled: ['Start', 'Pro'], enabled: ['Team', 'Unlimited'] },
-      { quantity: '9', selected: 'Team', disabled: ['Start', 'Pro'], enabled: ['Team', 'Unlimited'] },
-      { quantity: 'over_max', selected: 'Unlimited', disabled: ['Start', 'Pro', 'Team'], enabled: ['Unlimited'] },
+      { quantity: 1, selected: 'Start', disabled: [], enabled: ['Start', 'Pro', 'Team', 'Unlimited'] },
+      { quantity: 3, selected: 'Start', disabled: [], enabled: ['Start', 'Pro', 'Team', 'Unlimited'] },
+      { quantity: 4, selected: 'Pro', disabled: ['Start'], enabled: ['Pro', 'Team', 'Unlimited'] },
+      { quantity: 6, selected: 'Pro', disabled: ['Start'], enabled: ['Pro', 'Team', 'Unlimited'] },
+      { quantity: 7, selected: 'Team', disabled: ['Start', 'Pro'], enabled: ['Team', 'Unlimited'] },
+      { quantity: 9, selected: 'Team', disabled: ['Start', 'Pro'], enabled: ['Team', 'Unlimited'] },
+      { quantity: 10, selected: 'Unlimited', disabled: ['Start', 'Pro', 'Team'], enabled: ['Unlimited'] },
     ]
 
     for (const scenario of cases) {
-      await quantitySelect.selectOption(scenario.quantity)
-      await expect(radio(page, scenario.selected), scenario.quantity).toBeChecked()
+      await quantitySlider.fill(String(scenario.quantity))
+      await expect(radio(page, scenario.selected), String(scenario.quantity)).toBeChecked()
 
       for (const name of scenario.enabled) {
         await expect(radio(page, name), `${scenario.quantity}/${name}`).toBeEnabled()
@@ -250,21 +258,21 @@ for (const surface of surfaces) {
     covers(testInfo, 'LR-PRICING')
 
     await page.goto(surfaceURL(surface, 'en'))
-    const { quantitySelect } = controls(page)
+    const { quantitySlider } = controls(page)
 
-    await quantitySelect.selectOption('2')
+    await quantitySlider.fill('2')
     await radio(page, 'Team').check()
     await expect(radio(page, 'Team')).toBeChecked()
 
-    await quantitySelect.selectOption('5')
+    await quantitySlider.fill('5')
     await expect(radio(page, 'Team'), 'explicit choice survives a compatible resize')
       .toBeChecked()
 
-    await quantitySelect.selectOption('over_max')
+    await quantitySlider.fill('10')
     await expect(radio(page, 'Unlimited'), 'falls back when the explicit plan becomes incompatible')
       .toBeChecked()
 
-    await quantitySelect.selectOption('5')
+    await quantitySlider.fill('5')
     await expect(radio(page, 'Pro'), 'the cleared explicit choice is not silently restored')
       .toBeChecked()
   })
@@ -275,8 +283,12 @@ for (const surface of surfaces) {
     covers(testInfo, 'LR-PRICING', 'LR-WCAG')
 
     await page.goto(surfaceURL(surface, 'en'))
-    const { quantitySelect, liveRegion, annualButton } = controls(page)
-    await quantitySelect.selectOption('2')
+    const { quantitySlider, liveRegion, annualButton } = controls(page)
+    await quantitySlider.focus()
+    await expect(quantitySlider).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await expect(quantitySlider).toHaveValue('2')
+    await expect(quantitySlider).toHaveAttribute('aria-valuetext', '2 social channels')
 
     await radio(page, 'Start').focus()
     await page.keyboard.press('ArrowRight')
@@ -298,14 +310,14 @@ for (const surface of surfaces) {
     covers(testInfo, 'LR-PRICING')
 
     await page.goto(surfaceURL(surface, 'en'))
-    const { quantitySelect, annualButton, monthlyButton } = controls(page)
+    const { quantitySlider, annualButton, monthlyButton } = controls(page)
     const explainer = interpolate(EN_ANNUAL_EXPLAINER, {
       ...ANNUAL_TERMS,
       percent: '16.67%',
     })
     await expect(page.getByText(explainer)).toBeVisible()
 
-    await quantitySelect.selectOption('4')
+    await quantitySlider.fill('4')
     const proCard = card(page, 'Pro')
     await expect(proCard).toContainText(amountText(1_800, 'en'))
     await expect(proCard).toContainText('Total for 4 social channels')
@@ -324,7 +336,7 @@ for (const surface of surfaces) {
     )
     await expect(proCard).toContainText(`${amountText(4_500, 'en')} per channel per year`)
 
-    await quantitySelect.selectOption('7')
+    await quantitySlider.fill('7')
     const teamCard = card(page, 'Team')
     await expect(teamCard).toContainText(amountText(63_000, 'en'))
     await expect(teamCard).toContainText(`Equivalent to €${amountText(5_250, 'en')}/month`)
@@ -336,7 +348,7 @@ for (const surface of surfaces) {
     await expect(unlimitedCard).toContainText('Flat price, independent of the number of channels')
     await expect(unlimitedCard).toContainText(amountText(129_000, 'en'))
 
-    await quantitySelect.selectOption('1')
+    await quantitySlider.fill('1')
     const startCard = card(page, 'Start')
     await expect(startCard).toContainText('Free forever. No payment method.')
   })
@@ -388,7 +400,7 @@ for (const surface of surfaces) {
 
     // Raising the quantity to 4 makes Start incompatible: its card is
     // disabled and must not render a checkout/access CTA at all.
-    await controls(page).quantitySelect.selectOption('4')
+    await controls(page).quantitySlider.fill('4')
     await expect(radio(page, 'Start')).toBeDisabled()
     await expect(card(page, 'Start').getByRole('link')).toHaveCount(0)
 
@@ -463,9 +475,17 @@ for (const surface of surfaces) {
         /(?:MISSING_TRANSLATION|I18N_MISSING|translation missing)/iu,
       )
 
-      const { intervalGroup, quantitySelect, radiogroup, liveRegion } = controls(page, locale)
+      const { intervalGroup, quantitySlider, radiogroup, liveRegion } = controls(page, locale)
       await expect(intervalGroup).toBeVisible()
-      await expect(quantitySelect.locator('option')).toHaveCount(10)
+      await expect(quantitySlider).toHaveAttribute('min', '1')
+      await expect(quantitySlider).toHaveAttribute('max', '10')
+      await expect(quantitySlider).toHaveAttribute('step', '1')
+      await expect(quantitySlider).toHaveAttribute('aria-valuetext', CHANNEL_VALUE_TEXT[locale].one)
+      await quantitySlider.fill('4')
+      await expect(quantitySlider).toHaveAttribute('aria-valuetext', CHANNEL_VALUE_TEXT[locale].many)
+      await quantitySlider.fill('10')
+      await expect(quantitySlider).toHaveAttribute('aria-valuetext', CHANNEL_VALUE_TEXT[locale].maximum)
+      await quantitySlider.fill('4')
       await expect(radiogroup.getByRole('radio')).toHaveCount(4)
       await expect(liveRegion).not.toBeEmpty()
 
@@ -499,8 +519,8 @@ for (const surface of surfaces) {
     for (const width of [320, 375, 768, 1024]) {
       await page.setViewportSize({ width, height: 900 })
       await page.goto(surfaceURL(surface, 'en'))
-      const { quantitySelect, annualButton, radiogroup } = controls(page)
-      await quantitySelect.selectOption('over_max')
+      const { quantitySlider, annualButton, radiogroup } = controls(page)
+      await quantitySlider.fill('10')
       await annualButton.click()
 
       const dimensions = await page.evaluate(() => ({
@@ -508,25 +528,28 @@ for (const surface of surfaces) {
         scrollWidth: document.documentElement.scrollWidth,
       }))
       expect(dimensions.scrollWidth, `${width}`).toBeLessThanOrEqual(dimensions.clientWidth)
-      await expect(quantitySelect, `${width}`).toBeVisible()
+      await expect(quantitySlider, `${width}`).toBeVisible()
       await expect(radiogroup, `${width}`).toBeVisible()
     }
   })
 
-  test(`${surface.id}: interactive states with disabled cards pass serious and critical WCAG checks`, async ({
+  test(`${surface.id}: channel states 7 and 10+ pass serious and critical WCAG checks`, async ({
     page,
   }, testInfo) => {
     covers(testInfo, 'LR-PRICING', 'LR-WCAG')
 
     await page.goto(surfaceURL(surface, 'en'))
-    await controls(page).quantitySelect.selectOption('7')
-    await controls(page).annualButton.click()
+    for (const quantity of ['7', '10']) {
+      await controls(page).quantitySlider.fill(quantity)
+      await controls(page).annualButton.click()
 
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
-      .analyze()
-    const blocking = results.violations.filter(violation =>
-      violation.impact === 'serious' || violation.impact === 'critical')
-    expect(blocking).toEqual([])
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+        .analyze()
+      const blocking = results.violations.filter(violation =>
+        violation.impact === 'serious' || violation.impact === 'critical')
+      expect(blocking, quantity === '10' ? '10+' : quantity).toEqual([])
+      await controls(page).monthlyButton.click()
+    }
   })
 }
