@@ -106,6 +106,112 @@ test('admin signs in with email and password without an OAuth provider', async (
     .toBeVisible()
 })
 
+test('admin logout stays visible on desktop and mobile and revokes the server session', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  const context = await browser.newContext()
+  await session(context, 'admin')
+  const page = await context.newPage()
+  await page.goto(`${offBaseURL}/admin`)
+
+  const logout = page.getByRole('button', { name: /^sign out$/iu })
+  await expect(logout).toBeVisible()
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(logout).toBeVisible()
+
+  const revoked = page.waitForResponse(response =>
+    response.url().endsWith('/api/v1/auth/logout')
+    && response.status() === 204)
+  await logout.click()
+  await revoked
+  await expect(page).toHaveURL(/\/admin\?signed_out=1$/u)
+  await expect(page.getByRole('status')).toContainText(/signed out securely/iu)
+  await expect(page.getByRole('heading', {
+    level: 2,
+    name: /administrator sign-in/iu,
+  })).toBeVisible()
+
+  const rejected = await context.request.get(
+    `${fixtureBaseURL}/api/v1/admin/session`,
+  )
+  expect(rejected.status()).toBe(401)
+  await context.close()
+})
+
+test('admin changes password with safe errors, rotates this session, and revokes the others', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
+
+  const current = await browser.newContext()
+  const other = await browser.newContext()
+  await session(current, 'admin')
+  await session(other, 'admin')
+  const page = await current.newPage()
+  const otherPage = await other.newPage()
+  await page.goto(`${offBaseURL}/admin/profile`)
+  await otherPage.goto(`${offBaseURL}/admin`)
+
+  await page.getByLabel(/^current password$/iu).fill('wrong-current-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-new-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('fixture-new-admin-password')
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/current password is invalid/iu)
+
+  await page.getByLabel(/^current password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-new-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('different-confirmation')
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/do not match/iu)
+
+  await page.getByLabel(/^current password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('fixture-admin-password')
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/different password/iu)
+
+  await page.getByLabel(/^current password$/iu).fill('fixture-admin-password')
+  await page.getByLabel(/^new password$/iu).fill('fixture-new-admin-password')
+  await page.getByLabel(/^confirm new password$/iu).fill('fixture-new-admin-password')
+  const changed = page.waitForResponse(response =>
+    response.url().endsWith('/api/v1/auth/password/change')
+    && response.status() === 200)
+  await page.getByRole('button', { name: /^change password$/iu }).click()
+  await changed
+  await expect(page.getByRole('status')).toContainText(/other sessions were revoked/iu)
+  await expect(
+    page.locator('.admin-profile-details').getByText(
+      'admin@example.test',
+      { exact: true },
+    ),
+  ).toBeVisible()
+
+  const oldSessionRejected = otherPage.waitForResponse(response =>
+    response.url().endsWith('/api/v1/admin/session')
+    && response.status() === 401)
+  await otherPage.reload()
+  await oldSessionRejected
+  await expect(otherPage.getByRole('heading', {
+    level: 2,
+    name: /administrator sign-in/iu,
+  })).toBeVisible()
+
+  await page.getByRole('button', { name: /^sign out$/iu }).click()
+  await page.getByLabel(/email address/iu).fill('admin@example.test')
+  await page.getByLabel(/^password$/iu).fill('fixture-admin-password')
+  await page.getByRole('button', { name: /^sign in$/iu }).click()
+  await expect(page.getByRole('alert')).toContainText(/invalid/iu)
+  await page.getByLabel(/^password$/iu).fill('fixture-new-admin-password')
+  await page.getByRole('button', { name: /^sign in$/iu }).click()
+  await expect(page.getByRole('heading', { level: 2, name: /service health/iu }))
+    .toBeVisible()
+
+  await current.close()
+  await other.close()
+})
+
 test('admin sidebar deep-links every section, marks the active route, and collapses on mobile', async ({
   browser,
 }, testInfo) => {

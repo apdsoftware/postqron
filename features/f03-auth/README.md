@@ -26,6 +26,25 @@ the onboarding hand-off to F4.
 - Session and OAuth tokens are opaque. Only session digests and encrypted
   provider revocation tokens are persisted. The HTTP boundary uses a
   `Secure`, `HttpOnly`, `SameSite=Lax`, `__Host-` cookie.
+- Password login uses Argon2id with the checked-in security floor
+  (`m=65536,t=3,p=1`, 16-byte salt, 32-byte key), generic credential errors,
+  progressive account lockout, and immutable success/failure security events.
+- `POST /api/v1/auth/logout` validates the CSRF token bound to the opaque
+  session, revokes that session server-side, appends `session.logged_out`
+  without request secrets, and only then expires the cookie. An already absent
+  session is safe to log out again.
+- `POST /api/v1/auth/password/change` requires the current password, matching
+  confirmation, the same 12–1024-byte policy used at credential creation,
+  a session-derived CSRF token, and password authentication no older than five
+  minutes. Rejected current-password attempts have a separate progressive rate
+  limit and append only a secret-free `password.change_failed` event.
+- A successful password change runs in one serializable transaction: it locks
+  and compares the credential and current session, updates the Argon2id hash,
+  revokes all account sessions, inserts one new session, and appends
+  `password.changed`. Optimistic hash/session checks make concurrent requests
+  fail safely; retrying an already committed request cannot create a second
+  active replacement session. Passwords, hashes, and raw session tokens never
+  appear in API bodies, audit rows, or logs.
 
 `MemoryStore` is the deterministic reference used by unit tests.
 `PostgresStore` is the production adapter over the schema in
@@ -78,3 +97,7 @@ From the repository root, validate discovery and the forward-only migration:
 ```sh
 POSTQRON_FEATURE_ROOTS=features/f03-auth go run ./services/api/cmd/migrate --check
 ```
+
+The complete password/login/logout contract, stable error envelope, CSRF
+header, session rotation, and rate-limit responses are documented in
+`contracts/openapi.yaml`.
