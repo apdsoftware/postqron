@@ -99,7 +99,7 @@
   min-height: 4.5rem;
   border-bottom: 1px solid var(--pq-color-border);
   padding: var(--pq-space-3) clamp(1rem, 4vw, 2.5rem);
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--pq-space-4);
   align-items: center;
   background: color-mix(in srgb, var(--pq-color-surface) 94%, transparent);
@@ -220,6 +220,7 @@
 }
 
 .admin-profile-menu__panel button {
+  width: 100%;
   min-height: 2.75rem;
   border: 0;
   border-radius: var(--pq-radius-md);
@@ -227,6 +228,12 @@
   background: var(--pq-color-danger-surface, #fbeaea);
   font-weight: var(--pq-font-weight-semibold);
   cursor: pointer;
+}
+
+.admin-profile-menu__panel .admin-logout__error {
+  position: static;
+  width: auto;
+  margin-top: var(--pq-space-2);
 }
 
 .admin-main {

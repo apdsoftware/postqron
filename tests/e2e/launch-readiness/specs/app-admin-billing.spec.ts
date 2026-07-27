@@ -209,7 +209,7 @@ test('a failed health request never renders as fully operational', async ({
   await fixtureHealth('operational')
 })
 
-test('admin logout stays visible on desktop and mobile and revokes the server session', async ({
+test('admin account menu orders profile before logout on desktop and mobile and revokes the server session', async ({
   browser,
 }, testInfo) => {
   covers(testInfo, 'LR-ADMIN', 'LR-NEGATIVE')
@@ -219,10 +219,32 @@ test('admin logout stays visible on desktop and mobile and revokes the server se
   const page = await context.newPage()
   await page.goto(`${offBaseURL}/admin`)
 
+  const accountMenu = page.locator('.admin-profile-menu')
+  const accountMenuTrigger = accountMenu.locator('summary')
+  await expect(page.getByRole('button', { name: /^sign out$/iu })).toBeHidden()
+  await accountMenuTrigger.click()
+  const profile = accountMenu.getByRole('link', { name: /^profile$/iu })
   const logout = page.getByRole('button', { name: /^sign out$/iu })
+  await expect(profile).toBeVisible()
   await expect(logout).toBeVisible()
+  const accountActions = accountMenu.locator(
+    '.admin-profile-menu__panel > a, .admin-profile-menu__panel > .admin-logout',
+  )
+  await expect(accountActions).toHaveCount(2)
+  await expect(accountActions.nth(0)).toContainText(/^profile$/iu)
+  await expect(accountActions.nth(1)).toContainText(/^sign out$/iu)
+
+  await accountMenuTrigger.press('Escape')
+  await expect(accountMenu).not.toHaveAttribute('open', '')
+  await expect(accountMenuTrigger).toBeFocused()
+
   await page.setViewportSize({ width: 375, height: 812 })
+  await accountMenuTrigger.click()
+  await expect(profile).toBeVisible()
   await expect(logout).toBeVisible()
+  const horizontalOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth > globalThis.innerWidth)
+  expect(horizontalOverflow).toBe(false)
 
   const revoked = page.waitForResponse(response =>
     response.url().endsWith('/api/v1/auth/logout')

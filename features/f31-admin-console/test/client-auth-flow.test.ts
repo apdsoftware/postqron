@@ -30,14 +30,23 @@ test('the login gate lives in the shared layout so every admin route is protecte
   assert.doesNotMatch(layout, /useRequestHeaders/u)
 })
 
-test('logout is server-side, always visible in the top bar, and clears client state only after success', async () => {
+test('account menu orders profile before server-side logout and clears client state only after success', async () => {
   const [layout, logout, api] = await Promise.all([
     source('../layouts/admin-console.vue'),
     source('../components/AdminLogoutButton.vue'),
     source('../core/api.ts'),
   ])
 
-  assert.match(layout, /<AdminLogoutButton/u)
+  const topbarStart = layout.indexOf('<header class="admin-topbar">')
+  const topbarEnd = layout.indexOf('</header>', topbarStart)
+  const topbar = layout.slice(topbarStart, topbarEnd)
+  const accountMenuStart = topbar.indexOf('<details')
+  const accountMenuEnd = topbar.indexOf('</details>', accountMenuStart)
+  const beforeAccountMenu = topbar.slice(0, accountMenuStart)
+  const accountMenu = topbar.slice(accountMenuStart, accountMenuEnd)
+
+  assert.doesNotMatch(beforeAccountMenu, /AdminLogoutButton/u)
+  assert.ok(accountMenu.indexOf("'/admin/profile'") < accountMenu.indexOf('<AdminLogoutButton'))
   assert.match(logout, /await api\.logout\(session\.value\.csrf_token\)/u)
   assert.ok(
     logout.indexOf('await api.logout(session.value.csrf_token)')
