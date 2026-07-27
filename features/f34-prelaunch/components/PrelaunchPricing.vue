@@ -8,6 +8,7 @@ import {
   type PublicCatalog,
   type PublicPlan,
 } from '../../f02-marketing-site/src/catalog.ts'
+import { planChannelLimit, pricingChannels } from '../src/plan-display.ts'
 import { usePrelaunch } from '../runtime.ts'
 
 const props = defineProps<{
@@ -22,18 +23,9 @@ function displayName(plan: PublicPlan): string {
   return plan.code === 'unlimited' ? copy.value.unlimitedName : plan.name
 }
 
-// A null channel limit is Unlimited's flat-priced, quota-free shape; there is
-// no channel quantity to display or feed into the pricing calculation.
-function displayedChannels(plan: PublicPlan): number | null {
-  if (plan.limits.channels === null) {
-    return null
-  }
-  return plan.purchasable ? Math.min(3, plan.limits.channels) : plan.limits.channels
-}
-
 function price(plan: PublicPlan): string {
   return formatMoney(
-    priceForChannels(plan, 'monthly', displayedChannels(plan)),
+    priceForChannels(plan, 'monthly', pricingChannels(plan)),
     prelaunch.locale.value,
   )
 }
@@ -47,7 +39,7 @@ function members(plan: PublicPlan): string {
 }
 
 function channels(plan: PublicPlan): string {
-  const count = displayedChannels(plan)
+  const count = planChannelLimit(plan)
   if (count === null) {
     return copy.value.unlimitedChannels
   }

@@ -193,6 +193,44 @@ test('five-locale public, pricing, cookie and pre-launch matrix has no missing k
   }
 })
 
+test('Italian pricing and pre-launch cards show authoritative catalog limits in SSR markup', async ({
+  page,
+}, testInfo) => {
+  covers(testInfo, 'LR-PRELAUNCH', 'LR-LOCALE-MATRIX')
+
+  const publicPricing = await page.goto(`${offBaseURL}/it/prezzi`)
+  expect(publicPricing?.status()).toBe(200)
+  await expect(page.locator('.pricing-grid .plan-card')).toHaveCount(4)
+  await expect(page.locator('.pricing-grid .plan-card').nth(0)).toContainText('1 utente')
+  await expect(page.locator('.pricing-grid .plan-card').nth(0)).toContainText('3 canali social')
+  await expect(page.locator('.pricing-grid .plan-card').nth(0)).toContainText('10 post programmati per canale')
+  await expect(page.locator('.pricing-grid .plan-card').nth(1)).toContainText('3 utenti')
+  await expect(page.locator('.pricing-grid .plan-card').nth(1)).toContainText('6 canali social')
+  await expect(page.locator('.pricing-grid .plan-card').nth(1)).toContainText('250 post programmati per canale')
+  await expect(page.locator('.pricing-grid .plan-card').nth(2)).toContainText('6 utenti')
+  await expect(page.locator('.pricing-grid .plan-card').nth(2)).toContainText('9 canali social')
+  await expect(page.locator('.pricing-grid .plan-card').nth(2)).toContainText('500 post programmati per canale')
+  await expect(page.locator('.pricing-grid .plan-card').nth(3)).toContainText('Utenti illimitati')
+  await expect(page.locator('.pricing-grid .plan-card').nth(3)).toContainText('Canali social illimitati')
+  await expect(page.locator('.pricing-grid .plan-card').nth(3)).toContainText('Post programmati illimitati per canale')
+
+  const prelaunch = await page.goto(`${onBaseURL}/it/prelaunch`)
+  expect(prelaunch?.status()).toBe(200)
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan')).toHaveCount(4)
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(0)).toContainText('1 utente')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(0)).toContainText('3 canali social')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(0)).toContainText('10 post programmati per canale')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(1)).toContainText('3 utenti')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(1)).toContainText('6 canali social')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(1)).toContainText('250 post programmati per canale')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(2)).toContainText('6 utenti')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(2)).toContainText('9 canali social')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(2)).toContainText('500 post programmati per canale')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(3)).toContainText('Utenti illimitati')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(3)).toContainText('Canali social illimitati')
+  await expect(page.locator('.prelaunch-pricing__grid .prelaunch-plan').nth(3)).toContainText('Post programmati illimitati per canale')
+})
+
 test('public launch surfaces pass serious and critical automated WCAG checks', async ({
   page,
 }, testInfo) => {
