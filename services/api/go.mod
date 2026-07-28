@@ -3,7 +3,12 @@ module github.com/apdsoftware/postqron/services/api
 go 1.26.0
 
 require (
+	github.com/apdsoftware/postqron/features/f03-auth v0.0.0
+	github.com/apdsoftware/postqron/features/f04-workspaces v0.0.0
 	github.com/apdsoftware/postqron/features/f10-entitlements v0.0.0
+	github.com/apdsoftware/postqron/features/f12-account-privacy v0.0.0
+	github.com/apdsoftware/postqron/features/f14-email v0.0.0
+	github.com/apdsoftware/postqron/features/f30-app-shell v0.0.0
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
 )
@@ -19,4 +24,14 @@ require (
 
 replace github.com/apdsoftware/postqron/packages/runtime => ../../packages/runtime/go
 
+replace github.com/apdsoftware/postqron/features/f03-auth => ../../features/f03-auth
+
+replace github.com/apdsoftware/postqron/features/f04-workspaces => ../../features/f04-workspaces
+
 replace github.com/apdsoftware/postqron/features/f10-entitlements => ../../features/f10-entitlements
+
+replace github.com/apdsoftware/postqron/features/f12-account-privacy => ../../features/f12-account-privacy
+
+replace github.com/apdsoftware/postqron/features/f14-email => ../../features/f14-email
+
+replace github.com/apdsoftware/postqron/features/f30-app-shell => ../../features/f30-app-shell

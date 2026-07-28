@@ -30,11 +30,20 @@ Required GitHub environment secrets:
 - `GHCR_READ_TOKEN` scoped only to package reads.
 - `RUNTIME_ENV`, containing `POSTGRES_PASSWORD`, `DATABASE_URL`, and any future
   runtime secrets.
+- `ADMIN_PASSWORD_HASH_B64` and `AUTH_ENCRYPTION_KEY_B64` for the mounted F3
+  password runtime and shared auth encryption state.
 
 `RUNTIME_ENV` must not include image tags or public domains; the workflow appends
 those from the reviewed commit and environment variables. The remote file is
 mode `0600`. No token, private key, password, state credential, or personal data
 is stored in Git.
+
+OAuth provider secrets remain optional and independent. Invalid or missing
+Google, Apple, Facebook, or LinkedIn values must never block password flows.
+Redirect URLs are accepted only as HTTPS callback URLs. Apple client-secret
+rotation must overlap old and new values long enough to drain in-flight
+callbacks, and `POSTQRON_AUTH_ENCRYPTION_KEY_B64` rotation must be coordinated
+after expiring outstanding OAuth state.
 
 ## Configure GitHub
 
@@ -109,3 +118,16 @@ this repository with Full (strict) TLS, an origin policy compatible with ACME,
 managed WAF rules, bot/rate-limit policy, and cache rules that never cache
 authenticated or API responses. Zone-wide policy is shared infrastructure and
 should not be changed by an application slice without its own reviewed scope.
+
+## Runtime integration notes
+
+The services-side runtime mounts F3 auth, F4 app runtime, the F30 API
+bootstrap/session handler, and an adapter feature for F12 account/profile
+navigation. The worker consumes the F3 onboarding outbox idempotently to create
+or select the personal workspace and initialize `account_privacy_profiles`, and
+dispatches queued F14 verification email deliveries.
+
+Privacy export queueing and account/workspace deletion remain fail-closed in
+the runtime adapter until Auth exposes a reviewed boundary that can freeze new
+password and OAuth logins during the grace period without changing feature
+internals.

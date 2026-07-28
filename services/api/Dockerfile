@@ -15,7 +15,7 @@ COPY features features
 COPY scripts/runtime scripts/runtime
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./services/api/cmd/api \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./services/api/cmd/migrate \
-    && ./scripts/runtime/bundle-features.sh features /out/features
+    && POSTQRON_BUILD_SERVER_FACTORIES=0 ./scripts/runtime/bundle-features.sh features /out/features
 
 FROM alpine:3.23 AS runtime
 
@@ -24,6 +24,7 @@ WORKDIR /app
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
 COPY --from=build /out/features ./features
+COPY features/f01-brand/tokens ./features/f01-brand/tokens
 COPY services/api/features ./foundation
 
 USER postqron

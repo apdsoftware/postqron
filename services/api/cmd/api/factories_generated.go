@@ -2,8 +2,44 @@
 
 package main
 
-import "github.com/apdsoftware/postqron/services/api/internal/featurehost"
+import (
+	"context"
 
-func registerFeatureFactories(*featurehost.Registry) error {
+	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
+	entitlements "github.com/apdsoftware/postqron/features/f10-entitlements"
+	appshell "github.com/apdsoftware/postqron/features/f30-app-shell"
+	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
+	accountprivacyruntime "github.com/apdsoftware/postqron/services/api/internal/accountprivacyruntime"
+	authruntime "github.com/apdsoftware/postqron/services/api/internal/authruntime"
+	"github.com/apdsoftware/postqron/services/api/internal/featurehost"
+)
+
+func registerFeatureFactories(registry *featurehost.Registry) error {
+	factories := map[string]featurehost.Factory{
+		"auth": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return authruntime.NewModule(
+				dependencies.PostgreSQL,
+				dependencies.Config["billing.app_domain"],
+				dependencies.Clock,
+			)
+		},
+		"workspaces": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return workspaces.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+		"f10-entitlements": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return entitlements.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+		"account-privacy-runtime": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return accountprivacyruntime.NewModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+		"app-shell-api": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return appshell.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+	}
+	for featureID, factory := range factories {
+		if err := registry.Register(featureID, factory); err != nil {
+			return err
+		}
+	}
 	return nil
 }
