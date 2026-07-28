@@ -151,6 +151,34 @@ func (repository *MemoryRepository) Export(
 	return request, nil
 }
 
+func (repository *MemoryRepository) ActiveExport(
+	_ context.Context,
+	accountID string,
+	scope ExportScope,
+	workspaceID string,
+) (ExportRequest, bool, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	var (
+		active ExportRequest
+		found  bool
+	)
+	for _, request := range repository.exports {
+		if request.AccountID != accountID || request.Scope != scope ||
+			request.WorkspaceID != workspaceID {
+			continue
+		}
+		if request.Status != ExportQueued && request.Status != ExportReady {
+			continue
+		}
+		if !found || request.RequestedAt.After(active.RequestedAt) {
+			active = request
+			found = true
+		}
+	}
+	return active, found, nil
+}
+
 func (repository *MemoryRepository) MarkExportReady(
 	_ context.Context,
 	command ExportReadyCommand,
@@ -226,11 +254,14 @@ func (repository *MemoryRepository) MarkExportExpired(
 	if !found {
 		return ErrNotFound
 	}
-	if request.Status != ExportReady || request.ExpiresAt.After(now) {
+	if (request.Status != ExportReady && request.Status != ExportQueued) ||
+		request.ExpiresAt.After(now) {
 		return ErrConflict
 	}
 	request.Status = ExportExpired
 	request.ObjectKey = ""
+	request.SHA256 = ""
+	request.SizeBytes = 0
 	repository.exports[requestID] = request
 	repository.auditLocked(request.AccountID, request.ID, "export.expired", "success", now)
 	return nil
@@ -321,7 +352,7 @@ func (repository *MemoryRepository) CancelDeletion(
 	if !found {
 		return ErrNotFound
 	}
-	if request.Status != DeletionGracePeriod || request.Immediate || !now.Before(request.GraceEndsAt) {
+	if request.Status != DeletionGracePeriod || !now.Before(request.GraceEndsAt) {
 		return ErrDeletionInactive
 	}
 	request.Status = DeletionCancelled

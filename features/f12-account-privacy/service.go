@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -198,6 +199,28 @@ func (service *Service) RequestExport(
 	); err != nil {
 		return ExportRequest{}, err
 	}
+	active, found, err := service.repository.ActiveExport(
+		ctx,
+		principal.AccountID,
+		scope,
+		workspaceID,
+	)
+	if err != nil {
+		return ExportRequest{}, err
+	}
+	if found {
+		if now.Before(active.ExpiresAt) {
+			return active, nil
+		}
+		if active.ObjectKey != "" {
+			if err := service.artifacts.DeleteExport(ctx, active.ObjectKey); err != nil {
+				return ExportRequest{}, fmt.Errorf("delete expired export artifact: %w", err)
+			}
+		}
+		if err := service.repository.MarkExportExpired(ctx, active.ID, now); err != nil {
+			return ExportRequest{}, err
+		}
+	}
 	id, err := service.newID()
 	if err != nil {
 		return ExportRequest{}, err
@@ -212,6 +235,17 @@ func (service *Service) RequestExport(
 		ExpiresAt:   now.Add(ExportRetention),
 	}
 	if err := service.repository.CreateExport(ctx, request); err != nil {
+		if errors.Is(err, ErrConflict) {
+			existing, reusable, lookupErr := service.repository.ActiveExport(
+				ctx,
+				principal.AccountID,
+				scope,
+				workspaceID,
+			)
+			if lookupErr == nil && reusable && now.Before(existing.ExpiresAt) {
+				return existing, nil
+			}
+		}
 		return ExportRequest{}, err
 	}
 	if err := service.exportQueue.EnqueueExport(ctx, ExportJob{
@@ -321,7 +355,6 @@ func (service *Service) RequestDeletion(
 	scope DeletionScope,
 	workspaceID string,
 	actions []OwnershipAction,
-	immediate bool,
 ) (DeletionRequest, error) {
 	now := service.now().UTC()
 	if err := requireRecent(principal, now); err != nil {
@@ -359,11 +392,7 @@ func (service *Service) RequestDeletion(
 		Status:      DeletionDeactivating,
 		RequestedAt: now,
 		GraceEndsAt: now.Add(GracePeriod),
-		Immediate:   immediate,
 		Ownership:   ownership,
-	}
-	if immediate {
-		request.GraceEndsAt = now
 	}
 	if err := service.repository.CreateDeletion(ctx, request); err != nil {
 		return DeletionRequest{}, err
@@ -404,7 +433,7 @@ func (service *Service) CancelDeletion(
 	if request.AccountID != principal.AccountID {
 		return ErrNotFound
 	}
-	if request.Status != DeletionGracePeriod || request.Immediate {
+	if request.Status != DeletionGracePeriod {
 		return ErrDeletionInactive
 	}
 	if !now.Before(request.GraceEndsAt) {

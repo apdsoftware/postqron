@@ -33,6 +33,8 @@ paths:
                 $ref: '#/components/schemas/Profile'
         '400':
           $ref: '#/components/responses/InvalidRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/account/providers/{provider_id}:
     delete:
       summary: Revoke and disconnect an identity or social provider
@@ -57,9 +59,11 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           description: The provider is the account's last login method
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/account/exports:
     post:
-      summary: Queue a temporary portable data export
+      summary: Queue or reuse a temporary portable data export
       requestBody:
         required: true
         content:
@@ -88,6 +92,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           description: Only an Owner may export a workspace
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/account/exports/{export_id}/download:
     get:
       summary: Issue an authenticated signed URL valid for at most 24 hours
@@ -110,9 +116,11 @@ paths:
           description: Export not ready
         '410':
           description: Export package expired
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/account/deletions:
     post:
-      summary: Confirm account or workspace deletion
+      summary: Confirm account or workspace deletion and start the grace period
       requestBody:
         required: true
         content:
@@ -132,6 +140,8 @@ paths:
           description: Ownership is unresolved or another deletion is active
         '503':
           description: A required immediate safety effect was incomplete
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/account/deletions/{request_id}:
     delete:
       summary: Cancel a deletion before the grace period elapses
@@ -147,7 +157,9 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
-          description: Grace period elapsed or finalization is immediate
+          description: Grace period elapsed or deletion is not cancellable
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 components:
   parameters:
     ProviderID:
@@ -165,6 +177,16 @@ components:
             $ref: '#/components/schemas/Error'
     InvalidRequest:
       description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
       content:
         application/json:
           schema:
@@ -332,7 +354,7 @@ components:
     DeletionInput:
       type: object
       additionalProperties: false
-      required: [scope, immediate, confirmation]
+      required: [scope, confirmation]
       properties:
         scope:
           type: string
@@ -343,9 +365,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OwnershipAction'
-        immediate:
-          type: boolean
-          description: Explicitly waive the 28-day grace period.
         confirmation:
           type: string
           const: DELETE
@@ -358,7 +377,6 @@ components:
         - status
         - requested_at
         - grace_ends_at
-        - immediate
         - ownership
       properties:
         id:
@@ -386,8 +404,6 @@ components:
         grace_ends_at:
           type: string
           format: date-time
-        immediate:
-          type: boolean
         ownership:
           type: object
           required: [actions]
