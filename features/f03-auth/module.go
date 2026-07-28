@@ -35,16 +35,44 @@ func NewPostgresModule(
 	if clock == nil {
 		clock = time.Now
 	}
-	store, err := NewPostgresPasswordStore(database)
+	passwordStore, err := NewPostgresPasswordStore(database)
 	if err != nil {
 		return nil, err
 	}
-	service, err := NewPasswordService(store, clock, 0)
+	passwordService, err := NewPasswordService(passwordStore, clock, 0)
 	if err != nil {
 		return nil, err
 	}
-	handler, err := NewPasswordHandler(
-		service,
+	registrationStore, err := NewPostgresPasswordRegistrationStore(database)
+	if err != nil {
+		return nil, err
+	}
+	registrationService, err := NewPasswordRegistrationService(
+		PasswordRegistrationConfig{
+			Store: registrationStore,
+			Now:   clock,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	authStore, err := NewPostgresStore(database)
+	if err != nil {
+		return nil, err
+	}
+	authService, err := NewService(Config{
+		Store:     authStore,
+		Sealer:    runtimeSealerFromEnv(),
+		Providers: runtimeProviderAdapters(),
+		Now:       clock,
+	})
+	if err != nil {
+		return nil, err
+	}
+	handler, err := NewRuntimeHandler(
+		authService,
+		passwordService,
+		registrationService,
 		os.Getenv(authAllowedOriginsEnv),
 	)
 	if err != nil {
@@ -97,8 +125,13 @@ func (module *Module) Ready(ctx context.Context) error {
 }
 
 func (module *Module) Handler(name string) (http.Handler, bool) {
-	if module == nil || module.handler == nil || name != "Password" {
+	if module == nil || module.handler == nil {
 		return nil, false
 	}
-	return module.handler, true
+	switch name {
+	case "Auth", "Password":
+		return module.handler, true
+	default:
+		return nil, false
+	}
 }

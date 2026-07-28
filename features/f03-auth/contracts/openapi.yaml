@@ -1,11 +1,93 @@
 openapi: 3.1.0
 info:
   title: Postqron authentication slice
-  version: 0.2.0
+  version: 0.3.0
 paths:
+  /api/v1/auth/password/register:
+    post:
+      summary: Register a password account and issue an email-verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRegistration'
+      responses:
+        '202':
+          description: Verification flow accepted without leaking account existence
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verification_requested]
+                properties:
+                  verification_requested:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password/verify:
+    post:
+      summary: Consume a one-time email-verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordVerification'
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verified]
+                properties:
+                  verified:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password/verify/resend:
+    post:
+      summary: Re-issue an email-verification token when the account is still unverified
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 320
+      responses:
+        '202':
+          description: Verification flow accepted without leaking account existence
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verification_requested]
+                properties:
+                  verification_requested:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/auth/password/login:
     post:
-      summary: Authenticate an administrator with email and password
+      summary: Authenticate a verified password account
       requestBody:
         required: true
         content:
@@ -282,6 +364,43 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    PasswordRegistration:
+      type: object
+      additionalProperties: false
+      required: [email, password, confirmation, contract_country, consents]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+        confirmation:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+        contract_country:
+          const: IT
+        consents:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/ConsentReceipt'
+    PasswordVerification:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 32
+          writeOnly: true
     PasswordLogin:
       type: object
       additionalProperties: false
