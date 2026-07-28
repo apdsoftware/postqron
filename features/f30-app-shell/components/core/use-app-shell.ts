@@ -7,10 +7,12 @@ import {
 } from '#imports'
 import {
   AppShellApi,
+  normalizeAppApiError,
   resolveAppShellApiBase,
   type AppFetch,
 } from './api.ts'
 import type {
+  AccountArea,
   AppBootstrap,
   AppSession,
 } from './contracts.ts'
@@ -57,6 +59,13 @@ export function useAppBootstrapState() {
   )
 }
 
+export function useAppAccountAreaState() {
+  return useState<AccountArea | undefined>(
+    'postqron.app-shell.account-area',
+    () => undefined,
+  )
+}
+
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()
@@ -64,4 +73,12 @@ export function useAppShellApi(): AppShellApi {
     resolveAppShellApiBase(config, import.meta.server),
     requestFetch as unknown as AppFetch,
   )
+}
+
+export function appStateKindFromError(
+  error: unknown,
+): 'access-denied' | 'offline' {
+  return normalizeAppApiError(error).kind === 'access-denied'
+    ? 'access-denied'
+    : 'offline'
 }

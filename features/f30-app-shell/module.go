@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -111,14 +112,16 @@ type workspace struct {
 
 type appSession struct {
 	Account struct {
-		ID          string `json:"id"`
-		DisplayName string `json:"display_name"`
-		Email       string `json:"email"`
-		Locale      string `json:"locale"`
+		ID            string `json:"id"`
+		DisplayName   string `json:"display_name"`
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+		Locale        string `json:"locale"`
 	} `json:"account"`
 	OnboardingRequired bool        `json:"onboarding_required"`
 	CurrentWorkspace   *workspace  `json:"current_workspace,omitempty"`
 	Workspaces         []workspace `json:"workspaces"`
+	AuthenticatedAt    time.Time   `json:"authenticated_at"`
 }
 
 func (handler *appHandler) bootstrap(
@@ -132,7 +135,7 @@ func (handler *appHandler) bootstrap(
 	}
 	response := map[string]any{
 		"auth_methods":    []string{"password"},
-		"providers":       []string{},
+		"providers":       configuredProviders(),
 		"legal_documents": documents,
 	}
 	if session, found, err := handler.readSession(request); err != nil {
@@ -190,10 +193,10 @@ func (handler *appHandler) legalDocuments(
 		switch key {
 		case "terms_it":
 			document.Key = "terms"
-			document.Href = "/legal/terms"
+			document.Href = "/it/legal/terms"
 		case "privacy_it":
 			document.Key = "privacy"
-			document.Href = "/legal/privacy"
+			document.Href = "/it/legal/privacy"
 		default:
 			continue
 		}
@@ -213,7 +216,12 @@ func (handler *appHandler) readSession(
 	var session appSession
 	session.Account.Locale = "en"
 	err = handler.database.QueryRowContext(request.Context(), `
-		SELECT account.id, account.display_name, account.normalized_email
+		SELECT
+			account.id,
+			account.display_name,
+			account.normalized_email,
+			account.email_verified_at IS NOT NULL,
+			session.authenticated_at
 		FROM auth_sessions session
 		JOIN auth_accounts account ON account.id = session.account_id
 		WHERE session.token_hash = $1
@@ -226,6 +234,8 @@ func (handler *appHandler) readSession(
 		&session.Account.ID,
 		&session.Account.DisplayName,
 		&session.Account.Email,
+		&session.Account.EmailVerified,
+		&session.AuthenticatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return appSession{}, false, nil
@@ -260,10 +270,45 @@ func (handler *appHandler) readSession(
 	}
 	session.OnboardingRequired = len(session.Workspaces) == 0
 	if len(session.Workspaces) > 0 {
+		selectedID, selectionErr := handler.selectedWorkspaceID(
+			request.Context(),
+			session.Account.ID,
+		)
+		if selectionErr != nil {
+			return appSession{}, false, selectionErr
+		}
 		current := session.Workspaces[0]
+		for _, candidate := range session.Workspaces {
+			if candidate.ID == selectedID {
+				current = candidate
+				break
+			}
+		}
 		session.CurrentWorkspace = &current
 	}
 	return session, true, nil
+}
+
+func (handler *appHandler) selectedWorkspaceID(
+	ctx context.Context,
+	accountID string,
+) (string, error) {
+	var selectedID string
+	err := handler.database.QueryRowContext(ctx, `
+		SELECT workspace_id
+		FROM f04_workspace_selections
+		WHERE account_id = $1
+		ORDER BY updated_at DESC
+		LIMIT 1`,
+		accountID,
+	).Scan(&selectedID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(selectedID), nil
 }
 
 func (handler *appHandler) preflight(
@@ -325,6 +370,89 @@ func normalizeOrigin(value string) (string, error) {
 		return "", errors.New("app allowed origin must be an HTTP(S) origin")
 	}
 	return parsed.Scheme + "://" + parsed.Host, nil
+}
+
+func configuredProviders() []string {
+	if !validAuthEncryptionKey(os.Getenv("POSTQRON_AUTH_ENCRYPTION_KEY_B64")) {
+		return []string{}
+	}
+	providers := make([]string, 0, 4)
+	if validProviderConfig(
+		"POSTQRON_AUTH_GOOGLE_CLIENT_ID",
+		"POSTQRON_AUTH_GOOGLE_CLIENT_SECRET",
+		"POSTQRON_AUTH_GOOGLE_REDIRECT_URL",
+	) {
+		providers = append(providers, "google")
+	}
+	if validProviderConfig(
+		"POSTQRON_AUTH_APPLE_CLIENT_ID",
+		"POSTQRON_AUTH_APPLE_CLIENT_SECRET",
+		"POSTQRON_AUTH_APPLE_REDIRECT_URL",
+	) {
+		providers = append(providers, "apple")
+	}
+	if validProviderConfig(
+		"POSTQRON_AUTH_FACEBOOK_CLIENT_ID",
+		"POSTQRON_AUTH_FACEBOOK_CLIENT_SECRET",
+		"POSTQRON_AUTH_FACEBOOK_REDIRECT_URL",
+		"POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION",
+	) {
+		providers = append(providers, "facebook")
+	}
+	if validProviderConfig(
+		"POSTQRON_AUTH_LINKEDIN_CLIENT_ID",
+		"POSTQRON_AUTH_LINKEDIN_CLIENT_SECRET",
+		"POSTQRON_AUTH_LINKEDIN_REDIRECT_URL",
+	) {
+		providers = append(providers, "linkedin")
+	}
+	return providers
+}
+
+func validAuthEncryptionKey(value string) bool {
+	decoded, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSpace(value))
+	return err == nil && len(decoded) == 32
+}
+
+func validProviderConfig(keys ...string) bool {
+	for index, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value == "" {
+			return false
+		}
+		if index == len(keys)-1 && strings.HasSuffix(key, "_GRAPH_VERSION") {
+			continue
+		}
+		if strings.HasSuffix(key, "_REDIRECT_URL") {
+			if !validHTTPSAbsoluteURL(value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validHTTPSAbsoluteURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	if parsed.Path == "" {
+		return false
+	}
+	return true
+}
+
+func hasEnv(keys ...string) bool {
+	for _, key := range keys {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func writeAppError(writer http.ResponseWriter, status int, code string) {

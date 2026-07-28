@@ -10,12 +10,12 @@ import {
   useRoute,
 } from '#imports'
 import {
-  buildConsentReceipts,
+  buildRegistrationConsents,
   type OAuthProvider,
 } from '../components/core/contracts.ts'
 import {
   AppNavigationError,
-  appRoot,
+  appRoute,
   authenticatedDestination,
   localeFromAppPath,
   sanitizeAppDestination,
@@ -34,13 +34,17 @@ const api = useAppShellApi()
 const { t } = useAppShellI18n()
 const bootstrapState = useAppBootstrapState()
 const sessionState = useAppSessionState()
-const accepted = ref(false)
 const mode = ref<'register' | 'signin'>('signin')
+const accepted = ref(false)
 const email = ref('')
 const password = ref('')
+const confirmation = ref('')
+const requestedVerification = ref(false)
+const verifyingEmail = ref('')
 const submittingPassword = ref(false)
 const submittingProvider = ref<OAuthProvider>()
-const formError = ref<'configuration' | 'consent' | 'offline'>()
+const resendingVerification = ref(false)
+const formError = ref<string>()
 const invalidIntent = ref(false)
 const locale = computed(() => localeFromAppPath(route.fullPath))
 
@@ -54,23 +58,13 @@ function queryString(value: unknown): string | undefined {
 
 function resolveReturnTo(): string {
   const explicit = queryString(route.query.return_to)
-  if (explicit) {
-    return sanitizeAppDestination(explicit)
+  if (!explicit) {
+    return appRoute(locale.value, 'entry')
   }
-  const parameters: string[] = []
-  for (const key of ['plan', 'interval', 'quantity'] as const) {
-    const value = queryString(route.query[key])
-    if (value !== undefined) {
-      parameters.push(`${key}=${encodeURIComponent(value)}`)
-    }
-  }
-  const target = appRoot(locale.value)
-  return sanitizeAppDestination(
-    parameters.length ? `${target}?${parameters.join('&')}` : target,
-  )
+  return sanitizeAppDestination(explicit)
 }
 
-let returnTo = appRoot(locale.value)
+let returnTo = appRoute(locale.value, 'entry')
 try {
   returnTo = resolveReturnTo()
 } catch (error) {
@@ -104,9 +98,11 @@ const terms = computed(() =>
   bootstrapState.value?.legal_documents.find(document => document.key === 'terms'))
 const privacy = computed(() =>
   bootstrapState.value?.legal_documents.find(document => document.key === 'privacy'))
+const providers = computed<OAuthProvider[]>(() =>
+  bootstrapState.value?.providers ?? [])
 
 async function start(provider: OAuthProvider) {
-  if (!accepted.value) {
+  if (mode.value === 'register' && !accepted.value) {
     formError.value = 'consent'
     return
   }
@@ -120,19 +116,16 @@ async function start(provider: OAuthProvider) {
     const authorizationURL = await api.authorize({
       provider,
       returnTo,
-      contractCountry: 'IT',
-      consents: buildConsentReceipts(
-        bootstrapState.value.legal_documents,
-        locale.value,
-      ),
+      contractCountry: mode.value === 'register' ? 'IT' : undefined,
+      consents: mode.value === 'register'
+        ? buildRegistrationConsents(bootstrapState.value.legal_documents)
+        : undefined,
     })
     if (import.meta.client) {
       globalThis.location.assign(authorizationURL)
     }
-  } catch {
-    formError.value = globalThis.navigator && !globalThis.navigator.onLine
-      ? 'offline'
-      : 'configuration'
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : 'configuration'
   } finally {
     submittingProvider.value = undefined
   }
@@ -154,11 +147,53 @@ async function signInWithPassword() {
     )
   } catch {
     password.value = ''
-    formError.value = globalThis.navigator && !globalThis.navigator.onLine
-      ? 'offline'
-      : 'configuration'
+    formError.value = 'signin'
   } finally {
     submittingPassword.value = false
+  }
+}
+
+async function registerWithPassword() {
+  if (!bootstrapState.value) {
+    formError.value = 'configuration'
+    return
+  }
+  if (!accepted.value) {
+    formError.value = 'consent'
+    return
+  }
+  submittingPassword.value = true
+  formError.value = undefined
+  try {
+    await api.passwordRegister({
+      email: email.value,
+      password: password.value,
+      confirmation: confirmation.value,
+      consents: buildRegistrationConsents(bootstrapState.value.legal_documents),
+    })
+    requestedVerification.value = true
+    verifyingEmail.value = email.value.trim()
+    password.value = ''
+    confirmation.value = ''
+  } catch {
+    formError.value = 'register'
+  } finally {
+    submittingPassword.value = false
+  }
+}
+
+async function resendVerification() {
+  if (!verifyingEmail.value) {
+    return
+  }
+  resendingVerification.value = true
+  formError.value = undefined
+  try {
+    await api.resendVerification(verifyingEmail.value)
+  } catch {
+    formError.value = 'resend'
+  } finally {
+    resendingVerification.value = false
   }
 }
 
@@ -166,9 +201,6 @@ async function retry() {
   formError.value = undefined
   await refresh()
 }
-
-const providers = computed<OAuthProvider[]>(() =>
-  bootstrapState.value?.providers ?? [])
 </script>
 
 <template>
@@ -227,7 +259,6 @@ const providers = computed<OAuthProvider[]>(() =>
             role="tablist"
           >
             <button
-              id="register-tab"
               type="button"
               role="tab"
               :aria-selected="mode === 'register'"
@@ -236,7 +267,6 @@ const providers = computed<OAuthProvider[]>(() =>
               {{ t('auth.newAccount') }}
             </button>
             <button
-              id="signin-tab"
               type="button"
               role="tab"
               :aria-selected="mode === 'signin'"
@@ -261,16 +291,44 @@ const providers = computed<OAuthProvider[]>(() =>
             {{
               formError === 'consent'
                 ? t('auth.requiredConsent')
-                : formError === 'offline'
-                  ? t('auth.offline')
-                  : t('auth.configurationError')
+                : formError === 'signin'
+                  ? t('auth.signInError')
+                  : formError === 'register'
+                    ? t('auth.registerError')
+                    : formError === 'resend'
+                      ? t('auth.resendError')
+                      : t('auth.configurationError')
             }}
           </div>
 
+          <section
+            v-if="requestedVerification"
+            class="auth-verification"
+          >
+            <h2>{{ t('auth.verificationTitle') }}</h2>
+            <p>{{ t('auth.verificationDescription', { email: verifyingEmail }) }}</p>
+            <div class="auth-verification__actions">
+              <a
+                class="pq-button pq-button--secondary"
+                :href="appRoute(locale, 'verify-email')"
+              >
+                {{ t('auth.verificationOpen') }}
+              </a>
+              <button
+                class="pq-button"
+                type="button"
+                :disabled="resendingVerification"
+                @click="resendVerification"
+              >
+                {{ resendingVerification ? t('auth.resending') : t('auth.resend') }}
+              </button>
+            </div>
+          </section>
+
           <form
-            v-if="mode === 'signin'"
+            v-else
             class="auth-password-form"
-            @submit.prevent="signInWithPassword"
+            @submit.prevent="mode === 'register' ? registerWithPassword() : signInWithPassword()"
           >
             <label for="app-auth-email">{{ t('auth.email') }}</label>
             <input
@@ -285,12 +343,24 @@ const providers = computed<OAuthProvider[]>(() =>
             <input
               id="app-auth-password"
               v-model="password"
+              :autocomplete="mode === 'register' ? 'new-password' : 'current-password'"
               type="password"
-              autocomplete="current-password"
               minlength="12"
               maxlength="1024"
               required
             >
+            <template v-if="mode === 'register'">
+              <label for="app-auth-confirmation">{{ t('auth.confirmation') }}</label>
+              <input
+                id="app-auth-confirmation"
+                v-model="confirmation"
+                autocomplete="new-password"
+                type="password"
+                minlength="12"
+                maxlength="1024"
+                required
+              >
+            </template>
             <button
               class="pq-button"
               data-full-width="true"
@@ -302,12 +372,38 @@ const providers = computed<OAuthProvider[]>(() =>
                 class="pq-button__spinner"
                 aria-hidden="true"
               />
-              {{ submittingPassword ? t('auth.signingIn') : t('auth.passwordSubmit') }}
+              {{
+                submittingPassword
+                  ? (mode === 'register' ? t('auth.registering') : t('auth.signingIn'))
+                  : (mode === 'register' ? t('auth.registerSubmit') : t('auth.passwordSubmit'))
+              }}
             </button>
           </form>
 
+          <label
+            v-if="mode === 'register' && !requestedVerification"
+            class="auth-consent"
+          >
+            <input
+              v-model="accepted"
+              type="checkbox"
+            >
+            <span>
+              {{ t('auth.consentBefore') }}
+              <a
+                :href="terms?.href"
+                target="_blank"
+              >{{ t('auth.terms') }}</a>
+              {{ t('auth.consentAnd') }}
+              <a
+                :href="privacy?.href"
+                target="_blank"
+              >{{ t('auth.privacy') }}</a>{{ t('auth.consentAfter') }}
+            </span>
+          </label>
+
           <p
-            v-if="mode === 'signin' && providers.length"
+            v-if="providers.length"
             class="auth-separator"
           >
             {{ t('auth.orProvider') }}
@@ -340,28 +436,6 @@ const providers = computed<OAuthProvider[]>(() =>
               {{ t('auth.providerUnavailable') }}
             </p>
           </div>
-
-          <label
-            v-if="mode === 'register'"
-            class="auth-consent"
-          >
-            <input
-              v-model="accepted"
-              type="checkbox"
-            >
-            <span>
-              {{ t('auth.consentBefore') }}
-              <a
-                :href="terms?.href"
-                target="_blank"
-              >{{ t('auth.terms') }}</a>
-              {{ t('auth.consentAnd') }}
-              <a
-                :href="privacy?.href"
-                target="_blank"
-              >{{ t('auth.privacy') }}</a>{{ t('auth.consentAfter') }}
-            </span>
-          </label>
         </div>
       </section>
     </main>

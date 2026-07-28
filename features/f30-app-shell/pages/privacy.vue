@@ -1,0 +1,217 @@
+<script setup lang="ts">
+import {
+  computed,
+  definePageMeta,
+  ref,
+  useAsyncData,
+  useHead,
+} from '#imports'
+import {
+  appStateKindFromError,
+  useAppAccountAreaState,
+  useAppSessionState,
+  useAppShellApi,
+  useAppShellI18n,
+} from '../components/core/use-app-shell.ts'
+import type {
+  DeletionRequest,
+  ExportDownload,
+  ExportRequest,
+} from '../components/core/contracts.ts'
+
+definePageMeta({ layout: 'app-shell' })
+
+const api = useAppShellApi()
+const session = useAppSessionState()
+const accountArea = useAppAccountAreaState()
+const { t } = useAppShellI18n()
+const exportRequest = ref<ExportRequest>()
+const exportDownload = ref<ExportDownload>()
+const deletionRequest = ref<DeletionRequest>()
+const working = ref<'account-delete' | 'account-export' | 'cancel-delete' | 'workspace-delete' | 'workspace-export' | 'download'>()
+const feedback = ref<'error' | 'saved'>()
+const pageState = ref<'access-denied' | 'offline'>()
+
+useHead(computed(() => ({
+  title: t('documentTitle.privacy'),
+})))
+
+const { pending, refresh } = useAsyncData('postqron-account-privacy', async () => {
+  try {
+    accountArea.value = await api.accountArea()
+    pageState.value = undefined
+    return accountArea.value
+  } catch (error) {
+    accountArea.value = undefined
+    pageState.value = appStateKindFromError(error)
+    return undefined
+  }
+})
+
+const ownerWorkspace = computed(() =>
+  accountArea.value?.workspaces.find(item => item.workspace.role === 'owner'))
+
+function confirmAction(message: string): boolean {
+  return import.meta.client ? globalThis.confirm(message) : true
+}
+
+async function requestExport(scope: 'account' | 'workspace') {
+  working.value = scope === 'account' ? 'account-export' : 'workspace-export'
+  feedback.value = undefined
+  try {
+    exportRequest.value = await api.requestExport({
+      scope,
+      workspaceId: scope === 'workspace' ? ownerWorkspace.value?.workspace.id : undefined,
+    })
+    exportDownload.value = undefined
+    feedback.value = 'saved'
+  } catch {
+    feedback.value = 'error'
+  } finally {
+    working.value = undefined
+  }
+}
+
+async function fetchDownload() {
+  if (!exportRequest.value) {
+    return
+  }
+  working.value = 'download'
+  feedback.value = undefined
+  try {
+    exportDownload.value = await api.downloadExport(exportRequest.value.id)
+    feedback.value = 'saved'
+  } catch {
+    feedback.value = 'error'
+  } finally {
+    working.value = undefined
+  }
+}
+
+async function requestDeletion(scope: 'account' | 'workspace') {
+  const message = scope === 'account'
+    ? t('privacy.confirmAccountDeletion')
+    : t('privacy.confirmWorkspaceDeletion', {
+        workspace: ownerWorkspace.value?.workspace.name ?? '',
+      })
+  if (!confirmAction(message)) {
+    return
+  }
+  working.value = scope === 'account' ? 'account-delete' : 'workspace-delete'
+  feedback.value = undefined
+  try {
+    deletionRequest.value = await api.requestDeletion({
+      scope,
+      workspaceId: scope === 'workspace' ? ownerWorkspace.value?.workspace.id : undefined,
+    })
+    feedback.value = 'saved'
+  } catch {
+    feedback.value = 'error'
+  } finally {
+    working.value = undefined
+  }
+}
+
+async function cancelDeletion() {
+  if (!deletionRequest.value) {
+    return
+  }
+  working.value = 'cancel-delete'
+  feedback.value = undefined
+  try {
+    await api.cancelDeletion(deletionRequest.value.id)
+    deletionRequest.value = undefined
+    feedback.value = 'saved'
+  } catch {
+    feedback.value = 'error'
+  } finally {
+    working.value = undefined
+  }
+}
+
+async function retry() {
+  await refresh()
+}
+</script>
+
+<template>
+  <AppState
+    v-if="pending && !accountArea"
+    kind="loading"
+  />
+  <AppState
+    v-else-if="pageState"
+    :kind="pageState"
+    action
+    @retry="retry"
+  />
+  <section
+    v-else
+    class="app-page"
+  >
+    <p class="app-eyebrow">{{ t('privacy.eyebrow') }}</p>
+    <h1>{{ t('privacy.title') }}</h1>
+    <p class="app-page__lead">{{ t('privacy.description') }}</p>
+
+    <div class="app-page__grid">
+      <article class="app-card">
+        <span class="app-card__eyebrow">{{ t('privacy.exportAccount') }}</span>
+        <p>{{ t('privacy.exportDescription') }}</p>
+        <button class="pq-button" type="button" :disabled="working === 'account-export'" @click="requestExport('account')">
+          {{ working === 'account-export' ? t('privacy.requesting') : t('privacy.requestExport') }}
+        </button>
+      </article>
+      <article class="app-card">
+        <span class="app-card__eyebrow">{{ t('privacy.exportWorkspace') }}</span>
+        <p>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</p>
+        <button class="pq-button" type="button" :disabled="!ownerWorkspace || working === 'workspace-export'" @click="requestExport('workspace')">
+          {{ working === 'workspace-export' ? t('privacy.requesting') : t('privacy.requestExport') }}
+        </button>
+      </article>
+      <article class="app-card">
+        <span class="app-card__eyebrow">{{ t('privacy.deleteAccount') }}</span>
+        <p>{{ t('privacy.deleteDescription') }}</p>
+        <button class="pq-button pq-button--secondary" type="button" :disabled="working === 'account-delete'" @click="requestDeletion('account')">
+          {{ working === 'account-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
+        </button>
+      </article>
+      <article class="app-card">
+        <span class="app-card__eyebrow">{{ t('privacy.deleteWorkspace') }}</span>
+        <p>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</p>
+        <button class="pq-button pq-button--secondary" type="button" :disabled="!ownerWorkspace || working === 'workspace-delete'" @click="requestDeletion('workspace')">
+          {{ working === 'workspace-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
+        </button>
+      </article>
+    </div>
+
+    <article v-if="exportRequest" class="app-card">
+      <span class="app-card__eyebrow">{{ t('privacy.exportStatus') }}</span>
+      <strong>{{ exportRequest.status }}</strong>
+      <p>{{ exportRequest.requested_at }}</p>
+      <button class="pq-button" type="button" :disabled="working === 'download'" @click="fetchDownload">
+        {{ working === 'download' ? t('privacy.downloading') : t('privacy.download') }}
+      </button>
+      <p v-if="exportDownload">{{ exportDownload.url }}</p>
+    </article>
+
+    <article v-if="deletionRequest" class="app-card">
+      <span class="app-card__eyebrow">{{ t('privacy.deletionStatus') }}</span>
+      <strong>{{ deletionRequest.status }}</strong>
+      <p>{{ deletionRequest.grace_ends_at }}</p>
+      <button class="pq-button pq-button--secondary" type="button" :disabled="working === 'cancel-delete'" @click="cancelDeletion">
+        {{ working === 'cancel-delete' ? t('privacy.cancelling') : t('privacy.cancelDeletion') }}
+      </button>
+    </article>
+
+    <p class="app-inline-note">{{ t('privacy.statusNote') }}</p>
+
+    <p
+      v-if="feedback"
+      class="app-inline-alert"
+      :data-success="feedback === 'saved'"
+      role="status"
+    >
+      {{ feedback === 'saved' ? t('privacy.saved') : t('privacy.error') }}
+    </p>
+  </section>
+</template>
