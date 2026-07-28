@@ -37,26 +37,29 @@ receipts, sessions, provider unlinking, and the onboarding hand-off to F4.
   provider or database errors do not leave a partial account or session.
 - Session and OAuth tokens are opaque. Only session digests and encrypted
   provider revocation tokens are persisted. The HTTP boundary uses a
-  `Secure`, `HttpOnly`, `SameSite=Lax`, `__Host-` cookie.
+  `Secure`, `HttpOnly`, `SameSite=Lax`, `__Host-postqron_session` cookie plus
+  a `Secure`, readable, `SameSite=Lax`, `__Host-postqron_csrf` cookie carrying
+  the double-submit value derived from the current session.
 - Password login uses Argon2id with the checked-in security floor
   (`m=65536,t=3,p=1`, 16-byte salt, 32-byte key), generic credential errors,
   progressive account lockout, and immutable success/failure security events.
-- `POST /api/v1/auth/logout` validates the CSRF token bound to the opaque
-  session, revokes that session server-side, appends `session.logged_out`
-  without request secrets, and only then expires the cookie. An already absent
-  session is safe to log out again.
+- `POST /api/v1/auth/logout` validates the double-submit CSRF token bound to
+  the opaque session, revokes that session server-side, appends
+  `session.logged_out` without request secrets, and only then expires both the
+  session and CSRF cookies. An already absent session is safe to log out again.
 - `POST /api/v1/auth/password/change` requires the current password, matching
   confirmation, the same 12–1024-byte policy used at credential creation,
-  a session-derived CSRF token, and password authentication no older than five
-  minutes. Rejected current-password attempts have a separate progressive rate
-  limit and append only a secret-free `password.change_failed` event.
+  a session-derived CSRF token mirrored in the readable CSRF cookie, and
+  password authentication no older than five minutes. Rejected current-password
+  attempts have a separate progressive rate limit and append only a secret-free
+  `password.change_failed` event.
 - A successful password change runs in one serializable transaction: it locks
   and compares the credential and current session, updates the Argon2id hash,
-  revokes all account sessions, inserts one new session, and appends
-  `password.changed`. Optimistic hash/session checks make concurrent requests
-  fail safely; retrying an already committed request cannot create a second
-  active replacement session. Passwords, hashes, and raw session tokens never
-  appear in API bodies, audit rows, or logs.
+  revokes all account sessions, inserts one new session, rotates the CSRF
+  cookie, and appends `password.changed`. Optimistic hash/session checks make
+  concurrent requests fail safely; retrying an already committed request cannot
+  create a second active replacement session. Passwords, hashes, and raw
+  session tokens never appear in API bodies, audit rows, or logs.
 
 `MemoryStore` is the deterministic reference used by unit tests.
 `PostgresStore` is the production adapter over the schema in

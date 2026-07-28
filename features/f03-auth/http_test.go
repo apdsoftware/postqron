@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestHTTPCallbackSetsOnlySecureSessionCookie(t *testing.T) {
+func TestHTTPCallbackSetsSessionAndCSRFCookies(t *testing.T) {
 	service, _, providers := newTestService(t, nil)
 	providers[ProviderApple].identity = ExternalIdentity{
 		Subject:       "apple-http",
@@ -31,16 +31,27 @@ func TestHTTPCallbackSetsOnlySecureSessionCookie(t *testing.T) {
 		t.Fatalf("callback status = %d, body = %s", response.Code, response.Body.String())
 	}
 	cookies := response.Result().Cookies()
-	if len(cookies) != 1 {
+	if len(cookies) != 2 {
 		t.Fatalf("callback cookies = %v", cookies)
 	}
-	cookie := cookies[0]
-	if cookie.Name != SessionCookieName ||
-		!cookie.Secure ||
-		!cookie.HttpOnly ||
-		cookie.SameSite != http.SameSiteLaxMode ||
-		cookie.Path != "/" {
-		t.Fatalf("insecure session cookie: %+v", cookie)
+	sessionCookie := cookieByName(cookies, SessionCookieName)
+	if sessionCookie == nil ||
+		!sessionCookie.Secure ||
+		!sessionCookie.HttpOnly ||
+		sessionCookie.SameSite != http.SameSiteLaxMode ||
+		sessionCookie.Path != "/" {
+		t.Fatalf("insecure session cookie: %+v", sessionCookie)
+	}
+	csrfCookie := cookieByName(cookies, CSRFCookieName)
+	if csrfCookie == nil ||
+		!csrfCookie.Secure ||
+		csrfCookie.HttpOnly ||
+		csrfCookie.SameSite != http.SameSiteLaxMode ||
+		csrfCookie.Path != "/" ||
+		csrfCookie.Value == "" ||
+		csrfCookie.Value == sessionCookie.Value ||
+		csrfCookie.Value != csrfTokenValue(sessionCookie.Value) {
+		t.Fatalf("invalid csrf cookie: %+v session=%+v", csrfCookie, sessionCookie)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
@@ -106,4 +117,13 @@ func TestHTTPRejectsUnknownInputAndReturnsRetryableProviderError(t *testing.T) {
 	if payload.Error.Code != CodeProviderUnavailable || !payload.Error.Retryable {
 		t.Fatalf("unexpected error payload: %+v", payload)
 	}
+}
+
+func cookieByName(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
 }

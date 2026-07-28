@@ -96,7 +96,7 @@ paths:
               $ref: '#/components/schemas/PasswordLogin'
       responses:
         '200':
-          description: Session created in a Secure HttpOnly cookie
+          description: Session and CSRF cookies created
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SessionCookie'
@@ -119,9 +119,10 @@ paths:
     post:
       summary: Change the authenticated password and rotate the current session
       description: >-
-        Requires recent password authentication and the session-derived CSRF
-        token. Success updates the Argon2id hash atomically, revokes every
-        existing account session, creates one replacement session, and appends
+        Requires recent password authentication and the double-submit CSRF
+        token mirrored in the readable CSRF cookie. Success updates the
+        Argon2id hash atomically, revokes every existing account session,
+        creates one replacement session, rotates the CSRF cookie, and appends
         a security event without storing or returning password material.
       security:
         - sessionCookie: []
@@ -164,18 +165,18 @@ paths:
     post:
       summary: Revoke the current password session
       description: >-
-        Revokes the server-side session before clearing the session cookie.
-        Repeating logout after revocation remains safe.
+        Revokes the server-side session before clearing the session and CSRF
+        cookies. Repeating logout after revocation remains safe.
       security:
         - sessionCookie: []
       parameters:
         - $ref: '#/components/parameters/CSRFToken'
       responses:
         '204':
-          description: Session revoked and cookie cleared
+          description: Session revoked and both cookies cleared
           headers:
             Set-Cookie:
-              description: Expired Secure HttpOnly session cookie
+              description: Expired session and CSRF cookies
               schema:
                 type: string
         '403':
@@ -276,7 +277,7 @@ paths:
         - sessionCookie: []
       responses:
         '204':
-          description: Sessions revoked and cookie cleared
+          description: Sessions revoked and both cookies cleared
         '401':
           $ref: '#/components/responses/Error'
   /api/v1/auth/providers/{provider}:
@@ -300,7 +301,10 @@ paths:
 components:
   headers:
     SessionCookie:
-      description: Secure HttpOnly session cookie; the raw value is never returned in JSON
+      description: >-
+        Secure cookies. The runtime sets an HttpOnly `__Host-postqron_session`
+        cookie plus a readable double-submit `__Host-postqron_csrf` cookie; the
+        raw session token is never returned in JSON.
       schema:
         type: string
   securitySchemes:
@@ -313,7 +317,7 @@ components:
       name: X-CSRF-Token
       in: header
       required: true
-      description: Token derived from and bound to the current opaque session
+      description: Token derived from and bound to the current opaque session, mirrored in the readable `__Host-postqron_csrf` cookie
       schema:
         type: string
         minLength: 64
@@ -339,7 +343,7 @@ components:
       description: Login, registration, or linking completed
       headers:
         Set-Cookie:
-          description: Secure HttpOnly session cookie for login and registration
+          description: Secure session and CSRF cookies for login and registration
           schema:
             type: string
       content:

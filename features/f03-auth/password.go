@@ -400,10 +400,14 @@ func (service *PasswordService) Logout(
 }
 
 func validPasswordCSRFToken(sessionToken, supplied string) bool {
-	expected := sha256.Sum256([]byte("postqron-admin-csrf\x00" + sessionToken))
-	expectedHex := hex.EncodeToString(expected[:])
+	expectedHex := csrfTokenValue(sessionToken)
 	return len(supplied) == len(expectedHex) &&
 		subtle.ConstantTimeCompare([]byte(supplied), []byte(expectedHex)) == 1
+}
+
+func csrfTokenValue(sessionToken string) string {
+	expected := sha256.Sum256([]byte("postqron-auth-csrf\x00" + sessionToken))
+	return hex.EncodeToString(expected[:])
 }
 
 func normalizePasswordEmail(value string) (string, error) {
