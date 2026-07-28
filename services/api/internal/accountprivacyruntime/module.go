@@ -334,6 +334,9 @@ func (disconnecter providerDisconnecter) deletePassword(ctx context.Context, acc
 		return err
 	}
 	defer transaction.Rollback()
+	if err := lockAccount(ctx, transaction, accountID); err != nil {
+		return err
+	}
 	var loginMethods int
 	if err := transaction.QueryRowContext(
 		ctx,
@@ -369,8 +372,31 @@ func (disconnecter providerDisconnecter) deleteIdentity(
 	accountID string,
 	provider accountprivacy.Provider,
 ) error {
+	transaction, err := disconnecter.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	if err := lockAccount(ctx, transaction, accountID); err != nil {
+		return err
+	}
+	var loginMethods int
+	if err := transaction.QueryRowContext(
+		ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM auth_provider_identities WHERE account_id = $1) +
+			CASE WHEN EXISTS (
+				SELECT 1 FROM auth_password_credentials WHERE account_id = $1
+			) THEN 1 ELSE 0 END`,
+		accountID,
+	).Scan(&loginMethods); err != nil {
+		return err
+	}
+	if loginMethods <= 1 {
+		return accountprivacy.ErrLastLoginProvider
+	}
 	var tokenCiphertext []byte
-	err := disconnecter.database.QueryRowContext(
+	err = transaction.QueryRowContext(
 		ctx,
 		`SELECT COALESCE(revocation_token_ciphertext, ''::bytea)
 		   FROM auth_provider_identities
@@ -400,26 +426,6 @@ func (disconnecter providerDisconnecter) deleteIdentity(
 			return err
 		}
 	}
-	transaction, err := disconnecter.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return err
-	}
-	defer transaction.Rollback()
-	var loginMethods int
-	if err := transaction.QueryRowContext(
-		ctx,
-		`SELECT
-			(SELECT COUNT(*) FROM auth_provider_identities WHERE account_id = $1) +
-			CASE WHEN EXISTS (
-				SELECT 1 FROM auth_password_credentials WHERE account_id = $1
-			) THEN 1 ELSE 0 END`,
-		accountID,
-	).Scan(&loginMethods); err != nil {
-		return err
-	}
-	if loginMethods <= 1 {
-		return accountprivacy.ErrLastLoginProvider
-	}
 	result, err := transaction.ExecContext(
 		ctx,
 		`DELETE FROM auth_provider_identities
@@ -436,6 +442,19 @@ func (disconnecter providerDisconnecter) deleteIdentity(
 		return accountprivacy.ErrNotFound
 	}
 	return transaction.Commit()
+}
+
+func lockAccount(ctx context.Context, transaction *sql.Tx, accountID string) error {
+	var lockedID string
+	err := transaction.QueryRowContext(
+		ctx,
+		`SELECT id FROM auth_accounts WHERE id = $1 FOR UPDATE`,
+		accountID,
+	).Scan(&lockedID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accountprivacy.ErrNotFound
+	}
+	return err
 }
 
 type exportAuthorizer struct {

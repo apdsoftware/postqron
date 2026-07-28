@@ -22,6 +22,7 @@ RUN addgroup -S postqron && adduser -S -G postqron postqron
 WORKDIR /app
 COPY --from=build /out/worker /usr/local/bin/worker
 COPY --from=build /out/features ./features
+COPY features/f01-brand/tokens ./features/f01-brand/tokens
 COPY services/worker/features ./foundation/worker
 COPY services/api/features ./foundation/api
 

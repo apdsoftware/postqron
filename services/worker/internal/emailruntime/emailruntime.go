@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,11 @@ func NewService(
 	if clock == nil {
 		clock = time.Now
 	}
-	brand, err := loadBrand(strings.TrimSpace(appDomain))
+	validatedDomain, err := validateAppDomain(appDomain)
+	if err != nil {
+		return nil, err
+	}
+	brand, err := loadBrand(validatedDomain)
 	if err != nil {
 		return nil, err
 	}
@@ -83,13 +88,38 @@ func loadBrand(appDomain string) (email.Brand, error) {
 	return email.LoadBrandFromF1(file, "Postqron", logoURL)
 }
 
+func validateAppDomain(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, "://") || strings.ContainsAny(value, "/?#@") {
+		return "", errors.New("APP_DOMAIN must be a bare host name")
+	}
+	parsed, err := url.Parse("https://" + value)
+	if err != nil || parsed.Host == "" || parsed.Host != value || parsed.User != nil {
+		return "", errors.New("APP_DOMAIN must be a bare host name")
+	}
+	return value, nil
+}
+
 func runtimeSender() (email.Sender, error) {
 	endpoint := strings.TrimSpace(os.Getenv(mailronixEndpointEnv))
 	secretName := strings.TrimSpace(os.Getenv(mailronixAPIKeySecretEnv))
 	senderEmail := strings.TrimSpace(os.Getenv(mailronixSenderEmailEnv))
 	domainVerified := strings.EqualFold(strings.TrimSpace(os.Getenv(mailronixDomainVerifiedEnv)), "true")
-	if endpoint == "" || secretName == "" || senderEmail == "" || !domainVerified {
+	configured := 0
+	for _, value := range []string{endpoint, secretName, senderEmail} {
+		if value != "" {
+			configured++
+		}
+	}
+	if domainVerified {
+		configured++
+	}
+	if configured == 0 &&
+		!strings.EqualFold(strings.TrimSpace(os.Getenv("PADDLE_ENVIRONMENT")), "production") {
 		return &email.FakeSender{}, nil
+	}
+	if configured != 4 {
+		return nil, errors.New("Mailronix configuration is required and must be complete")
 	}
 	failureThreshold := 3
 	if value := strings.TrimSpace(os.Getenv(mailronixFailureThresholdEnv)); value != "" {
