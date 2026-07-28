@@ -115,6 +115,48 @@ test('authorization rejects insecure provider URLs', async () => {
   )
 })
 
+test('link provider rejects malformed authorization URLs', async () => {
+  const api = new AppShellApi(
+    'https://api.postqron.test',
+    async (path) => {
+      if (path === '/api/v1/auth/csrf') {
+        return { csrf_token: 'csrf-token-1' }
+      }
+      return { authorization_url: 'not a url' }
+    },
+  )
+  await assert.rejects(
+    () => api.linkProvider({
+      provider: 'google',
+      returnTo: '/it/app/providers',
+    }),
+    (error: unknown) =>
+      error instanceof AppApiError
+      && error.code === 'APP_INVALID_AUTHORIZATION_URL',
+  )
+})
+
+test('link provider rejects insecure authorization URLs', async () => {
+  const api = new AppShellApi(
+    'https://api.postqron.test',
+    async (path) => {
+      if (path === '/api/v1/auth/csrf') {
+        return { csrf_token: 'csrf-token-1' }
+      }
+      return { authorization_url: 'http://provider.example/link' }
+    },
+  )
+  await assert.rejects(
+    () => api.linkProvider({
+      provider: 'google',
+      returnTo: '/it/app/providers',
+    }),
+    (error: unknown) =>
+      error instanceof AppApiError
+      && error.code === 'APP_INSECURE_AUTHORIZATION_URL',
+  )
+})
+
 test('OAuth registration authorize forwards F3 signup receipts, not onboarding receipts', async () => {
   const calls: Array<{ path: string, options?: Readonly<Record<string, unknown>> }> = []
   const fetch: AppFetch = async (path, options) => {

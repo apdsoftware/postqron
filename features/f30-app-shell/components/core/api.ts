@@ -206,6 +206,40 @@ export class AppShellApi {
     })
   }
 
+  #authorizationURL(value: unknown): string {
+    const authorizationURL = value && typeof value === 'object'
+      ? (value as Record<string, unknown>).authorization_url
+      : undefined
+    if (typeof authorizationURL !== 'string') {
+      throw new AppApiError({
+        code: 'APP_INVALID_AUTHORIZATION_PAYLOAD',
+        kind: 'configuration',
+        message: 'The authorization response is invalid',
+        retryable: true,
+      })
+    }
+    let parsed: URL
+    try {
+      parsed = new URL(authorizationURL)
+    } catch {
+      throw new AppApiError({
+        code: 'APP_INVALID_AUTHORIZATION_URL',
+        kind: 'configuration',
+        message: 'The authorization URL is malformed',
+        retryable: true,
+      })
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new AppApiError({
+        code: 'APP_INSECURE_AUTHORIZATION_URL',
+        kind: 'configuration',
+        message: 'The authorization URL is not secure',
+        retryable: false,
+      })
+    }
+    return parsed.href
+  }
+
   async bootstrap(headers?: Readonly<Record<string, string>>): Promise<AppBootstrap> {
     const value = await this.#request('/api/v1/app/bootstrap', { headers })
     try {
@@ -305,7 +339,7 @@ export class AppShellApi {
     provider: OAuthProvider
     returnTo: string
   }): Promise<string> {
-    const value = await this.#request('/api/v1/auth/authorize', {
+    return this.#authorizationURL(await this.#request('/api/v1/auth/authorize', {
       method: 'POST',
       body: {
         provider: input.provider,
@@ -313,63 +347,20 @@ export class AppShellApi {
         contract_country: input.contractCountry,
         consents: input.consents,
       },
-    })
-    const authorizationURL = value && typeof value === 'object'
-      ? (value as Record<string, unknown>).authorization_url
-      : undefined
-    if (typeof authorizationURL !== 'string') {
-      throw new AppApiError({
-        code: 'APP_INVALID_AUTHORIZATION_PAYLOAD',
-        kind: 'configuration',
-        message: 'The authorization response is invalid',
-        retryable: true,
-      })
-    }
-    let parsed: URL
-    try {
-      parsed = new URL(authorizationURL)
-    } catch {
-      throw new AppApiError({
-        code: 'APP_INVALID_AUTHORIZATION_URL',
-        kind: 'configuration',
-        message: 'The authorization URL is malformed',
-        retryable: true,
-      })
-    }
-    if (parsed.protocol !== 'https:') {
-      throw new AppApiError({
-        code: 'APP_INSECURE_AUTHORIZATION_URL',
-        kind: 'configuration',
-        message: 'The authorization URL is not secure',
-        retryable: false,
-      })
-    }
-    return parsed.href
+    }))
   }
 
   async linkProvider(input: {
     provider: OAuthProvider
     returnTo: string
   }): Promise<string> {
-    const value = await this.#csrfMutation('/api/v1/auth/link', {
+    return this.#authorizationURL(await this.#csrfMutation('/api/v1/auth/link', {
       method: 'POST',
       body: {
         provider: input.provider,
         return_to: sanitizeAppDestination(input.returnTo),
       },
-    })
-    const authorizationURL = value && typeof value === 'object'
-      ? (value as Record<string, unknown>).authorization_url
-      : undefined
-    if (typeof authorizationURL !== 'string') {
-      throw new AppApiError({
-        code: 'APP_INVALID_AUTHORIZATION_PAYLOAD',
-        kind: 'configuration',
-        message: 'The authorization response is invalid',
-        retryable: true,
-      })
-    }
-    return new URL(authorizationURL).href
+    }))
   }
 
   async callback(
