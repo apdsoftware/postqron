@@ -135,6 +135,18 @@ func TestExportIsAuthorizedQueuedSignedAndTemporary(t *testing.T) {
 	if len(adapters.exportJobs) != 1 || adapters.exportJobs[0].WorkspaceID != "workspace-1" {
 		t.Fatalf("unexpected export jobs: %#v", adapters.exportJobs)
 	}
+	reused, err := service.RequestExport(
+		context.Background(),
+		recentPrincipal(clock),
+		ExportWorkspace,
+		"workspace-1",
+	)
+	if err != nil {
+		t.Fatalf("reuse export: %v", err)
+	}
+	if reused.ID != request.ID || len(adapters.exportJobs) != 1 {
+		t.Fatalf("export request was not idempotent: %#v %#v", request, reused)
+	}
 
 	checksum := strings.Repeat("a", 64)
 	if err := service.CompleteExport(
@@ -202,7 +214,6 @@ func TestDeletionDeactivatesImmediatelyAndCanBeCancelledDuringGracePeriod(t *tes
 		DeleteAccount,
 		"",
 		actions,
-		false,
 	)
 	if err != nil {
 		t.Fatalf("request deletion: %v", err)
@@ -233,26 +244,30 @@ func TestDeletionDeactivatesImmediatelyAndCanBeCancelledDuringGracePeriod(t *tes
 	}
 }
 
-func TestImmediateDeletionFinalizesErasureAnonymizationAndOwnership(t *testing.T) {
+func TestDeletionFinalizesAfterGracePeriodElapsed(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	clock := now
 	repository := NewMemoryRepository()
 	adapters := defaultAdapters(now)
-	service := newTestService(t, repository, adapters, func() time.Time { return now })
+	service := newTestService(t, repository, adapters, func() time.Time { return clock })
 
 	request, err := service.RequestDeletion(
 		context.Background(),
-		recentPrincipal(now),
+		recentPrincipal(clock),
 		DeleteWorkspace,
 		"workspace-1",
 		[]OwnershipAction{{WorkspaceID: "workspace-1", Action: DeleteOwnedSpace}},
-		true,
 	)
 	if err != nil {
-		t.Fatalf("request immediate deletion: %v", err)
+		t.Fatalf("request deletion: %v", err)
 	}
-	if !request.Immediate || !request.GraceEndsAt.Equal(now) {
-		t.Fatalf("immediate deletion did not waive grace period: %#v", request)
+	if !request.GraceEndsAt.Equal(now.Add(GracePeriod)) {
+		t.Fatalf("unexpected grace period: %#v", request)
 	}
+	clock = now.Add(GracePeriod)
+	adapters.erasure.DatabaseCompletedAt = clock
+	adapters.erasure.TombstoneExpiresAt = clock.Add(TombstoneRetention)
+	adapters.erasure.MediaDeletionDueAt = clock.Add(7 * 24 * time.Hour)
 	completed, err := service.FinalizeDue(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("finalize deletion: %v", err)
@@ -266,7 +281,7 @@ func TestImmediateDeletionFinalizesErasureAnonymizationAndOwnership(t *testing.T
 		t.Fatalf("read completed deletion: %v", err)
 	}
 	if stored.TombstoneExpiresAt == nil ||
-		!stored.TombstoneExpiresAt.Equal(now.Add(TombstoneRetention)) {
+		!stored.TombstoneExpiresAt.Equal(clock.Add(TombstoneRetention)) {
 		t.Fatalf("unexpected tombstone retention: %#v", stored)
 	}
 }
@@ -284,7 +299,6 @@ func TestIncompleteDeactivationAndErasureAreRecordedAsFailures(t *testing.T) {
 		DeleteAccount,
 		"",
 		nil,
-		false,
 	)
 	if !errors.Is(err, ErrDeactivationIncomplete) {
 		t.Fatalf("expected deactivation failure, got %v", err)
@@ -317,11 +331,15 @@ func TestIncompleteDeactivationAndErasureAreRecordedAsFailures(t *testing.T) {
 		DeleteAccount,
 		"",
 		nil,
-		true,
 	)
 	if err != nil {
 		t.Fatalf("request deletion for erasure test: %v", err)
 	}
+	now = now.Add(GracePeriod)
+	secondService.now = func() time.Time { return now }
+	secondAdapters.erasure.DatabaseCompletedAt = now
+	secondAdapters.erasure.TombstoneExpiresAt = now.Add(TombstoneRetention)
+	secondAdapters.erasure.MediaDeletionDueAt = now.Add(7 * 24 * time.Hour)
 	completed, err := secondService.FinalizeDue(context.Background(), 10)
 	if !errors.Is(err, ErrFinalizationIncomplete) || len(completed) != 0 {
 		t.Fatalf("expected incomplete erasure, completed=%#v err=%v", completed, err)

@@ -6,23 +6,57 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type RequestAuthenticator interface {
 	Principal(*http.Request) (Principal, bool)
 }
 
+type MutationRateLimiter interface {
+	Allow(string, time.Time) (bool, time.Duration)
+}
+
 type HTTPHandler struct {
 	service       *Service
 	authenticator RequestAuthenticator
+	limiter       MutationRateLimiter
+	now           func() time.Time
 }
 
-func NewHTTPHandler(service *Service, authenticator RequestAuthenticator) (http.Handler, error) {
+type HTTPOption func(*HTTPHandler)
+
+func WithHTTPRateLimiter(limiter MutationRateLimiter) HTTPOption {
+	return func(handler *HTTPHandler) {
+		handler.limiter = limiter
+	}
+}
+
+func WithHTTPClock(clock func() time.Time) HTTPOption {
+	return func(handler *HTTPHandler) {
+		handler.now = clock
+	}
+}
+
+func NewHTTPHandler(
+	service *Service,
+	authenticator RequestAuthenticator,
+	options ...HTTPOption,
+) (http.Handler, error) {
 	if service == nil || authenticator == nil {
 		return nil, fmtInvalidDependencies()
 	}
-	handler := &HTTPHandler{service: service, authenticator: authenticator}
+	handler := &HTTPHandler{
+		service:       service,
+		authenticator: authenticator,
+		limiter:       newDefaultAccountRateLimiter(),
+		now:           time.Now,
+	}
+	for _, option := range options {
+		option(handler)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/account", handler.accountArea)
 	mux.HandleFunc("PATCH /api/v1/account/profile", handler.updateProfile)
@@ -60,6 +94,9 @@ func (handler *HTTPHandler) updateProfile(writer http.ResponseWriter, request *h
 		writeAccountError(writer, err)
 		return
 	}
+	if !handler.allowRate(writer, principal, "profile.update") {
+		return
+	}
 	profile, err := handler.service.UpdateProfile(request.Context(), principal, input)
 	if err != nil {
 		writeAccountError(writer, err)
@@ -86,6 +123,9 @@ func (handler *HTTPHandler) disconnectProvider(writer http.ResponseWriter, reque
 	}
 	if input.Confirmation != providerID {
 		writeAccountError(writer, fmtExplicitConfirmation())
+		return
+	}
+	if !handler.allowRate(writer, principal, "provider.disconnect") {
 		return
 	}
 	if err := handler.service.DisconnectProvider(request.Context(), principal, providerID); err != nil {
@@ -116,6 +156,9 @@ func (handler *HTTPHandler) requestExport(writer http.ResponseWriter, request *h
 		writeAccountError(writer, fmtExplicitConfirmation())
 		return
 	}
+	if !handler.allowRate(writer, principal, "export.request") {
+		return
+	}
 	result, err := handler.service.RequestExport(
 		request.Context(),
 		principal,
@@ -132,6 +175,9 @@ func (handler *HTTPHandler) requestExport(writer http.ResponseWriter, request *h
 func (handler *HTTPHandler) downloadExport(writer http.ResponseWriter, request *http.Request) {
 	principal, ok := handler.authenticate(writer, request)
 	if !ok {
+		return
+	}
+	if !handler.allowRate(writer, principal, "export.download") {
 		return
 	}
 	result, err := handler.service.DownloadExport(
@@ -158,7 +204,6 @@ func (handler *HTTPHandler) requestDeletion(writer http.ResponseWriter, request 
 		Scope        DeletionScope     `json:"scope"`
 		WorkspaceID  string            `json:"workspace_id"`
 		Actions      []OwnershipAction `json:"ownership_actions"`
-		Immediate    bool              `json:"immediate"`
 		Confirmation string            `json:"confirmation"`
 	}
 	if err := decodeAccountJSON(writer, request, &input); err != nil {
@@ -169,13 +214,15 @@ func (handler *HTTPHandler) requestDeletion(writer http.ResponseWriter, request 
 		writeAccountError(writer, fmtExplicitConfirmation())
 		return
 	}
+	if !handler.allowRate(writer, principal, "deletion.request") {
+		return
+	}
 	result, err := handler.service.RequestDeletion(
 		request.Context(),
 		principal,
 		input.Scope,
 		input.WorkspaceID,
 		input.Actions,
-		input.Immediate,
 	)
 	if err != nil {
 		writeAccountError(writer, err)
@@ -190,6 +237,9 @@ func (handler *HTTPHandler) cancelDeletion(writer http.ResponseWriter, request *
 	}
 	principal, ok := handler.authenticate(writer, request)
 	if !ok {
+		return
+	}
+	if !handler.allowRate(writer, principal, "deletion.cancel") {
 		return
 	}
 	if err := handler.service.CancelDeletion(
@@ -213,6 +263,25 @@ func (handler *HTTPHandler) authenticate(
 		return Principal{}, false
 	}
 	return principal, true
+}
+
+func (handler *HTTPHandler) allowRate(
+	writer http.ResponseWriter,
+	principal Principal,
+	action string,
+) bool {
+	if handler.limiter == nil {
+		return true
+	}
+	allowed, retryAfter := handler.limiter.Allow(
+		principal.AccountID+":"+action,
+		handler.now().UTC(),
+	)
+	if allowed {
+		return true
+	}
+	writeRateLimited(writer, retryAfter)
+	return false
 }
 
 func decodeAccountJSON(writer http.ResponseWriter, request *http.Request, target any) error {
@@ -297,4 +366,16 @@ func fmtInvalidJSON(err error) error {
 
 func fmtInvalidOrigin() error {
 	return errors.Join(ErrInvalidArgument, errors.New("invalid request origin"))
+}
+
+func writeRateLimited(writer http.ResponseWriter, retryAfter time.Duration) {
+	seconds := int(retryAfter.Seconds())
+	if retryAfter <= 0 || time.Duration(seconds)*time.Second < retryAfter {
+		seconds++
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	writer.Header().Set("Retry-After", strconv.Itoa(seconds))
+	writeAccountJSON(writer, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
 }

@@ -184,7 +184,6 @@ type DeletionRequest struct {
 	Status             DeletionStatus `json:"status"`
 	RequestedAt        time.Time      `json:"requested_at"`
 	GraceEndsAt        time.Time      `json:"grace_ends_at"`
-	Immediate          bool           `json:"immediate"`
 	Ownership          OwnershipPlan  `json:"ownership"`
 	FailureCode        string         `json:"failure_code,omitempty"`
 	CompletedAt        *time.Time     `json:"completed_at,omitempty"`
@@ -232,6 +231,7 @@ type Repository interface {
 
 	CreateExport(context.Context, ExportRequest) error
 	Export(context.Context, string) (ExportRequest, error)
+	ActiveExport(context.Context, string, ExportScope, string) (ExportRequest, bool, error)
 	MarkExportReady(context.Context, ExportReadyCommand) error
 	MarkExportFailed(context.Context, string, time.Time) error
 	ExpiredExports(context.Context, time.Time, int) ([]ExportRequest, error)
