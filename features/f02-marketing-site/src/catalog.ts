@@ -71,7 +71,6 @@ export interface PricingCopy {
   quantityOverMax: string
   planGroupLabel: string
   selectedPlanAnnouncement: string
-  annualOption: string
   annualExplainer: string
   annualPayForService: string
   annualSavingAmount: string
@@ -143,7 +142,6 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     quantityOverMax: '{count}+ social channels',
     planGroupLabel: 'Choose a plan',
     selectedPlanAnnouncement: 'Selected plan: {plan}. Social channels: {quantity}. Billing: {interval}. Total: {total}.',
-    annualOption: 'Annual — pay {months} months out of {serviceMonths}',
     annualExplainer: 'With annual billing you pay {months} monthly instalments upfront and use the service for {serviceMonths} months. You save {percent} compared to monthly billing.',
     annualPayForService: 'You pay {months} months, you use the service for {serviceMonths}',
     annualSavingAmount: 'You save {amount} per year compared to monthly billing',
@@ -213,7 +211,6 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     quantityOverMax: '{count}+ canali social',
     planGroupLabel: 'Scegli un piano',
     selectedPlanAnnouncement: 'Piano selezionato: {plan}. Canali social: {quantity}. Fatturazione: {interval}. Totale: {total}.',
-    annualOption: 'Annuale — paghi {months} mesi su {serviceMonths}',
     annualExplainer: 'Con la fatturazione annuale paghi anticipatamente {months} mensilità e utilizzi il servizio per {serviceMonths} mesi. Risparmi il {percent} rispetto al mensile.',
     annualPayForService: 'Paghi {months} mesi, utilizzi il servizio per {serviceMonths}',
     annualSavingAmount: 'Risparmi {amount} all’anno rispetto al mensile',
@@ -283,7 +280,6 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     quantityOverMax: '{count}+ canales sociales',
     planGroupLabel: 'Elige un plan',
     selectedPlanAnnouncement: 'Plan seleccionado: {plan}. Canales sociales: {quantity}. Facturación: {interval}. Total: {total}.',
-    annualOption: 'Anual — pagas {months} meses de {serviceMonths}',
     annualExplainer: 'Con la facturación anual pagas por adelantado {months} mensualidades y usas el servicio durante {serviceMonths} meses. Ahorras un {percent} respecto al mensual.',
     annualPayForService: 'Pagas {months} meses, usas el servicio durante {serviceMonths}',
     annualSavingAmount: 'Ahorras {amount} al año respecto al mensual',
@@ -353,7 +349,6 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     quantityOverMax: '{count}+ canaux sociaux',
     planGroupLabel: 'Choisissez un abonnement',
     selectedPlanAnnouncement: 'Abonnement sélectionné : {plan}. Canaux sociaux : {quantity}. Facturation : {interval}. Total : {total}.',
-    annualOption: 'Annuel — payez {months} mois sur {serviceMonths}',
     annualExplainer: 'Avec la facturation annuelle, vous payez {months} mensualités à l’avance et utilisez le service pendant {serviceMonths} mois. Vous économisez {percent} par rapport au mensuel.',
     annualPayForService: 'Vous payez {months} mois, vous utilisez le service pendant {serviceMonths}',
     annualSavingAmount: 'Vous économisez {amount} par an par rapport au mensuel',
@@ -423,7 +418,6 @@ export const PRICING_COPY: Readonly<Record<PricingLocale, PricingCopy>> = {
     quantityOverMax: '{count}+ Social-Media-Kanäle',
     planGroupLabel: 'Wähle einen Tarif',
     selectedPlanAnnouncement: 'Ausgewählter Tarif: {plan}. Social-Media-Kanäle: {quantity}. Abrechnung: {interval}. Gesamt: {total}.',
-    annualOption: 'Jährlich — zahle {months} von {serviceMonths} Monaten',
     annualExplainer: 'Bei jährlicher Abrechnung zahlst du {months} Monatsraten im Voraus und nutzt den Dienst {serviceMonths} Monate lang. Du sparst {percent} gegenüber der monatlichen Abrechnung.',
     annualPayForService: 'Du zahlst {months} Monate und nutzt den Dienst {serviceMonths} Monate',
     annualSavingAmount: 'Du sparst {amount} pro Jahr gegenüber der monatlichen Abrechnung',

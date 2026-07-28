@@ -62,10 +62,7 @@ test('pricing controls preserve only compatible pre-launch selections', async ({
 
   const quantity = page.getByLabel('Social channels')
   const monthly = page.getByRole('button', { name: 'Monthly', exact: true })
-  const annual = page.getByRole('button', {
-    name: 'Annual — pay 10 months out of 12',
-    exact: true,
-  })
+  const annual = page.getByRole('button', { name: 'Annual', exact: true })
   const start = page.locator('[data-plan="start"]')
   const pro = page.locator('[data-plan="pro"]')
   const team = page.locator('[data-plan="team"]')
