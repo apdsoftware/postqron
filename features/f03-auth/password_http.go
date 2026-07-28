@@ -69,7 +69,7 @@ func (handler *PasswordHandler) login(
 		})
 		return
 	}
-	setAuthCookies(writer, token, expiry)
+	setSessionCookie(writer, token, expiry)
 	writeJSON(writer, http.StatusOK, map[string]any{"authenticated": true})
 }
 
@@ -79,7 +79,7 @@ func (handler *PasswordHandler) changePassword(
 ) {
 	sessionToken, err := sessionCookie(request)
 	if err != nil {
-		clearAuthCookies(writer)
+		clearSessionCookie(writer)
 		writePasswordOperationError(writer, ErrPasswordUnauthenticated)
 		return
 	}
@@ -102,12 +102,12 @@ func (handler *PasswordHandler) changePassword(
 	)
 	if err != nil {
 		if errors.Is(err, ErrPasswordUnauthenticated) {
-			clearAuthCookies(writer)
+			clearSessionCookie(writer)
 		}
 		writePasswordOperationError(writer, err)
 		return
 	}
-	setAuthCookies(writer, newToken, expiry)
+	setSessionCookie(writer, newToken, expiry)
 	writeJSON(writer, http.StatusOK, map[string]any{"changed": true})
 }
 
@@ -117,7 +117,7 @@ func (handler *PasswordHandler) logout(
 ) {
 	sessionToken, err := sessionCookie(request)
 	if err != nil {
-		clearAuthCookies(writer)
+		clearSessionCookie(writer)
 		writer.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -129,7 +129,7 @@ func (handler *PasswordHandler) logout(
 		writePasswordOperationError(writer, err)
 		return
 	}
-	clearAuthCookies(writer)
+	clearSessionCookie(writer)
 	writer.WriteHeader(http.StatusNoContent)
 }
 

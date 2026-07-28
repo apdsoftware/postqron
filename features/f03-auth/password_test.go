@@ -197,12 +197,11 @@ func TestPasswordLoginIsGenericAndCORSIsRestricted(t *testing.T) {
 	if sessionCookie == nil || !sessionCookie.HttpOnly || !sessionCookie.Secure {
 		t.Fatalf("login session cookie = %+v", sessionCookie)
 	}
-	csrfCookie := cookieByName(cookies, CSRFCookieName)
-	if csrfCookie == nil ||
-		csrfCookie.HttpOnly ||
-		!csrfCookie.Secure ||
-		csrfCookie.Value != csrfTokenValue(sessionCookie.Value) {
-		t.Fatalf("login csrf cookie = %+v session=%+v", csrfCookie, sessionCookie)
+	if len(cookies) != 1 {
+		t.Fatalf("login cookies = %v", cookies)
+	}
+	if cookieByName(cookies, "__Host-postqron_csrf") != nil {
+		t.Fatal("login unexpectedly set a readable CSRF cookie")
 	}
 
 	forbidden := httptest.NewRequest(
@@ -504,21 +503,17 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 	}
 	changedCookies := changed.Result().Cookies()
 	changedSessionCookie := cookieByName(changedCookies, SessionCookieName)
-	changedCSRFCookie := cookieByName(changedCookies, CSRFCookieName)
 	if changedSessionCookie == nil ||
-		changedCSRFCookie == nil ||
 		!changedSessionCookie.HttpOnly ||
 		!changedSessionCookie.Secure ||
-		changedCSRFCookie.HttpOnly ||
-		!changedCSRFCookie.Secure ||
 		changedSessionCookie.Value == sessionToken ||
-		changedCSRFCookie.Value != csrfTokenValue(changedSessionCookie.Value) ||
-		changedCSRFCookie.Value == passwordCSRF(sessionToken) ||
+		len(changedCookies) != 1 ||
+		cookieByName(changedCookies, "__Host-postqron_csrf") != nil ||
 		strings.Contains(changed.Body.String(), "a different secure password") {
 		t.Fatalf(
-			"unsafe password change response: session=%+v csrf=%+v body=%s",
+			"unsafe password change response: session=%+v cookies=%v body=%s",
 			changedSessionCookie,
-			changedCSRFCookie,
+			changedCookies,
 			changed.Body.String(),
 		)
 	}
@@ -541,13 +536,14 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 	}
 	logoutCookies := loggedOut.Result().Cookies()
 	clearedSessionCookie := cookieByName(logoutCookies, SessionCookieName)
-	clearedCSRFCookie := cookieByName(logoutCookies, CSRFCookieName)
-	if clearedSessionCookie == nil || clearedCSRFCookie == nil ||
-		clearedSessionCookie.MaxAge != -1 || clearedCSRFCookie.MaxAge != -1 {
+	if clearedSessionCookie == nil ||
+		clearedSessionCookie.MaxAge != -1 ||
+		len(logoutCookies) != 1 ||
+		cookieByName(logoutCookies, "__Host-postqron_csrf") != nil {
 		t.Fatalf(
-			"logout cookies were not cleared: session=%+v csrf=%+v",
+			"logout cookies were not cleared: session=%+v cookies=%v",
 			clearedSessionCookie,
-			clearedCSRFCookie,
+			logoutCookies,
 		)
 	}
 }

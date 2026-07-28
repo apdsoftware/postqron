@@ -96,7 +96,7 @@ paths:
               $ref: '#/components/schemas/PasswordLogin'
       responses:
         '200':
-          description: Session and CSRF cookies created
+          description: Session cookie created
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SessionCookie'
@@ -115,15 +115,41 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/auth/csrf:
+    get:
+      summary: Return the derived CSRF token for the current authenticated session
+      description: >-
+        Reads the current `__Host-postqron_session` cookie, validates the
+        active password or OAuth session, and returns only the session-derived
+        CSRF token with cache disabled.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Derived CSRF token for the active session
+          headers:
+            Cache-Control:
+              description: Prevents storage of the derived CSRF token
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CSRFToken'
+        '401':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/auth/password/change:
     post:
       summary: Change the authenticated password and rotate the current session
       description: >-
-        Requires recent password authentication and the double-submit CSRF
-        token mirrored in the readable CSRF cookie. Success updates the
+        Requires recent password authentication and the session-derived CSRF
+        token returned by `GET /api/v1/auth/csrf`. Success updates the
         Argon2id hash atomically, revokes every existing account session,
-        creates one replacement session, rotates the CSRF cookie, and appends
-        a security event without storing or returning password material.
+        creates one replacement session, and appends a security event without
+        storing or returning password material.
       security:
         - sessionCookie: []
       parameters:
@@ -165,18 +191,18 @@ paths:
     post:
       summary: Revoke the current password session
       description: >-
-        Revokes the server-side session before clearing the session and CSRF
-        cookies. Repeating logout after revocation remains safe.
+        Revokes the server-side session before clearing the session cookie.
+        Repeating logout after revocation remains safe.
       security:
         - sessionCookie: []
       parameters:
         - $ref: '#/components/parameters/CSRFToken'
       responses:
         '204':
-          description: Session revoked and both cookies cleared
+          description: Session revoked and session cookie cleared
           headers:
             Set-Cookie:
-              description: Expired session and CSRF cookies
+              description: Expired session cookie
               schema:
                 type: string
         '403':
@@ -277,7 +303,7 @@ paths:
         - sessionCookie: []
       responses:
         '204':
-          description: Sessions revoked and both cookies cleared
+          description: Sessions revoked and session cookie cleared
         '401':
           $ref: '#/components/responses/Error'
   /api/v1/auth/providers/{provider}:
@@ -302,9 +328,9 @@ components:
   headers:
     SessionCookie:
       description: >-
-        Secure cookies. The runtime sets an HttpOnly `__Host-postqron_session`
-        cookie plus a readable double-submit `__Host-postqron_csrf` cookie; the
-        raw session token is never returned in JSON.
+        Secure cookie. The runtime sets only an HttpOnly
+        `__Host-postqron_session` cookie; the raw session token is never
+        returned in JSON.
       schema:
         type: string
   securitySchemes:
@@ -317,7 +343,7 @@ components:
       name: X-CSRF-Token
       in: header
       required: true
-      description: Token derived from and bound to the current opaque session, mirrored in the readable `__Host-postqron_csrf` cookie
+      description: Token derived from and bound to the current opaque session, returned by `GET /api/v1/auth/csrf`
       schema:
         type: string
         minLength: 64
@@ -343,7 +369,7 @@ components:
       description: Login, registration, or linking completed
       headers:
         Set-Cookie:
-          description: Secure session and CSRF cookies for login and registration
+          description: Secure session cookie for login and registration
           schema:
             type: string
       content:
@@ -405,6 +431,15 @@ components:
           type: string
           minLength: 32
           writeOnly: true
+    CSRFToken:
+      type: object
+      additionalProperties: false
+      required: [csrf_token]
+      properties:
+        csrf_token:
+          type: string
+          minLength: 64
+          maxLength: 64
     PasswordLogin:
       type: object
       additionalProperties: false

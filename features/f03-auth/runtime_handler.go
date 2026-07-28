@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -53,6 +54,10 @@ func NewRuntimeHandler(
 		allowedOrigins: origins,
 	}
 	oauth := &Handler{service: authService}
+	runtime := &runtimeHandler{
+		authService:     authService,
+		passwordService: passwordService,
+	}
 	registration := &passwordRegistrationHandler{service: registrationService}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/auth/password/register", registration.register)
@@ -63,6 +68,8 @@ func NewRuntimeHandler(
 	mux.HandleFunc("OPTIONS /api/v1/auth/password/verify/resend", authPreflight)
 	mux.HandleFunc("POST /api/v1/auth/password/login", password.login)
 	mux.HandleFunc("OPTIONS /api/v1/auth/password/login", authPreflight)
+	mux.HandleFunc("GET /api/v1/auth/csrf", runtime.csrf)
+	mux.HandleFunc("OPTIONS /api/v1/auth/csrf", authPreflight)
 	mux.HandleFunc("POST /api/v1/auth/password/change", password.changePassword)
 	mux.HandleFunc("OPTIONS /api/v1/auth/password/change", authPreflight)
 	mux.HandleFunc("POST /api/v1/auth/logout", password.logout)
@@ -78,6 +85,11 @@ func NewRuntimeHandler(
 	mux.HandleFunc("DELETE /api/v1/auth/providers/{provider}", oauth.unlink)
 	mux.HandleFunc("OPTIONS /api/v1/auth/providers/{provider}", authPreflight)
 	return password.cors(mux), nil
+}
+
+type runtimeHandler struct {
+	authService     *Service
+	passwordService *PasswordService
 }
 
 type passwordRegistrationHandler struct {
@@ -197,13 +209,54 @@ func writePasswordRegistrationError(writer http.ResponseWriter, err error) {
 }
 
 func authPreflight(writer http.ResponseWriter, _ *http.Request) {
-	writer.Header().Set("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS")
+	writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	writer.Header().Set(
 		"Access-Control-Allow-Headers",
 		"Content-Type, X-CSRF-Token",
 	)
 	writer.Header().Set("Access-Control-Max-Age", "600")
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *runtimeHandler) csrf(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	writer.Header().Set("Cache-Control", "no-store")
+	sessionToken, err := sessionCookie(request)
+	if err != nil {
+		writePasswordOperationError(writer, ErrPasswordUnauthenticated)
+		return
+	}
+	if err := handler.validateSession(request.Context(), sessionToken); err != nil {
+		if errors.Is(err, ErrPasswordUnauthenticated) {
+			writePasswordOperationError(writer, ErrPasswordUnauthenticated)
+			return
+		}
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"csrf_token": csrfTokenValue(sessionToken),
+	})
+}
+
+func (handler *runtimeHandler) validateSession(
+	ctx context.Context,
+	sessionToken string,
+) error {
+	if err := handler.passwordService.ValidateSession(ctx, sessionToken); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrPasswordUnauthenticated) {
+		return err
+	}
+	if _, err := handler.authService.Authenticate(ctx, sessionToken); err != nil {
+		if code, _, _ := ErrorDetails(err); code == CodeUnauthenticated {
+			return ErrPasswordUnauthenticated
+		}
+		return err
+	}
+	return nil
 }
 
 func runtimeSealerFromEnv() Sealer {
@@ -225,6 +278,15 @@ func runtimeSealerFromEnv() Sealer {
 func runtimeProviderAdapters() map[Provider]ProviderAdapter {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	adapters := make(map[Provider]ProviderAdapter)
+	registerAdapter := func(provider Provider, adapter ProviderAdapter) {
+		if adapter == nil {
+			return
+		}
+		if err := validateProviderConfig(provider, adapter.Config()); err != nil {
+			return
+		}
+		adapters[provider] = adapter
+	}
 	registerOIDC := func(
 		provider Provider,
 		clientIDEnv, clientSecretEnv, redirectEnv string,
@@ -251,7 +313,7 @@ func runtimeProviderAdapters() map[Provider]ProviderAdapter {
 			HTTPClient:       httpClient,
 		})
 		if err == nil {
-			adapters[provider] = adapter
+			registerAdapter(provider, adapter)
 		}
 	}
 	registerOIDC(
@@ -300,7 +362,7 @@ func runtimeProviderAdapters() map[Provider]ProviderAdapter {
 			HTTPClient:   httpClient,
 		})
 		if err == nil {
-			adapters[ProviderFacebook] = adapter
+			registerAdapter(ProviderFacebook, adapter)
 		}
 	}
 	return adapters

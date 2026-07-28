@@ -60,12 +60,7 @@ func NewPostgresModule(
 	if err != nil {
 		return nil, err
 	}
-	authService, err := NewService(Config{
-		Store:     authStore,
-		Sealer:    runtimeSealerFromEnv(),
-		Providers: runtimeProviderAdapters(),
-		Now:       clock,
-	})
+	authService, err := newRuntimeAuthService(authStore, clock)
 	if err != nil {
 		return nil, err
 	}
@@ -134,4 +129,21 @@ func (module *Module) Handler(name string) (http.Handler, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func newRuntimeAuthService(
+	store TransactionStore,
+	now func() time.Time,
+) (*Service, error) {
+	sealer := runtimeSealerFromEnv()
+	var providers map[Provider]ProviderAdapter
+	if sealer != nil {
+		providers = runtimeProviderAdapters()
+	}
+	return NewService(Config{
+		Store:     store,
+		Sealer:    sealer,
+		Providers: providers,
+		Now:       now,
+	})
 }
