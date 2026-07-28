@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +163,41 @@ func TestRuntimeHandlerRejectsUnconfiguredProviderWithoutBlockingRuntime(t *test
 	}
 	if payload.Error.Code != CodeUnsupportedProvider {
 		t.Fatalf("unexpected authorize error: %+v", payload)
+	}
+}
+
+func TestRuntimeProviderAdaptersUseLinkedInOAuthIssuer(t *testing.T) {
+	t.Setenv(authLinkedInClientIDEnv, "linkedin-client")
+	t.Setenv(authLinkedInClientSecretEnv, "linkedin-secret")
+	t.Setenv(authLinkedInRedirectEnv, "https://app.example.test/api/v1/auth/callback")
+	for _, envName := range []string{
+		authGoogleClientIDEnv,
+		authGoogleClientSecretEnv,
+		authGoogleRedirectEnv,
+		authAppleClientIDEnv,
+		authAppleClientSecretEnv,
+		authAppleRedirectEnv,
+		authFacebookClientIDEnv,
+		authFacebookClientSecretEnv,
+		authFacebookRedirectEnv,
+		authFacebookGraphEnv,
+	} {
+		_ = os.Unsetenv(envName)
+	}
+
+	adapters := runtimeProviderAdapters()
+	adapter, ok := adapters[ProviderLinkedIn]
+	if !ok {
+		t.Fatal("linkedin adapter was not registered")
+	}
+	oidcAdapter, ok := adapter.(*OIDCAdapter)
+	if !ok {
+		t.Fatalf("linkedin adapter type = %T, want *OIDCAdapter", adapter)
+	}
+	if oidcAdapter.issuerURL != "https://www.linkedin.com/oauth" {
+		t.Fatalf("linkedin issuer = %q", oidcAdapter.issuerURL)
+	}
+	if oidcAdapter.authorizationURL != "https://www.linkedin.com/oauth/v2/authorization" {
+		t.Fatalf("linkedin authorization URL = %q", oidcAdapter.authorizationURL)
 	}
 }

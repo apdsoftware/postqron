@@ -282,7 +282,7 @@ func runtimeProviderAdapters() map[Provider]ProviderAdapter {
 		authLinkedInClientSecretEnv,
 		authLinkedInRedirectEnv,
 		"https://www.linkedin.com/oauth/v2/authorization",
-		"https://www.linkedin.com",
+		"https://www.linkedin.com/oauth",
 		"",
 		[]string{"openid", "email", "profile"},
 		nil,
