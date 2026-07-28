@@ -4,13 +4,21 @@ import {
   useRoute,
   useSeoMeta,
 } from '#imports'
-import { computed } from 'vue'
+import {
+  computed,
+  defineComponent,
+  h,
+  type PropType,
+  type VNodeChild,
+} from 'vue'
 import { usePostqronI18n } from '../../f36-i18n/runtime.ts'
 import {
   DOCUMENT_TYPES,
   isDocumentType,
   loadBundledRepository,
+  parseLegalMarkdown,
   type DocumentType,
+  type LegalInline,
   type LegalLocale,
 } from '../src/index.ts'
 
@@ -102,10 +110,84 @@ useSeoMeta({
   title: `${published.title || titles[document][i18n.locale.value]} — Postqron`,
   robots: 'noindex, nofollow',
 })
+
+function renderInline(nodes: LegalInline[]): VNodeChild[] {
+  return nodes.map(node => {
+    switch (node.type) {
+      case 'text':
+        return node.value
+      case 'code':
+        return h('code', node.value)
+      case 'strong':
+        return h('strong', renderInline(node.children))
+      case 'emphasis':
+        return h('em', renderInline(node.children))
+      case 'link':
+        return h('a', {
+          href: node.href,
+          ...(node.external
+            ? {
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                'aria-label': `${node.children.map(child =>
+                  child.type === 'text' ? child.value : '').join('')} (opens in a new tab)`,
+              }
+            : {}),
+        }, renderInline(node.children))
+    }
+  })
+}
+
+const LegalMarkdown = defineComponent({
+  props: {
+    content: {
+      type: String as PropType<string>,
+      required: true,
+    },
+  },
+  setup(props) {
+    const blocks = computed(() => parseLegalMarkdown(props.content))
+    return () => blocks.value.flatMap((block, index) => {
+      switch (block.type) {
+        case 'heading':
+          // The approved corpus starts with an H1 matching the page title.
+          // The article header above already owns the single document H1.
+          return block.level === 1
+            ? []
+            : [h(`h${block.level}`, { key: index }, renderInline(block.children))]
+        case 'paragraph':
+          return [h('p', { key: index }, renderInline(block.children))]
+        case 'list':
+          return [h(block.ordered ? 'ol' : 'ul', { key: index },
+            block.items.map((item, itemIndex) =>
+              h('li', { key: itemIndex }, renderInline(item))))]
+        case 'table':
+          return [h('div', {
+            key: index,
+            class: 'legal-release__table',
+            role: 'region',
+            tabindex: '0',
+            'aria-label': `Scrollable legal document table ${index + 1}`,
+          }, [
+            h('table', [
+              h('thead', [
+                h('tr', block.header.map((cell, cellIndex) =>
+                  h('th', { key: cellIndex, scope: 'col' }, renderInline(cell)))),
+              ]),
+              h('tbody', block.rows.map((row, rowIndex) =>
+                h('tr', { key: rowIndex }, row.map((cell, cellIndex) =>
+                  h('td', { key: cellIndex }, renderInline(cell))))),
+              ),
+            ]),
+          ])]
+      }
+    })
+  },
+})
 </script>
 
 <template>
-  <main class="legal-release content-wrap">
+  <div class="legal-release content-wrap">
     <article>
       <header>
         <p class="eyebrow">
@@ -128,10 +210,10 @@ useSeoMeta({
         </dl>
       </header>
       <div class="legal-release__content">
-        {{ published.content }}
+        <LegalMarkdown :content="published.content" />
       </div>
     </article>
-  </main>
+  </div>
 </template>
 
 <style scoped>
@@ -162,8 +244,59 @@ useSeoMeta({
 }
 
 .legal-release__content {
-  white-space: pre-wrap;
   line-height: var(--pq-line-height-body);
+}
+
+.legal-release__content :deep(h2) {
+  margin-block: var(--pq-space-8) var(--pq-space-3);
+}
+
+.legal-release__content :deep(h3) {
+  margin-block: var(--pq-space-6) var(--pq-space-2);
+}
+
+.legal-release__content :deep(p),
+.legal-release__content :deep(ul),
+.legal-release__content :deep(ol) {
+  margin-block: var(--pq-space-3);
+}
+
+.legal-release__content :deep(li + li) {
+  margin-block-start: var(--pq-space-2);
+}
+
+.legal-release__content :deep(a) {
+  overflow-wrap: anywhere;
+}
+
+.legal-release__content :deep(code) {
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+}
+
+.legal-release__content :deep(.legal-release__table) {
+  max-width: 100%;
+  margin-block: var(--pq-space-5);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.legal-release__content :deep(table) {
+  width: 100%;
+  min-width: 42rem;
+  border-collapse: collapse;
+}
+
+.legal-release__content :deep(th),
+.legal-release__content :deep(td) {
+  padding: var(--pq-space-2) var(--pq-space-3);
+  border: 1px solid currentcolor;
+  text-align: start;
+  vertical-align: top;
+}
+
+.legal-release__content :deep(th) {
+  font-weight: var(--pq-font-weight-bold);
 }
 
 @media (max-width: 36rem) {

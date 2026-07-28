@@ -1,5 +1,6 @@
 export * from './api.ts'
 export * from './bundle.ts'
+export * from './markdown.ts'
 export * from './repository.ts'
 export * from './types.ts'
 export * from './validation.ts'
