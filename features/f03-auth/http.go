@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const SessionCookieName = "__Host-postqron_session"
+const (
+	SessionCookieName = "__Host-postqron_session"
+	CSRFCookieName    = "__Host-postqron_csrf"
+)
 
 type Handler struct {
 	service *Service
@@ -79,7 +82,7 @@ func (h *Handler) callback(response http.ResponseWriter, request *http.Request) 
 		return
 	}
 	if result.SessionToken != "" {
-		setSessionCookie(response, result.SessionToken, result.SessionExpiry)
+		setAuthCookies(response, result.SessionToken, result.SessionExpiry)
 	}
 	writeJSON(response, http.StatusOK, map[string]any{
 		"account_id": result.AccountID,
@@ -132,7 +135,7 @@ func (h *Handler) logout(response http.ResponseWriter, request *http.Request) {
 		writeError(response, err)
 		return
 	}
-	clearSessionCookie(response)
+	clearAuthCookies(response)
 	response.WriteHeader(http.StatusNoContent)
 }
 
@@ -150,7 +153,7 @@ func (h *Handler) revokeSessions(response http.ResponseWriter, request *http.Req
 		writeError(response, err)
 		return
 	}
-	clearSessionCookie(response)
+	clearAuthCookies(response)
 	response.WriteHeader(http.StatusNoContent)
 }
 
@@ -238,7 +241,7 @@ func requireSameOrigin(request *http.Request) error {
 	return nil
 }
 
-func setSessionCookie(response http.ResponseWriter, token string, expiresAt time.Time) {
+func setAuthCookies(response http.ResponseWriter, token string, expiresAt time.Time) {
 	http.SetCookie(response, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    token,
@@ -249,14 +252,32 @@ func setSessionCookie(response http.ResponseWriter, token string, expiresAt time
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	})
+	http.SetCookie(response, &http.Cookie{
+		Name:     CSRFCookieName,
+		Value:    csrfTokenValue(token),
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  expiresAt,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
+	})
 }
 
-func clearSessionCookie(response http.ResponseWriter) {
+func clearAuthCookies(response http.ResponseWriter) {
 	http.SetCookie(response, &http.Cookie{
 		Name:     SessionCookieName,
 		Path:     "/",
 		Secure:   true,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	http.SetCookie(response, &http.Cookie{
+		Name:     CSRFCookieName,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
