@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -163,6 +164,148 @@ func TestRuntimeHandlerRejectsUnconfiguredProviderWithoutBlockingRuntime(t *test
 	}
 	if payload.Error.Code != CodeUnsupportedProvider {
 		t.Fatalf("unexpected authorize error: %+v", payload)
+	}
+}
+
+func TestRuntimeHandlerReturnsDerivedCSRFFromPasswordSession(t *testing.T) {
+	registrationService, err := NewPasswordRegistrationService(PasswordRegistrationConfig{
+		Store: newRegistrationMemoryStore(),
+		Now:   func() time.Time { return testNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordHash, err := HashPassword(
+		"correct horse battery staple",
+		DefaultPasswordParameters(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordStore := &passwordStoreFixture{credential: PasswordCredential{
+		AccountID:    "account-owner",
+		PasswordHash: passwordHash,
+	}}
+	passwordService, err := NewPasswordService(
+		passwordStore,
+		func() time.Time { return testNow },
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authService, _, _ := newTestService(t, nil)
+	handler, err := NewRuntimeHandler(
+		authService,
+		passwordService,
+		registrationService,
+		"https://postqron.com",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := passwordService.Login(
+		context.Background(),
+		"account-owner@example.test",
+		"correct horse battery staple",
+	)
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	passwordStore.context = PasswordSessionContext{
+		AccountID:       passwordStore.session.AccountID,
+		PasswordHash:    passwordHash,
+		AuthenticatedAt: passwordStore.session.AuthenticatedAt,
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/csrf", nil)
+	request.Header.Set("Origin", "https://postqron.com")
+	request.AddCookie(&http.Cookie{
+		Name:  SessionCookieName,
+		Value: token,
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("csrf status = %d body=%s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache-control = %q", response.Header().Get("Cache-Control"))
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != "https://postqron.com" ||
+		response.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("csrf CORS headers = %v", response.Header())
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode csrf payload: %v", err)
+	}
+	if len(payload) != 1 || payload["csrf_token"] != csrfTokenValue(token) {
+		t.Fatalf("unexpected csrf payload: %v", payload)
+	}
+	if strings.Contains(response.Body.String(), token) {
+		t.Fatalf("csrf response leaked session token: %s", response.Body.String())
+	}
+}
+
+func TestRuntimeHandlerCSRFRequiresAuthenticatedSessionAndSupportsPreflight(t *testing.T) {
+	registrationService, err := NewPasswordRegistrationService(PasswordRegistrationConfig{
+		Store: newRegistrationMemoryStore(),
+		Now:   func() time.Time { return testNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordService, err := NewPasswordService(
+		&passwordStoreFixture{},
+		func() time.Time { return testNow },
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authService, _, _ := newTestService(t, nil)
+	handler, err := NewRuntimeHandler(
+		authService,
+		passwordService,
+		registrationService,
+		"https://postqron.com",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/auth/csrf", nil)
+	unauthenticated.Header.Set("Origin", "https://postqron.com")
+	unauthenticatedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticatedResponse, unauthenticated)
+	if unauthenticatedResponse.Code != http.StatusUnauthorized ||
+		unauthenticatedResponse.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(unauthenticatedResponse.Body.String(), "AUTH_UNAUTHENTICATED") ||
+		strings.Contains(unauthenticatedResponse.Body.String(), "csrf_token") {
+		t.Fatalf(
+			"unauthenticated csrf response = %d headers=%v body=%s",
+			unauthenticatedResponse.Code,
+			unauthenticatedResponse.Header(),
+			unauthenticatedResponse.Body.String(),
+		)
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/csrf", nil)
+	preflight.Header.Set("Origin", "https://postqron.com")
+	preflightResponse := httptest.NewRecorder()
+	handler.ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusNoContent {
+		t.Fatalf("csrf preflight = %d %s", preflightResponse.Code, preflightResponse.Body.String())
+	}
+	if !strings.Contains(
+		preflightResponse.Header().Get("Access-Control-Allow-Methods"),
+		"GET",
+	) {
+		t.Fatalf(
+			"csrf allow methods = %q",
+			preflightResponse.Header().Get("Access-Control-Allow-Methods"),
+		)
 	}
 }
 

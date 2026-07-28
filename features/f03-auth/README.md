@@ -12,7 +12,9 @@ receipts, sessions, provider unlinking, and the onboarding hand-off to F4.
 - Google, Apple, Facebook, and LinkedIn adapters are configured independently
   at runtime. A missing or invalid provider configuration disables only that
   provider; it must never block password registration/login or the other valid
-  providers. Client IDs, client secrets/assertions, and the 32-byte auth
+  providers. If the shared 32-byte auth data-encryption key is missing or
+  invalid, the runtime disables all OAuth providers but still starts password
+  registration/login. Client IDs, client secrets/assertions, and the auth
   data-encryption key come from the runtime secret store and never from the
   repository.
 - A provider adapter must exchange the code with the supplied PKCE verifier,
@@ -36,27 +38,28 @@ receipts, sessions, provider unlinking, and the onboarding hand-off to F4.
   F4 outbox event are committed in one serializable transaction. Retryable
   provider or database errors do not leave a partial account or session.
 - Session and OAuth tokens are opaque. Only session digests and encrypted
-  provider revocation tokens are persisted. The HTTP boundary uses a
-  `Secure`, `HttpOnly`, `SameSite=Lax`, `__Host-postqron_session` cookie plus
-  a `Secure`, readable, `SameSite=Lax`, `__Host-postqron_csrf` cookie carrying
-  the double-submit value derived from the current session.
+  provider revocation tokens are persisted. The HTTP boundary uses only a
+  `Secure`, `HttpOnly`, `SameSite=Lax`, `__Host-postqron_session` cookie. When
+  F30 needs a CSRF token for password operations it must call
+  `GET /api/v1/auth/csrf`, which validates the active session and returns the
+  derived token with `Cache-Control: no-store`.
 - Password login uses Argon2id with the checked-in security floor
   (`m=65536,t=3,p=1`, 16-byte salt, 32-byte key), generic credential errors,
   progressive account lockout, and immutable success/failure security events.
-- `POST /api/v1/auth/logout` validates the double-submit CSRF token bound to
+- `POST /api/v1/auth/logout` validates the session-derived CSRF token bound to
   the opaque session, revokes that session server-side, appends
-  `session.logged_out` without request secrets, and only then expires both the
-  session and CSRF cookies. An already absent session is safe to log out again.
+  `session.logged_out` without request secrets, and only then expires the
+  session cookie. An already absent session is safe to log out again.
 - `POST /api/v1/auth/password/change` requires the current password, matching
   confirmation, the same 12–1024-byte policy used at credential creation,
-  a session-derived CSRF token mirrored in the readable CSRF cookie, and
+  a session-derived CSRF token fetched from `GET /api/v1/auth/csrf`, and
   password authentication no older than five minutes. Rejected current-password
   attempts have a separate progressive rate limit and append only a secret-free
   `password.change_failed` event.
 - A successful password change runs in one serializable transaction: it locks
   and compares the credential and current session, updates the Argon2id hash,
-  revokes all account sessions, inserts one new session, rotates the CSRF
-  cookie, and appends `password.changed`. Optimistic hash/session checks make
+  revokes all account sessions, inserts one new session, and appends
+  `password.changed`. Optimistic hash/session checks make
   concurrent requests fail safely; retrying an already committed request cannot
   create a second active replacement session. Passwords, hashes, and raw
   session tokens never appear in API bodies, audit rows, or logs.

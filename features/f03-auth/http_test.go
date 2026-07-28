@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestHTTPCallbackSetsSessionAndCSRFCookies(t *testing.T) {
+func TestHTTPCallbackSetsSessionCookie(t *testing.T) {
 	service, _, providers := newTestService(t, nil)
 	providers[ProviderApple].identity = ExternalIdentity{
 		Subject:       "apple-http",
@@ -31,7 +31,7 @@ func TestHTTPCallbackSetsSessionAndCSRFCookies(t *testing.T) {
 		t.Fatalf("callback status = %d, body = %s", response.Code, response.Body.String())
 	}
 	cookies := response.Result().Cookies()
-	if len(cookies) != 2 {
+	if len(cookies) != 1 {
 		t.Fatalf("callback cookies = %v", cookies)
 	}
 	sessionCookie := cookieByName(cookies, SessionCookieName)
@@ -42,16 +42,8 @@ func TestHTTPCallbackSetsSessionAndCSRFCookies(t *testing.T) {
 		sessionCookie.Path != "/" {
 		t.Fatalf("insecure session cookie: %+v", sessionCookie)
 	}
-	csrfCookie := cookieByName(cookies, CSRFCookieName)
-	if csrfCookie == nil ||
-		!csrfCookie.Secure ||
-		csrfCookie.HttpOnly ||
-		csrfCookie.SameSite != http.SameSiteLaxMode ||
-		csrfCookie.Path != "/" ||
-		csrfCookie.Value == "" ||
-		csrfCookie.Value == sessionCookie.Value ||
-		csrfCookie.Value != csrfTokenValue(sessionCookie.Value) {
-		t.Fatalf("invalid csrf cookie: %+v session=%+v", csrfCookie, sessionCookie)
+	if cookieByName(cookies, "__Host-postqron_csrf") != nil {
+		t.Fatal("callback unexpectedly set a readable CSRF cookie")
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {

@@ -288,6 +288,27 @@ func (service *PasswordService) Login(
 	return token, expiry, nil
 }
 
+func (service *PasswordService) ValidateSession(
+	ctx context.Context,
+	sessionToken string,
+) error {
+	if strings.TrimSpace(sessionToken) == "" {
+		return ErrPasswordUnauthenticated
+	}
+	_, exists, err := service.store.PasswordSession(
+		ctx,
+		tokenDigest(sessionToken),
+		service.now().UTC(),
+	)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrPasswordUnauthenticated
+	}
+	return nil
+}
+
 func (service *PasswordService) ChangePassword(
 	ctx context.Context,
 	sessionToken, csrfToken, currentPassword, newPassword, confirmation string,

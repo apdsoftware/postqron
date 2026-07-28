@@ -43,6 +43,14 @@ server:
       handler: Auth
       methods: [OPTIONS]
       visibility: "public"
+    - path: /auth/csrf
+      handler: Auth
+      methods: [GET]
+      visibility: "public"
+    - path: /auth/csrf
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /auth/password/change
       handler: Auth
       methods: [POST]
