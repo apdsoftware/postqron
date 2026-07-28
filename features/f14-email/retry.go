@@ -3,6 +3,7 @@ package email
 import (
 	"errors"
 	"math"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -66,6 +67,23 @@ func sanitizeURLDiagnostic(value string) string {
 		strings.Contains(lower, "api-key") ||
 		strings.Contains(lower, "verification") {
 		return "[redacted-url]"
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return value
+	}
+	path := strings.ToLower(parsed.EscapedPath())
+	for _, marker := range []string{
+		"/verify",
+		"/verify/",
+		"verify-email",
+		"verify_email",
+		"email-verification",
+		"email_verification",
+	} {
+		if strings.Contains(path, marker) {
+			return "[redacted-url]"
+		}
 	}
 	return value
 }

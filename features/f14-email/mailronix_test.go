@@ -128,38 +128,43 @@ func TestMailronixMapsDocumentedErrorsAndRedactsDiagnostics(t *testing.T) {
 }
 
 func TestMailronixRedactsVerificationURLsInProviderDiagnostics(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(
-		response http.ResponseWriter,
-		_ *http.Request,
-	) {
-		response.WriteHeader(http.StatusTooManyRequests)
-		_, _ = response.Write([]byte(
-			`{"error":{"code":"provider_code","message":"https://app.example.test/verify-email?verification_token=abc123&email=person@example.test"}}`,
-		))
-	}))
-	defer server.Close()
-	server.Client().Timeout = time.Second
-	client, err := NewMailronixClient(
-		mailronixTestConfig(server.URL+"/email/send"),
-		server.Client(),
-		mapSecrets{"MAILRONIX_TRANSACTIONAL_API_KEY": "mrx_live_secret"},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.Send(context.Background(), RenderedMessage{
-		Channel: ChannelTransactional, Recipient: Recipient{Email: "person@example.test"},
-		Subject: "Subject", HTML: "<p>Body</p>", Text: "Body",
-	})
-	failure, ok := err.(*MailronixError)
-	if !ok {
-		t.Fatalf("error = %#v", err)
-	}
-	if strings.Contains(failure.Detail, "abc123") ||
-		strings.Contains(failure.Detail, "person@") ||
-		strings.Contains(failure.Detail, "verify-email") ||
-		!strings.Contains(failure.Detail, "[redacted-url]") {
-		t.Fatalf("diagnostic leaked verification URL: %q", failure.Detail)
+	for name, message := range map[string]string{
+		"query_token": `{"error":{"code":"provider_code","message":"https://app.example.test/verify-email?verification_token=abc123&email=person@example.test"}}`,
+		"path_token":  `{"error":{"code":"provider_code","message":"https://app.example.test/verify-email/abc123?email=person@example.test"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(
+				response http.ResponseWriter,
+				_ *http.Request,
+			) {
+				response.WriteHeader(http.StatusTooManyRequests)
+				_, _ = response.Write([]byte(message))
+			}))
+			defer server.Close()
+			server.Client().Timeout = time.Second
+			client, err := NewMailronixClient(
+				mailronixTestConfig(server.URL+"/email/send"),
+				server.Client(),
+				mapSecrets{"MAILRONIX_TRANSACTIONAL_API_KEY": "mrx_live_secret"},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Send(context.Background(), RenderedMessage{
+				Channel: ChannelTransactional, Recipient: Recipient{Email: "person@example.test"},
+				Subject: "Subject", HTML: "<p>Body</p>", Text: "Body",
+			})
+			failure, ok := err.(*MailronixError)
+			if !ok {
+				t.Fatalf("error = %#v", err)
+			}
+			if strings.Contains(failure.Detail, "abc123") ||
+				strings.Contains(failure.Detail, "person@") ||
+				strings.Contains(failure.Detail, "verify-email") ||
+				!strings.Contains(failure.Detail, "[redacted-url]") {
+				t.Fatalf("diagnostic leaked verification URL: %q", failure.Detail)
+			}
+		})
 	}
 }
 
