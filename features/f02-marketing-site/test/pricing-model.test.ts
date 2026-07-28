@@ -294,7 +294,7 @@ test('the selector copy exists in all five locales and states the required guara
   for (const locale of PRICING_LOCALES) {
     const copy = PRICING_COPY[locale]
     for (const key of [
-      'quantityOverMax', 'planGroupLabel', 'selectedPlanAnnouncement', 'annualOption',
+      'quantityOverMax', 'planGroupLabel', 'selectedPlanAnnouncement',
       'annualExplainer', 'annualPayForService', 'annualSavingAmount', 'totalForChannel',
       'totalForChannels', 'perChannelMonthly', 'perChannelAnnual', 'usersIncludedOne',
       'usersIncludedMany', 'usersIncludedUnlimited', 'incompatibleChannels',
@@ -328,13 +328,6 @@ test('the selector copy exists in all five locales and states the required guara
     }),
     'Con la fatturazione annuale paghi anticipatamente 10 mensilità e utilizzi il servizio per 12 mesi. Risparmi il 16,67% rispetto al mensile.',
   )
-  assert.equal(
-    interpolate(PRICING_COPY.it.annualOption, {
-      months: terms.monthsCharged,
-      serviceMonths: terms.monthsOfService,
-    }),
-    'Annuale — paghi 10 mesi su 12',
-  )
   assert.equal(PRICING_COPY.it.unlimitedFlatIndependent, 'Prezzo fisso, indipendente dal numero di canali')
 })
 
@@ -360,6 +353,8 @@ test('the pricing component consumes the shared model without duplicating rules'
   assert.match(component, /quantity-control__markers/)
   assert.match(component, /positionedSliderMarkers/)
   assert.match(component, /sliderMarkerPosition/)
+  assert.match(component, /\{\{\s*copy\.annual\s*\}\}/)
+  assert.doesNotMatch(component, /annualOption/)
   assert.doesNotMatch(component, /<select/)
   assert.doesNotMatch(component, /channels = ref\(3\)/)
   assert.doesNotMatch(component, /amount_cents:\s*\d/)

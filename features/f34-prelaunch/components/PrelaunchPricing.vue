@@ -246,7 +246,7 @@ function incompatibleReason(plan: PublicPlan): string {
           :aria-pressed="selection.interval === 'annual'"
           @click="setBillingInterval('annual')"
         >
-          {{ interpolate(copy.annualOption, annualTermsParams) }}
+          {{ copy.annual }}
         </button>
       </div>
 
