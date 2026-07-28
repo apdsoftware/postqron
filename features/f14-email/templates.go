@@ -277,6 +277,13 @@ var templateCatalog = map[TemplateID]map[Locale]localizedCopy{
 		c("Bienvenue sur %s", "Votre compte est prêt.", "Bienvenue", "Votre compte Postqron est prêt. Terminez la configuration pour commencer à publier.", "Continuer"),
 		c("Willkommen bei %s", "Dein Konto ist bereit.", "Willkommen", "Dein Postqron-Konto ist bereit. Schließe die Einrichtung ab, um mit der Veröffentlichung zu beginnen.", "Weiter"),
 	),
+	TemplateAccountVerification: translations(
+		c("Verify your %s account", "Confirm your email address to activate password sign-in.", "Verify your email address", "Confirm this address to finish setting up password sign-in for your Postqron account. The verification token is delivered only through the secure link below.", "Verify email address"),
+		c("Verifica il tuo account %s", "Conferma il tuo indirizzo email per attivare l’accesso con password.", "Verifica il tuo indirizzo email", "Conferma questo indirizzo per completare l’attivazione dell’accesso con password al tuo account Postqron. Il token di verifica viene consegnato solo tramite il link sicuro qui sotto.", "Verifica indirizzo email"),
+		c("Verifica tu cuenta de %s", "Confirma tu correo para activar el acceso con contraseña.", "Verifica tu dirección de correo", "Confirma esta dirección para terminar de activar el acceso con contraseña a tu cuenta de Postqron. El token de verificación solo se entrega a través del enlace seguro que aparece abajo.", "Verificar correo"),
+		c("Vérifiez votre compte %s", "Confirmez votre adresse e-mail pour activer la connexion par mot de passe.", "Vérifiez votre adresse e-mail", "Confirmez cette adresse pour terminer l’activation de la connexion par mot de passe à votre compte Postqron. Le jeton de vérification n’est transmis que par le lien sécurisé ci-dessous.", "Vérifier l’adresse e-mail"),
+		c("Bestätige dein %s-Konto", "Bestätige deine E-Mail-Adresse, um die Passwortanmeldung zu aktivieren.", "Bestätige deine E-Mail-Adresse", "Bestätige diese Adresse, um die Passwortanmeldung für dein Postqron-Konto fertig einzurichten. Das Verifizierungs-Token wird nur über den sicheren Link unten zugestellt.", "E-Mail-Adresse bestätigen"),
+	),
 	TemplateWorkspaceInvitation: translations(
 		c("You are invited to a workspace", "A workspace invitation is waiting.", "Workspace invitation", "You have been invited to collaborate in a Postqron workspace.", "Review invitation"),
 		c("Sei stato invitato in un workspace", "Ti aspetta un invito al workspace.", "Invito al workspace", "Sei stato invitato a collaborare in un workspace Postqron.", "Controlla l’invito"),

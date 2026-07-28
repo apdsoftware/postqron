@@ -52,6 +52,22 @@ valore sottostante. I link HTTPS restano identici; cambia solo l’etichetta
 localizzata. Il layout usa markup semantico, alternative plain text, target
 touch da 44 px e una regola mobile che regge testi lunghi in francese e tedesco.
 
+## Verifica account
+
+F3 produce il comando versionato `f14.account_verification_requested.v1` con
+`template_id=account_verification` e idempotency key
+`account-verification:{account_id}:{verification_request_id}`. Per questo
+template `data.action_url` è obbligatorio e deve essere un URL HTTPS assoluto:
+il token monouso può comparire solo in quel link di consegna.
+
+Il modello F14 non introduce colonne dedicate al token, non lo replica in
+diagnostica o metriche e non richiede segreti nel repository. La copia
+renderizzata necessaria a invio/retry resta quella già prevista per replay
+immutabile; ogni diagnostica operativa passa invece da redazione, includendo
+indirizzi email, bearer credential e URL di verifica tokenizzati. Il wiring
+runtime che fa emettere questo comando da F3 resta fuori scope e va chiuso in
+`#220`.
+
 ## Matrice transazionale
 
 `TransactionalEventMatrix` è il catalogo eseguibile con evento, produttore,
@@ -59,6 +75,7 @@ destinatario, template, priorità, origine locale, idempotency key e
 responsabilità di invio. Copre:
 
 - welcome/onboarding e inviti workspace;
+- verifica account/password sign-in prodotta da F3;
 - sicurezza, collegamento account e cambiamenti sensibili;
 - social scaduti/da riconnettere;
 - approvazioni e collaborazione;

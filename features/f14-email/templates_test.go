@@ -117,6 +117,32 @@ func TestLocaleFallbackReplayAndLocalizedValues(t *testing.T) {
 	}
 }
 
+func TestAccountVerificationRequiresHTTPSActionURL(t *testing.T) {
+	renderer := testRenderer(t)
+	message := testMessage(TemplateAccountVerification)
+	message.Data.ActionURL = ""
+	if _, err := renderer.Render(message); err == nil {
+		t.Fatal("Render() accepted account verification without action URL")
+	}
+	message.Data.ActionURL = "http://app.example.test/verify?verification_token=abc123"
+	if _, err := renderer.Render(message); err == nil {
+		t.Fatal("Render() accepted account verification with non-HTTPS action URL")
+	}
+	message.Data.ActionURL = "https://app.example.test/verify?verification_token=abc123"
+	rendered, err := renderer.Render(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{rendered.HTML, rendered.Text} {
+		if !strings.Contains(body, "https://app.example.test/verify?verification_token=abc123") {
+			t.Fatalf("verification action URL missing from rendered body: %q", body)
+		}
+	}
+	if rendered.Subject == "" || rendered.Preheader == "" {
+		t.Fatalf("account verification copy incomplete: %#v", rendered)
+	}
+}
+
 func TestRendererEscapesLongFrenchAndGermanContent(t *testing.T) {
 	renderer := testRenderer(t)
 	for _, locale := range []string{"fr", "de"} {
@@ -172,7 +198,7 @@ func TestNormalizedTemplateCatalogSnapshot(t *testing.T) {
 			_, _ = hash.Write([]byte(normalized))
 		}
 	}
-	const expected = "0d77ec241ec8de1b8ebc6510341cca3654862cd93ac353c3c6b54d8f30fd7330"
+	const expected = "0cf8be7cc33b5a560a02fb076755fc548066be0665b92437736d459d8a9eb52c"
 	if actual := hex.EncodeToString(hash.Sum(nil)); actual != expected {
 		t.Fatalf("normalized template snapshot = %s, want %s", actual, expected)
 	}

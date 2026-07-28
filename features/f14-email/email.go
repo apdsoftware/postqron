@@ -47,6 +47,7 @@ type TemplateID string
 
 const (
 	TemplateWelcome             TemplateID = "welcome"
+	TemplateAccountVerification TemplateID = "account_verification"
 	TemplateWorkspaceInvitation TemplateID = "workspace_invitation"
 	TemplateAccountSecurity     TemplateID = "account_security"
 	TemplateAccountLinked       TemplateID = "account_linked"
@@ -190,10 +191,23 @@ func validateMessage(message Message) error {
 			return fmt.Errorf("%w: action URL", ErrInvalidMessage)
 		}
 	}
+	if templateRequiresActionURL(message.Template) &&
+		strings.TrimSpace(message.Data.ActionURL) == "" {
+		return fmt.Errorf("%w: action URL required", ErrInvalidMessage)
+	}
 	if message.Data.AmountMinor != nil && strings.TrimSpace(message.Data.Currency) == "" {
 		return fmt.Errorf("%w: currency", ErrInvalidMessage)
 	}
 	return nil
+}
+
+func templateRequiresActionURL(templateID TemplateID) bool {
+	switch templateID {
+	case TemplateAccountVerification:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateHTTPSURL(value string) error {

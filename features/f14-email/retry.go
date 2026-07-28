@@ -3,6 +3,7 @@ package email
 import (
 	"errors"
 	"math"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ var (
 	diagnosticEmail   = regexp.MustCompile(`(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b`)
 	diagnosticBearer  = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
 	diagnosticSecret  = regexp.MustCompile(`(?i)(token|secret|password|api[_-]?key)=([^&\s]+)`)
+	diagnosticURL     = regexp.MustCompile(`https://[^\s<>"']+`)
 	secretNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 )
 
@@ -48,9 +50,40 @@ func SanitizeDiagnostic(value string) string {
 	value = diagnosticEmail.ReplaceAllString(value, "[redacted]")
 	value = diagnosticBearer.ReplaceAllString(value, "[redacted]")
 	value = diagnosticSecret.ReplaceAllString(value, "$1=[redacted]")
+	value = diagnosticURL.ReplaceAllStringFunc(value, sanitizeURLDiagnostic)
 	value = strings.Join(strings.Fields(value), " ")
 	if len(value) > 500 {
 		value = value[:500]
+	}
+	return value
+}
+
+func sanitizeURLDiagnostic(value string) string {
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "token") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "password") ||
+		strings.Contains(lower, "api_key") ||
+		strings.Contains(lower, "api-key") ||
+		strings.Contains(lower, "verification") {
+		return "[redacted-url]"
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return value
+	}
+	path := strings.ToLower(parsed.EscapedPath())
+	for _, marker := range []string{
+		"/verify",
+		"/verify/",
+		"verify-email",
+		"verify_email",
+		"email-verification",
+		"email_verification",
+	} {
+		if strings.Contains(path, marker) {
+			return "[redacted-url]"
+		}
 	}
 	return value
 }

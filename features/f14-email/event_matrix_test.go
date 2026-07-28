@@ -4,7 +4,8 @@ import "testing"
 
 func TestTransactionalEventMatrixIsCompleteAndVersioned(t *testing.T) {
 	required := []string{
-		"f14.welcome.v1", "f14.workspace_invitation.v1",
+		"f14.welcome.v1", "f14.account_verification_requested.v1",
+		"f14.workspace_invitation.v1",
 		"f14.account_security.v1", "f14.account_linked.v1",
 		"f14.social_reconnect.v1", "f14.approval_requested.v1",
 		"f14.collaboration_update.v1", "f14.publication_succeeded.v1",
