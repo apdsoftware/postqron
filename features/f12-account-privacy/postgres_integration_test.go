@@ -64,6 +64,7 @@ func TestPostgresServiceReusesActiveExportRequest(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	adapters := defaultAdapters(now)
 	clock := now
+	randomCall := byte(0)
 	service, err := NewService(Dependencies{
 		Repository:       repository,
 		Plans:            adapters,
@@ -76,8 +77,9 @@ func TestPostgresServiceReusesActiveExportRequest(t *testing.T) {
 		DeletionSafety:   adapters,
 		Eraser:           adapters,
 	}, WithClock(func() time.Time { return clock }), WithRandom(func(destination []byte) error {
+		randomCall++
 		for index := range destination {
-			destination[index] = byte(index + 1)
+			destination[index] = randomCall + byte(index)
 		}
 		return nil
 	}))
