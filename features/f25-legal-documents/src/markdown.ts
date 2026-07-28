@@ -6,11 +6,13 @@ export type LegalInline =
 
 export type LegalBlock =
   | { type: 'heading', level: 1 | 2 | 3, children: LegalInline[] }
+  | { type: 'thematicBreak' }
   | { type: 'paragraph', children: LegalInline[] }
   | { type: 'list', ordered: boolean, items: LegalInline[][] }
   | { type: 'table', header: LegalInline[][], rows: LegalInline[][][] }
 
-const BLOCK_START = /^(?:#{1,3}\s+|[-*+]\s+|\d+[.)]\s+)/u
+const THEMATIC_BREAK = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/u
+const BLOCK_START = /^(?:\s*(?:-{3,}|\*{3,}|_{3,})\s*$|#{1,3}\s+|[-*+]\s+|\d+[.)]\s+)/u
 const TABLE_DIVIDER = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/u
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
@@ -142,6 +144,12 @@ export function parseLegalMarkdown(markdown: string): LegalBlock[] {
   while (index < lines.length) {
     const line = lines[index] || ''
     if (!line.trim()) {
+      index += 1
+      continue
+    }
+
+    if (THEMATIC_BREAK.test(line)) {
+      blocks.push({ type: 'thematicBreak' })
       index += 1
       continue
     }

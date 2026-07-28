@@ -80,6 +80,20 @@ const blockedMessages: Record<LegalLocale, string> = {
   fr: 'Ce document juridique n’est pas publié car la révision juridique n’est pas terminée.',
   de: 'Dieses Rechtsdokument ist nicht veröffentlicht, da die rechtliche Prüfung noch nicht abgeschlossen ist.',
 }
+const externalLinkMessages: Record<LegalLocale, string> = {
+  en: 'opens in a new tab',
+  it: 'si apre in una nuova scheda',
+  es: 'se abre en una pestaña nueva',
+  fr: 's’ouvre dans un nouvel onglet',
+  de: 'wird in einem neuen Tab geöffnet',
+}
+const tableMessages: Record<LegalLocale, string> = {
+  en: 'Scrollable legal document table',
+  it: 'Tabella scorrevole del documento legale',
+  es: 'Tabla desplazable del documento legal',
+  fr: 'Tableau défilable du document juridique',
+  de: 'Scrollbare Tabelle des Rechtsdokuments',
+}
 
 const repository = await loadBundledRepository()
 if (!repository.ready) {
@@ -130,7 +144,7 @@ function renderInline(nodes: LegalInline[]): VNodeChild[] {
                 target: '_blank',
                 rel: 'noopener noreferrer',
                 'aria-label': `${node.children.map(child =>
-                  child.type === 'text' ? child.value : '').join('')} (opens in a new tab)`,
+                  child.type === 'text' ? child.value : '').join('')} (${externalLinkMessages[i18n.locale.value]})`,
               }
             : {}),
         }, renderInline(node.children))
@@ -155,6 +169,8 @@ const LegalMarkdown = defineComponent({
           return block.level === 1
             ? []
             : [h(`h${block.level}`, { key: index }, renderInline(block.children))]
+        case 'thematicBreak':
+          return [h('hr', { key: index })]
         case 'paragraph':
           return [h('p', { key: index }, renderInline(block.children))]
         case 'list':
@@ -167,7 +183,7 @@ const LegalMarkdown = defineComponent({
             class: 'legal-release__table',
             role: 'region',
             tabindex: '0',
-            'aria-label': `Scrollable legal document table ${index + 1}`,
+            'aria-label': `${tableMessages[i18n.locale.value]} ${index + 1}`,
           }, [
             h('table', [
               h('thead', [
