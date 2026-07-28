@@ -533,6 +533,53 @@ for (const surface of surfaces) {
     }
   })
 
+  test(`${surface.id}: markers follow slider values along the useful thumb path at every supported viewport`, async ({
+    page,
+  }, testInfo) => {
+    covers(testInfo, 'LR-PRICING', 'LR-WCAG')
+
+    for (const width of [320, 375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(surfaceURL(surface, 'en'))
+
+      const slider = controls(page).quantitySlider
+      const sliderBox = await slider.boundingBox()
+      expect(sliderBox, `${width}: slider box`).not.toBeNull()
+
+      const thumbSize = await slider.evaluate((element) => {
+        const probe = document.createElement('span')
+        probe.style.position = 'fixed'
+        probe.style.width = getComputedStyle(element).getPropertyValue('--slider-thumb-size')
+        document.body.append(probe)
+        const resolvedWidth = probe.getBoundingClientRect().width
+        probe.remove()
+        return resolvedWidth
+      })
+      expect(thumbSize, `${width}: explicit thumb size`).toBeGreaterThan(0)
+
+      const markerValues = [1, 3, 6, 9, 10]
+      for (const value of markerValues) {
+        const marker = page.locator(`[data-marker-value="${value}"]`)
+        const markerBox = await marker.boundingBox()
+        expect(markerBox, `${width}: marker ${value}`).not.toBeNull()
+
+        const expectedCenter = sliderBox!.x
+          + thumbSize / 2
+          + ((value - 1) / (10 - 1)) * (sliderBox!.width - thumbSize)
+        const markerCenter = markerBox!.x + markerBox!.width / 2
+        expect(
+          Math.abs(markerCenter - expectedCenter),
+          `${width}: marker ${value} center`,
+        ).toBeLessThanOrEqual(1)
+        expect(markerBox!.x, `${width}: marker ${value} left endpoint`).toBeGreaterThanOrEqual(0)
+        expect(
+          markerBox!.x + markerBox!.width,
+          `${width}: marker ${value} right endpoint`,
+        ).toBeLessThanOrEqual(width)
+      }
+    }
+  })
+
   test(`${surface.id}: channel states 7 and 10+ pass serious and critical WCAG checks`, async ({
     page,
   }, testInfo) => {
