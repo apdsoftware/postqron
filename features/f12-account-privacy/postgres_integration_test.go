@@ -223,9 +223,9 @@ func TestPostgresRepositoryPersistsGracePeriodCancellationAndCompletion(t *testi
 
 func integrationDatabase(t *testing.T) *sql.DB {
 	t.Helper()
-	databaseURL := os.Getenv("F12_DATABASE_URL")
+	databaseURL := integrationDatabaseURL()
 	if databaseURL == "" {
-		t.Skip("F12_DATABASE_URL is not configured")
+		t.Skip("neither F12_DATABASE_URL nor CI-compatible database URL is configured")
 	}
 	database, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -238,6 +238,15 @@ func integrationDatabase(t *testing.T) *sql.DB {
 	applyMigrationFile(t, database, "migrations/000001_create_account_privacy.sql")
 	applyMigrationFile(t, database, "migrations/000002_enforce_idempotent_exports.sql")
 	return database
+}
+
+func integrationDatabaseURL() string {
+	for _, name := range []string{"F12_DATABASE_URL", "DATABASE_URL", "TEST_DATABASE_URL"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func applyMigrationFile(t *testing.T, database *sql.DB, relativePath string) {

@@ -59,4 +59,5 @@ GOWORK=off GOCACHE=$PWD/.gocache go test -race ./...
 GOWORK=off go vet ./...
 ```
 
-Set `F12_DATABASE_URL` to enable PostgreSQL integration tests.
+Set `F12_DATABASE_URL` to enable PostgreSQL integration tests locally. In CI,
+the same tests also accept `DATABASE_URL` and `TEST_DATABASE_URL`.
