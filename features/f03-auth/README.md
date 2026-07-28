@@ -1,21 +1,33 @@
 # F3 authentication and onboarding
 
-This autonomous API slice implements federated login, registration, explicit
-account linking, versioned legal receipts, sessions, provider unlinking, and
-the onboarding hand-off to F4.
+This autonomous API slice implements self-service password registration with
+email verification, federated login, explicit account linking, versioned legal
+receipts, sessions, provider unlinking, and the onboarding hand-off to F4.
 
 ## Security boundaries
 
 - Every authorization request uses a random single-use `state`, an OIDC
   `nonce`, and PKCE with `S256`. Only the state digest is stored; the verifier
   and nonce are encrypted while the short-lived attempt is pending.
-- Google, Apple, Facebook, and LinkedIn adapters are all required at startup.
-  Provider client IDs, client secrets/assertions, signing keys, and the
-  32-byte auth data-encryption key must come from the runtime secret store.
+- Google, Apple, Facebook, and LinkedIn adapters are configured independently
+  at runtime. A missing or invalid provider configuration disables only that
+  provider; it must never block password registration/login or the other valid
+  providers. Client IDs, client secrets/assertions, and the 32-byte auth
+  data-encryption key come from the runtime secret store and never from the
+  repository.
 - A provider adapter must exchange the code with the supplied PKCE verifier,
   validate the ID token signature, issuer, audience, expiry, and expected
   nonce where OIDC is used, and return the provider's stable subject. It must
   never trust browser-supplied profile claims.
+- `POST /api/v1/auth/password/register` creates the account, Argon2id
+  credential, immutable legal receipts, one-time email-verification token
+  digest, security event, and `auth.account.onboarding-required` outbox event
+  in one serializable transaction. The raw verification token never appears in
+  persisted state, audit rows, or API payloads.
+- `POST /api/v1/auth/password/verify` consumes the one-time token, marks the
+  email verified, and invalidates sibling verification tokens for the same
+  account. `POST /api/v1/auth/password/verify/resend` rotates the pending
+  token only after the resend interval has elapsed.
 - A verified email collision never auto-links. Linking starts only from a
   recently authenticated session, binds the target account and exact session
   to the OAuth attempt, and rejects identities already owned by another
@@ -60,8 +72,21 @@ scopes, and provider-specific parameters. Minimum scopes are enforced:
 | --- | --- | --- |
 | Google | `openid email` | Discover endpoints and signing keys from Google's OIDC metadata. |
 | Apple | `email` | Use `form_post` when configured and a short-lived client-secret assertion from the secret store. |
-| Facebook | `email` | Pin the approved Graph API version in deployment configuration. |
+| Facebook | `email` | Use the Meta Graph token exchange plus token inspection and pin the approved Graph API version in deployment configuration. |
 | LinkedIn | `openid email` | Use the current OIDC product, not the deprecated legacy sign-in scopes. |
+
+Runtime environment variables recognized by this slice:
+
+- `POSTQRON_AUTH_ENCRYPTION_KEY_B64`
+- `POSTQRON_AUTH_GOOGLE_CLIENT_ID`, `POSTQRON_AUTH_GOOGLE_CLIENT_SECRET`, `POSTQRON_AUTH_GOOGLE_REDIRECT_URL`
+- `POSTQRON_AUTH_APPLE_CLIENT_ID`, `POSTQRON_AUTH_APPLE_CLIENT_SECRET`, `POSTQRON_AUTH_APPLE_REDIRECT_URL`
+- `POSTQRON_AUTH_FACEBOOK_CLIENT_ID`, `POSTQRON_AUTH_FACEBOOK_CLIENT_SECRET`, `POSTQRON_AUTH_FACEBOOK_REDIRECT_URL`, `POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION`
+- `POSTQRON_AUTH_LINKEDIN_CLIENT_ID`, `POSTQRON_AUTH_LINKEDIN_CLIENT_SECRET`, `POSTQRON_AUTH_LINKEDIN_REDIRECT_URL`
+
+Cross-slice follow-up intentionally left out of this diff:
+
+- `features/f30-app-shell` bootstrap exposure of configured providers is tracked outside this slice in `#219`.
+- Binary/host-level mounting and rollout tasks are tracked outside this slice in `#220`.
 
 Authoritative setup references:
 
@@ -98,6 +123,6 @@ From the repository root, validate discovery and the forward-only migration:
 POSTQRON_FEATURE_ROOTS=features/f03-auth go run ./services/api/cmd/migrate --check
 ```
 
-The complete password/login/logout contract, stable error envelope, CSRF
-header, session rotation, and rate-limit responses are documented in
+The complete password registration, verification, login, logout, CSRF,
+session-rotation, OAuth callback, and stable error contract is documented in
 `contracts/openapi.yaml`.

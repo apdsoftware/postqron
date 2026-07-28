@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -43,13 +42,18 @@ func NewService(config Config) (*Service, error) {
 	if config.Store == nil {
 		return nil, errors.New("auth store is required")
 	}
-	if config.Sealer == nil {
+	if config.Sealer == nil && len(config.Providers) > 0 {
 		return nil, errors.New("auth sealer is required")
 	}
-	providers := make(map[Provider]ProviderAdapter, len(SupportedProviders))
-	for _, provider := range SupportedProviders {
-		adapter, exists := config.Providers[provider]
-		if !exists || adapter == nil {
+	if config.Sealer == nil {
+		config.Sealer = rejectingSealer{}
+	}
+	providers := make(map[Provider]ProviderAdapter, len(config.Providers))
+	for provider, adapter := range config.Providers {
+		if !isSupportedProvider(provider) {
+			return nil, fmt.Errorf("%s provider is not supported", provider)
+		}
+		if adapter == nil {
 			return nil, fmt.Errorf("%s provider adapter is required", provider)
 		}
 		if err := validateProviderConfig(provider, adapter.Config()); err != nil {
@@ -84,7 +88,7 @@ func NewService(config Config) (*Service, error) {
 }
 
 func (s *Service) Begin(ctx context.Context, request BeginRequest) (Authorization, error) {
-	if !isSupportedProvider(request.Provider) {
+	if !s.isAvailableProvider(request.Provider) {
 		return Authorization{}, newError(
 			CodeUnsupportedProvider,
 			"Provider di accesso non supportato.",
@@ -120,7 +124,7 @@ func (s *Service) BeginLink(
 	ctx context.Context,
 	request BeginLinkRequest,
 ) (Authorization, error) {
-	if !isSupportedProvider(request.Provider) {
+	if !s.isAvailableProvider(request.Provider) {
 		return Authorization{}, newError(
 			CodeUnsupportedProvider,
 			"Provider di accesso non supportato.",
@@ -277,6 +281,15 @@ func (s *Service) Callback(
 		return CallbackResult{}, wrapInternal("open OIDC nonce", err)
 	}
 	adapter := s.providers[attempt.Provider]
+	if adapter == nil {
+		_ = s.store.FailAttempt(ctx, attempt.ID, now)
+		return CallbackResult{}, newError(
+			CodeProviderUnavailable,
+			"Il provider non è disponibile. Riprova tra poco.",
+			true,
+			nil,
+		)
+	}
 	identity, err := adapter.Exchange(ctx, ExchangeRequest{
 		Code:          request.Code,
 		RedirectURL:   adapter.Config().RedirectURL,
@@ -726,12 +739,21 @@ func (s *Service) UnlinkProvider(
 	if err != nil {
 		return err
 	}
+	adapter := s.providers[provider]
+	if len(target.RevocationTokenCiphertext) > 0 && adapter == nil {
+		return newError(
+			CodeProviderUnavailable,
+			"Il provider non è disponibile. Riprova tra poco.",
+			true,
+			nil,
+		)
+	}
 	if len(target.RevocationTokenCiphertext) > 0 {
 		token, openErr := s.sealer.Open(target.RevocationTokenCiphertext)
 		if openErr != nil {
 			return wrapInternal("open provider revocation token", openErr)
 		}
-		if revokeErr := s.providers[provider].Revoke(ctx, string(token)); revokeErr != nil {
+		if revokeErr := adapter.Revoke(ctx, string(token)); revokeErr != nil {
 			return s.providerOperationError(revokeErr)
 		}
 	}
@@ -782,25 +804,7 @@ func (s *Service) appendOnboardingEvent(
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(struct {
-		AccountID            string    `json:"account_id"`
-		Email                string    `json:"email"`
-		DisplayName          string    `json:"display_name,omitempty"`
-		ContractCountry      string    `json:"contract_country"`
-		PersonalWorkspaceKey string    `json:"personal_workspace_key"`
-		RequestedRole        string    `json:"requested_role"`
-		IdempotencyKey       string    `json:"idempotency_key"`
-		OccurredAt           time.Time `json:"occurred_at"`
-	}{
-		AccountID:            account.ID,
-		Email:                account.Email,
-		DisplayName:          account.DisplayName,
-		ContractCountry:      account.ContractCountry,
-		PersonalWorkspaceKey: "personal:" + account.ID,
-		RequestedRole:        "owner",
-		IdempotencyKey:       "auth-account:" + account.ID,
-		OccurredAt:           now,
-	})
+	payload, err := buildOnboardingPayload(account, now)
 	if err != nil {
 		return err
 	}
@@ -961,32 +965,7 @@ func validateProviderConfig(provider Provider, config ProviderConfig) error {
 }
 
 func validateRegistration(attempt OAuthAttempt) error {
-	if attempt.ContractCountry != "IT" {
-		return newError(
-			CodeCountryNotSupported,
-			"Postqron è disponibile per account con paese contrattuale Italia.",
-			false,
-			nil,
-		)
-	}
-	var terms, privacy bool
-	for _, consent := range attempt.Consents {
-		switch {
-		case consent.DocumentKey == "terms_it" && consent.Action == ConsentAccepted:
-			terms = true
-		case consent.DocumentKey == "privacy_it" && consent.Action == ConsentAcknowledged:
-			privacy = true
-		}
-	}
-	if !terms || !privacy {
-		return newError(
-			CodeInvalidConsent,
-			"Accetta i Termini e conferma di aver letto l'Informativa privacy.",
-			false,
-			nil,
-		)
-	}
-	return nil
+	return validateRegistrationRequirements(attempt.ContractCountry, attempt.Consents)
 }
 
 func validateConsentShape(receipts []ConsentReceipt) error {
@@ -1070,6 +1049,46 @@ func isSupportedProvider(provider Provider) bool {
 		}
 	}
 	return false
+}
+
+func (s *Service) isAvailableProvider(provider Provider) bool {
+	if !isSupportedProvider(provider) {
+		return false
+	}
+	_, exists := s.providers[provider]
+	return exists
+}
+
+func validateRegistrationRequirements(
+	contractCountry string,
+	consents []ConsentReceipt,
+) error {
+	if contractCountry != "IT" {
+		return newError(
+			CodeCountryNotSupported,
+			"Postqron è disponibile per account con paese contrattuale Italia.",
+			false,
+			nil,
+		)
+	}
+	var terms, privacy bool
+	for _, consent := range consents {
+		switch {
+		case consent.DocumentKey == "terms_it" && consent.Action == ConsentAccepted:
+			terms = true
+		case consent.DocumentKey == "privacy_it" && consent.Action == ConsentAcknowledged:
+			privacy = true
+		}
+	}
+	if !terms || !privacy {
+		return newError(
+			CodeInvalidConsent,
+			"Accetta i Termini e conferma di aver letto l'Informativa privacy.",
+			false,
+			nil,
+		)
+	}
+	return nil
 }
 
 func contains(values []string, expected string) bool {
