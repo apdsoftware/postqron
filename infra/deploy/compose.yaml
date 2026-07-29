@@ -27,6 +27,7 @@ services:
     environment:
       NUXT_PUBLIC_API_BASE: https://${API_DOMAIN}
       NUXT_API_BASE: http://api:8080
+      PRELAUNCH_MODE: ${PRELAUNCH_MODE:?PRELAUNCH_MODE is required}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/health"]
       interval: 10s
@@ -41,6 +42,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      PRELAUNCH_MODE: ${PRELAUNCH_MODE:?PRELAUNCH_MODE is required}
       POSTQRON_ADMIN_BOOTSTRAP_EMAIL: ${POSTQRON_ADMIN_BOOTSTRAP_EMAIL:-}
       POSTQRON_ADMIN_PASSWORD_HASH_B64: ${POSTQRON_ADMIN_PASSWORD_HASH_B64:-}
       POSTQRON_ADMIN_ALLOWLIST: ${POSTQRON_ADMIN_ALLOWLIST:-carlo.zuffetti@apdsoftware.it}
