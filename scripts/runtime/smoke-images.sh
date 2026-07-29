@@ -208,6 +208,78 @@ assert_exact_output() {
   fi
 }
 
+assert_compose_prelaunch_mode() {
+  local compose_config=$1
+  local expected=$2
+  node -e '
+    const fs = require("node:fs")
+    const [configPath, expected] = process.argv.slice(1)
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"))
+    const consumers = Object.entries(config.services)
+      .filter(([, service]) =>
+        Object.hasOwn(service.environment ?? {}, "PRELAUNCH_MODE"))
+      .sort(([left], [right]) => left.localeCompare(right))
+
+    const names = consumers.map(([name]) => name)
+    if (names.join(",") !== "api,web") {
+      throw new Error(
+        "PRELAUNCH_MODE consumers were " +
+          (names.join(",") || "none") +
+          ", want api,web",
+      )
+    }
+    for (const [name, service] of consumers) {
+      if (service.environment.PRELAUNCH_MODE !== expected) {
+        throw new Error(
+          name +
+            " PRELAUNCH_MODE was " +
+            service.environment.PRELAUNCH_MODE +
+            ", want " +
+            expected,
+        )
+      }
+    }
+  ' "$compose_config" "$expected"
+}
+
+validate_compose_prelaunch_wiring() {
+  local compose_file="$repository_root/infra/deploy/compose.yaml"
+  local missing_output="$temporary_directory/compose-missing-prelaunch"
+  local mode
+  local rendered
+  local -a compose_environment=(
+    "API_DOMAIN=api.example.test"
+    "API_IMAGE=ghcr.io/apdsoftware/postqron-api:test"
+    "APP_DOMAIN=app.example.test"
+    "DATABASE_URL=postgres://postqron:test@postgres:5432/postqron"
+    "POSTQRON_PRIVACY_ARTIFACT_KEY_B64=NOT_A_SECRET_SMOKE_COMPOSE_CONFIG_PLACEHOLDER"
+    "POSTGRES_PASSWORD=test"
+    "WEB_IMAGE=ghcr.io/apdsoftware/postqron-web:test"
+    "WORKER_IMAGE=ghcr.io/apdsoftware/postqron-worker:test"
+  )
+
+  for mode in true false; do
+    rendered="$temporary_directory/compose-$mode.json"
+    env \
+      "${compose_environment[@]}" \
+      "PRELAUNCH_MODE=$mode" \
+      docker compose -f "$compose_file" config --format json >"$rendered"
+    assert_compose_prelaunch_mode "$rendered" "$mode"
+  done
+
+  if env \
+    -u PRELAUNCH_MODE \
+    "${compose_environment[@]}" \
+    docker compose -f "$compose_file" config --quiet \
+    >"$missing_output" 2>&1; then
+    echo "Compose accepted a missing PRELAUNCH_MODE" >&2
+    exit 1
+  fi
+  assert_contains \
+    "$(<"$missing_output")" \
+    "PRELAUNCH_MODE is required"
+}
+
 assert_clean_bundle() {
   local container=$1
   if docker exec "$container" sh -c \
@@ -300,6 +372,8 @@ cat \
   "$temporary_directory/api-foundation-migrations" \
   "$temporary_directory/shared-migrations" \
   >"$api_migration_inventory"
+
+validate_compose_prelaunch_wiring
 
 docker build -f "$repository_root/apps/web/Dockerfile" -t "$web_image" "$repository_root"
 docker build -f "$repository_root/services/api/Dockerfile" -t "$api_image" "$repository_root"
