@@ -15,6 +15,7 @@ import {
   safeAppDestination,
 } from '../components/core/navigation.ts'
 import {
+  appStateKindFromError,
   useAppBootstrapState,
   useAppSessionState,
   useAppShellApi,
@@ -37,15 +38,23 @@ const selectedWorkspace = ref(session.value?.workspaces[0]?.id ?? '')
 const accepted = ref(false)
 const saving = ref(false)
 const error = ref(false)
+const pageState = ref<'access-denied' | 'offline'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.onboarding'),
 })))
 
-await useAsyncData('postqron-onboarding-bootstrap', async () => {
-  const value = await api.bootstrap()
-  bootstrap.value = value
-  return value
+const { pending, refresh } = useAsyncData('postqron-onboarding-bootstrap', async () => {
+  try {
+    const value = await api.bootstrap()
+    bootstrap.value = value
+    pageState.value = undefined
+    return value
+  } catch (loadError) {
+    bootstrap.value = undefined
+    pageState.value = appStateKindFromError(loadError)
+    return undefined
+  }
 })
 
 const returnTo = computed(() => safeAppDestination(
@@ -80,6 +89,10 @@ async function submit() {
     saving.value = false
   }
 }
+
+async function retry() {
+  await refresh()
+}
 </script>
 
 <template>
@@ -97,7 +110,20 @@ async function submit() {
       <PostqronLanguageSwitcher />
     </header>
 
-    <main class="onboarding-card">
+    <AppState
+      v-if="pending && !bootstrap"
+      kind="loading"
+    />
+    <AppState
+      v-else-if="pageState"
+      :kind="pageState"
+      action
+      @retry="retry"
+    />
+    <main
+      v-else
+      class="onboarding-card"
+    >
       <p class="app-eyebrow">
         {{ t('onboarding.eyebrow') }}
       </p>

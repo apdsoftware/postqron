@@ -1,48 +1,85 @@
 schema_version: 1
-event: workspace.audit.v1
-description: >
-  Immutable audit event emitted for sensitive workspace and membership changes.
-  Invitation tokens and email addresses are intentionally excluded.
-required:
-  - event_id
-  - workspace_id
-  - subject_id
-  - event_type
-  - outcome
-  - occurred_at
-properties:
-  event_id:
-    type: string
-  workspace_id:
-    type: string
-  actor_account_id:
-    type:
-      - string
-      - "null"
-    description: Null for system-driven invitation expiration.
-  subject_id:
-    type: string
-  event_type:
-    type: string
-    enum:
-      - workspace.personal_created
-      - workspace.renamed
-      - invitation.created
-      - invitation.reissued
-      - invitation.revoked
-      - invitation.expired
-      - invitation.accepted
-      - membership.removed
-      - membership.left
-      - membership.promoted
-      - membership.demoted
-      - ownership.transferred
-      - workspace.deletion_requested
-  outcome:
-    type: string
-    enum:
-      - succeeded
-      - rejected
-  occurred_at:
-    type: string
-    format: date-time
+consumes:
+  - event: auth.account.onboarding-required.v1
+    description: >
+      F3 emits this event for a newly created authenticated account. F4 consumes
+      it idempotently to ensure exactly one personal workspace and one active
+      Owner membership without trusting any client-supplied account identifier.
+    required:
+      - account_id
+      - email
+      - contract_country
+      - personal_workspace_key
+      - requested_role
+      - idempotency_key
+      - occurred_at
+    properties:
+      account_id:
+        type: string
+      email:
+        type: string
+        format: email
+      display_name:
+        type: string
+      contract_country:
+        const: IT
+      personal_workspace_key:
+        type: string
+        pattern: "^personal:.+$"
+      requested_role:
+        const: owner
+      idempotency_key:
+        type: string
+        pattern: "^auth-account:.+$"
+      occurred_at:
+        type: string
+        format: date-time
+emits:
+  - event: workspace.audit.v1
+    description: >
+      Immutable audit event emitted for sensitive workspace and membership
+      changes. Invitation tokens and email addresses are intentionally
+      excluded.
+    required:
+      - event_id
+      - workspace_id
+      - subject_id
+      - event_type
+      - outcome
+      - occurred_at
+    properties:
+      event_id:
+        type: string
+      workspace_id:
+        type: string
+      actor_account_id:
+        type:
+          - string
+          - "null"
+        description: Null for system-driven invitation expiration.
+      subject_id:
+        type: string
+      event_type:
+        type: string
+        enum:
+          - workspace.personal_created
+          - workspace.renamed
+          - invitation.created
+          - invitation.reissued
+          - invitation.revoked
+          - invitation.expired
+          - invitation.accepted
+          - membership.removed
+          - membership.left
+          - membership.promoted
+          - membership.demoted
+          - ownership.transferred
+          - workspace.deletion_requested
+      outcome:
+        type: string
+        enum:
+          - succeeded
+          - rejected
+      occurred_at:
+        type: string
+        format: date-time

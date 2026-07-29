@@ -21,6 +21,9 @@ type MemoryRepository struct {
 	invitations     map[string]memoryInvitation
 	invitationToken map[string]string
 	auditEvents     []AuditEvent
+	selections      map[string]string
+	consentEvidence map[string]consentEvidence
+	legalDocuments  []legalDocumentRecord
 }
 
 type memoryInvitation struct {
@@ -36,6 +39,8 @@ func NewMemoryRepository() *MemoryRepository {
 		memberships:     make(map[string]map[string]Membership),
 		invitations:     make(map[string]memoryInvitation),
 		invitationToken: make(map[string]string),
+		selections:      make(map[string]string),
+		consentEvidence: make(map[string]consentEvidence),
 	}
 }
 

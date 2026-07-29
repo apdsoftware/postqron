@@ -1,11 +1,93 @@
 openapi: 3.1.0
 info:
   title: Postqron authentication slice
-  version: 0.2.0
+  version: 0.3.0
 paths:
+  /api/v1/auth/password/register:
+    post:
+      summary: Register a password account and issue an email-verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRegistration'
+      responses:
+        '202':
+          description: Verification flow accepted without leaking account existence
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verification_requested]
+                properties:
+                  verification_requested:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password/verify:
+    post:
+      summary: Consume a one-time email-verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordVerification'
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verified]
+                properties:
+                  verified:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/password/verify/resend:
+    post:
+      summary: Re-issue an email-verification token when the account is still unverified
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 320
+      responses:
+        '202':
+          description: Verification flow accepted without leaking account existence
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verification_requested]
+                properties:
+                  verification_requested:
+                    const: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/auth/password/login:
     post:
-      summary: Authenticate an administrator with email and password
+      summary: Authenticate a verified password account
       requestBody:
         required: true
         content:
@@ -14,7 +96,7 @@ paths:
               $ref: '#/components/schemas/PasswordLogin'
       responses:
         '200':
-          description: Session created in a Secure HttpOnly cookie
+          description: Session cookie created
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SessionCookie'
@@ -33,14 +115,41 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/auth/csrf:
+    get:
+      summary: Return the derived CSRF token for the current authenticated session
+      description: >-
+        Reads the current `__Host-postqron_session` cookie, validates the
+        active password or OAuth session, and returns only the session-derived
+        CSRF token with cache disabled.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Derived CSRF token for the active session
+          headers:
+            Cache-Control:
+              description: Prevents storage of the derived CSRF token
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CSRFToken'
+        '401':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/auth/password/change:
     post:
       summary: Change the authenticated password and rotate the current session
       description: >-
         Requires recent password authentication and the session-derived CSRF
-        token. Success updates the Argon2id hash atomically, revokes every
-        existing account session, creates one replacement session, and appends
-        a security event without storing or returning password material.
+        token returned by `GET /api/v1/auth/csrf`. Success updates the
+        Argon2id hash atomically, revokes every existing account session,
+        creates one replacement session, and appends a security event without
+        storing or returning password material.
       security:
         - sessionCookie: []
       parameters:
@@ -90,10 +199,10 @@ paths:
         - $ref: '#/components/parameters/CSRFToken'
       responses:
         '204':
-          description: Session revoked and cookie cleared
+          description: Session revoked and session cookie cleared
           headers:
             Set-Cookie:
-              description: Expired Secure HttpOnly session cookie
+              description: Expired session cookie
               schema:
                 type: string
         '403':
@@ -194,7 +303,7 @@ paths:
         - sessionCookie: []
       responses:
         '204':
-          description: Sessions revoked and cookie cleared
+          description: Sessions revoked and session cookie cleared
         '401':
           $ref: '#/components/responses/Error'
   /api/v1/auth/providers/{provider}:
@@ -218,7 +327,10 @@ paths:
 components:
   headers:
     SessionCookie:
-      description: Secure HttpOnly session cookie; the raw value is never returned in JSON
+      description: >-
+        Secure cookie. The runtime sets only an HttpOnly
+        `__Host-postqron_session` cookie; the raw session token is never
+        returned in JSON.
       schema:
         type: string
   securitySchemes:
@@ -231,7 +343,7 @@ components:
       name: X-CSRF-Token
       in: header
       required: true
-      description: Token derived from and bound to the current opaque session
+      description: Token derived from and bound to the current opaque session, returned by `GET /api/v1/auth/csrf`
       schema:
         type: string
         minLength: 64
@@ -257,7 +369,7 @@ components:
       description: Login, registration, or linking completed
       headers:
         Set-Cookie:
-          description: Secure HttpOnly session cookie for login and registration
+          description: Secure session cookie for login and registration
           schema:
             type: string
       content:
@@ -282,6 +394,52 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    PasswordRegistration:
+      type: object
+      additionalProperties: false
+      required: [email, password, confirmation, contract_country, consents]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+        confirmation:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+        contract_country:
+          const: IT
+        consents:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/ConsentReceipt'
+    PasswordVerification:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 32
+          writeOnly: true
+    CSRFToken:
+      type: object
+      additionalProperties: false
+      required: [csrf_token]
+      properties:
+        csrf_token:
+          type: string
+          minLength: 64
+          maxLength: 64
     PasswordLogin:
       type: object
       additionalProperties: false

@@ -2,6 +2,7 @@ package email
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -127,5 +128,41 @@ func TestServiceStopsAfterPermanentFailure(t *testing.T) {
 	delivery, _ := store.Delivery(result.ID)
 	if delivery.State != StateFailed || delivery.LastDiagnostic.Retryable {
 		t.Fatalf("failed delivery = %#v", delivery)
+	}
+}
+
+func TestServiceRedactsVerificationTokenFromDiagnostics(t *testing.T) {
+	for name, detail := range map[string]string{
+		"query_token": "retry https://app.example.test/verify-email?verification_token=abc123&email=persona@example.test",
+		"path_token":  "retry https://app.example.test/verify/abc123?email=persona@example.test",
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := NewMemoryStore()
+			sender := &scriptedSender{errors: []error{
+				&MailronixError{
+					Code: "rate_limited", Retryable: true,
+					Detail: detail,
+				},
+			}}
+			service, _ := testService(t, store, sender)
+			result, err := service.Enqueue(context.Background(), testMessage(TemplateAccountVerification))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.DispatchOne(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			delivery, _ := store.Delivery(result.ID)
+			if delivery.State != StateRetry {
+				t.Fatalf("delivery state = %s", delivery.State)
+			}
+			if got := delivery.LastDiagnostic.Detail; strings.Contains(got, "abc123") ||
+				strings.Contains(got, "persona@") ||
+				strings.Contains(got, "verify-email") ||
+				strings.Contains(got, "/verify/") ||
+				!strings.Contains(got, "[redacted-url]") {
+				t.Fatalf("diagnostic leaked verification material: %q", got)
+			}
+		})
 	}
 }

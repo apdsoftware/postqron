@@ -6,6 +6,98 @@ info:
     Server-side contract for personal workspaces, invitations, memberships,
     fixed Owner/Member roles, and ownership transfer.
 paths:
+  /api/v1/app/onboarding:
+    post:
+      summary: Finish app onboarding inside F4 without trusting client account identifiers
+      operationId: completeAppOnboarding
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppOnboardingRequest"
+      responses:
+        "200":
+          description: Existing accessible workspace selected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSession"
+        "201":
+          description: Personal workspace created and selected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSession"
+        "400":
+          description: Invalid onboarding request or malformed consent receipts
+        "401":
+          description: Invalid or expired session cookie
+        "403":
+          description: Selected workspace is not accessible to the authenticated account
+        "409":
+          description: Legal documents or workspace state changed before confirmation
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
+  /api/v1/app/workspaces/select:
+    post:
+      summary: Persist the current workspace for the authenticated account
+      operationId: selectAppWorkspace
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppWorkspaceSelectionRequest"
+      responses:
+        "204":
+          description: Workspace selection persisted
+        "400":
+          description: Missing workspace identifier
+        "401":
+          description: Invalid or expired session cookie
+        "403":
+          description: Account is not an active member of the requested workspace
+  /api/v1/app/workspaces/current:
+    get:
+      summary: Read the selected workspace or fall back to the first active membership
+      operationId: currentAppWorkspace
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current workspace summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppWorkspace"
+        "401":
+          description: Invalid or expired session cookie
+        "404":
+          description: The account has no active workspace memberships
+  /api/v1/app/workspaces/current/members:
+    get:
+      summary: List active members of the current workspace
+      operationId: currentAppWorkspaceMembers
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Active memberships in the selected workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Membership"
+        "401":
+          description: Invalid or expired session cookie
+        "404":
+          description: The account has no active workspace memberships
   /api/v1/workspaces/personal:
     put:
       summary: Idempotently ensure the authenticated account's personal workspace
@@ -313,6 +405,10 @@ components:
     session:
       type: http
       scheme: bearer
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
     recentSession:
       type: http
       scheme: bearer
@@ -333,7 +429,142 @@ components:
   responses:
     Forbidden:
       description: The authenticated account's stored active membership lacks permission
+    AppUnavailable:
+      description: Retryable runtime configuration or storage failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AppError"
   schemas:
+    AppError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
+    AppLocale:
+      type: string
+      enum: [en, it, es, fr, de]
+    AppWorkspace:
+      type: object
+      additionalProperties: false
+      required: [id, name, role]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+    AppSession:
+      type: object
+      additionalProperties: false
+      required: [account, onboarding_required, workspaces]
+      properties:
+        account:
+          type: object
+          additionalProperties: false
+          required: [id, display_name, locale]
+          properties:
+            id:
+              type: string
+            display_name:
+              type: string
+            email:
+              type: string
+              format: email
+            locale:
+              $ref: "#/components/schemas/AppLocale"
+        onboarding_required:
+          type: boolean
+        current_workspace:
+          $ref: "#/components/schemas/AppWorkspace"
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppWorkspace"
+    AppOnboardingConsent:
+      type: object
+      additionalProperties: false
+      required:
+        - document_key
+        - version
+        - digest_sha256
+        - action
+        - locale
+        - purpose
+        - surface
+        - control_text_id
+      properties:
+        document_key:
+          type: string
+          enum: [terms, privacy]
+        version:
+          type: string
+        digest_sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        action:
+          const: accepted
+        locale:
+          $ref: "#/components/schemas/AppLocale"
+        purpose:
+          type: string
+          enum: [contract, privacy_acknowledgement]
+        surface:
+          const: app_onboarding
+        control_text_id:
+          type: string
+    AppOnboardingRequest:
+      type: object
+      additionalProperties: false
+      required: [consents, workspace]
+      properties:
+        consents:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/AppOnboardingConsent"
+        workspace:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [mode, name]
+              properties:
+                mode:
+                  const: create
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+            - type: object
+              additionalProperties: false
+              required: [mode, id]
+              properties:
+                mode:
+                  const: select
+                id:
+                  type: string
+                  minLength: 1
+    AppWorkspaceSelectionRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_id]
+      properties:
+        workspace_id:
+          type: string
+          minLength: 1
     Role:
       type: string
       enum: [owner, member]

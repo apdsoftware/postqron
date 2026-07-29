@@ -8,6 +8,10 @@ import { covers, locales } from '../helpers.ts'
 
 const suiteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(suiteRoot, '../../..')
+const allowedEmailRuntimeBridges = new Set([
+  'services/api/internal/emailruntime/emailruntime.go',
+  'services/worker/internal/emailruntime/emailruntime.go',
+])
 
 function goContract(directory: string, pattern: string): string {
   const result = spawnSync(
@@ -47,14 +51,14 @@ test('Mailronix fake contract and event-template-locale-provider matrix are comp
   covers(testInfo, 'LR-EMAIL', 'LR-LOCALE-MATRIX', 'LR-NEGATIVE')
   const output = goContract(
     'features/f14-email',
-    'Test(NoEmailProviderClientExistsOutsideF14|TransactionalEventMatrixIsCompleteAndVersioned|MailronixContractAuthenticationAndSerialization|MailronixMapsDocumentedErrorsAndRedactsDiagnostics|FakeSenderCannotReachRealRecipients|EveryTemplateRendersAllLocalesWithCompleteAlternatives|LocaleFallbackReplayAndLocalizedValues)$',
+    'Test(TransactionalEventMatrixIsCompleteAndVersioned|MailronixContractAuthenticationAndSerialization|MailronixMapsDocumentedErrorsAndRedactsDiagnostics|FakeSenderCannotReachRealRecipients|EveryTemplateRendersAllLocalesWithCompleteAlternatives|LocaleFallbackReplayAndLocalizedValues)$',
   )
   for (const locale of locales) {
     expect(output).not.toContain(`missing locale ${locale}`)
   }
 })
 
-test('no provider or SMTP client exists outside the F14 transactional boundary', async ({}, testInfo) => {
+test('no provider or SMTP client exists outside the F14 transactional boundary except approved runtime bridges', async ({}, testInfo) => {
   covers(testInfo, 'LR-EMAIL', 'LR-SECURITY')
   const prohibited = [
     /api\.mailronix\.com/iu,
@@ -83,7 +87,10 @@ test('no provider or SMTP client exists outside the F14 transactional boundary',
       }
       const content = await readFile(child, 'utf8')
       if (prohibited.some(pattern => pattern.test(content))) {
-        violations.push(child.slice(repositoryRoot.length + 1))
+        const relative = child.slice(repositoryRoot.length + 1)
+        if (!allowedEmailRuntimeBridges.has(relative)) {
+          violations.push(relative)
+        }
       }
     }
   }

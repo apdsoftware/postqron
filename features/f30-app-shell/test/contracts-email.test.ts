@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildConsentReceipts,
+  buildRegistrationConsents,
   parseBootstrap,
   parseSession,
 } from '../components/core/contracts.ts'
@@ -58,6 +59,54 @@ test('bootstrap accepts only two versioned required documents and known provider
       },
     ],
   )
+})
+
+test('registration consent builder stays separate from onboarding receipts', () => {
+  const bootstrap = parseBootstrap({
+    auth_methods: ['password'],
+    providers: ['google'],
+    legal_documents: [
+      {
+        key: 'terms',
+        version: '2026-07-25',
+        digest_sha256: digest,
+        href: '/it/legal/terms',
+      },
+      {
+        key: 'privacy',
+        version: '2026-07-25',
+        digest_sha256: 'b'.repeat(64),
+        href: '/it/legal/privacy',
+      },
+    ],
+  })
+
+  const onboarding = buildConsentReceipts(bootstrap.legal_documents, 'it')
+  const registration = buildRegistrationConsents(bootstrap.legal_documents)
+
+  assert.deepEqual(registration, [
+    {
+      document_key: 'terms_it',
+      version: '2026-07-25',
+      digest_sha256: digest,
+      action: 'accepted',
+      purpose: 'contract',
+      locale: 'it-IT',
+      surface: 'signup',
+      control_text_id: 'signup-terms-v1',
+    },
+    {
+      document_key: 'privacy_it',
+      version: '2026-07-25',
+      digest_sha256: 'b'.repeat(64),
+      action: 'acknowledged',
+      purpose: 'privacy_notice',
+      locale: 'it-IT',
+      surface: 'signup',
+      control_text_id: 'signup-privacy-v1',
+    },
+  ])
+  assert.notDeepEqual(registration, onboarding)
 })
 
 test('session parsing rejects a current workspace outside memberships', () => {

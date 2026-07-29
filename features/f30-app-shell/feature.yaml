@@ -7,6 +7,7 @@ entrypoints:
   web: ./runtime.ts
 dependencies:
   - auth
+  - account-privacy
   - brand
   - compliance
   - email
@@ -39,6 +40,11 @@ web:
       file: ./pages/app.vue
       visibility: public
       middleware: []
+    - name: app-verify-email
+      path: /app/verify-email
+      file: ./pages/verify-email.vue
+      visibility: public
+      middleware: []
     - name: app-oauth-callback
       path: /app/oauth/callback
       file: ./pages/oauth-callback.vue
@@ -54,6 +60,41 @@ web:
       file: ./pages/home.vue
       visibility: private
       middleware: [app-session]
+    - name: app-profile
+      path: /app/profile
+      file: ./pages/profile.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-security
+      path: /app/security
+      file: ./pages/security.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-providers
+      path: /app/providers
+      file: ./pages/providers.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-plan
+      path: /app/plan
+      file: ./pages/plan.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-workspace
+      path: /app/workspace
+      file: ./pages/workspace.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-privacy
+      path: /app/privacy
+      file: ./pages/privacy.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-account-deletion-cancel
+      path: /app/account-deletions/:requestId/cancel
+      file: ./pages/account-deletion-cancel.vue
+      visibility: public
+      middleware: []
     - name: app-feature-slot
       path: /app/:featurePath(.*)*
       file: ./pages/feature-slot.vue

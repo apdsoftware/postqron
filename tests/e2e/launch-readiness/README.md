@@ -33,3 +33,15 @@ or provider credentials to this suite.
 The workflow also accepts these URLs through `workflow_dispatch`. Pull requests
 run the deterministic local preview, while the manual dispatch is the
 deployment-SHA verification path.
+
+## Runtime integration notes
+
+- Password registration and resend verification now rely on the mounted F3
+  runtime plus the services-side F14 bridge. Runtime checks must assert that
+  API responses never expose verification tokens.
+- Personal workspace creation and `account_privacy_profiles` initialization now
+  depend on the worker bridge consuming F3 onboarding outbox events
+  idempotently.
+- Account profile and app-shell navigation remain in scope for readiness.
+  Privacy export and deletion flows currently fail closed until Auth exposes a
+  safe runtime login-freeze boundary for the F12 grace period.

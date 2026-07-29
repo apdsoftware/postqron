@@ -39,6 +39,58 @@ obbligatorio. La costruzione live fallisce se la versione del contratto non
 coincide, il dominio non è dichiarato verificato o la configurazione è
 incompleta.
 
+## Boundary pubblico
+
+Il wiring runtime deve dipendere dall’API pubblica provider-neutral di F14:
+
+```go
+boundary, err := email.NewSenderBoundaryFromEnv(
+    email.SenderBoundaryOptions{
+        Environment: runtimeEnvironment,
+        Production:  isProduction,
+    },
+    secretProvider,
+)
+```
+
+Oppure, se serve solo l’interfaccia di invio:
+
+```go
+sender, err := email.NewSenderFromEnv(
+    email.SenderBoundaryOptions{
+        Environment: runtimeEnvironment,
+        Production:  isProduction,
+    },
+    secretProvider,
+)
+```
+
+`services/api` e `services/worker` non devono importare, nominare o
+istanziare `MailronixClient`. Il boundary F14 legge esattamente queste variabili
+d’ambiente già previste dal wiring `#220`:
+
+- `POSTQRON_MAILRONIX_ENDPOINT`
+- `POSTQRON_MAILRONIX_API_KEY_SECRET_NAME`
+- `POSTQRON_MAILRONIX_SENDER_EMAIL`
+- `POSTQRON_MAILRONIX_DOMAIN_VERIFIED`
+- `POSTQRON_MAILRONIX_FAILURE_THRESHOLD`
+- `POSTQRON_MAILRONIX_CIRCUIT_OPEN_FOR`
+
+Gli ultimi due valori sono opzionali nel wiring corrente: se assenti, F14 usa i
+default autorevoli `3` e `2m`. Se presenti ma non validi, la factory fallisce
+in chiusura.
+
+Il valore del segreto resta esterno al repository e viene risolto solo tramite
+`SecretProvider`, usando il nome dichiarato in
+`POSTQRON_MAILRONIX_API_KEY_SECRET_NAME`.
+
+Il segnale di produzione non viene letto da una variabile globale implicita:
+viene passato esplicitamente tramite `SenderBoundaryOptions{Production,
+Environment}` così il comportamento resta testabile e fail-closed.
+Se `#220` usa soltanto `NewSenderBoundaryFromEnv` o `NewSenderFromEnv`,
+`TestNoEmailProviderClientExistsOutsideF14` può restare verde perché il
+provider non viene nominato fuori da F14.
+
 ## Localizzazione e replay
 
 Ogni template include oggetto, preheader, HTML responsive e plain text in
@@ -52,6 +104,22 @@ valore sottostante. I link HTTPS restano identici; cambia solo l’etichetta
 localizzata. Il layout usa markup semantico, alternative plain text, target
 touch da 44 px e una regola mobile che regge testi lunghi in francese e tedesco.
 
+## Verifica account
+
+F3 produce il comando versionato `f14.account_verification_requested.v1` con
+`template_id=account_verification` e idempotency key
+`account-verification:{account_id}:{verification_request_id}`. Per questo
+template `data.action_url` è obbligatorio e deve essere un URL HTTPS assoluto:
+il token monouso può comparire solo in quel link di consegna.
+
+Il modello F14 non introduce colonne dedicate al token, non lo replica in
+diagnostica o metriche e non richiede segreti nel repository. La copia
+renderizzata necessaria a invio/retry resta quella già prevista per replay
+immutabile; ogni diagnostica operativa passa invece da redazione, includendo
+indirizzi email, bearer credential e URL di verifica tokenizzati. Il wiring
+runtime che fa emettere questo comando da F3 resta fuori scope e va chiuso in
+`#220`.
+
 ## Matrice transazionale
 
 `TransactionalEventMatrix` è il catalogo eseguibile con evento, produttore,
@@ -59,6 +127,7 @@ destinatario, template, priorità, origine locale, idempotency key e
 responsabilità di invio. Copre:
 
 - welcome/onboarding e inviti workspace;
+- verifica account/password sign-in prodotta da F3;
 - sicurezza, collegamento account e cambiamenti sensibili;
 - social scaduti/da riconnettere;
 - approvazioni e collaborazione;
@@ -84,6 +153,15 @@ sono redatti e il corpo completo non viene scritto nei log.
 `FakeSender` è l’unica modalità di sviluppo/CI: conserva i messaggi in memoria e
 rifiuta ogni destinatario che non appartenga ai domini riservati
 `example.test`/`example.invalid`, impedendo invii reali accidentali.
+
+Il boundary pubblico usa queste regole:
+
+- `Production=true` richiede `Mode=live`; `fake` e `noop` sono rifiutati.
+- senza `Mode` esplicito, `fake` è il default solo per `local`,
+  `development`, `test` e `ci`;
+- ambienti non di produzione ma non locali, come `staging`, richiedono una
+  scelta esplicita del mode;
+- `noop` è disponibile solo fuori produzione.
 
 ## Checklist go-live
 

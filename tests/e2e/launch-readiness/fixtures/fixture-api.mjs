@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 
 const host = '127.0.0.1'
 const port = Number(process.env.LAUNCH_FIXTURE_PORT || 41797)
+const privacyAllowedOrigin = process.env.LAUNCH_BASE_URL || 'http://127.0.0.1:41795'
 const supervisorPid = Number(process.env.LAUNCH_SUPERVISOR_PID)
 const signingKey = 'postqron-launch-fixture-signing-key-v1'
 const digest = 'a'.repeat(64)
@@ -269,8 +270,105 @@ function reset() {
     audit: [],
     health: 'operational',
     adminVerifier: 'fixture-admin-password',
-    adminSessions: new Set(['admin']),
-    nextAdminSession: 1,
+    nextSession: 1,
+    nextVerification: 1,
+    mailbox: [],
+    privacyExports: new Map(),
+    privacyDownloads: new Map(),
+    privacyDeletions: new Map(),
+    privacyCancelCapabilities: new Map(),
+    sessions: new Map([
+      ['admin', { role: 'admin', account_id: 'account-admin' }],
+      ['authenticated', { role: 'authenticated', account_id: 'account-authenticated' }],
+      ['normal', { role: 'normal', account_id: 'account-normal' }],
+    ]),
+    accounts: new Map([
+      ['account-admin', {
+        id: 'account-admin',
+        email: 'admin@example.test',
+        loginSecret: 'fixture-admin-password',
+        display_name: 'Fixture Admin',
+        locale: 'de',
+        timezone: 'Europe/Berlin',
+        contract_country: 'IT',
+        email_verified: true,
+        onboarding_required: false,
+        current_workspace_id: 'workspace-fixture',
+        workspaces: [{
+          id: 'workspace-fixture',
+          name: 'Fixture Workspace',
+          role: 'owner',
+        }],
+        providers: [{
+          id: 'password',
+          kind: 'identity',
+          name: 'password',
+          external_label: 'password',
+          connected_at: now,
+          only_login_method: true,
+        }],
+        updated_at: now,
+      }],
+      ['account-authenticated', {
+        id: 'account-authenticated',
+        email: 'authenticated@example.test',
+        loginSecret: 'correct horse battery staple',
+        display_name: 'Fixture User',
+        locale: 'it',
+        timezone: 'Europe/Rome',
+        contract_country: 'IT',
+        email_verified: true,
+        onboarding_required: false,
+        current_workspace_id: 'workspace-fixture',
+        workspaces: [{
+          id: 'workspace-fixture',
+          name: 'Fixture Workspace',
+          role: 'owner',
+        }],
+        providers: [{
+          id: 'password',
+          kind: 'identity',
+          name: 'password',
+          external_label: 'password',
+          connected_at: now,
+          only_login_method: false,
+        }, {
+          id: 'google',
+          kind: 'identity',
+          name: 'google',
+          external_label: 'authenticated@example.test',
+          connected_at: now,
+          only_login_method: false,
+        }],
+        updated_at: now,
+      }],
+      ['account-normal', {
+        id: 'account-normal',
+        email: 'normal@example.test',
+        loginSecret: 'correct horse battery staple',
+        display_name: 'Fixture User',
+        locale: 'fr',
+        timezone: 'Europe/Paris',
+        contract_country: 'IT',
+        email_verified: true,
+        onboarding_required: false,
+        current_workspace_id: 'workspace-fixture',
+        workspaces: [{
+          id: 'workspace-fixture',
+          name: 'Fixture Workspace',
+          role: 'owner',
+        }],
+        providers: [{
+          id: 'apple',
+          kind: 'identity',
+          name: 'apple',
+          external_label: 'normal@example.test',
+          connected_at: now,
+          only_login_method: true,
+        }],
+        updated_at: now,
+      }],
+    ]),
   }
 }
 reset()
@@ -282,24 +380,43 @@ function fixtureSessionToken(request) {
 
 function sessionRole(request) {
   const token = fixtureSessionToken(request)
-  return token && state.adminSessions.has(token)
-    ? 'admin'
-    : token === 'normal'
-      ? 'normal'
-      : token === 'authenticated'
-        ? 'authenticated'
-        : undefined
+  return token ? state.sessions.get(token)?.role : undefined
 }
 
-function appSession(role = 'authenticated') {
+function currentAccount(request) {
+  const token = fixtureSessionToken(request)
+  const session = token ? state.sessions.get(token) : undefined
+  return session ? state.accounts.get(session.account_id) : undefined
+}
+
+function appSession(role = 'authenticated', account = undefined) {
+  if (account) {
+    return {
+      account: {
+        id: account.id,
+        display_name: account.display_name,
+        email: account.email,
+        email_verified: account.email_verified,
+        locale: account.locale,
+      },
+      authenticated_at: now,
+      current_workspace: account.workspaces.find(
+        workspace => workspace.id === account.current_workspace_id,
+      ) || null,
+      onboarding_required: account.onboarding_required,
+      workspaces: account.workspaces,
+    }
+  }
   const locale = role === 'admin' ? 'de' : role === 'normal' ? 'fr' : 'it'
   return {
     account: {
       id: `account-${role}`,
       display_name: role === 'admin' ? 'Fixture Admin' : 'Fixture User',
       email: `${role}@example.test`,
+      email_verified: true,
       locale,
     },
+    authenticated_at: now,
     current_workspace: {
       id: 'workspace-fixture',
       name: 'Fixture Workspace',
@@ -312,6 +429,77 @@ function appSession(role = 'authenticated') {
       role: 'owner',
     }],
   }
+}
+
+function mailboxDelivery(account, locale = 'it-IT') {
+  const token = `verify-${state.nextVerification++}`
+  const item = {
+    email: account.email,
+    locale,
+    token,
+    action_url: `/it/app/verify-email?token=${encodeURIComponent(token)}`,
+  }
+  state.mailbox.push(item)
+  account.pending_verification_token = token
+  return item
+}
+
+function issueSession(account, role = 'authenticated') {
+  const token = `${role}-session-${state.nextSession++}`
+  state.sessions.set(token, { role, account_id: account.id })
+  return token
+}
+
+function accountArea(account) {
+  return {
+    profile: {
+      account_id: account.id,
+      display_name: account.display_name,
+      locale: account.locale,
+      timezone: account.timezone,
+      updated_at: account.updated_at,
+    },
+    providers: account.providers,
+    workspaces: account.workspaces.map(workspace => ({
+      workspace,
+      plan: {
+        code: state.entitlement,
+        name: catalog.plans.find(plan => plan.code === state.entitlement)?.name || 'Start',
+        state: 'active',
+        usage: {
+          members: 1,
+          channels: 2,
+          scheduled_publications: 2,
+        },
+        limits: {
+          members: 3,
+          channels: 6,
+          scheduled_publications: 250,
+        },
+        manageable: state.entitlement !== 'start',
+        renews_at: '2026-08-01T00:00:00.000Z',
+      },
+    })),
+  }
+}
+
+function currentWorkspaceMembers(account) {
+  const workspace = account.workspaces.find(item => item.id === account.current_workspace_id)
+  if (!workspace) {
+    return []
+  }
+  return [
+    {
+      id: `${workspace.id}:${account.id}`,
+      workspace_id: workspace.id,
+      account_id: account.id,
+      email: account.email,
+      role: workspace.role,
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    },
+  ]
 }
 
 function usageEntry(resource, limit, used) {
@@ -424,6 +612,13 @@ const server = createServer(async (request, response) => {
     json(response, 200, { health: state.health })
     return
   }
+  if (request.method === 'GET' && url.pathname === '/__fixture/mailbox') {
+    const email = (url.searchParams.get('email') || '').toLowerCase()
+    json(response, 200, {
+      items: state.mailbox.filter(item => item.email.toLowerCase() === email),
+    })
+    return
+  }
   if (request.method === 'POST' && url.pathname === '/__fixture/shutdown') {
     json(response, 200, { stopped: true })
     setImmediate(stop)
@@ -434,6 +629,7 @@ const server = createServer(async (request, response) => {
     return
   }
   if (request.method === 'GET' && url.pathname === '/api/v1/app/bootstrap') {
+    const account = currentAccount(request)
     json(response, 200, {
       auth_methods: ['password'],
       providers: ['google', 'apple', 'facebook', 'linkedin'],
@@ -441,39 +637,318 @@ const server = createServer(async (request, response) => {
         { key: 'terms', version: '1.0', href: '/legal/termini', digest_sha256: digest },
         { key: 'privacy', version: '1.0', href: '/legal/privacy', digest_sha256: digest },
       ],
-      ...(role ? { session: appSession(role) } : {}),
+      ...(role ? { session: appSession(role, account) } : {}),
     })
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/auth/csrf') {
+    json(response, 200, { csrf_token: 'fixture-csrf' })
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/auth/password/register') {
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    if (input.password !== input.confirmation) {
+      error(response, 400, 'AUTH_PASSWORD_CONFIRMATION_MISMATCH')
+      return
+    }
+    if (typeof input.password !== 'string' || input.password.length < 12) {
+      error(response, 400, 'AUTH_PASSWORD_WEAK')
+      return
+    }
+    const email = String(input.email || '').toLowerCase().trim()
+    const existing = Array.from(state.accounts.values())
+      .find(account => account.email.toLowerCase() === email)
+    const account = existing || {
+      id: `account-${state.accounts.size + 1}`,
+      email,
+      loginSecret: input.password,
+      display_name: '',
+      locale: 'it-IT',
+      timezone: 'Europe/Rome',
+      contract_country: 'IT',
+      email_verified: false,
+      onboarding_required: true,
+      current_workspace_id: '',
+      workspaces: [],
+      providers: [{
+        id: 'password',
+        kind: 'identity',
+        name: 'password',
+        external_label: 'password',
+        connected_at: now,
+        only_login_method: true,
+      }],
+      updated_at: now,
+    }
+    account.loginSecret = input.password
+    state.accounts.set(account.id, account)
+    mailboxDelivery(account, input.consents?.[0]?.locale || 'it-IT')
+    json(response, 202, { verification_requested: true })
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/auth/password/verify') {
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const token = String(input.token || url.searchParams.get('token') || '')
+    const account = Array.from(state.accounts.values())
+      .find(item => item.pending_verification_token === token)
+    if (!account) {
+      error(response, 400, 'AUTH_EMAIL_VERIFICATION_INVALID')
+      return
+    }
+    account.email_verified = true
+    delete account.pending_verification_token
+    json(response, 200, { verified: true })
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/auth/password/verify/resend') {
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const email = String(input.email || '').toLowerCase().trim()
+    const account = Array.from(state.accounts.values())
+      .find(item => item.email.toLowerCase() === email)
+    if (account && !account.email_verified) {
+      mailboxDelivery(account, account.locale)
+    }
+    json(response, 202, { verification_requested: true })
     return
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/auth/password/login') {
     const input = JSON.parse((await body(request)).toString('utf8') || '{}')
-    if (
-      input.email !== 'admin@example.test'
-      || input.password !== state.adminVerifier
-    ) {
+    const email = String(input.email || '').toLowerCase().trim()
+    const account = Array.from(state.accounts.values())
+      .find(item => item.email.toLowerCase() === email)
+    if (!account) {
       error(response, 401, 'AUTH_INVALID_CREDENTIALS')
       return
     }
-    const token = `admin-login-${state.nextAdminSession++}`
-    state.adminSessions.add(token)
+    if (account.id === 'account-admin') {
+      account.loginSecret = state.adminVerifier
+    }
+    if (input.password !== account.loginSecret) {
+      error(response, 401, 'AUTH_INVALID_CREDENTIALS')
+      return
+    }
+    if (!account.email_verified) {
+      error(response, 401, 'AUTH_EMAIL_UNVERIFIED')
+      return
+    }
+    const token = issueSession(
+      account,
+      account.id === 'account-admin' ? 'admin' : 'authenticated',
+    )
     json(response, 200, { authenticated: true }, {
       'set-cookie': `postqron_fixture_session=${token}; Path=/; HttpOnly; SameSite=Lax`,
     })
     return
   }
+  if (request.method === 'POST' && url.pathname === '/api/v1/auth/authorize') {
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    if (!['google', 'apple', 'facebook', 'linkedin'].includes(input.provider)) {
+      error(response, 400, 'AUTH_PROVIDER_UNSUPPORTED')
+      return
+    }
+    error(response, 503, 'AUTH_PROVIDER_UNAVAILABLE')
+    return
+  }
+  if (
+    (request.method === 'GET' || request.method === 'POST')
+    && url.pathname === '/api/v1/auth/callback'
+  ) {
+    if (url.searchParams.get('error') === 'access_denied') {
+      error(response, 400, 'AUTH_PROVIDER_ACCESS_DENIED')
+      return
+    }
+    error(response, 400, 'AUTH_PROVIDER_CALLBACK_INVALID')
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/account/exports') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const id = `export-${account.id}-${state.privacyExports.size + 1}`
+    const exportRequest = {
+      id,
+      account_id: account.id,
+      scope: input.scope || 'account',
+      status: 'ready',
+      requested_at: now,
+      ready_at: now,
+      expires_at: '2026-08-01T12:00:00.000Z',
+      sha256: digest,
+      size_bytes: 128,
+    }
+    state.privacyExports.set(id, exportRequest)
+    json(response, 202, exportRequest)
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/account\/exports\/[^/]+\/download$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    const exportID = decodeURIComponent(url.pathname.split('/').at(-2))
+    const exportRequest = state.privacyExports.get(exportID)
+    if (!account || !exportRequest || exportRequest.account_id !== account.id) {
+      error(response, 404, 'not_found')
+      return
+    }
+    if (url.searchParams.get('fixture_expired') === '1') {
+      error(response, 410, 'export_expired')
+      return
+    }
+    const token = `download-${state.privacyDownloads.size + 1}`
+    state.privacyDownloads.set(token, { exportID, consumed: false })
+    json(response, 200, {
+      url: `http://${request.headers.host}/api/v1/account/privacy-artifacts/${token}`,
+      expires_at: '2026-07-25T12:05:00.000Z',
+      sha256: digest,
+      size_bytes: 128,
+    })
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/account\/privacy-artifacts\/[^/]+$/u.test(url.pathname)
+  ) {
+    const token = decodeURIComponent(url.pathname.split('/').at(-1))
+    const download = state.privacyDownloads.get(token)
+    if (!download || download.consumed) {
+      error(response, 404, 'not_found')
+      return
+    }
+    download.consumed = true
+    response.writeHead(200, {
+      'content-type': 'application/zip',
+      'cache-control': 'private, no-store',
+    })
+    response.end('fixture-private-export')
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/account/deletions') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const id = `deletion-${account.id}-${state.privacyDeletions.size + 1}`
+    const deletion = {
+      id,
+      account_id: account.id,
+      scope: input.scope || 'workspace',
+      workspace_id: input.workspace_id,
+      status: url.searchParams.get('fixture_finalize') === '1' ? 'completed' : 'grace_period',
+      requested_at: now,
+      grace_ends_at: '2026-08-22T12:00:00.000Z',
+      ownership: { actions: input.ownership_actions || [] },
+    }
+    state.privacyDeletions.set(id, deletion)
+    if (deletion.scope === 'account') {
+      for (const [token, current] of state.sessions) {
+        if (current.account_id === account.id) {
+          state.sessions.delete(token)
+        }
+      }
+    }
+    json(response, 202, deletion)
+    return
+  }
+  if (
+    request.method === 'POST'
+    && url.pathname === '/api/v1/account/deletion-cancel-capabilities'
+  ) {
+    if (request.headers.origin !== privacyAllowedOrigin) {
+      error(response, 403, 'origin_not_allowed')
+      return
+    }
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const token = `cancel-${state.privacyCancelCapabilities.size + 1}`
+    state.privacyCancelCapabilities.set(token, {
+      account_id: account.id,
+      claimed: false,
+      consumed: false,
+    })
+    json(response, 201, {
+      expires_at: '2026-08-23T12:00:00.000Z',
+    }, {
+      'cache-control': 'no-store',
+      'set-cookie': `postqron_deletion_cancel=${token}; Path=/api/v1/account/deletions/; HttpOnly; SameSite=Strict`,
+    })
+    return
+  }
+  if (
+    request.method === 'POST'
+    && /^\/api\/v1\/account\/deletions\/[^/]+\/cancel$/u.test(url.pathname)
+  ) {
+    if (request.headers.origin !== privacyAllowedOrigin) {
+      error(response, 403, 'origin_not_allowed')
+      return
+    }
+    const deletionID = decodeURIComponent(url.pathname.split('/').at(-2))
+    const deletion = state.privacyDeletions.get(deletionID)
+    const token = /(?:^|;\s*)postqron_deletion_cancel=([^;]+)(?:;|$)/u
+      .exec(request.headers.cookie || '')?.[1]
+    const capability = state.privacyCancelCapabilities.get(token)
+    if (
+      !deletion
+      || deletion.status !== 'grace_period'
+      || !capability
+      || capability.claimed
+      || capability.consumed
+      || capability.account_id !== deletion.account_id
+    ) {
+      error(response, 404, 'not_found')
+      return
+    }
+    capability.claimed = true
+    capability.consumed = true
+    deletion.status = 'cancelled'
+    response.writeHead(204, {
+      'cache-control': 'no-store',
+      'set-cookie': 'postqron_deletion_cancel=; Path=/api/v1/account/deletions/; Max-Age=0; HttpOnly; SameSite=Strict',
+    })
+    response.end()
+    return
+  }
+  if (
+    request.method === 'DELETE'
+    && /^\/api\/v1\/account\/deletions\/[^/]+$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    const deletionID = decodeURIComponent(url.pathname.split('/').at(-1))
+    const deletion = state.privacyDeletions.get(deletionID)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    if (!deletion || deletion.account_id !== account.id) {
+      error(response, 404, 'not_found')
+      return
+    }
+    deletion.status = 'cancelled'
+    response.writeHead(204)
+    response.end()
+    return
+  }
   if (request.method === 'POST' && url.pathname === '/api/v1/auth/logout') {
-    if (role !== 'admin') {
+    if (!role) {
       response.writeHead(204, {
         'set-cookie': 'postqron_fixture_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
       })
       response.end()
       return
     }
-    if (request.headers['x-csrf-token'] !== 'fixture-csrf') {
+    if (role === 'admin' && request.headers['x-csrf-token'] !== 'fixture-csrf') {
       error(response, 403, 'AUTH_CSRF_INVALID')
       return
     }
-    state.adminSessions.delete(fixtureSessionToken(request))
+    state.sessions.delete(fixtureSessionToken(request))
     response.writeHead(204, {
       'set-cookie': 'postqron_fixture_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
     })
@@ -510,20 +985,141 @@ const server = createServer(async (request, response) => {
       return
     }
     state.adminVerifier = input.new_password
-    state.adminSessions.clear()
-    const token = `admin-rotated-${state.nextAdminSession++}`
-    state.adminSessions.add(token)
+    for (const [token, session] of state.sessions.entries()) {
+      if (session.account_id === 'account-admin') {
+        state.sessions.delete(token)
+      }
+    }
+    const token = issueSession(state.accounts.get('account-admin'), 'admin')
     json(response, 200, { changed: true }, {
       'set-cookie': `postqron_fixture_session=${token}; Path=/; HttpOnly; SameSite=Lax`,
     })
     return
   }
   if (request.method === 'GET' && url.pathname === '/api/v1/app/session') {
-    if (!role) {
+    const account = currentAccount(request)
+    if (!role || !account) {
       error(response, 401, 'APP_SESSION_REQUIRED')
       return
     }
-    json(response, 200, appSession(role))
+    json(response, 200, appSession(role, account))
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/app/onboarding') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'APP_SESSION_REQUIRED')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const selected = input.workspace?.id
+    const existing = selected
+      ? account.workspaces.find(workspace => workspace.id === selected)
+      : undefined
+    const workspace = existing || {
+      id: `workspace-${account.id}`,
+      name: input.workspace?.name || `${account.display_name || 'Personal'} Workspace`,
+      role: 'owner',
+    }
+    if (!existing) {
+      account.workspaces = [workspace]
+    }
+    account.current_workspace_id = workspace.id
+    account.display_name = input.account?.display_name || account.display_name || 'Fixture User'
+    account.onboarding_required = false
+    account.updated_at = now
+    json(response, existing ? 200 : 201, appSession('authenticated', account))
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/app/workspaces/select') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'APP_SESSION_REQUIRED')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const workspace = account.workspaces.find(item => item.id === input.workspace_id)
+    if (!workspace) {
+      error(response, 404, 'APP_WORKSPACE_NOT_FOUND')
+      return
+    }
+    account.current_workspace_id = workspace.id
+    response.writeHead(204)
+    response.end()
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/app/workspaces/current') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'APP_SESSION_REQUIRED')
+      return
+    }
+    const workspace = account.workspaces.find(item => item.id === account.current_workspace_id)
+    if (!workspace) {
+      error(response, 404, 'APP_WORKSPACE_NOT_FOUND')
+      return
+    }
+    json(response, 200, workspace)
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/app/workspaces/current/members') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'APP_SESSION_REQUIRED')
+      return
+    }
+    json(response, 200, currentWorkspaceMembers(account))
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/account') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    json(response, 200, accountArea(account))
+    return
+  }
+  if (request.method === 'PATCH' && url.pathname === '/api/v1/account/profile') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    account.display_name = input.display_name || account.display_name
+    account.locale = input.locale || account.locale
+    account.timezone = input.timezone || account.timezone
+    account.updated_at = now
+    json(response, 200, {
+      account_id: account.id,
+      display_name: account.display_name,
+      locale: account.locale,
+      timezone: account.timezone,
+      updated_at: account.updated_at,
+    })
+    return
+  }
+  if (
+    request.method === 'DELETE'
+    && /^\/api\/v1\/account\/providers\/[^/]+$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const providerID = decodeURIComponent(url.pathname.split('/').at(-1))
+    if (account.providers.length <= 1) {
+      error(response, 409, 'last_login_provider')
+      return
+    }
+    account.providers = account.providers.filter(provider => provider.id !== providerID)
+    for (const provider of account.providers) {
+      provider.only_login_method = account.providers.length === 1
+    }
+    response.writeHead(204)
+    response.end()
     return
   }
   if (url.pathname === '/api/v1/cookie-preferences') {

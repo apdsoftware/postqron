@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -12,6 +14,7 @@ import (
 
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/runner"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 var version = "dev"
@@ -38,15 +41,42 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	runOnce := os.Getenv("WORKER_RUN_ONCE") == "1"
 	logger.Info(
 		"worker started",
 		"discovered_features", len(discovered),
 		"features", len(features),
 		"version", version,
 	)
+	if shouldSkipRunOnceDatabase(runOnce, os.Getenv("DATABASE_URL")) {
+		runner.New(features, interval, logger).Tick(ctx)
+		logger.Info(
+			"worker run-once skipped database-dependent execution",
+			"reason", "DATABASE_URL is not configured",
+		)
+		return
+	}
 
-	worker := runner.New(features, interval, logger)
-	if os.Getenv("WORKER_RUN_ONCE") == "1" {
+	database, err := openDatabase(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		logger.Error("open worker database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	worker, err := runner.NewRuntime(
+		features,
+		database,
+		os.Getenv("APP_DOMAIN"),
+		interval,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		logger.Error("configure worker", "error", err)
+		os.Exit(1)
+	}
+	if runOnce {
 		worker.Tick(ctx)
 		return
 	}
@@ -61,9 +91,29 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+func shouldSkipRunOnceDatabase(runOnce bool, databaseURL string) bool {
+	return runOnce && strings.TrimSpace(databaseURL) == ""
+}
+
 func defaultFeatureRoots() string {
 	return strings.Join(
 		[]string{"services/worker/features", "services/api/features", "features"},
 		string(os.PathListSeparator),
 	)
+}
+
+func openDatabase(databaseURL string) (*sql.DB, error) {
+	databaseURL = strings.TrimSpace(databaseURL)
+	if databaseURL == "" {
+		return nil, errors.New("DATABASE_URL is required by the worker runtime")
+	}
+	database, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	database.SetMaxOpenConns(10)
+	database.SetMaxIdleConns(2)
+	database.SetConnMaxIdleTime(5 * time.Minute)
+	database.SetConnMaxLifetime(30 * time.Minute)
+	return database, nil
 }

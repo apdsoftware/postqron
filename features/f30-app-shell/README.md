@@ -20,6 +20,13 @@ vertical feature.
   provider client.
 - F36 owns locale resolution and redirect behavior. This slice only registers
   its complete `appShell` catalog and carries the locale in local return URLs.
+- Account deletion obtains the F12 cancellation capability immediately before
+  the authenticated deletion request. The capability remains exclusively in
+  an HttpOnly cookie; F30 accepts only `expires_at`, then moves to the public
+  `/app/account-deletions/{id}/cancel` route. That route does not resolve a
+  session or account-area payload and posts the non-secret deletion ID with
+  cookie credentials only. Workspace deletion keeps the authenticated F12
+  cancellation flow.
 - The public purchase intent accepts only `start|pro|team`,
   `monthly|annual`, and an integer quantity within the selected plan's public
   channel limit. Invalid or external destinations are rejected.

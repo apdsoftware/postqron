@@ -9,29 +9,98 @@ migrations:
   - ./migrations/000001_create_auth.sql
   - ./migrations/000002_password_auth.sql
   - ./migrations/000003_admin_profile_auth.sql
+  - ./migrations/000004_account_access.sql
 server:
   routes:
+    - path: /auth/password/register
+      handler: Auth
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/password/register
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/password/verify
+      handler: Auth
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/password/verify
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/password/verify/resend
+      handler: Auth
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/password/verify/resend
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /auth/password/login
-      handler: Password
+      handler: Auth
       methods: [POST]
       visibility: "public"
     - path: /auth/password/login
-      handler: Password
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/csrf
+      handler: Auth
+      methods: [GET]
+      visibility: "public"
+    - path: /auth/csrf
+      handler: Auth
       methods: [OPTIONS]
       visibility: "public"
     - path: /auth/password/change
-      handler: Password
+      handler: Auth
       methods: [POST]
       visibility: "public"
     - path: /auth/password/change
-      handler: Password
+      handler: Auth
       methods: [OPTIONS]
       visibility: "public"
     - path: /auth/logout
-      handler: Password
+      handler: Auth
       methods: [POST]
       visibility: "public"
     - path: /auth/logout
-      handler: Password
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/authorize
+      handler: Auth
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/authorize
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/callback
+      handler: Auth
+      methods: [GET, POST]
+      visibility: "public"
+    - path: /auth/link
+      handler: Auth
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/link
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/sessions/revoke
+      handler: Auth
+      methods: [POST]
+      visibility: "public"
+    - path: /auth/sessions/revoke
+      handler: Auth
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /auth/providers/{provider}
+      handler: Auth
+      methods: [DELETE]
+      visibility: "public"
+    - path: /auth/providers/{provider}
+      handler: Auth
       methods: [OPTIONS]
       visibility: "public"

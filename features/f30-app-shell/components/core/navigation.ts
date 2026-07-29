@@ -3,8 +3,20 @@ import {
   type AppShellLocale,
 } from './catalogs.ts'
 
-export type PlanCode = 'start' | 'pro' | 'team'
+export type PlanCode = 'start' | 'pro' | 'team' | 'unlimited'
 export type BillingInterval = 'monthly' | 'annual'
+export type AppSection =
+  | 'entry'
+  | 'home'
+  | 'onboarding'
+  | 'oauth-callback'
+  | 'profile'
+  | 'security'
+  | 'providers'
+  | 'plan'
+  | 'workspace'
+  | 'privacy'
+  | 'verify-email'
 
 export interface PurchaseIntent {
   interval?: BillingInterval
@@ -26,13 +38,8 @@ export class AppNavigationError extends Error {
 }
 
 const localOrigin = 'https://postqron.local'
-const plans = new Set<PlanCode>(['start', 'pro', 'team'])
+const plans = new Set<PlanCode>(['start', 'pro', 'team', 'unlimited'])
 const intervals = new Set<BillingInterval>(['monthly', 'annual'])
-const planQuantities: Readonly<Record<PlanCode, number>> = {
-  start: 3,
-  pro: 50,
-  team: 50,
-}
 
 function hasUnsafeCharacter(value: string): boolean {
   return [...value].some((character) => {
@@ -78,12 +85,68 @@ export function appRoot(locale: AppShellLocale): string {
   return `/${locale}/app`
 }
 
+export function appRoute(
+  locale: AppShellLocale,
+  section: AppSection,
+): string {
+  switch (section) {
+    case 'entry':
+      return appRoot(locale)
+    case 'home':
+      return `${appRoot(locale)}/home`
+    case 'onboarding':
+      return `${appRoot(locale)}/onboarding`
+    case 'oauth-callback':
+      return `${appRoot(locale)}/oauth/callback`
+    case 'profile':
+      return `${appRoot(locale)}/profile`
+    case 'security':
+      return `${appRoot(locale)}/security`
+    case 'providers':
+      return `${appRoot(locale)}/providers`
+    case 'plan':
+      return `${appRoot(locale)}/plan`
+    case 'workspace':
+      return `${appRoot(locale)}/workspace`
+    case 'privacy':
+      return `${appRoot(locale)}/privacy`
+    case 'verify-email':
+      return `${appRoot(locale)}/verify-email`
+  }
+}
+
+export function accountDeletionCancellationRoute(
+  locale: AppShellLocale,
+  requestId: string,
+): string {
+  const normalized = requestId.trim()
+  if (normalized === '' || normalized.length > 256) {
+    throw new AppNavigationError(
+      'APP_INVALID_DESTINATION',
+      'A valid account deletion request identifier is required',
+    )
+  }
+  return `${appRoot(locale)}/account-deletions/${encodeURIComponent(normalized)}/cancel`
+}
+
 function unlocalizedAppPath(pathname: string): string {
   const candidate = pathname.split('/')[1]
   if (APP_SHELL_LOCALES.includes(candidate as AppShellLocale)) {
     return `/${pathname.split('/').slice(2).join('/')}`.replace(/\/+$/u, '') || '/'
   }
   return pathname.replace(/\/+$/u, '') || '/'
+}
+
+export function isPublicAccountDeletionCancellationDestination(
+  value: string,
+): boolean {
+  try {
+    const parsed = parseLocal(value)
+    const path = unlocalizedAppPath(parsed.pathname)
+    return /^\/app\/account-deletions\/[^/]+\/cancel$/u.test(path)
+  } catch {
+    return false
+  }
 }
 
 export function parsePurchaseIntent(searchParams: URLSearchParams): PurchaseIntent {
@@ -115,6 +178,12 @@ export function parsePurchaseIntent(searchParams: URLSearchParams): PurchaseInte
       'The billing interval is invalid',
     )
   }
+  if (rawPlan === 'unlimited' && rawQuantity !== null) {
+    throw new AppNavigationError(
+      'APP_INVALID_PURCHASE_INTENT',
+      'The unlimited plan does not accept a channel quantity',
+    )
+  }
 
   let quantity: number | undefined
   if (rawQuantity !== null) {
@@ -125,10 +194,10 @@ export function parsePurchaseIntent(searchParams: URLSearchParams): PurchaseInte
       )
     }
     quantity = Number(rawQuantity)
-    if (!Number.isSafeInteger(quantity) || quantity > planQuantities[rawPlan as PlanCode]) {
+    if (!Number.isSafeInteger(quantity)) {
       throw new AppNavigationError(
         'APP_INVALID_PURCHASE_INTENT',
-        'The channel quantity is outside the selected public plan limit',
+        'The channel quantity must be a safe integer',
       )
     }
   }
@@ -192,7 +261,7 @@ export function authenticatedDestination(
   const path = unlocalizedAppPath(parsed.pathname)
   if (path === '/app') {
     const locale = localeFromAppPath(safe)
-    const home = new URL(appRoot(locale) + '/home', localOrigin)
+    const home = new URL(appRoute(locale, 'home'), localOrigin)
     home.search = parsed.search
     return `${home.pathname}${home.search}`
   }

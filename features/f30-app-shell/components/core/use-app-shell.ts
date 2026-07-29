@@ -7,12 +7,15 @@ import {
 } from '#imports'
 import {
   AppShellApi,
+  normalizeAppApiError,
   resolveAppShellApiBase,
   type AppFetch,
 } from './api.ts'
 import type {
+  AccountArea,
   AppBootstrap,
   AppSession,
+  DeletionStatus,
 } from './contracts.ts'
 import type {
   AppShellMessageKey,
@@ -57,6 +60,26 @@ export function useAppBootstrapState() {
   )
 }
 
+export function useAppAccountAreaState() {
+  return useState<AccountArea | undefined>(
+    'postqron.app-shell.account-area',
+    () => undefined,
+  )
+}
+
+export interface AccountDeletionCancellationState {
+  graceEndsAt: string
+  requestId: string
+  status: DeletionStatus
+}
+
+export function useAccountDeletionCancellationState() {
+  return useState<AccountDeletionCancellationState | undefined>(
+    'postqron.app-shell.account-deletion-cancellation',
+    () => undefined,
+  )
+}
+
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()
@@ -64,4 +87,12 @@ export function useAppShellApi(): AppShellApi {
     resolveAppShellApiBase(config, import.meta.server),
     requestFetch as unknown as AppFetch,
   )
+}
+
+export function appStateKindFromError(
+  error: unknown,
+): 'access-denied' | 'offline' {
+  return normalizeAppApiError(error).kind === 'access-denied'
+    ? 'access-denied'
+    : 'offline'
 }

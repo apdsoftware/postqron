@@ -4,7 +4,9 @@ import type { AppSession } from '../components/core/contracts.ts'
 import { routeGuardDecision } from '../components/core/guard.ts'
 import {
   AppNavigationError,
+  accountDeletionCancellationRoute,
   authenticatedDestination,
+  isPublicAccountDeletionCancellationDestination,
   sanitizeAppDestination,
 } from '../components/core/navigation.ts'
 
@@ -54,7 +56,33 @@ for (const prefix of localePrefixes) {
       { action: 'allow' },
     )
   })
+
+  test(`keeps account deletion cancellation public in ${prefix || 'en'}`, () => {
+    const locale = prefix.slice(1) as 'en' | 'it' | 'es' | 'fr' | 'de'
+    const target = accountDeletionCancellationRoute(locale, 'deletion-219')
+    assert.equal(
+      target,
+      `${prefix}/app/account-deletions/deletion-219/cancel`,
+    )
+    assert.equal(
+      isPublicAccountDeletionCancellationDestination(target),
+      true,
+    )
+    assert.deepEqual(
+      routeGuardDecision({ destination: target, failure: 'session' }),
+      { action: 'allow' },
+    )
+  })
 }
+
+test('preserves the public unlimited purchase intent without quantity', () => {
+  const target = '/en/app?plan=unlimited&interval=annual'
+  assert.equal(sanitizeAppDestination(target), target)
+  assert.equal(
+    authenticatedDestination(target, false),
+    '/en/app/home?plan=unlimited&interval=annual',
+  )
+})
 
 test('new accounts are sent to onboarding with the exact safe destination', () => {
   const target = '/fr/app/home?view=week'
@@ -97,7 +125,8 @@ for (const target of [
   '/pricing',
   '/app?plan=enterprise&interval=monthly',
   '/app?plan=pro&interval=weekly',
-  '/app?plan=start&interval=monthly&quantity=4',
+  '/app?plan=unlimited&interval=monthly&quantity=1',
+  '/app?plan=team&interval=monthly&quantity=9007199254740992',
   '/app?plan=team&interval=monthly&quantity=1.5',
   '/app?plan=team&interval=monthly&admin=true',
 ]) {

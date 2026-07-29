@@ -6,7 +6,7 @@ import {
   useRoute,
 } from '#imports'
 import {
-  appRoot,
+  appRoute,
   localeFromAppPath,
 } from '../components/core/navigation.ts'
 import {
@@ -23,7 +23,16 @@ const menuOpen = ref(false)
 const changingWorkspace = ref(false)
 const currentWorkspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const locale = computed(() => localeFromAppPath(route.fullPath))
-const home = computed(() => `${appRoot(locale.value)}/home`)
+
+const links = computed(() => [
+  { key: 'home', href: appRoute(locale.value, 'home') },
+  { key: 'profile', href: appRoute(locale.value, 'profile') },
+  { key: 'security', href: appRoute(locale.value, 'security') },
+  { key: 'providers', href: appRoute(locale.value, 'providers') },
+  { key: 'plan', href: appRoute(locale.value, 'plan') },
+  { key: 'workspace', href: appRoute(locale.value, 'workspace') },
+  { key: 'privacy', href: appRoute(locale.value, 'privacy') },
+])
 
 async function selectWorkspace(event: unknown) {
   const workspaceId = (
@@ -36,7 +45,7 @@ async function selectWorkspace(event: unknown) {
   try {
     await api.selectWorkspace(workspaceId)
     session.value = await api.session()
-    await navigateTo(home.value)
+    await navigateTo(route.fullPath)
   } finally {
     changingWorkspace.value = false
   }
@@ -47,7 +56,7 @@ async function logout() {
     await api.logout()
   } finally {
     session.value = undefined
-    await navigateTo(appRoot(locale.value))
+    await navigateTo(appRoute(locale.value, 'entry'))
   }
 }
 </script>
@@ -65,7 +74,7 @@ async function logout() {
     >
       <div class="product-sidebar__brand">
         <a
-          :href="home"
+          :href="appRoute(locale, 'home')"
           aria-label="Postqron"
         >
           <img
@@ -85,12 +94,13 @@ async function logout() {
 
       <nav :aria-label="t('shell.navigation')">
         <a
-          :href="home"
-          :aria-current="route.path === home ? 'page' : undefined"
+          v-for="link in links"
+          :key="link.key"
+          :href="link.href"
+          :aria-current="route.path === link.href ? 'page' : undefined"
           @click="menuOpen = false"
         >
-          <span aria-hidden="true">⌂</span>
-          {{ t('shell.home') }}
+          {{ t(`shell.nav.${link.key}`) }}
         </a>
         <div data-postqron-slot="primary-navigation" />
       </nav>
@@ -135,10 +145,14 @@ async function logout() {
         <div
           class="product-topbar__actions"
           data-postqron-slot="workspace-actions"
-        />
+        >
+          <PostqronLanguageSwitcher />
+        </div>
 
         <details class="profile-menu">
-          <summary>
+          <summary
+            :aria-label="`${t('shell.profile')}: ${session?.account.display_name || t('shell.profile')}`"
+          >
             <span
               class="profile-menu__avatar"
               aria-hidden="true"
@@ -152,7 +166,7 @@ async function logout() {
           <div class="profile-menu__panel">
             <strong>{{ session?.account.display_name }}</strong>
             <small>{{ session?.account.email }}</small>
-            <PostqronLanguageSwitcher />
+            <a :href="appRoute(locale, 'profile')">{{ t('shell.profile') }}</a>
             <button
               type="button"
               @click="logout"

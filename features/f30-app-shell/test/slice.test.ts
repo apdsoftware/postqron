@@ -13,6 +13,37 @@ test('all five app catalogs contain the exact same keys', () => {
     assert.deepEqual(Object.keys(APP_SHELL_CATALOGS[locale]).sort(), reference)
     assert.ok(Object.values(APP_SHELL_CATALOGS[locale]).every(Boolean))
   }
+  for (const key of [
+    'documentTitle.profile',
+    'documentTitle.security',
+    'documentTitle.providers',
+    'documentTitle.plan',
+    'documentTitle.workspace',
+    'documentTitle.privacy',
+    'documentTitle.accountDeletionCancel',
+    'documentTitle.verifyEmail',
+    'shell.nav.home',
+    'shell.nav.privacy',
+    'home.card.profile.title',
+    'profile.title',
+    'security.title',
+    'providers.title',
+    'plan.title',
+    'workspace.title',
+    'privacy.title',
+    'privacy.confirmAccountDeletion',
+    'privacy.confirmAccountDeletionNoOwnedWorkspaces',
+    'privacy.accountDeletionOwnedWorkspaces',
+    'privacy.accountDeletionNoOwnedWorkspaces',
+    'privacy.accountDeletionOwnershipUnavailable',
+    'accountDeletionCancel.title',
+    'accountDeletionCancel.securityNote',
+    'verify.title',
+    'auth.confirmation',
+    'auth.registerSubmit',
+  ] as const) {
+    assert.ok(APP_SHELL_CATALOGS.en[key])
+  }
 })
 
 test('all primary app routes declare a localized non-empty document title', async () => {
@@ -22,6 +53,7 @@ test('all primary app routes declare a localized non-empty document title', asyn
     onboarding: '../pages/onboarding.vue',
     home: '../pages/home.vue',
     feature: '../pages/feature-slot.vue',
+    accountDeletionCancel: '../pages/account-deletion-cancel.vue',
   } as const
   const sources = await Promise.all(
     Object.values(routes).map(path =>
@@ -58,7 +90,11 @@ test('manifest discovers public entry, callback, private routes, and no central 
   assert.match(manifest, /path: \/app\/oauth\/callback/u)
   assert.match(manifest, /path: \/app\/home[\s\S]*visibility: private[\s\S]*middleware: \[app-session\]/u)
   assert.match(manifest, /path: \/app\/onboarding[\s\S]*visibility: private/u)
-  for (const dependency of ['auth', 'workspaces', 'email', 'i18n']) {
+  assert.match(
+    manifest,
+    /path: \/app\/account-deletions\/:requestId\/cancel[\s\S]*visibility: public[\s\S]*middleware: \[\]/u,
+  )
+  for (const dependency of ['auth', 'account-privacy', 'workspaces', 'email', 'i18n']) {
     assert.match(manifest, new RegExp(`  - ${dependency}\\n`, 'u'))
   }
 })
@@ -75,8 +111,78 @@ test('shell exposes accessible states and declarative slots', async () => {
   assert.match(layout, /href="#app-main"/u)
   assert.match(layout, /data-postqron-slot="primary-navigation"/u)
   assert.match(layout, /data-postqron-slot="workspace-actions"/u)
+  assert.match(layout, /appRoute\(locale, 'profile'\)[\s\S]*t\('shell\.logout'\)/u)
+  assert.match(layout, /<summary[\s\S]*:aria-label="`\$\{t\('shell\.profile'\)\}/u)
   assert.match(home, /data-postqron-slot="home-primary"/u)
   assert.match(feature, /data-postqron-slot="feature-content"/u)
+})
+
+test('privacy flow requires explicit confirmation before deletion requests', async () => {
+  const privacy = await readFile(
+    new URL('../pages/privacy.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(privacy, /confirmAction\(message\)/u)
+  assert.match(privacy, /privacy\.confirmAccountDeletion/u)
+  assert.match(privacy, /privacy\.confirmAccountDeletionNoOwnedWorkspaces/u)
+  assert.match(privacy, /privacy\.confirmWorkspaceDeletion/u)
+  assert.match(
+    privacy,
+    /issueAccountDeletionCancelCapability\(\)[\s\S]*requestDeletion\(/u,
+  )
+  assert.match(privacy, /buildAccountDeletionOwnershipActions\(accountArea\.value\)/u)
+  assert.match(privacy, /ownershipActions/u)
+  assert.match(privacy, /v-for="item in ownerWorkspaces"/u)
+  assert.match(privacy, /privacy\.accountDeletionNoOwnedWorkspaces/u)
+  assert.match(privacy, /:disabled="!accountArea \|\| working === 'account-delete'"/u)
+  assert.match(privacy, /cancelWorkspaceDeletion/u)
+  assert.doesNotMatch(privacy, /useAppSessionState/u)
+})
+
+test('account deletion cancellation is public and never fetches private account state', async () => {
+  const [page, middleware, api] = await Promise.all([
+    readFile(
+      new URL('../pages/account-deletion-cancel.vue', import.meta.url),
+      'utf8',
+    ),
+    readFile(new URL('../middleware/app-session.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../components/core/api.ts', import.meta.url), 'utf8'),
+  ])
+  assert.match(page, /definePageMeta\(\{ layout: false \}\)/u)
+  assert.match(page, /cancelAccountDeletion\(requestId\.value\)/u)
+  assert.match(page, /role="alert"/u)
+  assert.match(page, /role="status"/u)
+  assert.doesNotMatch(
+    page,
+    /useAsyncData|useAppAccountAreaState|useAppSessionState|\.accountArea\(|\.session\(/u,
+  )
+  assert.doesNotMatch(
+    `${page}\n${api}`,
+    /localStorage|sessionStorage|console\.(?:log|debug|info)/u,
+  )
+  assert.match(
+    middleware,
+    /isPublicAccountDeletionCancellationDestination\(to\.fullPath\)[\s\S]*return[\s\S]*useAppShellApi\(\)\.session/u,
+  )
+})
+
+test('account pages render retryable loading and failure states', async () => {
+  const sources = await Promise.all([
+    '../pages/home.vue',
+    '../pages/profile.vue',
+    '../pages/security.vue',
+    '../pages/providers.vue',
+    '../pages/plan.vue',
+    '../pages/workspace.vue',
+    '../pages/privacy.vue',
+    '../pages/onboarding.vue',
+  ].map(path => readFile(new URL(path, import.meta.url), 'utf8')))
+
+  for (const source of sources) {
+    assert.match(source, /kind="loading"/u)
+    assert.match(source, /:kind="pageState"/u)
+    assert.match(source, /@retry="retry"/u)
+  }
 })
 
 test('marketing CTAs continue to target the runtime app URL', async () => {

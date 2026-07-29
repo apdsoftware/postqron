@@ -43,6 +43,51 @@ func TestHTTPHandlerRejectsCrossSiteMutationsAndMissingConfirmation(t *testing.T
 	}
 }
 
+func TestHTTPHandlerRateLimitsSensitiveMutations(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	repository := NewMemoryRepository()
+	adapters := defaultAdapters(now)
+	service := newTestService(t, repository, adapters, func() time.Time { return now })
+	handler, err := NewHTTPHandler(
+		service,
+		fixedAuthenticator{principal: recentPrincipal(now)},
+		WithHTTPRateLimiter(NewInMemoryRateLimiter(0.001, 1, 10, time.Minute)),
+		WithHTTPClock(func() time.Time { return now }),
+	)
+	if err != nil {
+		t.Fatalf("create handler: %v", err)
+	}
+
+	first := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/account/exports",
+		strings.NewReader(`{"scope":"account","confirmation":"EXPORT"}`),
+	)
+	first.Header.Set("Origin", "https://app.postqron.test")
+	first.Host = "app.postqron.test"
+	firstResponse := httptest.NewRecorder()
+	handler.ServeHTTP(firstResponse, first)
+	if firstResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected first request accepted, got %d: %s", firstResponse.Code, firstResponse.Body.String())
+	}
+
+	second := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/account/exports",
+		strings.NewReader(`{"scope":"account","confirmation":"EXPORT"}`),
+	)
+	second.Header.Set("Origin", "https://app.postqron.test")
+	second.Host = "app.postqron.test"
+	secondResponse := httptest.NewRecorder()
+	handler.ServeHTTP(secondResponse, second)
+	if secondResponse.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request rate limited, got %d", secondResponse.Code)
+	}
+	if secondResponse.Header().Get("Retry-After") != "1000" {
+		t.Fatalf("unexpected Retry-After: %#v", secondResponse.Header())
+	}
+}
+
 func TestHTTPAccountAreaIsPrivateAndNotCacheable(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	repository := NewMemoryRepository()

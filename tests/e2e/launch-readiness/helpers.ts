@@ -45,6 +45,22 @@ export async function fixtureHealth(
   }
 }
 
+export async function fixtureMailbox(email: string): Promise<Array<{
+  email: string
+  locale: string
+  token: string
+  action_url: string
+}>> {
+  const url = new URL(`${fixtureBaseURL}/__fixture/mailbox`)
+  url.searchParams.set('email', email)
+  const response = await fetch(url, { method: 'GET' })
+  if (!response.ok) {
+    throw new Error(`fixture mailbox failed with ${response.status}`)
+  }
+  const body = await response.json()
+  return Array.isArray(body.items) ? body.items : []
+}
+
 export async function session(
   context: BrowserContext,
   role: 'authenticated' | 'normal' | 'admin',

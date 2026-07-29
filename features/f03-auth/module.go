@@ -20,6 +20,7 @@ const (
 type Module struct {
 	database       *sql.DB
 	handler        http.Handler
+	accountAccess  *AccountAccessBoundary
 	clock          func() time.Time
 	bootstrapEmail string
 	bootstrapHash  string
@@ -35,16 +36,43 @@ func NewPostgresModule(
 	if clock == nil {
 		clock = time.Now
 	}
-	store, err := NewPostgresPasswordStore(database)
+	passwordStore, err := NewPostgresPasswordStore(database)
 	if err != nil {
 		return nil, err
 	}
-	service, err := NewPasswordService(store, clock, 0)
+	passwordService, err := NewPasswordService(passwordStore, clock, 0)
 	if err != nil {
 		return nil, err
 	}
-	handler, err := NewPasswordHandler(
-		service,
+	registrationStore, err := NewPostgresPasswordRegistrationStore(database)
+	if err != nil {
+		return nil, err
+	}
+	registrationService, err := NewPasswordRegistrationService(
+		PasswordRegistrationConfig{
+			Store: registrationStore,
+			Now:   clock,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	authStore, err := NewPostgresStore(database)
+	if err != nil {
+		return nil, err
+	}
+	authService, err := newRuntimeAuthService(authStore, clock)
+	if err != nil {
+		return nil, err
+	}
+	accountAccess, err := NewAccountAccessBoundary(authStore, clock)
+	if err != nil {
+		return nil, err
+	}
+	handler, err := NewRuntimeHandler(
+		authService,
+		passwordService,
+		registrationService,
 		os.Getenv(authAllowedOriginsEnv),
 	)
 	if err != nil {
@@ -53,6 +81,7 @@ func NewPostgresModule(
 	module := &Module{
 		database:       database,
 		handler:        handler,
+		accountAccess:  accountAccess,
 		clock:          clock,
 		bootstrapEmail: strings.TrimSpace(os.Getenv(adminBootstrapEmailEnv)),
 	}
@@ -67,6 +96,14 @@ func NewPostgresModule(
 		return nil, errors.New("admin bootstrap email and password hash must be configured together")
 	}
 	return module, nil
+}
+
+// AccountAccess returns the non-HTTP lifecycle boundary for F12 adapters.
+func (module *Module) AccountAccess() *AccountAccessBoundary {
+	if module == nil {
+		return nil
+	}
+	return module.accountAccess
 }
 
 func (module *Module) Start(ctx context.Context) error {
@@ -97,8 +134,30 @@ func (module *Module) Ready(ctx context.Context) error {
 }
 
 func (module *Module) Handler(name string) (http.Handler, bool) {
-	if module == nil || module.handler == nil || name != "Password" {
+	if module == nil || module.handler == nil {
 		return nil, false
 	}
-	return module.handler, true
+	switch name {
+	case "Auth", "Password":
+		return module.handler, true
+	default:
+		return nil, false
+	}
+}
+
+func newRuntimeAuthService(
+	store TransactionStore,
+	now func() time.Time,
+) (*Service, error) {
+	sealer := runtimeSealerFromEnv()
+	var providers map[Provider]ProviderAdapter
+	if sealer != nil {
+		providers = runtimeProviderAdapters()
+	}
+	return NewService(Config{
+		Store:     store,
+		Sealer:    sealer,
+		Providers: providers,
+		Now:       now,
+	})
 }

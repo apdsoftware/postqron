@@ -10,7 +10,9 @@ import (
 	"time"
 )
 
-const SessionCookieName = "__Host-postqron_session"
+const (
+	SessionCookieName = "__Host-postqron_session"
+)
 
 type Handler struct {
 	service *Service

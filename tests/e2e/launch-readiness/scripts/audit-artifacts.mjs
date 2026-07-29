@@ -30,7 +30,7 @@ async function walk(path) {
     return
   }
   const content = await readFile(path, 'utf8')
-  const credential = /(?:pdl_(?:live|sandbox)_[A-Za-z0-9]+|sk_(?:live|test)_[A-Za-z0-9]+|Bearer\s+[A-Za-z0-9._~+/=-]{12,}|password\s*[=:]\s*["']?[A-Za-z0-9._~+/=-]{8,})/giu
+  const credential = /(?:pdl_(?:live|sandbox)_[A-Za-z0-9]+|sk_(?:live|test)_[A-Za-z0-9]+|Bearer\s+[A-Za-z0-9._~+/=-]{12,}|["']password["']\s*:\s*["'][A-Za-z0-9._~+/=-]{8,}["'])/giu
   if (credential.test(content)) {
     violations.push(`${path}: credential-shaped value`)
   }

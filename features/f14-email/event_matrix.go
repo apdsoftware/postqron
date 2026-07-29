@@ -15,6 +15,7 @@ type EventDefinition struct {
 
 var TransactionalEventMatrix = []EventDefinition{
 	{"f14.welcome.v1", "F3 identity", "new account", TemplateWelcome, "normal", "recipient preference", "welcome:{account_id}", "Mailronix"},
+	{"f14.account_verification_requested.v1", "F3 identity", "account owner", TemplateAccountVerification, "high", "recipient preference", "account-verification:{account_id}:{verification_request_id}", "Mailronix"},
 	{"f14.workspace_invitation.v1", "F4 workspace", "invited member", TemplateWorkspaceInvitation, "high", "recipient preference", "workspace-invite:{invitation_id}", "Mailronix"},
 	{"f14.account_security.v1", "F3 identity", "account owner", TemplateAccountSecurity, "critical", "recipient preference", "security:{event_id}", "Mailronix"},
 	{"f14.account_linked.v1", "F3 identity", "account owner", TemplateAccountLinked, "high", "recipient preference", "account-link:{event_id}", "Mailronix"},

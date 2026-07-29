@@ -4,6 +4,43 @@ kind: api
 version: 0.1.0
 entrypoint: ./workspaces.go
 dependencies:
+  - auth
+  - compliance
   - platform
 migrations:
   - ./migrations/000001_create_workspaces.sql
+  - ./migrations/000002_create_workspace_runtime.sql
+server:
+  routes:
+    - path: /app/onboarding
+      handler: AppRuntime
+      methods: [POST]
+      visibility: "public"
+    - path: /app/onboarding
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /app/workspaces/select
+      handler: AppRuntime
+      methods: [POST]
+      visibility: "public"
+    - path: /app/workspaces/select
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /app/workspaces/current
+      handler: AppRuntime
+      methods: [GET]
+      visibility: "public"
+    - path: /app/workspaces/current
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /app/workspaces/current/members
+      handler: AppRuntime
+      methods: [GET]
+      visibility: "public"
+    - path: /app/workspaces/current/members
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"

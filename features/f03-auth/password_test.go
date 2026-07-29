@@ -180,6 +180,30 @@ func TestPasswordLoginIsGenericAndCORSIsRestricted(t *testing.T) {
 		t.Fatalf("password failures = %d", store.failures)
 	}
 
+	allowed := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/auth/password/login",
+		strings.NewReader(`{"email":"admin@example.test","password":"correct horse battery staple"}`),
+	)
+	allowed.Header.Set("Content-Type", "application/json")
+	allowed.Header.Set("Origin", "https://postqron.com")
+	accepted := httptest.NewRecorder()
+	handler.ServeHTTP(accepted, allowed)
+	if accepted.Code != http.StatusOK {
+		t.Fatalf("successful login = %d %s", accepted.Code, accepted.Body.String())
+	}
+	cookies := accepted.Result().Cookies()
+	sessionCookie := cookieByName(cookies, SessionCookieName)
+	if sessionCookie == nil || !sessionCookie.HttpOnly || !sessionCookie.Secure {
+		t.Fatalf("login session cookie = %+v", sessionCookie)
+	}
+	if len(cookies) != 1 {
+		t.Fatalf("login cookies = %v", cookies)
+	}
+	if cookieByName(cookies, "__Host-postqron_csrf") != nil {
+		t.Fatal("login unexpectedly set a readable CSRF cookie")
+	}
+
 	forbidden := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/auth/password/login",
@@ -477,13 +501,21 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 		!strings.Contains(changed.Body.String(), `"changed":true`) {
 		t.Fatalf("password change = %d %s", changed.Code, changed.Body.String())
 	}
-	setCookie := changed.Header().Get("Set-Cookie")
-	if !strings.Contains(setCookie, SessionCookieName+"=") ||
-		!strings.Contains(setCookie, "HttpOnly") ||
-		!strings.Contains(setCookie, "Secure") ||
-		strings.Contains(setCookie, sessionToken) ||
+	changedCookies := changed.Result().Cookies()
+	changedSessionCookie := cookieByName(changedCookies, SessionCookieName)
+	if changedSessionCookie == nil ||
+		!changedSessionCookie.HttpOnly ||
+		!changedSessionCookie.Secure ||
+		changedSessionCookie.Value == sessionToken ||
+		len(changedCookies) != 1 ||
+		cookieByName(changedCookies, "__Host-postqron_csrf") != nil ||
 		strings.Contains(changed.Body.String(), "a different secure password") {
-		t.Fatalf("unsafe password change response: %q %s", setCookie, changed.Body.String())
+		t.Fatalf(
+			"unsafe password change response: session=%+v cookies=%v body=%s",
+			changedSessionCookie,
+			changedCookies,
+			changed.Body.String(),
+		)
 	}
 
 	logout := httptest.NewRequest(
@@ -502,9 +534,50 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 	if store.revokedTokenHash != tokenDigest(sessionToken) {
 		t.Fatalf("logout token hash = %q", store.revokedTokenHash)
 	}
-	clearedCookie := loggedOut.Header().Get("Set-Cookie")
-	if !strings.Contains(clearedCookie, "Max-Age=0") {
-		t.Fatalf("logout cookie was not cleared: %q", clearedCookie)
+	logoutCookies := loggedOut.Result().Cookies()
+	clearedSessionCookie := cookieByName(logoutCookies, SessionCookieName)
+	if clearedSessionCookie == nil ||
+		clearedSessionCookie.MaxAge != -1 ||
+		len(logoutCookies) != 1 ||
+		cookieByName(logoutCookies, "__Host-postqron_csrf") != nil {
+		t.Fatalf(
+			"logout cookies were not cleared: session=%+v cookies=%v",
+			clearedSessionCookie,
+			logoutCookies,
+		)
+	}
+}
+
+func TestPasswordPreflightAllowsCSRFCHeader(t *testing.T) {
+	store := &passwordStoreFixture{}
+	service, err := NewPasswordService(
+		store,
+		func() time.Time { return testNow },
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewPasswordHandler(service, "https://postqron.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodOptions,
+		"/api/v1/auth/password/change",
+		nil,
+	)
+	request.Header.Set("Origin", "https://postqron.com")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("preflight = %d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(
+		response.Header().Get("Access-Control-Allow-Headers"),
+		"X-CSRF-Token",
+	) {
+		t.Fatalf("allow headers = %q", response.Header().Get("Access-Control-Allow-Headers"))
 	}
 }
 
@@ -573,6 +646,6 @@ func TestPasswordChangeHTTPRejectsCSRFAndExpiredSessionSafely(t *testing.T) {
 }
 
 func passwordCSRF(sessionToken string) string {
-	digest := sha256.Sum256([]byte("postqron-admin-csrf\x00" + sessionToken))
+	digest := sha256.Sum256([]byte("postqron-auth-csrf\x00" + sessionToken))
 	return hex.EncodeToString(digest[:])
 }

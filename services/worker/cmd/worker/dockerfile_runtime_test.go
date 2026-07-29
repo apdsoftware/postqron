@@ -1,0 +1,33 @@
+package main
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestWorkerDockerfileIncludesEmailBrandTokens(t *testing.T) {
+	contents, err := os.ReadFile("../../Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfile := string(contents)
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f01-brand/tokens ./features/f01-brand/tokens",
+	) {
+		t.Fatal("worker Dockerfile must copy F1 tokens required by the F14 renderer")
+	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f03-auth/go.mod features/f03-auth/go.sum features/f03-auth/",
+	) {
+		t.Fatal("worker Dockerfile must copy F3 go.mod for local replace resolution during go mod download")
+	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY services/api/go.mod services/api/go.sum services/api/",
+	) {
+		t.Fatal("worker Dockerfile must copy API go.mod so go.work resolution does not break image smoke builds")
+	}
+}
