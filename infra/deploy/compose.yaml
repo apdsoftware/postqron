@@ -73,6 +73,7 @@ services:
     image: ${WORKER_IMAGE:?WORKER_IMAGE is required}
     restart: unless-stopped
     environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       POSTQRON_PRIVACY_ARTIFACT_DIR: /var/lib/postqron/privacy-exports
       POSTQRON_PRIVACY_ARTIFACT_KEY_B64: ${POSTQRON_PRIVACY_ARTIFACT_KEY_B64:?POSTQRON_PRIVACY_ARTIFACT_KEY_B64 is required}

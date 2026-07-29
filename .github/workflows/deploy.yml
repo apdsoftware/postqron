@@ -394,6 +394,29 @@ jobs:
             docker compose --env-file runtime.env pull
           '
           ssh postqron@"$DEPLOYMENT_HOST" sudo systemctl restart postqron.service
+          ssh postqron@"$DEPLOYMENT_HOST" '
+            set -e
+            cd /opt/postqron
+            worker_container=$(docker compose --env-file runtime.env ps --quiet worker)
+            if [[ -z "$worker_container" ]]; then
+              echo "worker container was not created" >&2
+              exit 1
+            fi
+            worker_restarts=$(
+              docker inspect --format "{{.RestartCount}}" "$worker_container"
+            )
+            for _ in $(seq 1 5); do
+              sleep 2
+              current_container=$(docker compose --env-file runtime.env ps --quiet worker)
+              if [[ "$current_container" != "$worker_container" ]] ||
+                [[ "$(docker inspect --format "{{.State.Status}}" "$worker_container")" != "running" ]] ||
+                [[ "$(docker inspect --format "{{.State.Restarting}}" "$worker_container")" != "false" ]] ||
+                [[ "$(docker inspect --format "{{.RestartCount}}" "$worker_container")" != "$worker_restarts" ]]; then
+                echo "worker did not remain running after restart" >&2
+                exit 1
+              fi
+            done
+          '
       - name: Restore administrative SSH allowlist
         if: always()
         run: |
