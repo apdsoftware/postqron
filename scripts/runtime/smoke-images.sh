@@ -208,6 +208,70 @@ assert_exact_output() {
   fi
 }
 
+assert_mailronix_delivery_guards() {
+  local workflow="$repository_root/.github/workflows/deploy.yml"
+  # shellcheck disable=SC2016
+  node -e '
+    const fs = require("node:fs")
+    const workflow = fs.readFileSync(process.argv[1], "utf8")
+    const required = [
+      String.raw`^mrx_live_[^[:space:][:cntrl:]]+$`,
+      "Probe Mailronix credential without delivery",
+      "--data \x27{}\x27",
+      "--output /dev/null",
+      "--retry 0",
+      "--write-out \x27%{http_code}\x27",
+      "\"\x24probe_status\" != \"400\"",
+      "FROM f14_email_deliveries",
+      "template_id = ",
+      "account_verification",
+      "created_at >= CURRENT_TIMESTAMP - INTERVAL ",
+      "24 hours",
+      "GROUP BY state, diagnostic_code",
+      "--no-align --tuples-only",
+    ]
+    for (const guard of required) {
+      if (!workflow.includes(guard)) {
+        throw new Error("deploy workflow lost Mailronix guard: " + guard)
+      }
+    }
+
+    const probe = workflow.match(
+      /- name: Probe Mailronix credential without delivery[\s\S]*?(?=\n {6}- name:)/,
+    )?.[0]
+    if (!probe) {
+      throw new Error("Mailronix non-delivery probe step is missing")
+    }
+    for (const forbidden of ["recipient", "subject", "html", "text_body", "idempotency"]) {
+      if (probe.toLowerCase().includes(forbidden)) {
+        throw new Error("Mailronix probe contains delivery field: " + forbidden)
+      }
+    }
+
+    const diagnostic = workflow.match(
+      /SELECT state,[\s\S]*?ORDER BY state, diagnostic_code;/,
+    )?.[0]
+    if (!diagnostic) {
+      throw new Error("Mailronix aggregate diagnostic query is missing")
+    }
+    for (const forbidden of [
+      "recipient_id",
+      "recipient_email",
+      "recipient_name",
+      "subject",
+      "html_body",
+      "text_body",
+      "provider_message_id",
+      "idempotency_key",
+      "last_diagnostic_detail",
+    ]) {
+      if (diagnostic.includes(forbidden)) {
+        throw new Error("Mailronix diagnostic selects sensitive field: " + forbidden)
+      }
+    }
+  ' "$workflow"
+}
+
 assert_compose_prelaunch_mode() {
   local compose_config=$1
   local expected=$2
@@ -494,6 +558,7 @@ cat \
   >"$api_migration_inventory"
 
 validate_compose_prelaunch_wiring
+assert_mailronix_delivery_guards
 
 docker build -f "$repository_root/apps/web/Dockerfile" -t "$web_image" "$repository_root"
 docker build -f "$repository_root/services/api/Dockerfile" -t "$api_image" "$repository_root"

@@ -283,8 +283,8 @@ jobs:
             echo "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME must be MAILRONIX_TRANSACTIONAL_API_KEY" >&2
             exit 1
           fi
-          if [[ -z "$MAILRONIX_TRANSACTIONAL_API_KEY" ]]; then
-            echo "MAILRONIX_TRANSACTIONAL_API_KEY GitHub Environment secret must be configured for transactional email" >&2
+          if [[ ! "$MAILRONIX_TRANSACTIONAL_API_KEY" =~ ^mrx_live_[^[:space:][:cntrl:]]+$ ]]; then
+            echo "MAILRONIX_TRANSACTIONAL_API_KEY must be a valid live Mailronix credential" >&2
             exit 1
           fi
           if [[ ! "$POSTQRON_MAILRONIX_SENDER_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
@@ -364,6 +364,35 @@ jobs:
             '      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:?PADDLE_WEBHOOK_SECRET is required}' \
             '      PADDLE_CATALOG_JSON: ${PADDLE_CATALOG_JSON:?PADDLE_CATALOG_JSON is required}' \
             > "$RUNNER_TEMP/compose.override.yaml"
+      - name: Probe Mailronix credential without delivery
+        if: inputs.operation == 'release'
+        env:
+          MAILRONIX_TRANSACTIONAL_API_KEY: ${{ secrets.MAILRONIX_TRANSACTIONAL_API_KEY }}
+          POSTQRON_MAILRONIX_ENDPOINT: ${{ vars.POSTQRON_MAILRONIX_ENDPOINT }}
+        run: |
+          probe_status=$(
+            curl \
+              --connect-timeout 10 \
+              --data '{}' \
+              --header "Authorization: Bearer $MAILRONIX_TRANSACTIONAL_API_KEY" \
+              --header 'Content-Type: application/json' \
+              --max-time 20 \
+              --output /dev/null \
+              --request POST \
+              --retry 0 \
+              --silent \
+              --show-error \
+              --write-out '%{http_code}' \
+              "$POSTQRON_MAILRONIX_ENDPOINT"
+          ) || {
+            echo "Mailronix credential probe failed before HTTP validation" >&2
+            exit 1
+          }
+          if [[ "$probe_status" != "400" ]]; then
+            echo "Mailronix credential probe returned unexpected HTTP status $probe_status" >&2
+            exit 1
+          fi
+          echo "Mailronix credential reached non-delivery request validation (HTTP 400)"
       - name: Wait for cloud-init
         if: inputs.operation == 'release'
         run: |
@@ -416,6 +445,16 @@ jobs:
                 exit 1
               fi
             done
+            printf "%s\n" \
+              "SELECT state, COALESCE(NULLIF(last_diagnostic_code, '"'"''"'"'), '"'"'(none)'"'"') AS diagnostic_code, COUNT(*)" \
+              "FROM f14_email_deliveries" \
+              "WHERE channel = '"'"'transactional'"'"'" \
+              "  AND template_id = '"'"'account_verification'"'"'" \
+              "  AND created_at >= CURRENT_TIMESTAMP - INTERVAL '"'"'24 hours'"'"'" \
+              "GROUP BY state, diagnostic_code" \
+              "ORDER BY state, diagnostic_code;" |
+              docker compose --env-file runtime.env exec -T postgres \
+                sh -c '"'"'exec psql --no-psqlrc --no-align --tuples-only --field-separator="|" -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'"'"'
           '
       - name: Restore administrative SSH allowlist
         if: always()
