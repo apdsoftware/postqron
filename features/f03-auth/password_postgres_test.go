@@ -188,6 +188,12 @@ func TestPostgresPasswordChangeIsOneAtomicRotation(t *testing.T) {
 		t,
 		passwordSQLStep{
 			kind:     "query",
+			contains: "SELECT access_state",
+			columns:  []string{"access_state"},
+			rows:     [][]driver.Value{{"active"}},
+		},
+		passwordSQLStep{
+			kind:     "query",
 			contains: "SELECT password_hash",
 			columns:  []string{"password_hash"},
 			rows:     [][]driver.Value{{"current-argon2id-hash"}},
@@ -284,6 +290,12 @@ func TestPostgresPasswordChangeRejectsConcurrentCredentialUpdate(t *testing.T) {
 		t,
 		passwordSQLStep{
 			kind:     "query",
+			contains: "SELECT access_state",
+			columns:  []string{"access_state"},
+			rows:     [][]driver.Value{{"active"}},
+		},
+		passwordSQLStep{
+			kind:     "query",
 			contains: "SELECT password_hash",
 			columns:  []string{"password_hash"},
 			rows:     [][]driver.Value{{"a-concurrently-updated-hash"}},
@@ -307,11 +319,41 @@ func TestPostgresPasswordChangeRejectsConcurrentCredentialUpdate(t *testing.T) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.index != 1 || state.committed {
+	if state.index != 2 || state.committed {
 		t.Fatalf(
 			"concurrent change executed %d steps, committed=%v",
 			state.index,
 			state.committed,
 		)
+	}
+}
+
+func TestPostgresPasswordLoginFailsClosedWhenAccountFrozen(t *testing.T) {
+	database, state := openPasswordTestDatabase(
+		t,
+		passwordSQLStep{
+			kind:     "query",
+			contains: "SELECT access_state",
+			columns:  []string{"access_state"},
+			rows:     [][]driver.Value{{"frozen"}},
+		},
+	)
+	store, err := NewPostgresPasswordStore(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.CompletePasswordLogin(
+		context.Background(),
+		PasswordSession{AccountID: "account-frozen"},
+		"event-must-not-be-written",
+		testNow,
+	)
+	if !errors.Is(err, ErrAccountAccessUnavailable) {
+		t.Fatalf("CompletePasswordLogin() error = %v", err)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.index != 1 || state.committed {
+		t.Fatalf("frozen login executed %d steps, committed=%v", state.index, state.committed)
 	}
 }

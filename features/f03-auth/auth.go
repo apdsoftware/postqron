@@ -357,6 +357,14 @@ func (s *Service) finalize(
 				nil,
 			)
 		}
+		if !now.Before(currentAttempt.ExpiresAt) {
+			return newError(
+				CodeFlowExpired,
+				"La richiesta di accesso è scaduta. Riprova.",
+				true,
+				nil,
+			)
+		}
 		if attempt.Intent == IntentLink {
 			return s.finalizeLink(
 				tx,
@@ -419,6 +427,14 @@ func (s *Service) finalizeLogin(
 		}
 		if !exists {
 			return errors.New("provider identity references missing account")
+		}
+		if !accountAccessAllowed(account) {
+			return newError(
+				CodeUnauthenticated,
+				"Accesso non disponibile. Riprova più tardi.",
+				true,
+				nil,
+			)
 		}
 	} else {
 		if !external.EmailVerified || normalizeEmail(external.Email) == "" {
@@ -542,6 +558,14 @@ func (s *Service) finalizeLink(
 	if !exists {
 		return errors.New("link target account not found")
 	}
+	if !accountAccessAllowed(account) {
+		return newError(
+			CodeUnauthenticated,
+			"Accesso non disponibile. Riprova più tardi.",
+			true,
+			nil,
+		)
+	}
 	identity, identityExists, err := tx.ProviderIdentity(attempt.Provider, external.Subject)
 	if err != nil {
 		return err
@@ -620,6 +644,18 @@ func (s *Service) authenticate(
 			return err
 		}
 		if !exists || session.RevokedAt != nil || !now.Before(session.ExpiresAt) {
+			return newError(
+				CodeUnauthenticated,
+				"Sessione non valida. Accedi di nuovo.",
+				true,
+				nil,
+			)
+		}
+		account, exists, err := tx.Account(session.AccountID)
+		if err != nil {
+			return err
+		}
+		if !exists || !accountAccessAllowed(account) {
 			return newError(
 				CodeUnauthenticated,
 				"Sessione non valida. Accedi di nuovo.",

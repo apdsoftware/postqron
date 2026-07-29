@@ -93,6 +93,9 @@ type Account struct {
 	DisplayName     string
 	ContractCountry string
 	CreatedAt       time.Time
+	AccessState     AccountAccessState
+	FrozenAt        *time.Time
+	FinalizedAt     *time.Time
 }
 
 type ProviderIdentity struct {

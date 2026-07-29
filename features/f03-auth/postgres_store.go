@@ -28,7 +28,30 @@ func (s *PostgresStore) SaveAttempt(
 	if err != nil {
 		return fmt.Errorf("encode consent receipts: %w", err)
 	}
-	_, err = s.database.ExecContext(ctx, `
+	transaction, err := s.database.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+	})
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	if attempt.TargetAccountID != "" {
+		var state AccountAccessState
+		err = transaction.QueryRowContext(ctx, `
+			SELECT access_state
+			FROM auth_accounts
+			WHERE id = $1
+			FOR UPDATE`,
+			attempt.TargetAccountID,
+		).Scan(&state)
+		if errors.Is(err, sql.ErrNoRows) || state != AccountAccessActive {
+			return ErrAccountAccessUnavailable
+		}
+		if err != nil {
+			return err
+		}
+	}
+	_, err = transaction.ExecContext(ctx, `
 		INSERT INTO auth_oauth_attempts (
 			id, state_hash, pkce_verifier_ciphertext, nonce_ciphertext,
 			provider, intent, target_account_id, bound_session_token_hash,
@@ -56,7 +79,10 @@ func (s *PostgresStore) SaveAttempt(
 		attempt.ClaimedAt,
 		attempt.CompletedAt,
 	)
-	return classifyDatabaseError(err)
+	if err != nil {
+		return classifyDatabaseError(err)
+	}
+	return classifyDatabaseError(transaction.Commit())
 }
 
 func (s *PostgresStore) ClaimAttempt(
@@ -291,9 +317,11 @@ func (tx *postgresTransaction) DeleteProviderIdentity(
 
 func (tx *postgresTransaction) Account(id string) (Account, bool, error) {
 	return selectAccount(tx.transaction.QueryRowContext(tx.ctx, `
-		SELECT id, email, normalized_email, display_name, contract_country, created_at
+		SELECT id, email, normalized_email, display_name, contract_country,
+		       created_at, access_state, access_frozen_at, access_finalized_at
 		FROM auth_accounts
-		WHERE id = $1`,
+		WHERE id = $1
+		FOR UPDATE`,
 		id,
 	))
 }
@@ -302,9 +330,11 @@ func (tx *postgresTransaction) AccountByVerifiedEmail(
 	normalizedEmail string,
 ) (Account, bool, error) {
 	return selectAccount(tx.transaction.QueryRowContext(tx.ctx, `
-		SELECT id, email, normalized_email, display_name, contract_country, created_at
+		SELECT id, email, normalized_email, display_name, contract_country,
+		       created_at, access_state, access_frozen_at, access_finalized_at
 		FROM auth_accounts
-		WHERE normalized_email = $1`,
+		WHERE normalized_email = $1
+		FOR UPDATE`,
 		normalizedEmail,
 	))
 }
@@ -534,6 +564,9 @@ func selectAccount(row rowScanner) (Account, bool, error) {
 		&account.DisplayName,
 		&account.ContractCountry,
 		&account.CreatedAt,
+		&account.AccessState,
+		&account.FrozenAt,
+		&account.FinalizedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, false, nil

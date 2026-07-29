@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -49,6 +51,12 @@ func (s *MemoryStore) SaveAttempt(_ context.Context, attempt OAuthAttempt) error
 	}
 	if _, exists := s.state.attemptByState[attempt.StateHash]; exists {
 		return errStoreConflict
+	}
+	if attempt.TargetAccountID != "" {
+		account, exists := s.state.accounts[attempt.TargetAccountID]
+		if !exists || !accountAccessAllowed(account) {
+			return ErrAccountAccessUnavailable
+		}
 	}
 	s.state.attempts[attempt.ID] = cloneAttempt(attempt)
 	s.state.attemptByState[attempt.StateHash] = attempt.ID
@@ -239,9 +247,110 @@ func (tx *memoryTransaction) PutAccount(account Account) error {
 	if _, exists := tx.state.accountByEmail[account.NormalizedEmail]; exists {
 		return errStoreConflict
 	}
+	if account.AccessState == "" {
+		account.AccessState = AccountAccessActive
+	}
 	tx.state.accounts[account.ID] = account
 	tx.state.accountByEmail[account.NormalizedEmail] = account.ID
 	return nil
+}
+
+func (s *MemoryStore) FreezeAccountAccess(
+	_ context.Context,
+	accountID string,
+	now time.Time,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	account, exists := s.state.accounts[accountID]
+	if !exists || account.AccessState == AccountAccessFinalized {
+		return ErrAccountAccessUnavailable
+	}
+	if account.AccessState == AccountAccessFrozen {
+		return nil
+	}
+	account.AccessState = AccountAccessFrozen
+	account.FrozenAt = timePointer(now)
+	s.state.accounts[accountID] = account
+	s.invalidateAccountArtifacts(accountID, now)
+	return nil
+}
+
+func (s *MemoryStore) RestoreAccountAccess(
+	_ context.Context,
+	accountID string,
+	_ time.Time,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	account, exists := s.state.accounts[accountID]
+	if !exists || account.AccessState == AccountAccessFinalized {
+		return ErrAccountAccessUnavailable
+	}
+	if account.AccessState == AccountAccessActive {
+		return nil
+	}
+	account.AccessState = AccountAccessActive
+	account.FrozenAt = nil
+	s.state.accounts[accountID] = account
+	return nil
+}
+
+func (s *MemoryStore) FinalizeAccountAccess(
+	_ context.Context,
+	accountID string,
+	now time.Time,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	account, exists := s.state.accounts[accountID]
+	if !exists {
+		return ErrAccountAccessUnavailable
+	}
+	if account.AccessState == AccountAccessFinalized {
+		return nil
+	}
+	s.invalidateAccountArtifacts(accountID, now)
+	for key, identity := range s.state.identities {
+		if identity.AccountID == accountID {
+			delete(s.state.identities, key)
+		}
+	}
+	sum := sha256.Sum256([]byte(accountID))
+	delete(s.state.accountByEmail, account.NormalizedEmail)
+	account.Email = fmt.Sprintf("finalized-%x@invalid.local", sum)
+	account.NormalizedEmail = account.Email
+	account.DisplayName = ""
+	account.AccessState = AccountAccessFinalized
+	if account.FrozenAt == nil {
+		account.FrozenAt = timePointer(now)
+	}
+	account.FinalizedAt = timePointer(now)
+	s.state.accounts[accountID] = account
+	s.state.accountByEmail[account.NormalizedEmail] = accountID
+	for index := range s.state.outbox {
+		if s.state.outbox[index].AggregateID == accountID {
+			s.state.outbox[index].Payload = []byte("{}")
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStore) invalidateAccountArtifacts(accountID string, now time.Time) {
+	for key, session := range s.state.sessions {
+		if session.AccountID == accountID && session.RevokedAt == nil {
+			session.RevokedAt = timePointer(now)
+			s.state.sessions[key] = session
+		}
+	}
+	for id, attempt := range s.state.attempts {
+		if attempt.TargetAccountID == accountID &&
+			(attempt.Status == AttemptPending || attempt.Status == AttemptClaimed) {
+			attempt.Status = AttemptFailed
+			attempt.CompletedAt = timePointer(now)
+			s.state.attempts[id] = attempt
+		}
+	}
 }
 
 func (tx *memoryTransaction) SessionByTokenHash(

@@ -20,6 +20,7 @@ const (
 type Module struct {
 	database       *sql.DB
 	handler        http.Handler
+	accountAccess  *AccountAccessBoundary
 	clock          func() time.Time
 	bootstrapEmail string
 	bootstrapHash  string
@@ -64,6 +65,10 @@ func NewPostgresModule(
 	if err != nil {
 		return nil, err
 	}
+	accountAccess, err := NewAccountAccessBoundary(authStore, clock)
+	if err != nil {
+		return nil, err
+	}
 	handler, err := NewRuntimeHandler(
 		authService,
 		passwordService,
@@ -76,6 +81,7 @@ func NewPostgresModule(
 	module := &Module{
 		database:       database,
 		handler:        handler,
+		accountAccess:  accountAccess,
 		clock:          clock,
 		bootstrapEmail: strings.TrimSpace(os.Getenv(adminBootstrapEmailEnv)),
 	}
@@ -90,6 +96,14 @@ func NewPostgresModule(
 		return nil, errors.New("admin bootstrap email and password hash must be configured together")
 	}
 	return module, nil
+}
+
+// AccountAccess returns the non-HTTP lifecycle boundary for F12 adapters.
+func (module *Module) AccountAccess() *AccountAccessBoundary {
+	if module == nil {
+		return nil
+	}
+	return module.accountAccess
 }
 
 func (module *Module) Start(ctx context.Context) error {

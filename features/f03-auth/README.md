@@ -69,6 +69,19 @@ receipts, sessions, provider unlinking, and the onboarding hand-off to F4.
 `migrations/000001_create_auth.sql`; the host injects its existing
 `database/sql` connection and PostgreSQL driver.
 
+## F12 account-access boundary
+
+F12 adapters obtain the exported non-HTTP boundary from
+`Module.AccountAccess()` and call `Freeze`, `Restore`, or `Finalize` with the
+opaque account ID. Freeze and finalize serialize on the account row with
+password login, OAuth callback, provider linking, password rotation, and
+session creation. Freeze revokes every session and invalidates pending link
+attempts; restore never recreates those artifacts. Finalize is irreversible,
+removes credentials, verification tokens and provider identities, and replaces
+F3 profile fields and outbox payloads with non-PII values. All operations are
+idempotent; missing or finalized targets return only the generic
+`ErrAccountAccessUnavailable`.
+
 ## Provider configuration
 
 Each adapter supplies its client ID, HTTPS authorization and callback URLs,
