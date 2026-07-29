@@ -172,7 +172,6 @@ test('mobile app navigation and provider optional flows fail closed without real
   expect(callbackBody.error.code).toBe('AUTH_PROVIDER_ACCESS_DENIED')
 
   const results = await new AxeBuilder({ page })
-    .include('main')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
     .analyze()
   const blocking = results.violations.filter(violation =>
