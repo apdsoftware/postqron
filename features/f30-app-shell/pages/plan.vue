@@ -66,9 +66,13 @@ async function retry() {
     v-else
     class="app-page"
   >
-    <p class="app-eyebrow">{{ t('plan.eyebrow') }}</p>
+    <p class="app-eyebrow">
+      {{ t('plan.eyebrow') }}
+    </p>
     <h1>{{ t('plan.title') }}</h1>
-    <p class="app-page__lead">{{ t('plan.description') }}</p>
+    <p class="app-page__lead">
+      {{ t('plan.description') }}
+    </p>
 
     <article class="app-card">
       <span class="app-card__eyebrow">{{ t('plan.current') }}</span>
@@ -80,7 +84,10 @@ async function retry() {
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('plan.usage') }}</span>
         <ul class="app-list">
-          <li v-for="(value, key) in workspacePlan?.plan.usage ?? {}" :key="key">
+          <li
+            v-for="(value, key) in workspacePlan?.plan.usage ?? {}"
+            :key="key"
+          >
             {{ key }}: {{ value }}
           </li>
         </ul>
@@ -88,7 +95,10 @@ async function retry() {
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('plan.limits') }}</span>
         <ul class="app-list">
-          <li v-for="(value, key) in workspacePlan?.plan.limits ?? {}" :key="key">
+          <li
+            v-for="(value, key) in workspacePlan?.plan.limits ?? {}"
+            :key="key"
+          >
             {{ key }}: {{ value }}
           </li>
         </ul>

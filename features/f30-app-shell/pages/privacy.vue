@@ -192,22 +192,36 @@ async function retry() {
     v-else
     class="app-page"
   >
-    <p class="app-eyebrow">{{ t('privacy.eyebrow') }}</p>
+    <p class="app-eyebrow">
+      {{ t('privacy.eyebrow') }}
+    </p>
     <h1>{{ t('privacy.title') }}</h1>
-    <p class="app-page__lead">{{ t('privacy.description') }}</p>
+    <p class="app-page__lead">
+      {{ t('privacy.description') }}
+    </p>
 
     <div class="app-page__grid">
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('privacy.exportAccount') }}</span>
         <p>{{ t('privacy.exportDescription') }}</p>
-        <button class="pq-button" type="button" :disabled="working === 'account-export'" @click="requestExport('account')">
+        <button
+          class="pq-button"
+          type="button"
+          :disabled="working === 'account-export'"
+          @click="requestExport('account')"
+        >
           {{ working === 'account-export' ? t('privacy.requesting') : t('privacy.requestExport') }}
         </button>
       </article>
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('privacy.exportWorkspace') }}</span>
         <p>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</p>
-        <button class="pq-button" type="button" :disabled="!ownerWorkspace || working === 'workspace-export'" @click="requestExport('workspace')">
+        <button
+          class="pq-button"
+          type="button"
+          :disabled="!ownerWorkspace || working === 'workspace-export'"
+          @click="requestExport('workspace')"
+        >
           {{ working === 'workspace-export' ? t('privacy.requesting') : t('privacy.requestExport') }}
         </button>
       </article>
@@ -228,39 +242,69 @@ async function retry() {
         <p v-else>
           {{ t('privacy.accountDeletionNoOwnedWorkspaces') }}
         </p>
-        <button class="pq-button pq-button--secondary" type="button" :disabled="!accountArea || working === 'account-delete'" @click="requestDeletion('account')">
+        <button
+          class="pq-button pq-button--secondary"
+          type="button"
+          :disabled="!accountArea || working === 'account-delete'"
+          @click="requestDeletion('account')"
+        >
           {{ working === 'account-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
         </button>
       </article>
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('privacy.deleteWorkspace') }}</span>
         <p>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</p>
-        <button class="pq-button pq-button--secondary" type="button" :disabled="!ownerWorkspace || working === 'workspace-delete'" @click="requestDeletion('workspace')">
+        <button
+          class="pq-button pq-button--secondary"
+          type="button"
+          :disabled="!ownerWorkspace || working === 'workspace-delete'"
+          @click="requestDeletion('workspace')"
+        >
           {{ working === 'workspace-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
         </button>
       </article>
     </div>
 
-    <article v-if="exportRequest" class="app-card">
+    <article
+      v-if="exportRequest"
+      class="app-card"
+    >
       <span class="app-card__eyebrow">{{ t('privacy.exportStatus') }}</span>
       <strong>{{ exportRequest.status }}</strong>
       <p>{{ exportRequest.requested_at }}</p>
-      <button class="pq-button" type="button" :disabled="working === 'download'" @click="fetchDownload">
+      <button
+        class="pq-button"
+        type="button"
+        :disabled="working === 'download'"
+        @click="fetchDownload"
+      >
         {{ working === 'download' ? t('privacy.downloading') : t('privacy.download') }}
       </button>
-      <p v-if="exportDownload">{{ exportDownload.url }}</p>
+      <p v-if="exportDownload">
+        {{ exportDownload.url }}
+      </p>
     </article>
 
-    <article v-if="deletionRequest" class="app-card">
+    <article
+      v-if="deletionRequest"
+      class="app-card"
+    >
       <span class="app-card__eyebrow">{{ t('privacy.deletionStatus') }}</span>
       <strong>{{ deletionRequest.status }}</strong>
       <p>{{ deletionRequest.grace_ends_at }}</p>
-      <button class="pq-button pq-button--secondary" type="button" :disabled="working === 'cancel-delete'" @click="cancelDeletion">
+      <button
+        class="pq-button pq-button--secondary"
+        type="button"
+        :disabled="working === 'cancel-delete'"
+        @click="cancelDeletion"
+      >
         {{ working === 'cancel-delete' ? t('privacy.cancelling') : t('privacy.cancelDeletion') }}
       </button>
     </article>
 
-    <p class="app-inline-note">{{ t('privacy.statusNote') }}</p>
+    <p class="app-inline-note">
+      {{ t('privacy.statusNote') }}
+    </p>
 
     <p
       v-if="feedback"
