@@ -171,6 +171,52 @@ func TestCancelCapabilityReleasesClaimAfterRetryableFailure(t *testing.T) {
 	}
 }
 
+func TestCancelCapabilityReturnsSemanticSuccessWhenConsumeFails(t *testing.T) {
+	t.Parallel()
+
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	digest := sha256.Sum256([]byte(token))
+	store := &concurrentCancelStore{
+		tokenHash:  hex.EncodeToString(digest[:]),
+		accountID:  "account-1",
+		expected:   1,
+		allClaims:  make(chan struct{}),
+		consumeErr: errors.New("temporary consume failure"),
+	}
+	service := &countingCancellationService{}
+	handler := cancelCapabilityHandler{
+		store:          store,
+		service:        service,
+		allowedOrigins: map[string]struct{}{testPrivacyOrigin: {}},
+		secureCookies:  true,
+		now:            time.Now,
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/account/deletions/deletion-1/cancel",
+		nil,
+	)
+	request.Header.Set("Origin", testPrivacyOrigin)
+	request.AddCookie(&http.Cookie{Name: cancelCapabilityCookieName, Value: token})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want semantic success 204", response.Code)
+	}
+	if calls := service.calls.Load(); calls != 1 {
+		t.Fatalf("CancelDeletion calls = %d, want one", calls)
+	}
+	if !store.auditConsumeFailure {
+		t.Fatal("consume failure was not audited")
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].MaxAge != -1 {
+		t.Fatalf("capability cookie was not cleared: %#v", cookies)
+	}
+}
+
 func TestCancelCapabilityIssueRejectsMissingOrUntrustedOrigin(t *testing.T) {
 	t.Parallel()
 
@@ -259,14 +305,16 @@ func TestCancelCapabilityIssueUsesCookieAndReturnsOnlyExpiry(t *testing.T) {
 }
 
 type concurrentCancelStore struct {
-	mu        sync.Mutex
-	tokenHash string
-	accountID string
-	expected  int
-	attempts  int
-	claimed   bool
-	consumed  bool
-	allClaims chan struct{}
+	mu                  sync.Mutex
+	tokenHash           string
+	accountID           string
+	expected            int
+	attempts            int
+	claimed             bool
+	consumed            bool
+	consumeErr          error
+	auditConsumeFailure bool
+	allClaims           chan struct{}
 }
 
 func (store *concurrentCancelStore) Issue(
@@ -307,8 +355,21 @@ func (store *concurrentCancelStore) Consume(
 	<-store.allClaims
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if store.consumeErr != nil {
+		return store.consumeErr
+	}
 	store.claimed = false
 	store.consumed = true
+	return nil
+}
+
+func (store *concurrentCancelStore) AuditConsumeFailure(
+	context.Context,
+	time.Time,
+) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.auditConsumeFailure = true
 	return nil
 }
 

@@ -98,6 +98,12 @@ recreating sessions, jobs, or provider tokens. The launch-readiness E2E proves
 the old session receives 401 and exactly one of two concurrent submissions
 succeeds.
 
+If F12 succeeds but persisting `consumed_at` fails, cancellation is already
+semantically complete and the deletion is no longer in grace. The endpoint
+therefore clears the cookie and returns `204`; it records only the fixed
+`capability_consume`/`consume_failed` audit codes, without account, deletion, or
+token data.
+
 Alert on `privacy_runtime_failed`, repeated `finalization_failed` requests, jobs
 at the maximum attempt count, artifacts past retention, or a growing claim
 backlog. Logs intentionally contain event names, safe codes, and counts only.

@@ -45,6 +45,7 @@ type cancelCapabilityStore interface {
 	Claim(context.Context, string, string, string, time.Time) (string, error)
 	Release(context.Context, string, string) error
 	Consume(context.Context, string, string, time.Time) error
+	AuditConsumeFailure(context.Context, time.Time) error
 }
 
 type sqlCancelCapabilityStore struct {
@@ -121,6 +122,18 @@ func (store sqlCancelCapabilityStore) Consume(
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (store sqlCancelCapabilityStore) AuditConsumeFailure(
+	ctx context.Context,
+	now time.Time,
+) error {
+	_, err := store.database.ExecContext(ctx, `
+		INSERT INTO account_privacy_runtime_audit
+			(target_id, event_type, outcome, error_code, occurred_at)
+		VALUES ('cancel_capability', 'capability_consume', 'failed', 'consume_failed', $1)`,
+		now)
+	return err
 }
 
 func (handler cancelCapabilityHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -233,8 +246,9 @@ func (handler cancelCapabilityHandler) cancel(response http.ResponseWriter, requ
 	if err := handler.store.Consume(
 		context.WithoutCancel(request.Context()), tokenHash, claimToken, now,
 	); err != nil {
-		http.Error(response, "cancellation unavailable", http.StatusServiceUnavailable)
-		return
+		_ = handler.store.AuditConsumeFailure(
+			context.WithoutCancel(request.Context()), now,
+		)
 	}
 	handler.clearCookie(response)
 	response.WriteHeader(http.StatusNoContent)
