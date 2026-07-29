@@ -90,6 +90,11 @@ web:
       file: ./pages/privacy.vue
       visibility: private
       middleware: [app-session]
+    - name: app-account-deletion-cancel
+      path: /app/account-deletions/:requestId/cancel
+      file: ./pages/account-deletion-cancel.vue
+      visibility: public
+      middleware: []
     - name: app-feature-slot
       path: /app/:featurePath(.*)*
       file: ./pages/feature-slot.vue

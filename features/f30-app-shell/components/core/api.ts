@@ -1,6 +1,7 @@
 import {
   parseAccountArea,
   parseBootstrap,
+  parseDeletionCancelCapability,
   parseDeletionRequest,
   parseExportDownload,
   parseExportRequest,
@@ -10,6 +11,7 @@ import {
   type AppBootstrap,
   type AppSession,
   type ConsentReceipt,
+  type DeletionCancelCapability,
   type DeletionRequest,
   type ExportDownload,
   type ExportRequest,
@@ -512,10 +514,47 @@ export class AppShellApi {
     }))
   }
 
-  async cancelDeletion(requestId: string): Promise<void> {
+  async issueAccountDeletionCancelCapability(): Promise<DeletionCancelCapability> {
+    const value = await this.#csrfMutation(
+      '/api/v1/account/deletion-cancel-capabilities',
+      {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store',
+        },
+      },
+    )
+    try {
+      return parseDeletionCancelCapability(value)
+    } catch (error) {
+      throw new AppApiError({
+        cause: error,
+        code: 'APP_INVALID_DELETION_CANCEL_CAPABILITY_PAYLOAD',
+        kind: 'configuration',
+        message: 'The account deletion cancellation response is invalid',
+        retryable: true,
+      })
+    }
+  }
+
+  async cancelWorkspaceDeletion(requestId: string): Promise<void> {
     await this.#csrfMutation(`/api/v1/account/deletions/${encodeURIComponent(requestId)}`, {
       method: 'DELETE',
     })
+  }
+
+  async cancelAccountDeletion(requestId: string): Promise<void> {
+    await this.#request(
+      `/api/v1/account/deletions/${encodeURIComponent(requestId)}/cancel`,
+      {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store',
+        },
+      },
+    )
   }
 
   async revokeSessions(): Promise<void> {

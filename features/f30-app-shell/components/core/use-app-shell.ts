@@ -15,6 +15,7 @@ import type {
   AccountArea,
   AppBootstrap,
   AppSession,
+  DeletionStatus,
 } from './contracts.ts'
 import type {
   AppShellMessageKey,
@@ -62,6 +63,19 @@ export function useAppBootstrapState() {
 export function useAppAccountAreaState() {
   return useState<AccountArea | undefined>(
     'postqron.app-shell.account-area',
+    () => undefined,
+  )
+}
+
+export interface AccountDeletionCancellationState {
+  graceEndsAt: string
+  requestId: string
+  status: DeletionStatus
+}
+
+export function useAccountDeletionCancellationState() {
+  return useState<AccountDeletionCancellationState | undefined>(
+    'postqron.app-shell.account-deletion-cancellation',
     () => undefined,
   )
 }
