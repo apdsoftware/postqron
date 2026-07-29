@@ -101,9 +101,13 @@ async function retry() {
     v-else
     class="app-page"
   >
-    <p class="app-eyebrow">{{ t('security.eyebrow') }}</p>
+    <p class="app-eyebrow">
+      {{ t('security.eyebrow') }}
+    </p>
     <h1>{{ t('security.title') }}</h1>
-    <p class="app-page__lead">{{ t('security.description') }}</p>
+    <p class="app-page__lead">
+      {{ t('security.description') }}
+    </p>
 
     <div class="app-page__stack">
       <article class="app-card">
@@ -115,7 +119,10 @@ async function retry() {
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('security.methods') }}</span>
         <ul class="app-list">
-          <li v-for="provider in identityProviders" :key="provider.id">
+          <li
+            v-for="provider in identityProviders"
+            :key="provider.id"
+          >
             {{ provider.name }}<span v-if="provider.only_login_method"> · {{ t('security.onlyMethod') }}</span>
           </li>
         </ul>
@@ -123,20 +130,42 @@ async function retry() {
 
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('security.changePassword') }}</span>
-        <form class="app-form-grid" @submit.prevent="changePassword">
+        <form
+          class="app-form-grid"
+          @submit.prevent="changePassword"
+        >
           <label class="app-field">
             <span>{{ t('security.currentPassword') }}</span>
-            <input v-model="currentPassword" type="password" minlength="12" required>
+            <input
+              v-model="currentPassword"
+              type="password"
+              minlength="12"
+              required
+            >
           </label>
           <label class="app-field">
             <span>{{ t('security.newPassword') }}</span>
-            <input v-model="newPassword" type="password" minlength="12" required>
+            <input
+              v-model="newPassword"
+              type="password"
+              minlength="12"
+              required
+            >
           </label>
           <label class="app-field">
             <span>{{ t('security.confirmPassword') }}</span>
-            <input v-model="confirmation" type="password" minlength="12" required>
+            <input
+              v-model="confirmation"
+              type="password"
+              minlength="12"
+              required
+            >
           </label>
-          <button class="pq-button" type="submit" :disabled="changing">
+          <button
+            class="pq-button"
+            type="submit"
+            :disabled="changing"
+          >
             {{ changing ? t('security.changing') : t('security.changeSubmit') }}
           </button>
         </form>
@@ -145,7 +174,12 @@ async function retry() {
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('security.sessions') }}</span>
         <p>{{ t('security.sessionsDescription') }}</p>
-        <button class="pq-button pq-button--secondary" type="button" :disabled="revoking" @click="revokeSessions">
+        <button
+          class="pq-button pq-button--secondary"
+          type="button"
+          :disabled="revoking"
+          @click="revokeSessions"
+        >
           {{ revoking ? t('security.revoking') : t('security.revokeSubmit') }}
         </button>
       </article>

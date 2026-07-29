@@ -56,14 +56,22 @@ async function resend() {
 <template>
   <div class="onboarding-page">
     <header class="auth-page__header">
-      <a href="/" aria-label="Postqron">
-        <img src="/brand/logo-primary.svg" alt="Postqron">
+      <a
+        href="/"
+        aria-label="Postqron"
+      >
+        <img
+          src="/brand/logo-primary.svg"
+          alt="Postqron"
+        >
       </a>
       <PostqronLanguageSwitcher />
     </header>
 
     <main class="onboarding-card">
-      <p class="app-eyebrow">{{ t('verify.eyebrow') }}</p>
+      <p class="app-eyebrow">
+        {{ t('verify.eyebrow') }}
+      </p>
       <h1>{{ t('verify.title') }}</h1>
       <p class="onboarding-card__lead">
         {{
@@ -75,15 +83,30 @@ async function resend() {
         }}
       </p>
 
-      <form class="app-form-grid" @submit.prevent="resend">
+      <form
+        class="app-form-grid"
+        @submit.prevent="resend"
+      >
         <label class="app-field">
           <span>{{ t('verify.email') }}</span>
-          <input v-model="email" type="email" maxlength="320" required>
+          <input
+            v-model="email"
+            type="email"
+            maxlength="320"
+            required
+          >
         </label>
-        <button class="pq-button" type="submit" :disabled="resending">
+        <button
+          class="pq-button"
+          type="submit"
+          :disabled="resending"
+        >
           {{ resending ? t('verify.resending') : t('verify.resend') }}
         </button>
-        <a class="pq-button pq-button--secondary" :href="appRoute(locale, 'entry')">
+        <a
+          class="pq-button pq-button--secondary"
+          :href="appRoute(locale, 'entry')"
+        >
           {{ t('verify.return') }}
         </a>
       </form>

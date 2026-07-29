@@ -109,9 +109,13 @@ async function retry() {
     v-else
     class="app-page"
   >
-    <p class="app-eyebrow">{{ t('providers.eyebrow') }}</p>
+    <p class="app-eyebrow">
+      {{ t('providers.eyebrow') }}
+    </p>
     <h1>{{ t('providers.title') }}</h1>
-    <p class="app-page__lead">{{ t('providers.description') }}</p>
+    <p class="app-page__lead">
+      {{ t('providers.description') }}
+    </p>
 
     <div class="app-page__grid">
       <article class="app-card">
@@ -125,11 +129,21 @@ async function retry() {
             :disabled="linking === provider"
             @click="linkProvider(provider)"
           >
-            <span class="auth-provider__mark" aria-hidden="true">{{ provider.slice(0, 1).toUpperCase() }}</span>
+            <span
+              class="auth-provider__mark"
+              aria-hidden="true"
+            >{{ provider.slice(0, 1).toUpperCase() }}</span>
             {{ t(`auth.provider.${provider}`) }}
-            <span v-if="linking === provider" class="pq-button__spinner" aria-hidden="true" />
+            <span
+              v-if="linking === provider"
+              class="pq-button__spinner"
+              aria-hidden="true"
+            />
           </button>
-          <p v-if="availableIdentityProviders.length === 0" class="auth-card__muted">
+          <p
+            v-if="availableIdentityProviders.length === 0"
+            class="auth-card__muted"
+          >
             {{ t('providers.noAvailable') }}
           </p>
         </div>

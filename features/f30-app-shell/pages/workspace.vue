@@ -58,9 +58,13 @@ async function retry() {
     v-else
     class="app-page"
   >
-    <p class="app-eyebrow">{{ t('workspace.eyebrow') }}</p>
+    <p class="app-eyebrow">
+      {{ t('workspace.eyebrow') }}
+    </p>
     <h1>{{ t('workspace.title') }}</h1>
-    <p class="app-page__lead">{{ t('workspace.description') }}</p>
+    <p class="app-page__lead">
+      {{ t('workspace.description') }}
+    </p>
 
     <div class="app-page__grid">
       <article class="app-card">
@@ -71,7 +75,10 @@ async function retry() {
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('workspace.all') }}</span>
         <ul class="app-list">
-          <li v-for="workspace in session?.workspaces ?? []" :key="workspace.id">
+          <li
+            v-for="workspace in session?.workspaces ?? []"
+            :key="workspace.id"
+          >
             {{ workspace.name }} · {{ workspace.role }}
           </li>
         </ul>
@@ -88,7 +95,10 @@ async function retry() {
         v-else
         class="app-provider-list"
       >
-        <li v-for="member in members" :key="member.id">
+        <li
+          v-for="member in members"
+          :key="member.id"
+        >
           <div>
             <strong>{{ member.email }}</strong>
             <p>{{ member.role }} · {{ member.status }}</p>

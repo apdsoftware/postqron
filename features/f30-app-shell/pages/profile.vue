@@ -86,26 +86,50 @@ async function retry() {
     v-else
     class="app-page"
   >
-    <p class="app-eyebrow">{{ t('profile.eyebrow') }}</p>
+    <p class="app-eyebrow">
+      {{ t('profile.eyebrow') }}
+    </p>
     <h1>{{ t('profile.title') }}</h1>
-    <p class="app-page__lead">{{ t('profile.description') }}</p>
+    <p class="app-page__lead">
+      {{ t('profile.description') }}
+    </p>
 
-    <form class="app-form-grid" @submit.prevent="saveProfile">
+    <form
+      class="app-form-grid"
+      @submit.prevent="saveProfile"
+    >
       <label class="app-field">
         <span>{{ t('profile.displayName') }}</span>
-        <input v-model="displayName" type="text" maxlength="100" required>
+        <input
+          v-model="displayName"
+          type="text"
+          maxlength="100"
+          required
+        >
       </label>
       <label class="app-field">
         <span>{{ t('profile.email') }}</span>
-        <input :value="session?.account.email || ''" type="email" disabled>
+        <input
+          :value="session?.account.email || ''"
+          type="email"
+          disabled
+        >
       </label>
       <label class="app-field">
         <span>{{ t('profile.locale') }}</span>
-        <input v-model="locale" type="text" required>
+        <input
+          v-model="locale"
+          type="text"
+          required
+        >
       </label>
       <label class="app-field">
         <span>{{ t('profile.timezone') }}</span>
-        <input v-model="timezone" type="text" required>
+        <input
+          v-model="timezone"
+          type="text"
+          required
+        >
       </label>
       <div class="app-inline-meta">
         <strong>{{ t('profile.updatedAt') }}</strong>
@@ -123,7 +147,11 @@ async function retry() {
       >
         {{ feedback === 'saved' ? t('profile.saved') : t('profile.error') }}
       </p>
-      <button class="pq-button" type="submit" :disabled="saving">
+      <button
+        class="pq-button"
+        type="submit"
+        :disabled="saving"
+      >
         {{ saving ? t('profile.saving') : t('profile.submit') }}
       </button>
     </form>
