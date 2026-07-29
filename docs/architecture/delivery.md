@@ -20,6 +20,8 @@ Required GitHub environment variables:
 - `API_DOMAIN` and `APP_DOMAIN`.
 - `CLOUDFLARE_ZONE_ID`.
 - `DEPLOYMENT_SSH_PUBLIC_KEY`.
+- `PRELAUNCH_MODE`: the exact string `true` or `false`. Missing values, different
+  casing, whitespace, and every other value block a release before upload.
 
 Required GitHub environment secrets:
 
@@ -33,8 +35,11 @@ Required GitHub environment secrets:
 - `AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64`, each encoded as
   base64 of exactly 32 random bytes, for auth state and privacy artifacts.
 
-`RUNTIME_ENV` must not include image tags or public domains; the workflow appends
-those from the reviewed commit and environment variables. The remote file is
+`RUNTIME_ENV` must not include image tags, public domains, or `PRELAUNCH_MODE`;
+the workflow appends those from the reviewed commit and dedicated environment
+variables. A `PRELAUNCH_MODE` assignment already present in `RUNTIME_ENV` blocks
+the release instead of creating ambiguous precedence. The generated runtime
+contains exactly one canonical `PRELAUNCH_MODE=<value>` line. The remote file is
 mode `0600`. No token, private key, password, state credential, or personal data
 is stored in Git.
 
@@ -72,12 +77,26 @@ the server host key has been verified, configure release-only values:
 
 This second phase reads a verified `known_hosts` file and generates
 `AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64` only when each secret is
-absent. It never reads or replaces `RUNTIME_ENV`, so it cannot rotate the
-database password. Encryption keys are also never replaced by this helper;
-rotation requires a separate, coordinated procedure. During release, the
-workflow validates both dedicated secrets without printing them and appends
-them to the remote runtime as `POSTQRON_AUTH_ENCRYPTION_KEY_B64` and
-`POSTQRON_PRIVACY_ARTIFACT_KEY_B64`.
+absent. It also creates `PRELAUNCH_MODE` with the safe default `true` when the
+variable is absent. It never reads or replaces `RUNTIME_ENV`, so it cannot
+rotate the database password. Encryption keys are also never replaced by this
+helper; rotation requires a separate, coordinated procedure. During release,
+the workflow validates the dedicated values without printing secrets and
+appends them to the remote runtime.
+
+Go live by explicitly changing the production variable to `false`:
+
+```sh
+./scripts/deploy/configure-github-environment.sh \
+  --environment production \
+  --phase release \
+  --replace PRELAUNCH_MODE
+```
+
+Enter the exact value `false`, review the change, then dispatch the production
+release. For configuration rollback, run the same command and enter the exact
+value `true`, then dispatch a production release. Missing or invalid values
+block delivery; explicit `true` is the documented rollback state.
 
 ## First deployment
 

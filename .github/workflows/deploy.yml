@@ -206,10 +206,16 @@ jobs:
           PADDLE_CATALOG_JSON: ${{ secrets.PADDLE_CATALOG_JSON }}
           PADDLE_ENVIRONMENT: ${{ inputs.environment == 'production' && 'production' || 'sandbox' }}
           PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
+          PRELAUNCH_MODE: ${{ vars.PRELAUNCH_MODE }}
           RUNTIME_ENV: ${{ secrets.RUNTIME_ENV }}
         run: |
           if [[ -z "$ADMIN_PASSWORD_HASH_B64" ]]; then
             echo "ADMIN_PASSWORD_HASH_B64 must be configured for password authentication" >&2
+            exit 1
+          fi
+          if [[ "$PRELAUNCH_MODE" != "true" &&
+            "$PRELAUNCH_MODE" != "false" ]]; then
+            echo "PRELAUNCH_MODE must be exactly true or false" >&2
             exit 1
           fi
           validate_encryption_key() {
@@ -245,6 +251,14 @@ jobs:
             echo "Paddle values must use dedicated GitHub Environment secrets" >&2
             exit 1
           fi
+          if grep --extended-regexp --quiet \
+            '^[[:space:]]*PRELAUNCH_MODE[[:space:]]*=' \
+            "$RUNNER_TEMP/runtime.env"; then
+            echo "PRELAUNCH_MODE must use its dedicated GitHub Environment variable" >&2
+            exit 1
+          fi
+          printf 'PRELAUNCH_MODE=%s\n' "$PRELAUNCH_MODE" \
+            >> "$RUNNER_TEMP/runtime.env"
 
           paddle_values=(
             "$PADDLE_API_KEY"
