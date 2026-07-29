@@ -150,7 +150,9 @@ async function logout() {
         </div>
 
         <details class="profile-menu">
-          <summary>
+          <summary
+            :aria-label="`${t('shell.profile')}: ${session?.account.display_name || t('shell.profile')}`"
+          >
             <span
               class="profile-menu__avatar"
               aria-hidden="true"
