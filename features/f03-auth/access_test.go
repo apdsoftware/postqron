@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,12 @@ func TestAccountAccessFreezeRestoreFinalizeForEveryProvider(t *testing.T) {
 				EmailVerified: true,
 			}
 			registered := register(t, service, provider)
+			passwordTokenHash := "password-token-" + string(provider)
+			store.mu.Lock()
+			store.state.passwordTokens[passwordTokenHash] = memoryPasswordToken{
+				AccountID: registered.AccountID,
+			}
+			store.mu.Unlock()
 			boundary, err := NewAccountAccessBoundary(
 				store,
 				func() time.Time { return testNow.Add(time.Minute) },
@@ -28,8 +35,20 @@ func TestAccountAccessFreezeRestoreFinalizeForEveryProvider(t *testing.T) {
 			if err := boundary.Freeze(context.Background(), registered.AccountID); err != nil {
 				t.Fatalf("Freeze() error = %v", err)
 			}
+			store.mu.Lock()
+			firstConsumedAt := store.state.passwordTokens[passwordTokenHash].ConsumedAt
+			store.mu.Unlock()
+			if firstConsumedAt == nil {
+				t.Fatal("freeze left a password token reusable")
+			}
 			if err := boundary.Freeze(context.Background(), registered.AccountID); err != nil {
 				t.Fatalf("idempotent Freeze() error = %v", err)
+			}
+			store.mu.Lock()
+			secondConsumedAt := store.state.passwordTokens[passwordTokenHash].ConsumedAt
+			store.mu.Unlock()
+			if secondConsumedAt == nil || !secondConsumedAt.Equal(*firstConsumedAt) {
+				t.Fatal("idempotent freeze changed the consumed password token")
 			}
 			if _, err := service.Authenticate(
 				context.Background(),
@@ -46,6 +65,12 @@ func TestAccountAccessFreezeRestoreFinalizeForEveryProvider(t *testing.T) {
 			}
 			if err := boundary.Restore(context.Background(), registered.AccountID); err != nil {
 				t.Fatalf("Restore() error = %v", err)
+			}
+			store.mu.Lock()
+			restoredConsumedAt := store.state.passwordTokens[passwordTokenHash].ConsumedAt
+			store.mu.Unlock()
+			if restoredConsumedAt == nil || !restoredConsumedAt.Equal(*firstConsumedAt) {
+				t.Fatal("restore resurrected a consumed password token")
 			}
 			if err := boundary.Restore(context.Background(), registered.AccountID); err != nil {
 				t.Fatalf("idempotent Restore() error = %v", err)
@@ -83,6 +108,9 @@ func TestAccountAccessFreezeRestoreFinalizeForEveryProvider(t *testing.T) {
 			if snapshot.Accounts[0].DisplayName != "" ||
 				snapshot.Accounts[0].AccessState != AccountAccessFinalized {
 				t.Fatalf("finalized account = %+v", snapshot.Accounts[0])
+			}
+			if !strings.HasSuffix(snapshot.Accounts[0].Email, "@account.invalid") {
+				t.Fatalf("finalized email = %q", snapshot.Accounts[0].Email)
 			}
 		})
 	}

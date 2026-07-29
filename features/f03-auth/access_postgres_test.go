@@ -27,6 +27,11 @@ func TestPostgresFreezeIsOneAtomicAccessBoundary(t *testing.T) {
 		},
 		passwordSQLStep{
 			kind:     "exec",
+			contains: "UPDATE auth_password_tokens",
+			affected: 2,
+		},
+		passwordSQLStep{
+			kind:     "exec",
 			contains: "UPDATE auth_oauth_attempts",
 			affected: 3,
 		},

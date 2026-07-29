@@ -19,8 +19,14 @@ type memoryState struct {
 	accountByEmail map[string]string
 	identities     map[string]ProviderIdentity
 	sessions       map[string]Session
+	passwordTokens map[string]memoryPasswordToken
 	consents       []ConsentEvent
 	outbox         []OutboxEvent
+}
+
+type memoryPasswordToken struct {
+	AccountID  string
+	ConsumedAt *time.Time
 }
 
 type MemoryStore struct {
@@ -40,6 +46,7 @@ func newMemoryState() memoryState {
 		accountByEmail: make(map[string]string),
 		identities:     make(map[string]ProviderIdentity),
 		sessions:       make(map[string]Session),
+		passwordTokens: make(map[string]memoryPasswordToken),
 	}
 }
 
@@ -266,12 +273,11 @@ func (s *MemoryStore) FreezeAccountAccess(
 	if !exists || account.AccessState == AccountAccessFinalized {
 		return ErrAccountAccessUnavailable
 	}
-	if account.AccessState == AccountAccessFrozen {
-		return nil
+	if account.AccessState == AccountAccessActive {
+		account.AccessState = AccountAccessFrozen
+		account.FrozenAt = timePointer(now)
+		s.state.accounts[accountID] = account
 	}
-	account.AccessState = AccountAccessFrozen
-	account.FrozenAt = timePointer(now)
-	s.state.accounts[accountID] = account
 	s.invalidateAccountArtifacts(accountID, now)
 	return nil
 }
@@ -318,7 +324,7 @@ func (s *MemoryStore) FinalizeAccountAccess(
 	}
 	sum := sha256.Sum256([]byte(accountID))
 	delete(s.state.accountByEmail, account.NormalizedEmail)
-	account.Email = fmt.Sprintf("finalized-%x@invalid.local", sum)
+	account.Email = fmt.Sprintf("finalized-%x@account.invalid", sum)
 	account.NormalizedEmail = account.Email
 	account.DisplayName = ""
 	account.AccessState = AccountAccessFinalized
@@ -341,6 +347,12 @@ func (s *MemoryStore) invalidateAccountArtifacts(accountID string, now time.Time
 		if session.AccountID == accountID && session.RevokedAt == nil {
 			session.RevokedAt = timePointer(now)
 			s.state.sessions[key] = session
+		}
+	}
+	for hash, token := range s.state.passwordTokens {
+		if token.AccountID == accountID && token.ConsumedAt == nil {
+			token.ConsumedAt = timePointer(now)
+			s.state.passwordTokens[hash] = token
 		}
 	}
 	for id, attempt := range s.state.attempts {
@@ -461,6 +473,12 @@ func cloneMemoryState(source memoryState) memoryState {
 	}
 	for key, session := range source.sessions {
 		target.sessions[key] = cloneSession(session)
+	}
+	for key, token := range source.passwordTokens {
+		if token.ConsumedAt != nil {
+			token.ConsumedAt = timePointer(*token.ConsumedAt)
+		}
+		target.passwordTokens[key] = token
 	}
 	target.consents = slices.Clone(source.consents)
 	for _, event := range source.outbox {

@@ -90,7 +90,7 @@ func (store *PostgresStore) FinalizeAccountAccess(
 		return err
 	}
 	digest := sha256.Sum256([]byte(accountID))
-	finalizedEmail := fmt.Sprintf("finalized-%x@invalid.local", digest)
+	finalizedEmail := fmt.Sprintf("finalized-%x@account.invalid", digest)
 	if _, err := transaction.ExecContext(ctx, `
 		UPDATE auth_accounts
 		SET email = $2,
@@ -184,6 +184,16 @@ func invalidatePostgresAccountArtifacts(
 		UPDATE auth_sessions
 		SET revoked_at = $2
 		WHERE account_id = $1 AND revoked_at IS NULL`,
+		accountID,
+		now,
+	); err != nil {
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE auth_password_tokens
+		SET consumed_at = $2
+		WHERE account_id = $1
+		  AND consumed_at IS NULL`,
 		accountID,
 		now,
 	); err != nil {
