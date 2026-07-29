@@ -94,7 +94,7 @@ func (renderer *Renderer) Render(message Message) (RenderedMessage, error) {
 		Copy:      copy,
 		Recipient: message.Recipient,
 		Detail:    message.Data.Detail,
-		Facts:     localizedFacts(locale, message.Data),
+		Facts:     localizedFacts(message.Template, locale, message.Data),
 		ActionURL: message.Data.ActionURL,
 		Footer:    localizedFooter(locale, renderer.brand.Name),
 	}
@@ -146,11 +146,15 @@ func renderPlainText(view renderView) string {
 	return output.String()
 }
 
-func localizedFacts(locale Locale, data TemplateData) []renderFact {
+func localizedFacts(templateID TemplateID, locale Locale, data TemplateData) []renderFact {
 	labels := factLabels[locale]
 	facts := make([]renderFact, 0, 3)
 	if !data.OccurredAt.IsZero() {
-		facts = append(facts, renderFact{labels[0], formatDateTime(data.OccurredAt, data.TimeZone, locale)})
+		timeLabel := labels[0]
+		if templateID == TemplateAccountVerification {
+			timeLabel = accountVerificationTimeLabels[locale]
+		}
+		facts = append(facts, renderFact{timeLabel, formatDateTime(data.OccurredAt, data.TimeZone, locale)})
 	}
 	if data.Count != nil {
 		facts = append(facts, renderFact{labels[1], formatInteger(*data.Count, locale)})
@@ -167,6 +171,14 @@ var factLabels = map[Locale][3]string{
 	LocaleSpanish: {"Fecha y hora", "Cantidad", "Importe"},
 	LocaleFrench:  {"Date et heure", "Quantité", "Montant"},
 	LocaleGerman:  {"Datum und Uhrzeit", "Anzahl", "Betrag"},
+}
+
+var accountVerificationTimeLabels = map[Locale]string{
+	LocaleEnglish: "Verification link expires",
+	LocaleItalian: "Il link di verifica scade",
+	LocaleSpanish: "El enlace de verificación caduca",
+	LocaleFrench:  "Le lien de vérification expire",
+	LocaleGerman:  "Bestätigungslink läuft ab",
 }
 
 func formatDateTime(value time.Time, zone string, locale Locale) string {

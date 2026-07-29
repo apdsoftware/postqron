@@ -143,6 +143,85 @@ func TestAccountVerificationRequiresHTTPSActionURL(t *testing.T) {
 	}
 }
 
+func TestAccountVerificationUsesLocalizedExpiryLabel(t *testing.T) {
+	renderer := testRenderer(t)
+	tests := []struct {
+		locale       Locale
+		expiryLabel  string
+		genericLabel string
+		formattedAt  string
+	}{
+		{LocaleEnglish, "Verification link expires", "Date and time", "Jul 24, 2026, 2:30 PM CEST"},
+		{LocaleItalian, "Il link di verifica scade", "Data e ora", "24/07/2026, 14:30 CEST"},
+		{LocaleSpanish, "El enlace de verificación caduca", "Fecha y hora", "24/07/2026, 14:30 CEST"},
+		{LocaleFrench, "Le lien de vérification expire", "Date et heure", "24/07/2026, 14:30 CEST"},
+		{LocaleGerman, "Bestätigungslink läuft ab", "Datum und Uhrzeit", "24.07.2026, 14:30 CEST"},
+	}
+	for _, test := range tests {
+		t.Run(string(test.locale), func(t *testing.T) {
+			message := testMessage(TemplateAccountVerification)
+			message.Recipient.Locale = string(test.locale)
+			rendered, err := renderer.Render(message)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for bodyName, body := range map[string]string{
+				"HTML": rendered.HTML,
+				"text": rendered.Text,
+			} {
+				if !strings.Contains(body, test.expiryLabel+":") ||
+					!strings.Contains(body, test.formattedAt) {
+					t.Fatalf("%s missing localized expiry fact:\n%s", bodyName, body)
+				}
+				if strings.Contains(body, test.genericLabel+":") {
+					t.Fatalf("%s retained generic time label %q", bodyName, test.genericLabel)
+				}
+			}
+		})
+	}
+}
+
+func TestOtherTemplatesRetainLocalizedDateAndTimeLabel(t *testing.T) {
+	renderer := testRenderer(t)
+	tests := []struct {
+		locale       Locale
+		genericLabel string
+		expiryLabel  string
+	}{
+		{LocaleEnglish, "Date and time", "Verification link expires"},
+		{LocaleItalian, "Data e ora", "Il link di verifica scade"},
+		{LocaleSpanish, "Fecha y hora", "El enlace de verificación caduca"},
+		{LocaleFrench, "Date et heure", "Le lien de vérification expire"},
+		{LocaleGerman, "Datum und Uhrzeit", "Bestätigungslink läuft ab"},
+	}
+	for _, test := range tests {
+		for templateID := range templateCatalog {
+			if templateID == TemplateAccountVerification {
+				continue
+			}
+			t.Run(string(templateID)+"/"+string(test.locale), func(t *testing.T) {
+				message := testMessage(templateID)
+				message.Recipient.Locale = string(test.locale)
+				rendered, err := renderer.Render(message)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for bodyName, body := range map[string]string{
+					"HTML": rendered.HTML,
+					"text": rendered.Text,
+				} {
+					if !strings.Contains(body, test.genericLabel+":") {
+						t.Fatalf("%s missing generic time label %q", bodyName, test.genericLabel)
+					}
+					if strings.Contains(body, test.expiryLabel+":") {
+						t.Fatalf("%s unexpectedly contains expiry label %q", bodyName, test.expiryLabel)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestRendererEscapesLongFrenchAndGermanContent(t *testing.T) {
 	renderer := testRenderer(t)
 	for _, locale := range []string{"fr", "de"} {
@@ -198,7 +277,7 @@ func TestNormalizedTemplateCatalogSnapshot(t *testing.T) {
 			_, _ = hash.Write([]byte(normalized))
 		}
 	}
-	const expected = "0cf8be7cc33b5a560a02fb076755fc548066be0665b92437736d459d8a9eb52c"
+	const expected = "6023ec0eb5bc771319c74f0ca21dcf4f71c68cda63b16f0f5abe4a3b9793891d"
 	if actual := hex.EncodeToString(hash.Sum(nil)); actual != expected {
 		t.Fatalf("normalized template snapshot = %s, want %s", actual, expected)
 	}
