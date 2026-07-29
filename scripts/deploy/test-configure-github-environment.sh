@@ -107,6 +107,10 @@ printf '203.0.113.10 %s\n' "$(cat "$test_key.pub")" > "$known_hosts"
 release_output="$temporary_directory/release-output"
 printf '%s\n' \
   "$known_hosts" \
+  "https://api.mailronix.com/email/send" \
+  "help@postqron.com" \
+  "true" \
+  "mrx_live_test_secret_value" \
   "false" |
   GH_STUB_STATE="$state_directory" \
     PATH="$stub_directory:$PATH" \
@@ -116,12 +120,25 @@ printf '%s\n' \
 for secret in \
   SSH_KNOWN_HOSTS \
   AUTH_ENCRYPTION_KEY_B64 \
-  PRIVACY_ARTIFACT_KEY_B64; do
+  PRIVACY_ARTIFACT_KEY_B64 \
+  MAILRONIX_TRANSACTIONAL_API_KEY; do
   [[ -s "$state_directory/secrets/$secret" ]] ||
     { echo "missing release test secret $secret" >&2; exit 1; }
 done
 [[ "$(cat "$state_directory/variables/PRELAUNCH_MODE")" == "false" ]] ||
   { echo "PRELAUNCH_MODE was not created with the requested value" >&2; exit 1; }
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_ENDPOINT")" == \
+  "https://api.mailronix.com/email/send" ]] ||
+  { echo "POSTQRON_MAILRONIX_ENDPOINT was not created" >&2; exit 1; }
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_API_KEY_SECRET_NAME")" == \
+  "MAILRONIX_TRANSACTIONAL_API_KEY" ]] ||
+  { echo "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME was not created" >&2; exit 1; }
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_SENDER_EMAIL")" == \
+  "help@postqron.com" ]] ||
+  { echo "POSTQRON_MAILRONIX_SENDER_EMAIL was not created" >&2; exit 1; }
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_DOMAIN_VERIFIED")" == \
+  "true" ]] ||
+  { echo "POSTQRON_MAILRONIX_DOMAIN_VERIFIED was not created" >&2; exit 1; }
 for secret in AUTH_ENCRYPTION_KEY_B64 PRIVACY_ARTIFACT_KEY_B64; do
   [[ $(base64 --decode < "$state_directory/secrets/$secret" | wc -c) -eq 32 ]] ||
     { echo "$secret is not base64 of 32 bytes" >&2; exit 1; }
@@ -130,6 +147,11 @@ for secret in AUTH_ENCRYPTION_KEY_B64 PRIVACY_ARTIFACT_KEY_B64; do
     exit 1
   fi
 done
+if grep -Fq "$(cat "$state_directory/secrets/MAILRONIX_TRANSACTIONAL_API_KEY")" \
+  "$release_output"; then
+  echo "release output exposed MAILRONIX_TRANSACTIONAL_API_KEY" >&2
+  exit 1
+fi
 if [[ "$(cat "$state_directory/secrets/RUNTIME_ENV")" != \
   "opaque-runtime-value" ]]; then
   echo "release helper unexpectedly replaced RUNTIME_ENV" >&2
@@ -159,6 +181,14 @@ GH_STUB_STATE="$state_directory" \
   "$privacy_key_before" ]]
 [[ "$(cat "$state_directory/variables/PRELAUNCH_MODE")" == \
   "$prelaunch_mode_before" ]]
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_ENDPOINT")" == \
+  "https://api.mailronix.com/email/send" ]]
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_API_KEY_SECRET_NAME")" == \
+  "MAILRONIX_TRANSACTIONAL_API_KEY" ]]
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_SENDER_EMAIL")" == \
+  "help@postqron.com" ]]
+[[ "$(cat "$state_directory/variables/POSTQRON_MAILRONIX_DOMAIN_VERIFIED")" == \
+  "true" ]]
 [[ "$(cat "$state_directory/secrets/RUNTIME_ENV")" == \
   "opaque-runtime-value" ]]
 

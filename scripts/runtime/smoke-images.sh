@@ -242,6 +242,46 @@ assert_compose_prelaunch_mode() {
   ' "$compose_config" "$expected"
 }
 
+assert_compose_mailronix_wiring() {
+  local compose_config=$1
+  node -e '
+    const fs = require("node:fs")
+    const [configPath] = process.argv.slice(1)
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"))
+    const expectedServices = ["api", "worker"]
+    const expected = {
+      POSTQRON_MAILRONIX_ENDPOINT: "https://api.mailronix.com/email/send",
+      POSTQRON_MAILRONIX_API_KEY_SECRET_NAME: "MAILRONIX_TRANSACTIONAL_API_KEY",
+      POSTQRON_MAILRONIX_SENDER_EMAIL: "help@example.test",
+      POSTQRON_MAILRONIX_DOMAIN_VERIFIED: "true",
+      MAILRONIX_TRANSACTIONAL_API_KEY: "NOT_A_SECRET_SMOKE_MAILRONIX_PLACEHOLDER",
+    }
+    const actualServices = Object.entries(config.services)
+      .filter(([, service]) =>
+        Object.hasOwn(service.environment ?? {}, "POSTQRON_MAILRONIX_ENDPOINT"))
+      .map(([name]) => name)
+      .sort()
+    if (actualServices.join(",") !== expectedServices.join(",")) {
+      throw new Error(
+        "Mailronix consumers were " +
+          (actualServices.join(",") || "none") +
+          ", want " +
+          expectedServices.join(","),
+      )
+    }
+    for (const serviceName of expectedServices) {
+      const environment = config.services[serviceName]?.environment ?? {}
+      for (const [key, value] of Object.entries(expected)) {
+        if (environment[key] !== value) {
+          throw new Error(
+            serviceName + " " + key + " was " + environment[key] + ", want " + value,
+          )
+        }
+      }
+    }
+  ' "$compose_config"
+}
+
 validate_compose_prelaunch_wiring() {
   local compose_file="$repository_root/infra/deploy/compose.yaml"
   local missing_output="$temporary_directory/compose-missing-prelaunch"
@@ -252,7 +292,12 @@ validate_compose_prelaunch_wiring() {
     "API_IMAGE=ghcr.io/apdsoftware/postqron-api:test"
     "APP_DOMAIN=app.example.test"
     "DATABASE_URL=postgres://postqron:test@postgres:5432/postqron"
+    "MAILRONIX_TRANSACTIONAL_API_KEY=NOT_A_SECRET_SMOKE_MAILRONIX_PLACEHOLDER"
     "POSTQRON_PRIVACY_ARTIFACT_KEY_B64=NOT_A_SECRET_SMOKE_COMPOSE_CONFIG_PLACEHOLDER"
+    "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME=MAILRONIX_TRANSACTIONAL_API_KEY"
+    "POSTQRON_MAILRONIX_DOMAIN_VERIFIED=true"
+    "POSTQRON_MAILRONIX_ENDPOINT=https://api.mailronix.com/email/send"
+    "POSTQRON_MAILRONIX_SENDER_EMAIL=help@example.test"
     "POSTGRES_PASSWORD=test"
     "WEB_IMAGE=ghcr.io/apdsoftware/postqron-web:test"
     "WORKER_IMAGE=ghcr.io/apdsoftware/postqron-worker:test"
@@ -265,6 +310,7 @@ validate_compose_prelaunch_wiring() {
       "PRELAUNCH_MODE=$mode" \
       docker compose -f "$compose_file" config --format json >"$rendered"
     assert_compose_prelaunch_mode "$rendered" "$mode"
+    assert_compose_mailronix_wiring "$rendered"
   done
 
   if env \
@@ -278,6 +324,30 @@ validate_compose_prelaunch_wiring() {
   assert_contains \
     "$(<"$missing_output")" \
     "PRELAUNCH_MODE is required"
+
+  if env \
+    -u POSTQRON_MAILRONIX_ENDPOINT \
+    API_DOMAIN=api.example.test \
+    API_IMAGE=ghcr.io/apdsoftware/postqron-api:test \
+    APP_DOMAIN=app.example.test \
+    DATABASE_URL=postgres://postqron:test@postgres:5432/postqron \
+    MAILRONIX_TRANSACTIONAL_API_KEY=NOT_A_SECRET_SMOKE_MAILRONIX_PLACEHOLDER \
+    POSTQRON_MAILRONIX_API_KEY_SECRET_NAME=MAILRONIX_TRANSACTIONAL_API_KEY \
+    POSTQRON_MAILRONIX_DOMAIN_VERIFIED=true \
+    POSTQRON_MAILRONIX_SENDER_EMAIL=help@example.test \
+    POSTQRON_PRIVACY_ARTIFACT_KEY_B64=NOT_A_SECRET_SMOKE_COMPOSE_CONFIG_PLACEHOLDER \
+    POSTGRES_PASSWORD=test \
+    PRELAUNCH_MODE=true \
+    WEB_IMAGE=ghcr.io/apdsoftware/postqron-web:test \
+    WORKER_IMAGE=ghcr.io/apdsoftware/postqron-worker:test \
+    docker compose -f "$compose_file" config --quiet \
+    >"$missing_output" 2>&1; then
+    echo "Compose accepted a missing POSTQRON_MAILRONIX_ENDPOINT" >&2
+    exit 1
+  fi
+  assert_contains \
+    "$(<"$missing_output")" \
+    "POSTQRON_MAILRONIX_ENDPOINT is required"
 }
 
 assert_clean_bundle() {

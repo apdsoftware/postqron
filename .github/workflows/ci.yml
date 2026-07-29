@@ -106,7 +106,12 @@ jobs:
           API_IMAGE: ghcr.io/apdsoftware/postqron-api:test
           APP_DOMAIN: app.example.test
           DATABASE_URL: postgres://postqron:test@postgres:5432/postqron
+          MAILRONIX_TRANSACTIONAL_API_KEY: NOT_A_SECRET_CI_MAILRONIX_PLACEHOLDER
           PRELAUNCH_MODE: "true"
+          POSTQRON_MAILRONIX_API_KEY_SECRET_NAME: MAILRONIX_TRANSACTIONAL_API_KEY
+          POSTQRON_MAILRONIX_DOMAIN_VERIFIED: "true"
+          POSTQRON_MAILRONIX_ENDPOINT: https://api.mailronix.com/email/send
+          POSTQRON_MAILRONIX_SENDER_EMAIL: help@example.test
           POSTQRON_PRIVACY_ARTIFACT_KEY_B64: NOT_A_SECRET_CI_COMPOSE_CONFIG_PLACEHOLDER
           POSTGRES_PASSWORD: test
           WEB_IMAGE: ghcr.io/apdsoftware/postqron-web:test

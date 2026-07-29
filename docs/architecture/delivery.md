@@ -20,6 +20,13 @@ Required GitHub environment variables:
 - `API_DOMAIN` and `APP_DOMAIN`.
 - `CLOUDFLARE_ZONE_ID`.
 - `DEPLOYMENT_SSH_PUBLIC_KEY`.
+- `POSTQRON_MAILRONIX_ENDPOINT`: must be an HTTPS Mailronix delivery endpoint
+  ending with `/email/send`.
+- `POSTQRON_MAILRONIX_API_KEY_SECRET_NAME`: must be the exact string
+  `MAILRONIX_TRANSACTIONAL_API_KEY`.
+- `POSTQRON_MAILRONIX_SENDER_EMAIL`.
+- `POSTQRON_MAILRONIX_DOMAIN_VERIFIED`: must be the exact string `true` before
+  a production release.
 - `PRELAUNCH_MODE`: the exact string `true` or `false`. Missing values, different
   casing, whitespace, and every other value block a release before upload.
 
@@ -31,15 +38,19 @@ Required GitHub environment secrets:
 - `DEPLOYMENT_SSH_PRIVATE_KEY` and a pinned `SSH_KNOWN_HOSTS` entry.
 - `GHCR_READ_TOKEN` scoped only to package reads.
 - `RUNTIME_ENV`, containing `POSTGRES_PASSWORD` and `DATABASE_URL`.
+- `MAILRONIX_TRANSACTIONAL_API_KEY`, containing the live Mailronix
+  transactional API key referenced by
+  `POSTQRON_MAILRONIX_API_KEY_SECRET_NAME`.
 - `ADMIN_PASSWORD_HASH_B64` for the mounted F3 password runtime.
 - `AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64`, each encoded as
   base64 of exactly 32 random bytes, for auth state and privacy artifacts.
 
 `RUNTIME_ENV` must not include image tags, public domains, or `PRELAUNCH_MODE`;
 the workflow appends those from the reviewed commit and dedicated environment
-variables. A `PRELAUNCH_MODE` assignment already present in `RUNTIME_ENV` blocks
-the release instead of creating ambiguous precedence. The generated runtime
-contains exactly one canonical `PRELAUNCH_MODE=<value>` line. The remote file is
+variables. `RUNTIME_ENV` must also not contain any `POSTQRON_MAILRONIX_*` entry
+or `MAILRONIX_TRANSACTIONAL_API_KEY`. A conflicting assignment blocks the
+release instead of creating ambiguous precedence. The generated runtime contains
+exactly one canonical line per dedicated delivery variable. The remote file is
 mode `0600`. No token, private key, password, state credential, or personal data
 is stored in Git.
 
@@ -75,14 +86,16 @@ the server host key has been verified, configure release-only values:
   --phase release
 ```
 
-This second phase reads a verified `known_hosts` file and generates
+This second phase reads a verified `known_hosts` file, generates
 `AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64` only when each secret is
-absent. It also creates `PRELAUNCH_MODE` with the safe default `true` when the
-variable is absent. It never reads or replaces `RUNTIME_ENV`, so it cannot
-rotate the database password. Encryption keys are also never replaced by this
-helper; rotation requires a separate, coordinated procedure. During release,
-the workflow validates the dedicated values without printing secrets and
-appends them to the remote runtime.
+absent, configures the non-secret Mailronix boundary variables, and prompts for
+`MAILRONIX_TRANSACTIONAL_API_KEY` only when that secret is absent. It also
+creates `PRELAUNCH_MODE` with the safe default `true` when the variable is
+absent. It never reads or replaces `RUNTIME_ENV`, so it cannot rotate the
+database password. Encryption keys are also never replaced by this helper;
+rotation requires a separate, coordinated procedure. During release, the
+workflow validates the dedicated values without printing secrets and appends
+them to the remote runtime.
 
 Go live by explicitly changing the production variable to `false`:
 
