@@ -8,6 +8,7 @@ require (
 	github.com/apdsoftware/postqron/features/f10-entitlements v0.0.0
 	github.com/apdsoftware/postqron/features/f12-account-privacy v0.0.0
 	github.com/apdsoftware/postqron/features/f14-email v0.0.0
+	github.com/apdsoftware/postqron/features/f26-cookie-consent-api v0.0.0
 	github.com/apdsoftware/postqron/features/f30-app-shell v0.0.0
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
@@ -33,5 +34,7 @@ replace github.com/apdsoftware/postqron/features/f10-entitlements => ../../featu
 replace github.com/apdsoftware/postqron/features/f12-account-privacy => ../../features/f12-account-privacy
 
 replace github.com/apdsoftware/postqron/features/f14-email => ../../features/f14-email
+
+replace github.com/apdsoftware/postqron/features/f26-cookie-consent-api => ../../features/f26-cookie-consent-api
 
 replace github.com/apdsoftware/postqron/features/f30-app-shell => ../../features/f30-app-shell

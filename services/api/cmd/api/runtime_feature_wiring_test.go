@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/api/internal/featurehost"
+	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 )
 
 func TestApiFeatureSetAvoidsRouteCollisions(t *testing.T) {
@@ -37,6 +42,46 @@ func TestApiFeatureSetAvoidsRouteCollisions(t *testing.T) {
 	}
 	if host == nil {
 		t.Fatal("featurehost.New() returned a nil host")
+	}
+	if err := host.Start(context.Background()); err != nil {
+		t.Fatalf("host.Start() error = %v", err)
+	}
+
+	statusByID := map[string]featurehost.Status{}
+	for _, status := range host.Statuses() {
+		statusByID[status.ID] = status
+	}
+	cookieConsentStatus, ok := statusByID["cookie-consent-api"]
+	if !ok {
+		t.Fatal("cookie-consent-api was not discovered in API runtime")
+	}
+	if cookieConsentStatus.State != featurehost.StateActive {
+		t.Fatalf(
+			"cookie-consent-api status = %s error=%q, want active",
+			cookieConsentStatus.State,
+			cookieConsentStatus.Error,
+		)
+	}
+
+	handler, err := httpapi.NewWithHost(
+		host,
+		func(next http.Handler) http.Handler { return next },
+		"test",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("httpapi.NewWithHost() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "/api/v1/cookie-preferences", nil),
+	)
+	if response.Code == http.StatusNotFound {
+		t.Fatal("GET /api/v1/cookie-preferences returned 404, want mounted F26 route")
+	}
+	if body := response.Body.String(); strings.Contains(body, "no factory registered") {
+		t.Fatalf("GET /api/v1/cookie-preferences exposed missing factory error: %s", body)
 	}
 }
 
