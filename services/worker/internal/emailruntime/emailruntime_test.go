@@ -26,47 +26,65 @@ func TestValidateAppDomainRequiresBareHost(t *testing.T) {
 
 func TestRuntimeSenderAllowsFakeOnlyOutsideProduction(t *testing.T) {
 	clearMailronixEnvironment(t)
-	t.Setenv("PADDLE_ENVIRONMENT", "sandbox")
+	t.Setenv(postqronEnvEnv, "development")
 
-	sender, err := runtimeSender()
+	boundary, err := runtimeSenderBoundary()
 	if err != nil {
-		t.Fatalf("runtimeSender: %v", err)
+		t.Fatalf("runtimeSenderBoundary: %v", err)
 	}
-	if _, ok := sender.(*email.FakeSender); !ok {
-		t.Fatalf("runtimeSender = %T, want *email.FakeSender", sender)
+	if boundary.Mode != email.SenderModeFake {
+		t.Fatalf("mode = %q", boundary.Mode)
+	}
+	if _, ok := boundary.Sender.(*email.FakeSender); !ok {
+		t.Fatalf("runtimeSenderBoundary sender = %T, want *email.FakeSender", boundary.Sender)
 	}
 }
 
 func TestRuntimeSenderFailsClosedInProduction(t *testing.T) {
 	clearMailronixEnvironment(t)
-	t.Setenv("PADDLE_ENVIRONMENT", "production")
+	t.Setenv(postqronEnvEnv, "production")
 
-	if _, err := runtimeSender(); err == nil ||
-		!strings.Contains(err.Error(), "Mailronix configuration") {
+	if _, err := runtimeSenderBoundary(); err == nil ||
+		!strings.Contains(err.Error(), "missing "+mailronixEndpointEnv) {
 		t.Fatalf("runtimeSender error = %v", err)
 	}
 }
 
-func TestRuntimeSenderRejectsPartialConfiguration(t *testing.T) {
+func TestRuntimeSenderUsesLiveModeWhenConfigurationIsComplete(t *testing.T) {
 	clearMailronixEnvironment(t)
-	t.Setenv("PADDLE_ENVIRONMENT", "sandbox")
-	t.Setenv(mailronixEndpointEnv, "https://mail.example.test/send")
+	t.Setenv(postqronEnvEnv, "staging")
+	t.Setenv(mailronixEndpointEnv, "https://delivery.example.test/email/send")
+	t.Setenv(mailronixAPIKeySecretEnv, "MAILRONIX_TRANSACTIONAL_API_KEY")
+	t.Setenv(mailronixSenderEmailEnv, "notifications@example.test")
+	t.Setenv(mailronixDomainVerifiedEnv, "true")
+	t.Setenv("MAILRONIX_TRANSACTIONAL_API_KEY", "mrx_live_secret")
 
-	if _, err := runtimeSender(); err == nil ||
-		!strings.Contains(err.Error(), "Mailronix configuration") {
-		t.Fatalf("runtimeSender error = %v", err)
+	boundary, err := runtimeSenderBoundary()
+	if err != nil {
+		t.Fatalf("runtimeSenderBoundary: %v", err)
+	}
+	if boundary.Mode != email.SenderModeLive {
+		t.Fatalf("mode = %q", boundary.Mode)
+	}
+	fields := boundary.Config.Fields()
+	if fields["email.provider"] != "mailronix" ||
+		fields["email.sender_mode"] != "live" ||
+		fields["email.api_key_secret_name"] != "MAILRONIX_TRANSACTIONAL_API_KEY" {
+		t.Fatalf("fields = %#v", fields)
 	}
 }
 
 func clearMailronixEnvironment(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
+		postqronEnvEnv,
 		mailronixEndpointEnv,
 		mailronixAPIKeySecretEnv,
 		mailronixSenderEmailEnv,
 		mailronixDomainVerifiedEnv,
 		mailronixFailureThresholdEnv,
 		mailronixCircuitOpenForEnv,
+		"MAILRONIX_TRANSACTIONAL_API_KEY",
 	} {
 		t.Setenv(key, "")
 	}

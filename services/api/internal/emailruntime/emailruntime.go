@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 )
 
 const (
+	postqronEnvEnv               = "POSTQRON_ENV"
 	mailronixEndpointEnv         = "POSTQRON_MAILRONIX_ENDPOINT"
 	mailronixAPIKeySecretEnv     = "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME"
 	mailronixSenderEmailEnv      = "POSTQRON_MAILRONIX_SENDER_EMAIL"
@@ -190,40 +190,35 @@ func loadBrand(appDomain string) (email.Brand, error) {
 }
 
 func runtimeSender() (email.Sender, error) {
-	endpoint := strings.TrimSpace(os.Getenv(mailronixEndpointEnv))
-	secretName := strings.TrimSpace(os.Getenv(mailronixAPIKeySecretEnv))
-	senderEmail := strings.TrimSpace(os.Getenv(mailronixSenderEmailEnv))
-	domainVerified := strings.EqualFold(strings.TrimSpace(os.Getenv(mailronixDomainVerifiedEnv)), "true")
-	if endpoint == "" || secretName == "" || senderEmail == "" || !domainVerified {
-		return &email.FakeSender{}, nil
+	boundary, err := runtimeSenderBoundary()
+	if err != nil {
+		return nil, err
 	}
-	failureThreshold := 3
-	if value := strings.TrimSpace(os.Getenv(mailronixFailureThresholdEnv)); value != "" {
-		if _, err := fmt.Sscanf(value, "%d", &failureThreshold); err != nil || failureThreshold < 1 {
-			return nil, errors.New("POSTQRON_MAILRONIX_FAILURE_THRESHOLD is invalid")
-		}
+	return boundary.Sender, nil
+}
+
+func runtimeSenderBoundary() (email.SenderBoundary, error) {
+	return email.NewSenderBoundaryFromEnv(runtimeSenderOptions(), envSecretProvider{})
+}
+
+func runtimeSenderOptions() email.SenderBoundaryOptions {
+	environment := strings.ToLower(strings.TrimSpace(os.Getenv(postqronEnvEnv)))
+	production := environment == "production"
+	options := email.SenderBoundaryOptions{
+		Environment: environment,
+		Production:  production,
 	}
-	circuitOpenFor := 2 * time.Minute
-	if value := strings.TrimSpace(os.Getenv(mailronixCircuitOpenForEnv)); value != "" {
-		duration, err := time.ParseDuration(value)
-		if err != nil || duration <= 0 {
-			return nil, errors.New("POSTQRON_MAILRONIX_CIRCUIT_OPEN_FOR is invalid")
-		}
-		circuitOpenFor = duration
+	if production || runtimeSenderConfigured() {
+		options.Mode = email.SenderModeLive
 	}
-	return email.NewMailronixClient(
-		email.MailronixConfig{
-			Endpoint:         endpoint,
-			ContractVersion:  email.MailronixContractVersion,
-			APIKeySecret:     secretName,
-			From:             email.SenderIdentity{Email: senderEmail},
-			DomainVerified:   true,
-			FailureThreshold: failureThreshold,
-			CircuitOpenFor:   circuitOpenFor,
-		},
-		&http.Client{Timeout: 10 * time.Second},
-		envSecretProvider{},
-	)
+	return options
+}
+
+func runtimeSenderConfigured() bool {
+	return strings.TrimSpace(os.Getenv(mailronixEndpointEnv)) != "" &&
+		strings.TrimSpace(os.Getenv(mailronixAPIKeySecretEnv)) != "" &&
+		strings.TrimSpace(os.Getenv(mailronixSenderEmailEnv)) != "" &&
+		strings.TrimSpace(os.Getenv(mailronixDomainVerifiedEnv)) != ""
 }
 
 type envSecretProvider struct{}
