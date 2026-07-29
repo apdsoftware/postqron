@@ -4,10 +4,10 @@ WORKDIR /workspace
 RUN apk add --no-cache bash
 COPY go.work ./
 COPY packages/runtime/go/go.mod packages/runtime/go/go.sum packages/runtime/go/
-COPY services/api/go.mod services/api/go.sum services/api/
-COPY features/f10-entitlements/go.mod features/f10-entitlements/go.sum features/f10-entitlements/
+COPY features/f04-workspaces/go.mod features/f04-workspaces/go.sum features/f04-workspaces/
+COPY features/f14-email/go.mod features/f14-email/
 COPY services/worker/go.mod services/worker/go.sum services/worker/
-RUN go mod download -C services/worker
+RUN GOWORK=off go mod download -C services/worker
 
 COPY packages/runtime/go packages/runtime/go
 COPY services/worker services/worker
