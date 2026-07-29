@@ -160,7 +160,11 @@ The services-side runtime mounts F3 auth, F4 app runtime, the F30 API
 bootstrap/session handler, and an adapter feature for F12 account/profile
 navigation. The worker consumes the F3 onboarding outbox idempotently to create
 or select the personal workspace and initialize `account_privacy_profiles`, and
-dispatches queued F14 verification email deliveries.
+dispatches queued F14 verification email deliveries. Both the API and worker
+derive email links from the canonical `APP_DOMAIN`; Compose rejects a release
+when it is absent. After each restart, delivery also requires the worker
+container to remain continuously running with no restart during the
+initialization observation window.
 
 Privacy export queueing and account/workspace deletion remain fail-closed in
 the runtime adapter until Auth exposes a reviewed boundary that can freeze new

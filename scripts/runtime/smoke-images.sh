@@ -282,11 +282,41 @@ assert_compose_mailronix_wiring() {
   ' "$compose_config"
 }
 
+assert_compose_app_domain_wiring() {
+  local compose_config=$1
+  node -e '
+    const fs = require("node:fs")
+    const [configPath] = process.argv.slice(1)
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"))
+    const expected = "app.example.test"
+    const workerDomain = config.services.worker?.environment?.APP_DOMAIN
+    if (workerDomain !== expected) {
+      throw new Error(
+        "worker APP_DOMAIN was " + (workerDomain ?? "missing") + ", want " + expected,
+      )
+    }
+    const apiEnvironment = config.services.api?.environment ?? {}
+    for (const key of [
+      "POSTQRON_ADMIN_ALLOWED_ORIGINS",
+      "POSTQRON_AUTH_ALLOWED_ORIGINS",
+      "POSTQRON_PRIVACY_ALLOWED_ORIGINS",
+    ]) {
+      if (apiEnvironment[key] !== "https://" + expected) {
+        throw new Error(
+          "api " + key + " was " + (apiEnvironment[key] ?? "missing") +
+            ", want https://" + expected,
+        )
+      }
+    }
+  ' "$compose_config"
+}
+
 validate_compose_prelaunch_wiring() {
   local compose_file="$repository_root/infra/deploy/compose.yaml"
   local missing_output="$temporary_directory/compose-missing-prelaunch"
   local mode
   local rendered
+  local variable
   local -a compose_environment=(
     "API_DOMAIN=api.example.test"
     "API_IMAGE=ghcr.io/apdsoftware/postqron-api:test"
@@ -302,6 +332,12 @@ validate_compose_prelaunch_wiring() {
     "WEB_IMAGE=ghcr.io/apdsoftware/postqron-web:test"
     "WORKER_IMAGE=ghcr.io/apdsoftware/postqron-worker:test"
   )
+  local -a compose_environment_without_app_domain=()
+  for variable in "${compose_environment[@]}"; do
+    if [[ "$variable" != APP_DOMAIN=* ]]; then
+      compose_environment_without_app_domain+=("$variable")
+    fi
+  done
 
   for mode in true false; do
     rendered="$temporary_directory/compose-$mode.json"
@@ -311,6 +347,7 @@ validate_compose_prelaunch_wiring() {
       docker compose -f "$compose_file" config --format json >"$rendered"
     assert_compose_prelaunch_mode "$rendered" "$mode"
     assert_compose_mailronix_wiring "$rendered"
+    assert_compose_app_domain_wiring "$rendered"
   done
 
   if env \
@@ -348,6 +385,19 @@ validate_compose_prelaunch_wiring() {
   assert_contains \
     "$(<"$missing_output")" \
     "POSTQRON_MAILRONIX_ENDPOINT is required"
+
+  if env \
+    -u APP_DOMAIN \
+    "${compose_environment_without_app_domain[@]}" \
+    PRELAUNCH_MODE=true \
+    docker compose -f "$compose_file" config --quiet \
+    >"$missing_output" 2>&1; then
+    echo "Compose accepted a missing worker APP_DOMAIN" >&2
+    exit 1
+  fi
+  assert_contains \
+    "$(<"$missing_output")" \
+    "APP_DOMAIN is required"
 }
 
 assert_clean_bundle() {
