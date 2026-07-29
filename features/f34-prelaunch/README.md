@@ -61,13 +61,15 @@ Activation and rollback are configuration-only operations:
 2. Verify `/api/v1/prelaunch/status` returns `prelaunch_mode: true`, then
    exercise the landing, legal links, admin authorization and one access
    request.
-3. Go live by setting the production secret/config value to the exact string
-   `false` and restart/roll the web and API processes.
+3. Go live by setting the production GitHub Environment variable
+   `PRELAUNCH_MODE` to the exact string `false` with the delivery configurator's
+   `--replace PRELAUNCH_MODE` option, then run a production release.
 4. Verify the status reports `explicit_false`, `/` serves the marketing site,
    `/en/prelaunch` redirects to `/en/app`, and the CTA targets `/en/app`.
-5. Roll back immediately by setting the value to the exact string `true`.
-   Removing or corrupting the value also fails closed, but explicit `true` is
-   preferred because it makes intent visible in status.
+5. Roll back immediately by setting the same dedicated variable to the exact
+   string `true` with `--replace PRELAUNCH_MODE`, then run a production release.
+   Removing or corrupting the variable blocks the next delivery and is not a
+   rollback procedure; explicit `true` makes intent visible in status.
 
 ## Verification
 

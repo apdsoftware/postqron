@@ -22,8 +22,10 @@ The provision phase configures public domains, Cloudflare, Hetzner, Terraform
 state, the administrative CIDR allowlist, and the deployment SSH key.
 
 The release phase configures the verified SSH host key and generates dedicated
-auth and privacy encryption keys when they are missing. It never reads or
-replaces RUNTIME_ENV. GHCR uses the workflow's temporary token.
+auth and privacy encryption keys when they are missing. It configures
+PRELAUNCH_MODE with a fail-closed default of true and accepts only exact true or
+false values. It never reads or replaces RUNTIME_ENV. GHCR uses the workflow's
+temporary token.
 EOF
 }
 
@@ -376,6 +378,15 @@ configure_generated_encryption_key() {
   echo "configured secret $name"
 }
 
+configure_prelaunch_mode() {
+  local value
+  needs_variable "PRELAUNCH_MODE" || return 0
+  value=$(prompt_value "Pre-launch mode (true or false)" "true")
+  [[ "$value" == "true" || "$value" == "false" ]] ||
+    fail "PRELAUNCH_MODE must be exactly true or false"
+  set_variable "PRELAUNCH_MODE" "$value"
+}
+
 if [[ "$phase" == "provision" ]]; then
   configure_domain "APP_DOMAIN" "Application domain"
   configure_domain "API_DOMAIN" "API domain"
@@ -395,6 +406,7 @@ else
   configure_known_hosts
   configure_generated_encryption_key "AUTH_ENCRYPTION_KEY_B64"
   configure_generated_encryption_key "PRIVACY_ARTIFACT_KEY_B64"
+  configure_prelaunch_mode
 fi
 
 echo
