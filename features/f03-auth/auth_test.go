@@ -396,6 +396,39 @@ func TestRegistrationRequiresVersionedLegalReceiptsAndItalianCountry(t *testing.
 	assertErrorCode(t, err, CodeInvalidConsent)
 }
 
+func TestLegalVersionRequiresCanonicalMajorMinor(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		valid   bool
+	}{
+		{name: "zero major", version: "0.1", valid: true},
+		{name: "positive major", version: "1.0", valid: true},
+		{name: "multi digit components", version: "12.34", valid: true},
+		{name: "minor leading zero remains valid", version: "1.01", valid: true},
+		{name: "empty", version: "", valid: false},
+		{name: "missing minor", version: "1", valid: false},
+		{name: "missing major", version: ".1", valid: false},
+		{name: "empty minor", version: "1.", valid: false},
+		{name: "major leading zero", version: "01.2", valid: false},
+		{name: "extra component", version: "1.2.3", valid: false},
+		{name: "prefix", version: "v1.2", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			receipts := validConsents()
+			receipts[0].Version = test.version
+			err := validateConsentShape(receipts)
+			if test.valid && err != nil {
+				t.Fatalf("validateConsentShape() error = %v", err)
+			}
+			if !test.valid {
+				assertErrorCode(t, err, CodeInvalidConsent)
+			}
+		})
+	}
+}
+
 func newTestService(
 	t *testing.T,
 	store TransactionStore,

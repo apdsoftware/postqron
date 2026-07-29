@@ -123,6 +123,11 @@ records document version and SHA-256 digest, purpose, locale, surface,
 control-text version, correlation ID, and timestamp. Historical rows are
 append-only.
 
+Legal document versions use `major.minor` notation. The major component is
+canonical (`0` or a positive integer without leading zeroes), while the minor
+component remains one or more decimal digits. Major zero is valid, including
+the current `terms_it` `0.2` and `privacy_it` `0.1` versions.
+
 The same transaction emits
 `auth.account.onboarding-required` version 1. F4 consumes its
 `idempotency_key` to create exactly one personal workspace and an `owner`

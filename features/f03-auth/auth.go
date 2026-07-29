@@ -16,7 +16,7 @@ const (
 	OnboardingEventVersion = 1
 )
 
-var legalVersionPattern = regexp.MustCompile(`^[1-9]\d*\.\d+$`)
+var legalVersionPattern = regexp.MustCompile(`^(0|[1-9]\d*)\.\d+$`)
 
 type Config struct {
 	Store            TransactionStore

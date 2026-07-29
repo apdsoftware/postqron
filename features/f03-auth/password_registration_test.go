@@ -12,6 +12,7 @@ type registrationMemoryStore struct {
 	mu            sync.Mutex
 	accounts      map[string]registrationAccount
 	tokens        map[string]registrationToken
+	consents      []ConsentReceipt
 	consentCount  int
 	outboxCount   int
 	securityCount int
@@ -59,6 +60,7 @@ func (store *registrationMemoryStore) RegisterPasswordAccount(
 		CreatedAt: command.Now,
 		ExpiresAt: command.VerificationExpiry,
 	}
+	store.consents = append([]ConsentReceipt(nil), command.Consents...)
 	store.consentCount += len(command.Consents)
 	store.outboxCount++
 	store.securityCount++
@@ -177,6 +179,73 @@ func TestPasswordRegistrationCreatesDigestOnlyVerificationState(t *testing.T) {
 			store.outboxCount,
 			store.securityCount,
 		)
+	}
+}
+
+func TestPasswordRegistrationAcceptsCurrentProductionLegalVersions(t *testing.T) {
+	store := newRegistrationMemoryStore()
+	service, err := NewPasswordRegistrationService(PasswordRegistrationConfig{
+		Store: store,
+		Now:   func() time.Time { return testNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	consents := []ConsentReceipt{
+		{
+			DocumentKey:   "terms_it",
+			Version:       "0.2",
+			DigestSHA256:  "2630d35d50853a781453dcad5b067725df2bcd0469e8bf37e9e109c660533f9b",
+			Action:        ConsentAccepted,
+			Purpose:       "contract",
+			Locale:        "it-IT",
+			Surface:       "signup",
+			ControlTextID: "signup-terms-v1",
+		},
+		{
+			DocumentKey:   "privacy_it",
+			Version:       "0.1",
+			DigestSHA256:  "e9bd3260ec45259f92e84592f988be9886423d69f3c8ddb84ab8f03a39b1a660",
+			Action:        ConsentAcknowledged,
+			Purpose:       "privacy_notice",
+			Locale:        "it-IT",
+			Surface:       "signup",
+			ControlTextID: "signup-privacy-v1",
+		},
+	}
+
+	result, err := service.Register(
+		context.Background(),
+		"production-legal@example.test",
+		"correct horse battery staple",
+		"correct horse battery staple",
+		"IT",
+		consents,
+	)
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if !result.Created || result.Delivery == nil || result.Delivery.Token == "" {
+		t.Fatalf("unexpected registration result: %+v", result)
+	}
+	if _, exists := store.accounts["production-legal@example.test"]; !exists {
+		t.Fatal("registration did not create the account")
+	}
+	if len(store.consents) != len(consents) {
+		t.Fatalf("stored consents = %d, want %d", len(store.consents), len(consents))
+	}
+	for index, receipt := range consents {
+		stored := store.consents[index]
+		if stored.Version != receipt.Version || stored.DigestSHA256 != receipt.DigestSHA256 {
+			t.Fatalf(
+				"stored consent %d version/digest = %s/%s, want %s/%s",
+				index,
+				stored.Version,
+				stored.DigestSHA256,
+				receipt.Version,
+				receipt.DigestSHA256,
+			)
+		}
 	}
 }
 
