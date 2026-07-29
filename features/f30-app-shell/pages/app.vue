@@ -409,7 +409,10 @@ async function retry() {
             {{ t('auth.orProvider') }}
           </p>
 
-          <div class="auth-providers">
+          <div
+            v-if="providers.length"
+            class="auth-providers"
+          >
             <button
               v-for="provider in providers"
               :key="provider"
@@ -429,12 +432,6 @@ async function retry() {
                 aria-hidden="true"
               />
             </button>
-            <p
-              v-if="providers.length === 0"
-              class="auth-card__muted"
-            >
-              {{ t('auth.providerUnavailable') }}
-            </p>
           </div>
         </div>
       </section>
