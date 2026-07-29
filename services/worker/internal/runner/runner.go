@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
+	"github.com/apdsoftware/postqron/services/worker/internal/privacyruntime"
 )
 
 type Runner struct {
@@ -22,6 +24,7 @@ type Runner struct {
 	clock    func() time.Time
 	logger   *slog.Logger
 	email    *emailruntime.Service
+	privacy  *privacyruntime.Service
 }
 
 func New(features []featureruntime.Feature, interval time.Duration, logger *slog.Logger) *Runner {
@@ -54,6 +57,15 @@ func NewRuntime(
 	if err != nil {
 		return nil, err
 	}
+	privacyService, err := privacyruntime.New(
+		database,
+		os.Getenv("POSTQRON_PRIVACY_ARTIFACT_DIR"),
+		clock,
+		logger,
+	)
+	if err != nil {
+		return nil, err
+	}
 	return &Runner{
 		features: features,
 		database: database,
@@ -61,6 +73,7 @@ func NewRuntime(
 		clock:    clock,
 		logger:   logger,
 		email:    emailService,
+		privacy:  privacyService,
 	}, nil
 }
 
@@ -93,6 +106,7 @@ func (r *Runner) Tick(ctx context.Context) {
 		} else if dispatched {
 			r.logger.Info("worker email dispatch processed")
 		}
+		r.privacy.Tick(ctx)
 	}
 	for _, feature := range r.features {
 		r.logger.Info(

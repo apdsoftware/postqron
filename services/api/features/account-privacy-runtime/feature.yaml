@@ -8,6 +8,8 @@ dependencies:
   - auth
   - workspaces
   - f10-entitlements
+migrations:
+  - ./migrations/000001_privacy_runtime.sql
 server:
   routes:
     - path: /account
@@ -30,10 +32,22 @@ server:
       handler: AccountPrivacy
       methods: [GET]
       visibility: "private"
+    - path: /account/privacy-artifacts/{token}
+      handler: AccountPrivacy
+      methods: [GET]
+      visibility: "public"
     - path: /account/deletions
       handler: AccountPrivacy
       methods: [POST]
       visibility: "private"
+    - path: /account/deletion-cancel-capabilities
+      handler: AccountPrivacy
+      methods: [POST]
+      visibility: "private"
+    - path: /account/deletions/{request_id}/cancel
+      handler: AccountPrivacy
+      methods: [POST]
+      visibility: "public"
     - path: /account/deletions/{request_id}
       handler: AccountPrivacy
       methods: [DELETE]

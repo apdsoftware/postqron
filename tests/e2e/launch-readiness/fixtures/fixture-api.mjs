@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 
 const host = '127.0.0.1'
 const port = Number(process.env.LAUNCH_FIXTURE_PORT || 41797)
+const privacyAllowedOrigin = process.env.LAUNCH_BASE_URL || 'http://127.0.0.1:41795'
 const supervisorPid = Number(process.env.LAUNCH_SUPERVISOR_PID)
 const signingKey = 'postqron-launch-fixture-signing-key-v1'
 const digest = 'a'.repeat(64)
@@ -272,6 +273,10 @@ function reset() {
     nextSession: 1,
     nextVerification: 1,
     mailbox: [],
+    privacyExports: new Map(),
+    privacyDownloads: new Map(),
+    privacyDeletions: new Map(),
+    privacyCancelCapabilities: new Map(),
     sessions: new Map([
       ['admin', { role: 'admin', account_id: 'account-admin' }],
       ['authenticated', { role: 'authenticated', account_id: 'account-authenticated' }],
@@ -753,6 +758,182 @@ const server = createServer(async (request, response) => {
       return
     }
     error(response, 400, 'AUTH_PROVIDER_CALLBACK_INVALID')
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/account/exports') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const id = `export-${account.id}-${state.privacyExports.size + 1}`
+    const exportRequest = {
+      id,
+      account_id: account.id,
+      scope: input.scope || 'account',
+      status: 'ready',
+      requested_at: now,
+      ready_at: now,
+      expires_at: '2026-08-01T12:00:00.000Z',
+      sha256: digest,
+      size_bytes: 128,
+    }
+    state.privacyExports.set(id, exportRequest)
+    json(response, 202, exportRequest)
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/account\/exports\/[^/]+\/download$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    const exportID = decodeURIComponent(url.pathname.split('/').at(-2))
+    const exportRequest = state.privacyExports.get(exportID)
+    if (!account || !exportRequest || exportRequest.account_id !== account.id) {
+      error(response, 404, 'not_found')
+      return
+    }
+    if (url.searchParams.get('fixture_expired') === '1') {
+      error(response, 410, 'export_expired')
+      return
+    }
+    const token = `download-${state.privacyDownloads.size + 1}`
+    state.privacyDownloads.set(token, { exportID, consumed: false })
+    json(response, 200, {
+      url: `http://${request.headers.host}/api/v1/account/privacy-artifacts/${token}`,
+      expires_at: '2026-07-25T12:05:00.000Z',
+      sha256: digest,
+      size_bytes: 128,
+    })
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/account\/privacy-artifacts\/[^/]+$/u.test(url.pathname)
+  ) {
+    const token = decodeURIComponent(url.pathname.split('/').at(-1))
+    const download = state.privacyDownloads.get(token)
+    if (!download || download.consumed) {
+      error(response, 404, 'not_found')
+      return
+    }
+    download.consumed = true
+    response.writeHead(200, {
+      'content-type': 'application/zip',
+      'cache-control': 'private, no-store',
+    })
+    response.end('fixture-private-export')
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/account/deletions') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const id = `deletion-${account.id}-${state.privacyDeletions.size + 1}`
+    const deletion = {
+      id,
+      account_id: account.id,
+      scope: input.scope || 'workspace',
+      workspace_id: input.workspace_id,
+      status: url.searchParams.get('fixture_finalize') === '1' ? 'completed' : 'grace_period',
+      requested_at: now,
+      grace_ends_at: '2026-08-22T12:00:00.000Z',
+      ownership: { actions: input.ownership_actions || [] },
+    }
+    state.privacyDeletions.set(id, deletion)
+    if (deletion.scope === 'account') {
+      for (const [token, current] of state.sessions) {
+        if (current.account_id === account.id) {
+          state.sessions.delete(token)
+        }
+      }
+    }
+    json(response, 202, deletion)
+    return
+  }
+  if (
+    request.method === 'POST'
+    && url.pathname === '/api/v1/account/deletion-cancel-capabilities'
+  ) {
+    if (request.headers.origin !== privacyAllowedOrigin) {
+      error(response, 403, 'origin_not_allowed')
+      return
+    }
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const token = `cancel-${state.privacyCancelCapabilities.size + 1}`
+    state.privacyCancelCapabilities.set(token, {
+      account_id: account.id,
+      claimed: false,
+      consumed: false,
+    })
+    json(response, 201, {
+      expires_at: '2026-08-23T12:00:00.000Z',
+    }, {
+      'cache-control': 'no-store',
+      'set-cookie': `postqron_deletion_cancel=${token}; Path=/api/v1/account/deletions/; HttpOnly; SameSite=Strict`,
+    })
+    return
+  }
+  if (
+    request.method === 'POST'
+    && /^\/api\/v1\/account\/deletions\/[^/]+\/cancel$/u.test(url.pathname)
+  ) {
+    if (request.headers.origin !== privacyAllowedOrigin) {
+      error(response, 403, 'origin_not_allowed')
+      return
+    }
+    const deletionID = decodeURIComponent(url.pathname.split('/').at(-2))
+    const deletion = state.privacyDeletions.get(deletionID)
+    const token = /(?:^|;\s*)postqron_deletion_cancel=([^;]+)(?:;|$)/u
+      .exec(request.headers.cookie || '')?.[1]
+    const capability = state.privacyCancelCapabilities.get(token)
+    if (
+      !deletion
+      || deletion.status !== 'grace_period'
+      || !capability
+      || capability.claimed
+      || capability.consumed
+      || capability.account_id !== deletion.account_id
+    ) {
+      error(response, 404, 'not_found')
+      return
+    }
+    capability.claimed = true
+    capability.consumed = true
+    deletion.status = 'cancelled'
+    response.writeHead(204, {
+      'cache-control': 'no-store',
+      'set-cookie': 'postqron_deletion_cancel=; Path=/api/v1/account/deletions/; Max-Age=0; HttpOnly; SameSite=Strict',
+    })
+    response.end()
+    return
+  }
+  if (
+    request.method === 'DELETE'
+    && /^\/api\/v1\/account\/deletions\/[^/]+$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    const deletionID = decodeURIComponent(url.pathname.split('/').at(-1))
+    const deletion = state.privacyDeletions.get(deletionID)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    if (!deletion || deletion.account_id !== account.id) {
+      error(response, 404, 'not_found')
+      return
+    }
+    deletion.status = 'cancelled'
+    response.writeHead(204)
+    response.end()
     return
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/auth/logout') {

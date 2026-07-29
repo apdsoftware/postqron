@@ -9,6 +9,7 @@ migrations:
   - ./migrations/000001_create_auth.sql
   - ./migrations/000002_password_auth.sql
   - ./migrations/000003_admin_profile_auth.sql
+  - ./migrations/000004_account_access.sql
 server:
   routes:
     - path: /auth/password/register

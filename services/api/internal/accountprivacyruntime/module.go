@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,9 +24,19 @@ const sessionCookieName = "__Host-postqron_session"
 type Module struct {
 	database *sql.DB
 	handler  http.Handler
+	artifact http.Handler
+	cancel   http.Handler
 }
 
 func NewModule(database *sql.DB, clock func() time.Time) (*Module, error) {
+	return NewModuleWithAccountAccess(database, clock, nil)
+}
+
+func NewModuleWithAccountAccess(
+	database *sql.DB,
+	clock func() time.Time,
+	access AccountAccessBoundary,
+) (*Module, error) {
 	if database == nil {
 		return nil, errors.New("account privacy runtime database is required")
 	}
@@ -39,18 +51,68 @@ func NewModule(database *sql.DB, clock func() time.Time) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
+	artifactRoot := strings.TrimSpace(os.Getenv("POSTQRON_PRIVACY_ARTIFACT_DIR"))
+	if artifactRoot == "" {
+		artifactRoot = filepath.Join(os.TempDir(), "postqron-privacy-artifacts")
+	}
+	artifactKey, err := artifactKeyFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	artifactStore, err := newPrivateArtifactStore(artifactRoot, artifactKey)
+	if err != nil {
+		return nil, err
+	}
+	publicBaseURL := strings.TrimSpace(os.Getenv("POSTQRON_PRIVACY_DOWNLOAD_BASE_URL"))
+	if publicBaseURL == "" {
+		publicBaseURL = "http://127.0.0.1:8080"
+	}
+	publicBaseURL, err = validateDownloadBaseURL(
+		publicBaseURL,
+		strings.EqualFold(strings.TrimSpace(os.Getenv("POSTQRON_ENV")), "production"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	production := strings.EqualFold(strings.TrimSpace(os.Getenv("POSTQRON_ENV")), "production")
+	allowedOrigins, err := privacyAllowedOrigins(
+		os.Getenv("POSTQRON_PRIVACY_ALLOWED_ORIGINS"),
+		publicBaseURL,
+		production,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if access == nil {
+		authStore, err := auth.NewPostgresStore(database)
+		if err != nil {
+			return nil, fmt.Errorf("create F3 account access store: %w", err)
+		}
+		authBoundary, err := auth.NewAccountAccessBoundary(authStore, clock)
+		if err != nil {
+			return nil, fmt.Errorf("create F3 account access boundary: %w", err)
+		}
+		access = authBoundary
+	}
 	service, err := accountprivacy.NewService(
 		accountprivacy.Dependencies{
 			Repository:       repository,
 			Plans:            planProjection{database: database},
 			Providers:        providerDisconnecter{database: database, now: clock},
 			ExportAuthorizer: exportAuthorizer{database: database},
-			ExportQueue:      unavailableExportQueue{},
-			DownloadSigner:   unavailableDownloadSigner{},
-			ExportArtifacts:  noopArtifactStore{},
-			Ownership:        unavailableOwnershipResolver{},
-			DeletionSafety:   unavailableDeletionSafety{},
-			Eraser:           unavailableEraser{},
+			ExportQueue:      sqlExportQueue{database: database, now: clock},
+			DownloadSigner: oneTimeDownloadSigner{
+				database: database, baseURL: publicBaseURL, now: clock,
+			},
+			ExportArtifacts: artifactStore,
+			Ownership:       ownershipResolver{database: database},
+			DeletionSafety: deletionSafety{
+				database:  database,
+				access:    access,
+				providers: runtimeProviderRevoker{database: database},
+				now:       clock,
+			},
+			Eraser: eraser{database: database, access: access},
 		},
 		accountprivacy.WithClock(clock),
 	)
@@ -65,7 +127,19 @@ func NewModule(database *sql.DB, clock func() time.Time) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Module{database: database, handler: handler}, nil
+	return &Module{
+		database: database,
+		handler:  handler,
+		artifact: artifactDownloadHandler{database: database, store: artifactStore, now: clock},
+		cancel: cancelCapabilityHandler{
+			store:          sqlCancelCapabilityStore{database: database},
+			service:        service,
+			authenticator:  requestAuthenticator{database: database, clock: clock},
+			allowedOrigins: allowedOrigins,
+			secureCookies:  production,
+			now:            clock,
+		},
+	}, nil
 }
 
 func (module *Module) Start(context.Context) error {
@@ -88,7 +162,18 @@ func (module *Module) Handler(name string) (http.Handler, bool) {
 	if module == nil || module.handler == nil || name != "AccountPrivacy" {
 		return nil, false
 	}
-	return module.handler, true
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, artifactRoutePrefix) {
+			module.artifact.ServeHTTP(response, request)
+			return
+		}
+		if request.URL.Path == cancelCapabilityIssuePath ||
+			strings.HasSuffix(request.URL.Path, "/cancel") {
+			module.cancel.ServeHTTP(response, request)
+			return
+		}
+		module.handler.ServeHTTP(response, request)
+	}), true
 }
 
 type requestAuthenticator struct {
@@ -491,74 +576,4 @@ func (authorizer exportAuthorizer) AuthorizeExport(
 		return accountprivacy.ErrForbidden
 	}
 	return nil
-}
-
-type unavailableExportQueue struct{}
-
-func (unavailableExportQueue) EnqueueExport(
-	context.Context,
-	accountprivacy.ExportJob,
-) error {
-	return errors.Join(accountprivacy.ErrDeactivationIncomplete, errors.New("privacy export worker is not configured"))
-}
-
-type unavailableDownloadSigner struct{}
-
-func (unavailableDownloadSigner) SignedDownloadURL(
-	context.Context,
-	string,
-	time.Time,
-) (string, error) {
-	return "", errors.New("privacy export downloads are unavailable")
-}
-
-type noopArtifactStore struct{}
-
-func (noopArtifactStore) DeleteExport(context.Context, string) error { return nil }
-
-type unavailableOwnershipResolver struct{}
-
-func (unavailableOwnershipResolver) Resolve(
-	context.Context,
-	string,
-	accountprivacy.DeletionScope,
-	string,
-	[]accountprivacy.OwnershipAction,
-) (accountprivacy.OwnershipPlan, error) {
-	return accountprivacy.OwnershipPlan{}, errors.Join(
-		accountprivacy.ErrDeactivationIncomplete,
-		errors.New("account deletion is disabled until auth freeze boundaries are available"),
-	)
-}
-
-type unavailableDeletionSafety struct{}
-
-func (unavailableDeletionSafety) Deactivate(
-	context.Context,
-	accountprivacy.DeletionRequest,
-) (accountprivacy.DeactivationReceipt, error) {
-	return accountprivacy.DeactivationReceipt{}, errors.Join(
-		accountprivacy.ErrDeactivationIncomplete,
-		errors.New("account deletion is disabled until auth freeze boundaries are available"),
-	)
-}
-
-func (unavailableDeletionSafety) RestoreAccess(
-	context.Context,
-	accountprivacy.DeletionRequest,
-) error {
-	return nil
-}
-
-type unavailableEraser struct{}
-
-func (unavailableEraser) Erase(
-	context.Context,
-	accountprivacy.DeletionRequest,
-	time.Time,
-) (accountprivacy.ErasureReceipt, error) {
-	return accountprivacy.ErasureReceipt{}, errors.Join(
-		accountprivacy.ErrFinalizationIncomplete,
-		errors.New("account erasure is disabled until auth freeze boundaries are available"),
-	)
 }

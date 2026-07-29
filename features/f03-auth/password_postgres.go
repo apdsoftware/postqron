@@ -34,7 +34,8 @@ func (store *PostgresPasswordStore) CredentialByEmail(
 		FROM auth_password_credentials credential
 		JOIN auth_accounts account ON account.id = credential.account_id
 		WHERE account.normalized_email = $1
-		  AND account.email_verified_at IS NOT NULL`,
+		  AND account.email_verified_at IS NOT NULL
+		  AND account.access_state = 'active'`,
 		email,
 	).Scan(
 		&credential.AccountID,
@@ -104,6 +105,20 @@ func (store *PostgresPasswordStore) CompletePasswordLogin(
 		return err
 	}
 	defer transaction.Rollback()
+	var accessState AccountAccessState
+	err = transaction.QueryRowContext(ctx, `
+		SELECT access_state
+		FROM auth_accounts
+		WHERE id = $1
+		FOR UPDATE`,
+		session.AccountID,
+	).Scan(&accessState)
+	if errors.Is(err, sql.ErrNoRows) || accessState != AccountAccessActive {
+		return ErrAccountAccessUnavailable
+	}
+	if err != nil {
+		return err
+	}
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE auth_password_credentials
 		SET failed_attempts = 0,
@@ -161,9 +176,12 @@ func (store *PostgresPasswordStore) PasswordSession(
 		FROM auth_sessions session
 		JOIN auth_password_credentials credential
 		  ON credential.account_id = session.account_id
+		JOIN auth_accounts account
+		  ON account.id = session.account_id
 		WHERE session.token_hash = $1
 		  AND session.revoked_at IS NULL
-		  AND session.expires_at > $2`,
+		  AND session.expires_at > $2
+		  AND account.access_state = 'active'`,
 		tokenHash,
 		now,
 	).Scan(
@@ -245,6 +263,20 @@ func (store *PostgresPasswordStore) CompletePasswordChange(
 	}
 	defer transaction.Rollback()
 
+	var accessState AccountAccessState
+	err = transaction.QueryRowContext(ctx, `
+		SELECT access_state
+		FROM auth_accounts
+		WHERE id = $1
+		FOR UPDATE`,
+		change.AccountID,
+	).Scan(&accessState)
+	if errors.Is(err, sql.ErrNoRows) || accessState != AccountAccessActive {
+		return ErrPasswordChangeConflict
+	}
+	if err != nil {
+		return err
+	}
 	var persistedHash string
 	err = transaction.QueryRowContext(ctx, `
 		SELECT password_hash
