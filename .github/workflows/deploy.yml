@@ -201,11 +201,16 @@ jobs:
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
           AUTH_ENCRYPTION_KEY_B64: ${{ secrets.AUTH_ENCRYPTION_KEY_B64 }}
+          MAILRONIX_TRANSACTIONAL_API_KEY: ${{ secrets.MAILRONIX_TRANSACTIONAL_API_KEY }}
           PRIVACY_ARTIFACT_KEY_B64: ${{ secrets.PRIVACY_ARTIFACT_KEY_B64 }}
           PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
           PADDLE_CATALOG_JSON: ${{ secrets.PADDLE_CATALOG_JSON }}
           PADDLE_ENVIRONMENT: ${{ inputs.environment == 'production' && 'production' || 'sandbox' }}
           PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
+          POSTQRON_MAILRONIX_API_KEY_SECRET_NAME: ${{ vars.POSTQRON_MAILRONIX_API_KEY_SECRET_NAME }}
+          POSTQRON_MAILRONIX_DOMAIN_VERIFIED: ${{ vars.POSTQRON_MAILRONIX_DOMAIN_VERIFIED }}
+          POSTQRON_MAILRONIX_ENDPOINT: ${{ vars.POSTQRON_MAILRONIX_ENDPOINT }}
+          POSTQRON_MAILRONIX_SENDER_EMAIL: ${{ vars.POSTQRON_MAILRONIX_SENDER_EMAIL }}
           PRELAUNCH_MODE: ${{ vars.PRELAUNCH_MODE }}
           RUNTIME_ENV: ${{ secrets.RUNTIME_ENV }}
         run: |
@@ -257,6 +262,44 @@ jobs:
             echo "PRELAUNCH_MODE must use its dedicated GitHub Environment variable" >&2
             exit 1
           fi
+          if grep --extended-regexp --quiet \
+            '^[[:space:]]*(POSTQRON_MAILRONIX_|MAILRONIX_TRANSACTIONAL_API_KEY)[A-Z0-9_]*[[:space:]]*=' \
+            "$RUNNER_TEMP/runtime.env"; then
+            echo "Mailronix values must use dedicated GitHub Environment variables and secrets" >&2
+            exit 1
+          fi
+          if [[ "$POSTQRON_MAILRONIX_ENDPOINT" != https://* ]]; then
+            echo "POSTQRON_MAILRONIX_ENDPOINT must use HTTPS" >&2
+            exit 1
+          fi
+          if [[ "$POSTQRON_MAILRONIX_ENDPOINT" != */email/send ]] ||
+            [[ "$POSTQRON_MAILRONIX_ENDPOINT" == *\?* ]] ||
+            [[ "$POSTQRON_MAILRONIX_ENDPOINT" == *#* ]] ||
+            [[ "$POSTQRON_MAILRONIX_ENDPOINT" == *"@"* ]]; then
+            echo "POSTQRON_MAILRONIX_ENDPOINT must target the HTTPS /email/send endpoint" >&2
+            exit 1
+          fi
+          if [[ "$POSTQRON_MAILRONIX_API_KEY_SECRET_NAME" != "MAILRONIX_TRANSACTIONAL_API_KEY" ]]; then
+            echo "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME must be MAILRONIX_TRANSACTIONAL_API_KEY" >&2
+            exit 1
+          fi
+          if [[ -z "$MAILRONIX_TRANSACTIONAL_API_KEY" ]]; then
+            echo "MAILRONIX_TRANSACTIONAL_API_KEY GitHub Environment secret must be configured for transactional email" >&2
+            exit 1
+          fi
+          if [[ ! "$POSTQRON_MAILRONIX_SENDER_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+            echo "POSTQRON_MAILRONIX_SENDER_EMAIL must be a valid email address" >&2
+            exit 1
+          fi
+          if [[ "$POSTQRON_MAILRONIX_DOMAIN_VERIFIED" != "true" &&
+            "$POSTQRON_MAILRONIX_DOMAIN_VERIFIED" != "false" ]]; then
+            echo "POSTQRON_MAILRONIX_DOMAIN_VERIFIED must be exactly true or false" >&2
+            exit 1
+          fi
+          if [[ "$POSTQRON_MAILRONIX_DOMAIN_VERIFIED" != "true" ]]; then
+            echo "POSTQRON_MAILRONIX_DOMAIN_VERIFIED must be true before a production release" >&2
+            exit 1
+          fi
           printf 'PRELAUNCH_MODE=%s\n' "$PRELAUNCH_MODE" \
             >> "$RUNNER_TEMP/runtime.env"
 
@@ -297,6 +340,11 @@ jobs:
           {
             printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
             printf 'APP_DOMAIN=%s\n' "$APP_DOMAIN"
+            printf 'POSTQRON_MAILRONIX_ENDPOINT=%s\n' "$POSTQRON_MAILRONIX_ENDPOINT"
+            printf 'POSTQRON_MAILRONIX_API_KEY_SECRET_NAME=%s\n' "$POSTQRON_MAILRONIX_API_KEY_SECRET_NAME"
+            printf 'POSTQRON_MAILRONIX_SENDER_EMAIL=%s\n' "$POSTQRON_MAILRONIX_SENDER_EMAIL"
+            printf 'POSTQRON_MAILRONIX_DOMAIN_VERIFIED=%s\n' "$POSTQRON_MAILRONIX_DOMAIN_VERIFIED"
+            printf 'MAILRONIX_TRANSACTIONAL_API_KEY=%s\n' "$MAILRONIX_TRANSACTIONAL_API_KEY"
             printf 'POSTQRON_ADMIN_BOOTSTRAP_EMAIL=%s\n' 'carlo.zuffetti@apdsoftware.it'
             printf 'POSTQRON_ADMIN_PASSWORD_HASH_B64=%s\n' "$ADMIN_PASSWORD_HASH_B64"
             printf 'POSTQRON_AUTH_ENCRYPTION_KEY_B64=%s\n' "$AUTH_ENCRYPTION_KEY_B64"

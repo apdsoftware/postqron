@@ -24,8 +24,10 @@ state, the administrative CIDR allowlist, and the deployment SSH key.
 The release phase configures the verified SSH host key and generates dedicated
 auth and privacy encryption keys when they are missing. It configures
 PRELAUNCH_MODE with a fail-closed default of true and accepts only exact true or
-false values. It never reads or replaces RUNTIME_ENV. GHCR uses the workflow's
-temporary token.
+false values. It also configures the non-secret Mailronix runtime boundary and,
+when provided, the `MAILRONIX_TRANSACTIONAL_API_KEY` GitHub Environment secret.
+It never reads or replaces RUNTIME_ENV. GHCR uses the workflow's temporary
+token.
 EOF
 }
 
@@ -171,6 +173,13 @@ set_prompted_secret() {
   value=""
   existing_secrets="${existing_secrets}${existing_secrets:+$'\n'}${name}"
   echo "configured secret $name"
+}
+
+set_fixed_variable() {
+  local name=$1
+  local expected=$2
+  needs_variable "$name" || return 0
+  set_variable "$name" "$expected"
 }
 
 is_fqdn() {
@@ -387,6 +396,48 @@ configure_prelaunch_mode() {
   set_variable "PRELAUNCH_MODE" "$value"
 }
 
+configure_mailronix_endpoint() {
+  local value
+  needs_variable "POSTQRON_MAILRONIX_ENDPOINT" || return 0
+  value=$(prompt_value \
+    "Mailronix transactional endpoint" \
+    "https://api.mailronix.com/email/send")
+  [[ "$value" == https://* ]] ||
+    fail "POSTQRON_MAILRONIX_ENDPOINT must use HTTPS"
+  [[ "$value" == */email/send && "$value" != *\?* &&
+    "$value" != *#* && "$value" != *"@"* ]] ||
+    fail "POSTQRON_MAILRONIX_ENDPOINT must target the HTTPS /email/send endpoint"
+  set_variable "POSTQRON_MAILRONIX_ENDPOINT" "$value"
+}
+
+configure_mailronix_api_key_secret_name() {
+  set_fixed_variable \
+    "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME" \
+    "MAILRONIX_TRANSACTIONAL_API_KEY"
+}
+
+configure_mailronix_sender_email() {
+  local value
+  needs_variable "POSTQRON_MAILRONIX_SENDER_EMAIL" || return 0
+  value=$(prompt_value \
+    "Mailronix transactional sender email" \
+    "help@postqron.com")
+  [[ "$value" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+    fail "POSTQRON_MAILRONIX_SENDER_EMAIL must be a valid email address"
+  set_variable "POSTQRON_MAILRONIX_SENDER_EMAIL" "$value"
+}
+
+configure_mailronix_domain_verified() {
+  local value
+  needs_variable "POSTQRON_MAILRONIX_DOMAIN_VERIFIED" || return 0
+  value=$(prompt_value \
+    "Mailronix verified sending domain (true or false)" \
+    "true")
+  [[ "$value" == "true" || "$value" == "false" ]] ||
+    fail "POSTQRON_MAILRONIX_DOMAIN_VERIFIED must be exactly true or false"
+  set_variable "POSTQRON_MAILRONIX_DOMAIN_VERIFIED" "$value"
+}
+
 if [[ "$phase" == "provision" ]]; then
   configure_domain "APP_DOMAIN" "Application domain"
   configure_domain "API_DOMAIN" "API domain"
@@ -406,6 +457,14 @@ else
   configure_known_hosts
   configure_generated_encryption_key "AUTH_ENCRYPTION_KEY_B64"
   configure_generated_encryption_key "PRIVACY_ARTIFACT_KEY_B64"
+  configure_mailronix_endpoint
+  configure_mailronix_api_key_secret_name
+  configure_mailronix_sender_email
+  configure_mailronix_domain_verified
+  needs_secret "MAILRONIX_TRANSACTIONAL_API_KEY" &&
+    set_prompted_secret \
+      "MAILRONIX_TRANSACTIONAL_API_KEY" \
+      "Mailronix transactional API key"
   configure_prelaunch_mode
 fi
 
