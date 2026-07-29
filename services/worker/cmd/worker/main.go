@@ -41,12 +41,20 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	runOnce := os.Getenv("WORKER_RUN_ONCE") == "1"
 	logger.Info(
 		"worker started",
 		"discovered_features", len(discovered),
 		"features", len(features),
 		"version", version,
 	)
+	if shouldSkipRunOnceDatabase(runOnce, os.Getenv("DATABASE_URL")) {
+		logger.Info(
+			"worker run-once skipped database-dependent execution",
+			"reason", "DATABASE_URL is not configured",
+		)
+		return
+	}
 
 	database, err := openDatabase(os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -67,7 +75,7 @@ func main() {
 		logger.Error("configure worker", "error", err)
 		os.Exit(1)
 	}
-	if os.Getenv("WORKER_RUN_ONCE") == "1" {
+	if runOnce {
 		worker.Tick(ctx)
 		return
 	}
@@ -80,6 +88,10 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func shouldSkipRunOnceDatabase(runOnce bool, databaseURL string) bool {
+	return runOnce && strings.TrimSpace(databaseURL) == ""
 }
 
 func defaultFeatureRoots() string {
