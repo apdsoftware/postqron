@@ -20,7 +20,9 @@ type registrationStub struct {
 	registerCalls int
 	resendCalls   int
 	result        auth.PasswordRegistrationResult
+	registerErr   error
 	delivery      *auth.VerificationDelivery
+	resendErr     error
 }
 
 func (stub *registrationStub) Register(
@@ -32,7 +34,7 @@ func (stub *registrationStub) Register(
 	[]auth.ConsentReceipt,
 ) (auth.PasswordRegistrationResult, error) {
 	stub.registerCalls++
-	return stub.result, nil
+	return stub.result, stub.registerErr
 }
 
 func (stub *registrationStub) ResendVerification(
@@ -40,7 +42,7 @@ func (stub *registrationStub) ResendVerification(
 	string,
 ) (*auth.VerificationDelivery, error) {
 	stub.resendCalls++
-	return stub.delivery, nil
+	return stub.delivery, stub.resendErr
 }
 
 type mailerStub struct {
@@ -234,6 +236,60 @@ func TestResendReturnsEmailDeliveryUnavailableBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestRegisterReturnsPasswordConfirmationMismatch(t *testing.T) {
+	registration := &registrationStub{registerErr: auth.ErrPasswordConfirmation}
+	handler, err := newHandler(http.NotFoundHandler(), registration, &mailerStub{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/auth/password/register",
+		strings.NewReader(`{"email":"user@example.test","password":"correct horse battery staple","confirmation":"wrong confirmation","contract_country":"IT","consents":[]}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	assertPasswordError(
+		t,
+		response,
+		http.StatusBadRequest,
+		"AUTH_PASSWORD_CONFIRMATION_MISMATCH",
+		"The password confirmation does not match.",
+		false,
+	)
+}
+
+func TestRegisterReturnsPasswordWeak(t *testing.T) {
+	registration := &registrationStub{registerErr: auth.ErrPasswordPolicy}
+	handler, err := newHandler(http.NotFoundHandler(), registration, &mailerStub{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/auth/password/register",
+		strings.NewReader(`{"email":"user@example.test","password":"short","confirmation":"short","contract_country":"IT","consents":[]}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	assertPasswordError(
+		t,
+		response,
+		http.StatusBadRequest,
+		"AUTH_PASSWORD_WEAK",
+		"Use a different password containing at least 12 characters.",
+		false,
+	)
+}
+
 func TestNewModuleDegradesWhenEmailRuntimeUnavailable(t *testing.T) {
 	database := sql.OpenDB(stubConnector{})
 	t.Cleanup(func() { _ = database.Close() })
@@ -281,7 +337,26 @@ func TestInvalidOAuthRedirectURLIsIgnoredWithoutBlockingPasswordAuth(t *testing.
 
 func assertEmailDeliveryUnavailable(t *testing.T, response *httptest.ResponseRecorder) {
 	t.Helper()
-	if response.Code != http.StatusServiceUnavailable {
+	assertPasswordError(
+		t,
+		response,
+		http.StatusServiceUnavailable,
+		"AUTH_EMAIL_DELIVERY_UNAVAILABLE",
+		"Email delivery is temporarily unavailable.",
+		true,
+	)
+}
+
+func assertPasswordError(
+	t *testing.T,
+	response *httptest.ResponseRecorder,
+	wantStatus int,
+	wantCode string,
+	wantMessage string,
+	wantRetryable bool,
+) {
+	t.Helper()
+	if response.Code != wantStatus {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
 	var body struct {
@@ -294,14 +369,14 @@ func assertEmailDeliveryUnavailable(t *testing.T, response *httptest.ResponseRec
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal body: %v", err)
 	}
-	if body.Error.Code != "AUTH_EMAIL_DELIVERY_UNAVAILABLE" {
-		t.Fatalf("error code = %q", body.Error.Code)
+	if body.Error.Code != wantCode {
+		t.Fatalf("error code = %q, want %q", body.Error.Code, wantCode)
 	}
-	if body.Error.Message != "Email delivery is temporarily unavailable." {
-		t.Fatalf("error message = %q", body.Error.Message)
+	if body.Error.Message != wantMessage {
+		t.Fatalf("error message = %q, want %q", body.Error.Message, wantMessage)
 	}
-	if !body.Error.Retryable {
-		t.Fatal("retryable = false, want true")
+	if body.Error.Retryable != wantRetryable {
+		t.Fatalf("retryable = %t, want %t", body.Error.Retryable, wantRetryable)
 	}
 }
 

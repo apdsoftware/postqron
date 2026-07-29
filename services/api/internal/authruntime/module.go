@@ -405,10 +405,22 @@ func writeRegistrationError(writer http.ResponseWriter, err error) {
 }
 
 func writePasswordOperationError(writer http.ResponseWriter, err error) {
-	code, message, retryable := auth.ErrorDetails(err)
 	status := http.StatusBadRequest
-	if code == auth.CodeInternal {
-		status = http.StatusServiceUnavailable
+	code := ""
+	message := ""
+	retryable := false
+	switch {
+	case errors.Is(err, auth.ErrPasswordConfirmation):
+		code = "AUTH_PASSWORD_CONFIRMATION_MISMATCH"
+		message = "The password confirmation does not match."
+	case errors.Is(err, auth.ErrPasswordPolicy):
+		code = "AUTH_PASSWORD_WEAK"
+		message = "Use a different password containing at least 12 characters."
+	default:
+		code, message, retryable = auth.ErrorDetails(err)
+		if code == auth.CodeInternal {
+			status = http.StatusServiceUnavailable
+		}
 	}
 	writeJSON(writer, status, map[string]any{
 		"error": map[string]any{
