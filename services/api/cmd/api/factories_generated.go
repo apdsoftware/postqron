@@ -9,6 +9,8 @@ import (
 	entitlements "github.com/apdsoftware/postqron/features/f10-entitlements"
 	cookieconsent "github.com/apdsoftware/postqron/features/f26-cookie-consent-api"
 	appshell "github.com/apdsoftware/postqron/features/f30-app-shell"
+	adminconsole "github.com/apdsoftware/postqron/features/f31-admin-console"
+	prelaunch "github.com/apdsoftware/postqron/features/f34-prelaunch/api"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	accountprivacyruntime "github.com/apdsoftware/postqron/services/api/internal/accountprivacyruntime"
 	authruntime "github.com/apdsoftware/postqron/services/api/internal/authruntime"
@@ -36,8 +38,14 @@ func registerFeatureFactories(registry *featurehost.Registry) error {
 		"app-shell": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return appshell.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
 		},
+		"admin-console": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return adminconsole.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
 		"cookie-consent-api": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return cookieconsent.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+		"prelaunch-access": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return prelaunch.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
 		},
 	}
 	for featureID, factory := range factories {
