@@ -87,10 +87,14 @@ test('frozen account cancels through a pre-authorized one-time capability', asyn
 
   const issued = await request.post(
     `${offBaseURL}/api/v1/account/deletion-cancel-capabilities`,
+    { headers: { origin: offBaseURL } },
   )
   expect(issued.status()).toBe(201)
   expect(issued.headers()['cache-control']).toBe('no-store')
   const capability = await issued.json()
+  expect(capability).toEqual({
+    expires_at: '2026-08-23T12:00:00.000Z',
+  })
 
   const created = await request.post(`${offBaseURL}/api/v1/account/deletions`, {
     data: {
@@ -110,15 +114,22 @@ test('frozen account cancels through a pre-authorized one-time capability', asyn
   )
   expect(unreachableSessionCancel.status()).toBe(401)
 
-  const cancelled = await request.post(
+  const rejectedOrigin = await request.post(
     `${offBaseURL}/api/v1/account/deletions/${deletion.id}/cancel`,
-    { data: { token: capability.token } },
+    { headers: { origin: 'https://compromised.example.test' } },
   )
-  expect(cancelled.status()).toBe(204)
-  const replay = await request.post(
-    `${offBaseURL}/api/v1/account/deletions/${deletion.id}/cancel`,
-    { data: { token: capability.token } },
-  )
-  expect(replay.status()).toBe(404)
+  expect(rejectedOrigin.status()).toBe(403)
+
+  const attempts = await Promise.all([
+    request.post(
+      `${offBaseURL}/api/v1/account/deletions/${deletion.id}/cancel`,
+      { headers: { origin: offBaseURL } },
+    ),
+    request.post(
+      `${offBaseURL}/api/v1/account/deletions/${deletion.id}/cancel`,
+      { headers: { origin: offBaseURL } },
+    ),
+  ])
+  expect(attempts.map(attempt => attempt.status()).sort()).toEqual([204, 404])
   await context.close()
 })

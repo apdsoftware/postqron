@@ -74,6 +74,15 @@ func NewModuleWithAccountAccess(
 	if err != nil {
 		return nil, err
 	}
+	production := strings.EqualFold(strings.TrimSpace(os.Getenv("POSTQRON_ENV")), "production")
+	allowedOrigins, err := privacyAllowedOrigins(
+		os.Getenv("POSTQRON_PRIVACY_ALLOWED_ORIGINS"),
+		publicBaseURL,
+		production,
+	)
+	if err != nil {
+		return nil, err
+	}
 	if access == nil {
 		authStore, err := auth.NewPostgresStore(database)
 		if err != nil {
@@ -123,10 +132,12 @@ func NewModuleWithAccountAccess(
 		handler:  handler,
 		artifact: artifactDownloadHandler{database: database, store: artifactStore, now: clock},
 		cancel: cancelCapabilityHandler{
-			database:      database,
-			service:       service,
-			authenticator: requestAuthenticator{database: database, clock: clock},
-			now:           clock,
+			store:          sqlCancelCapabilityStore{database: database},
+			service:        service,
+			authenticator:  requestAuthenticator{database: database, clock: clock},
+			allowedOrigins: allowedOrigins,
+			secureCookies:  production,
+			now:            clock,
 		},
 	}, nil
 }

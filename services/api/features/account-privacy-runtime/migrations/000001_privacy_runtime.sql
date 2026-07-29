@@ -42,8 +42,14 @@ CREATE TABLE account_privacy_cancel_capabilities (
     token_hash char(64) PRIMARY KEY CHECK (token_hash ~ '^[0-9a-f]{64}$'),
     account_id text NOT NULL,
     expires_at timestamptz NOT NULL,
+    claimed_at timestamptz,
+    claim_token text,
     consumed_at timestamptz,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    CHECK (
+        (claimed_at IS NULL AND claim_token IS NULL)
+        OR (claimed_at IS NOT NULL AND claim_token IS NOT NULL)
+    )
 );
 
 CREATE INDEX account_privacy_cancel_capabilities_expiry_idx

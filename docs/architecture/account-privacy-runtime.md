@@ -61,11 +61,19 @@ API with its externally reachable HTTPS base URL:
 - `POSTQRON_PRIVACY_ARTIFACT_DIR=/var/lib/postqron/privacy-exports`
 - `POSTQRON_PRIVACY_DOWNLOAD_BASE_URL=https://api.example.com`
 - `POSTQRON_PRIVACY_ARTIFACT_KEY_B64=<base64 of exactly 32 random bytes>`
+- `POSTQRON_PRIVACY_ALLOWED_ORIGINS=https://app.example.com`
 
 `POSTQRON_ENV=production` makes the artifact key mandatory and permits only an
 absolute HTTPS download origin. Outside production, HTTP is accepted only for
 `localhost` or an IP loopback address. Rotate the artifact key only after all
 exports encrypted with the prior key have expired or been purged.
+`POSTQRON_PRIVACY_ALLOWED_ORIGINS` is a comma-separated exact APP-origin
+allowlist for both the authenticated capability issuer and the public cancel
+submission. It is mandatory in production and entries must use HTTPS; no API
+origin is inferred. In development and tests only, an omitted value falls back
+to the loopback download base origin. Missing request origins, malformed
+origins, and unlisted origins fail before authentication, cookie processing, or
+database side effects.
 
 ## Cancellation after account freeze
 
@@ -74,12 +82,21 @@ authenticated `DELETE /account/deletions/{id}` cannot cancel an account
 deletion. Before requesting deletion, the client now obtains a random
 pre-authorized capability from
 `POST /account/deletion-cancel-capabilities`. Only its SHA-256 digest is stored.
-During grace, the frozen user submits it once to the public
+The raw value is delivered only as an `HttpOnly`, `SameSite=Strict` cookie whose
+path is restricted to `/api/v1/account/deletions/`; it is `Secure` in
+production. The JSON response contains only `expires_at`, so Vue state,
+localStorage, logs, and the public-page URL never receive the secret. The public
+page carries only the deletion id.
+
+During grace, the frozen user's browser submits the cookie once to the public
 `POST /account/deletions/{id}/cancel` endpoint. The runtime binds it to the
-deletion account and grace state, invokes the normal F12 `CancelDeletion`
-service transition, consumes it, and restores F3 access without recreating
-sessions, jobs, or provider tokens. The launch-readiness E2E proves the old
-session receives 401, the capability succeeds, and replay receives 404.
+deletion account and grace state using one atomic SQL claim, so concurrent or
+replayed requests cannot enter F12 twice. A retryable F12 failure releases the
+claim; success consumes it and clears the cookie. The normal F12
+`CancelDeletion` transition restores F3 access without
+recreating sessions, jobs, or provider tokens. The launch-readiness E2E proves
+the old session receives 401 and exactly one of two concurrent submissions
+succeeds.
 
 Alert on `privacy_runtime_failed`, repeated `finalization_failed` requests, jobs
 at the maximum attempt count, artifacts past retention, or a growing claim

@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 
 const host = '127.0.0.1'
 const port = Number(process.env.LAUNCH_FIXTURE_PORT || 41797)
+const privacyAllowedOrigin = process.env.LAUNCH_BASE_URL || 'http://127.0.0.1:41795'
 const supervisorPid = Number(process.env.LAUNCH_SUPERVISOR_PID)
 const signingKey = 'postqron-launch-fixture-signing-key-v1'
 const digest = 'a'.repeat(64)
@@ -858,6 +859,10 @@ const server = createServer(async (request, response) => {
     request.method === 'POST'
     && url.pathname === '/api/v1/account/deletion-cancel-capabilities'
   ) {
+    if (request.headers.origin !== privacyAllowedOrigin) {
+      error(response, 403, 'origin_not_allowed')
+      return
+    }
     const account = currentAccount(request)
     if (!account) {
       error(response, 401, 'unauthenticated')
@@ -866,35 +871,48 @@ const server = createServer(async (request, response) => {
     const token = `cancel-${state.privacyCancelCapabilities.size + 1}`
     state.privacyCancelCapabilities.set(token, {
       account_id: account.id,
+      claimed: false,
       consumed: false,
     })
     json(response, 201, {
-      token,
       expires_at: '2026-08-23T12:00:00.000Z',
-    }, { 'cache-control': 'no-store' })
+    }, {
+      'cache-control': 'no-store',
+      'set-cookie': `postqron_deletion_cancel=${token}; Path=/api/v1/account/deletions/; HttpOnly; SameSite=Strict`,
+    })
     return
   }
   if (
     request.method === 'POST'
     && /^\/api\/v1\/account\/deletions\/[^/]+\/cancel$/u.test(url.pathname)
   ) {
+    if (request.headers.origin !== privacyAllowedOrigin) {
+      error(response, 403, 'origin_not_allowed')
+      return
+    }
     const deletionID = decodeURIComponent(url.pathname.split('/').at(-2))
     const deletion = state.privacyDeletions.get(deletionID)
-    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
-    const capability = state.privacyCancelCapabilities.get(input.token)
+    const token = /(?:^|;\s*)postqron_deletion_cancel=([^;]+)(?:;|$)/u
+      .exec(request.headers.cookie || '')?.[1]
+    const capability = state.privacyCancelCapabilities.get(token)
     if (
       !deletion
       || deletion.status !== 'grace_period'
       || !capability
+      || capability.claimed
       || capability.consumed
       || capability.account_id !== deletion.account_id
     ) {
       error(response, 404, 'not_found')
       return
     }
+    capability.claimed = true
     capability.consumed = true
     deletion.status = 'cancelled'
-    response.writeHead(204, { 'cache-control': 'no-store' })
+    response.writeHead(204, {
+      'cache-control': 'no-store',
+      'set-cookie': 'postqron_deletion_cancel=; Path=/api/v1/account/deletions/; Max-Age=0; HttpOnly; SameSite=Strict',
+    })
     response.end()
     return
   }
