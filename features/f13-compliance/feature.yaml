@@ -7,3 +7,4 @@ dependencies: []
 migrations:
   - ./migrations/000001_create_compliance_ledger.sql
   - ./migrations/000002_seed_cookies_it_release.sql
+  - ./migrations/000003_seed_current_terms_privacy_it.sql
