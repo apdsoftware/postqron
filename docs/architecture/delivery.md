@@ -28,10 +28,10 @@ Required GitHub environment secrets:
   encrypted, versioned remote Terraform state bucket.
 - `DEPLOYMENT_SSH_PRIVATE_KEY` and a pinned `SSH_KNOWN_HOSTS` entry.
 - `GHCR_READ_TOKEN` scoped only to package reads.
-- `RUNTIME_ENV`, containing `POSTGRES_PASSWORD`, `DATABASE_URL`, and any future
-  runtime secrets.
-- `ADMIN_PASSWORD_HASH_B64` and `AUTH_ENCRYPTION_KEY_B64` for the mounted F3
-  password runtime and shared auth encryption state.
+- `RUNTIME_ENV`, containing `POSTGRES_PASSWORD` and `DATABASE_URL`.
+- `ADMIN_PASSWORD_HASH_B64` for the mounted F3 password runtime.
+- `AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64`, each encoded as
+  base64 of exactly 32 random bytes, for auth state and privacy artifacts.
 
 `RUNTIME_ENV` must not include image tags or public domains; the workflow appends
 those from the reviewed commit and environment variables. The remote file is
@@ -42,8 +42,9 @@ OAuth provider secrets remain optional and independent. Invalid or missing
 Google, Apple, Facebook, or LinkedIn values must never block password flows.
 Redirect URLs are accepted only as HTTPS callback URLs. Apple client-secret
 rotation must overlap old and new values long enough to drain in-flight
-callbacks, and `POSTQRON_AUTH_ENCRYPTION_KEY_B64` rotation must be coordinated
-after expiring outstanding OAuth state.
+callbacks. Rotation of `POSTQRON_AUTH_ENCRYPTION_KEY_B64` must be coordinated
+after expiring outstanding OAuth state; privacy artifact key rotation requires
+a separate migration plan for existing artifacts.
 
 ## Configure GitHub
 
@@ -69,12 +70,14 @@ the server host key has been verified, configure release-only values:
   --phase release
 ```
 
-This second phase reads a verified `known_hosts` file, requests a GitHub classic
-token limited to `read:packages`, and generates a URL-safe PostgreSQL password
-directly into `RUNTIME_ENV`. Values already configured are not rotated. Replace
-one intentionally with `--replace NAME`; replacing `RUNTIME_ENV` rotates the
-database password and must not be done against an existing database without a
-coordinated password change.
+This second phase reads a verified `known_hosts` file and generates
+`AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64` only when each secret is
+absent. It never reads or replaces `RUNTIME_ENV`, so it cannot rotate the
+database password. Encryption keys are also never replaced by this helper;
+rotation requires a separate, coordinated procedure. During release, the
+workflow validates both dedicated secrets without printing them and appends
+them to the remote runtime as `POSTQRON_AUTH_ENCRYPTION_KEY_B64` and
+`POSTQRON_PRIVACY_ARTIFACT_KEY_B64`.
 
 ## First deployment
 
