@@ -24,6 +24,24 @@ func TestAPIDockerfilePreservesCustomRuntimeFactories(t *testing.T) {
 	) {
 		t.Fatal("API Dockerfile must copy worker go.mod so go.work resolution does not break image smoke builds")
 	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f15-operations/go.mod features/f15-operations/",
+	) {
+		t.Fatal("API Dockerfile must copy f15 go.mod for the admin console dependency chain")
+	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f31-admin-console/go.mod features/f31-admin-console/",
+	) {
+		t.Fatal("API Dockerfile must copy f31 go.mod so the runtime API can resolve admin-console")
+	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f34-prelaunch/api/go.mod features/f34-prelaunch/api/",
+	) {
+		t.Fatal("API Dockerfile must copy f34 go.mod so the runtime API can resolve prelaunch-access")
+	}
 	if !strings.Contains(dockerfile, "COPY services/api/features ./foundation") {
 		t.Fatal("API Dockerfile must copy services adapters into the runtime foundation root")
 	}

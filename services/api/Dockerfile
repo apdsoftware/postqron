@@ -8,8 +8,11 @@ COPY features/f03-auth/go.mod features/f03-auth/go.sum features/f03-auth/
 COPY features/f04-workspaces/go.mod features/f04-workspaces/go.sum features/f04-workspaces/
 COPY features/f12-account-privacy/go.mod features/f12-account-privacy/go.sum features/f12-account-privacy/
 COPY features/f14-email/go.mod features/f14-email/
+COPY features/f15-operations/go.mod features/f15-operations/
 COPY features/f26-cookie-consent-api/go.mod features/f26-cookie-consent-api/go.sum features/f26-cookie-consent-api/
 COPY features/f30-app-shell/go.mod features/f30-app-shell/
+COPY features/f31-admin-console/go.mod features/f31-admin-console/
+COPY features/f34-prelaunch/api/go.mod features/f34-prelaunch/api/
 COPY services/api/go.mod services/api/go.sum services/api/
 COPY services/worker/go.mod services/worker/go.sum services/worker/
 COPY features/f10-entitlements/go.mod features/f10-entitlements/go.sum features/f10-entitlements/
