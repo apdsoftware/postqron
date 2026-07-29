@@ -39,7 +39,7 @@ Required GitHub environment secrets:
 - `GHCR_READ_TOKEN` scoped only to package reads.
 - `RUNTIME_ENV`, containing `POSTGRES_PASSWORD` and `DATABASE_URL`.
 - `MAILRONIX_TRANSACTIONAL_API_KEY`, containing the live Mailronix
-  transactional API key referenced by
+  transactional API key, in the `mrx_live_<secret>` format, referenced by
   `POSTQRON_MAILRONIX_API_KEY_SECRET_NAME`.
 - `ADMIN_PASSWORD_HASH_B64` for the mounted F3 password runtime.
 - `AUTH_ENCRYPTION_KEY_B64` and `PRIVACY_ARTIFACT_KEY_B64`, each encoded as
@@ -96,6 +96,16 @@ database password. Encryption keys are also never replaced by this helper;
 rotation requires a separate, coordinated procedure. During release, the
 workflow validates the dedicated values without printing secrets and appends
 them to the remote runtime.
+
+Before any release upload, the workflow validates that the credential is a
+non-empty live key and performs exactly one authenticated, non-delivery
+`POST /email/send` probe with the deliberately incomplete JSON payload `{}`.
+The response body is discarded. HTTP 400 is the only success condition because
+it proves that authentication reached required-field validation; authentication
+failures, rate limits, provider errors, transport errors, and every unexpected
+status stop the release. The workflow never logs the credential or response
+body, and the incomplete payload contains no recipient or message fields, so
+the probe cannot enqueue an email.
 
 Go live by explicitly changing the production variable to `false`:
 
@@ -164,7 +174,19 @@ dispatches queued F14 verification email deliveries. Both the API and worker
 derive email links from the canonical `APP_DOMAIN`; Compose rejects a release
 when it is absent. After each restart, delivery also requires the worker
 container to remain continuously running with no restart during the
-initialization observation window.
+initialization observation window. Once that check passes, the workflow queries
+only account-verification deliveries created during the last 24 hours and emits
+pipe-delimited aggregate rows containing `state`, `last_diagnostic_code` (or
+`(none)`), and count. It groups by state and diagnostic code, which exposes
+pending, retry, failed, accepted, and later provider outcomes without returning
+recipient/account identifiers, addresses, subjects, bodies, tokens, idempotency
+keys, provider message IDs, or diagnostic detail.
+
+The runtime image smoke includes a static release-workflow guard for the live
+key format, the body-discarding `{}` probe and its exact HTTP 400 expectation,
+the recent aggregate query, and the exclusion of delivery and personal-data
+fields. This smoke is local/static: it uses no Mailronix credential, makes no
+Mailronix request, and cannot send email.
 
 Privacy export queueing and account/workspace deletion remain fail-closed in
 the runtime adapter until Auth exposes a reviewed boundary that can freeze new
