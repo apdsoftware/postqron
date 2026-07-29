@@ -201,6 +201,7 @@ jobs:
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
           AUTH_ENCRYPTION_KEY_B64: ${{ secrets.AUTH_ENCRYPTION_KEY_B64 }}
+          PRIVACY_ARTIFACT_KEY_B64: ${{ secrets.PRIVACY_ARTIFACT_KEY_B64 }}
           PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
           PADDLE_CATALOG_JSON: ${{ secrets.PADDLE_CATALOG_JSON }}
           PADDLE_ENVIRONMENT: ${{ inputs.environment == 'production' && 'production' || 'sandbox' }}
@@ -211,10 +212,33 @@ jobs:
             echo "ADMIN_PASSWORD_HASH_B64 must be configured for password authentication" >&2
             exit 1
           fi
-          if [[ -z "$AUTH_ENCRYPTION_KEY_B64" ]]; then
-            echo "AUTH_ENCRYPTION_KEY_B64 must be configured for auth runtime encryption" >&2
-            exit 1
-          fi
+          validate_encryption_key() {
+            local name=$1
+            local value=$2
+            local decoded_length
+            if [[ ! "$value" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+              echo "$name must be base64 of exactly 32 bytes" >&2
+              exit 1
+            fi
+            decoded_length=$(
+              printf '%s' "$value" |
+                base64 --decode 2>/dev/null |
+                wc -c
+            ) || {
+              echo "$name must be valid base64" >&2
+              exit 1
+            }
+            if (( decoded_length != 32 )); then
+              echo "$name must be base64 of exactly 32 bytes" >&2
+              exit 1
+            fi
+          }
+          validate_encryption_key \
+            "AUTH_ENCRYPTION_KEY_B64" \
+            "$AUTH_ENCRYPTION_KEY_B64"
+          validate_encryption_key \
+            "PRIVACY_ARTIFACT_KEY_B64" \
+            "$PRIVACY_ARTIFACT_KEY_B64"
           install -m 0600 /dev/null "$RUNNER_TEMP/runtime.env"
           printf '%s\n' "$RUNTIME_ENV" > "$RUNNER_TEMP/runtime.env"
           if grep --quiet '^PADDLE_' "$RUNNER_TEMP/runtime.env"; then
@@ -262,10 +286,12 @@ jobs:
             printf 'POSTQRON_ADMIN_BOOTSTRAP_EMAIL=%s\n' 'carlo.zuffetti@apdsoftware.it'
             printf 'POSTQRON_ADMIN_PASSWORD_HASH_B64=%s\n' "$ADMIN_PASSWORD_HASH_B64"
             printf 'POSTQRON_AUTH_ENCRYPTION_KEY_B64=%s\n' "$AUTH_ENCRYPTION_KEY_B64"
+            printf 'POSTQRON_PRIVACY_ARTIFACT_KEY_B64=%s\n' "$PRIVACY_ARTIFACT_KEY_B64"
             printf 'WEB_IMAGE=ghcr.io/%s-web:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             printf 'API_IMAGE=ghcr.io/%s-api:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             printf 'WORKER_IMAGE=ghcr.io/%s-worker:%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
           } >> "$RUNNER_TEMP/runtime.env"
+          # shellcheck disable=SC2016
           printf '%s\n' \
             'services:' \
             '  api:' \

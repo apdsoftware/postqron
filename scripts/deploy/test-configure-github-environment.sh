@@ -104,28 +104,38 @@ printf '203.0.113.10 %s\n' "$(cat "$test_key.pub")" > "$known_hosts"
 
 release_output="$temporary_directory/release-output"
 printf '%s\n' \
-  "$known_hosts" \
-  "ghp_test_read_packages_token" \
-  "operations@postqron.example" \
-  "" \
-  "" |
+  "$known_hosts" |
   GH_STUB_STATE="$state_directory" \
     PATH="$stub_directory:$PATH" \
     "$repository_root/scripts/deploy/configure-github-environment.sh" \
       --phase release >"$release_output" 2>&1
 
-for secret in SSH_KNOWN_HOSTS GHCR_READ_TOKEN RUNTIME_ENV; do
+for secret in \
+  SSH_KNOWN_HOSTS \
+  AUTH_ENCRYPTION_KEY_B64 \
+  PRIVACY_ARTIFACT_KEY_B64; do
   [[ -s "$state_directory/secrets/$secret" ]] ||
     { echo "missing release test secret $secret" >&2; exit 1; }
 done
-grep -q '^POSTGRES_PASSWORD=[a-f0-9]\{64\}$' \
-  "$state_directory/secrets/RUNTIME_ENV"
-grep -q '^DATABASE_URL=postgres://postqron:' \
-  "$state_directory/secrets/RUNTIME_ENV"
-if grep -q 'ghp_test_read_packages_token' "$release_output"; then
+for secret in AUTH_ENCRYPTION_KEY_B64 PRIVACY_ARTIFACT_KEY_B64; do
+  [[ $(base64 --decode < "$state_directory/secrets/$secret" | wc -c) -eq 32 ]] ||
+    { echo "$secret is not base64 of 32 bytes" >&2; exit 1; }
+  if grep -Fq "$(cat "$state_directory/secrets/$secret")" "$release_output"; then
+    echo "release output exposed $secret" >&2
+    exit 1
+  fi
+done
+if [[ -e "$state_directory/secrets/RUNTIME_ENV" ]]; then
+  echo "release helper unexpectedly configured RUNTIME_ENV" >&2
+  exit 1
+fi
+if grep -Eq 'POSTGRES_PASSWORD|DATABASE_URL' "$release_output"; then
   echo "release output exposed a secret" >&2
   exit 1
 fi
+
+auth_key_before=$(cat "$state_directory/secrets/AUTH_ENCRYPTION_KEY_B64")
+privacy_key_before=$(cat "$state_directory/secrets/PRIVACY_ARTIFACT_KEY_B64")
 
 GH_STUB_STATE="$state_directory" \
   PATH="$stub_directory:$PATH" \
@@ -135,5 +145,9 @@ GH_STUB_STATE="$state_directory" \
   PATH="$stub_directory:$PATH" \
   "$repository_root/scripts/deploy/configure-github-environment.sh" \
     --phase release </dev/null >/dev/null
+[[ "$(cat "$state_directory/secrets/AUTH_ENCRYPTION_KEY_B64")" == \
+  "$auth_key_before" ]]
+[[ "$(cat "$state_directory/secrets/PRIVACY_ARTIFACT_KEY_B64")" == \
+  "$privacy_key_before" ]]
 
 echo "GitHub environment configuration script tests passed"

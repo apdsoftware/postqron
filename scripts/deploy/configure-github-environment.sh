@@ -21,8 +21,9 @@ Options:
 The provision phase configures public domains, Cloudflare, Hetzner, Terraform
 state, the administrative CIDR allowlist, and the deployment SSH key.
 
-The release phase configures the verified SSH host key and the generated
-runtime database configuration. GHCR uses the workflow's temporary token.
+The release phase configures the verified SSH host key and generates dedicated
+auth and privacy encryption keys when they are missing. It never reads or
+replaces RUNTIME_ENV. GHCR uses the workflow's temporary token.
 EOF
 }
 
@@ -355,39 +356,24 @@ configure_known_hosts() {
   echo "configured secret SSH_KNOWN_HOSTS"
 }
 
-configure_runtime() {
-  local acme_email
-  local database_name
-  local database_user
-  local database_password
-  needs_secret "RUNTIME_ENV" || return 0
-
-  acme_email=$(prompt_value "ACME operations email")
-  [[ "$acme_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
-    fail "ACME operations email is invalid"
-  database_name=$(prompt_value "PostgreSQL database" "postqron")
-  database_user=$(prompt_value "PostgreSQL user" "postqron")
-  [[ "$database_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
-    fail "PostgreSQL database name is invalid"
-  [[ "$database_user" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
-    fail "PostgreSQL user is invalid"
-  database_password=$(openssl rand -hex 32)
-
-  {
-    printf 'ACME_EMAIL=%s\n' "$acme_email"
-    printf 'POSTGRES_DB=%s\n' "$database_name"
-    printf 'POSTGRES_USER=%s\n' "$database_user"
-    printf 'POSTGRES_PASSWORD=%s\n' "$database_password"
-    printf 'DATABASE_URL=postgres://%s:%s@postgres:5432/%s?sslmode=disable\n' \
-      "$database_user" \
-      "$database_password" \
-      "$database_name"
-  } | gh secret set "RUNTIME_ENV" \
-    --env "$environment" \
-    --repo "$repository"
-  database_password=""
-  existing_secrets="${existing_secrets}${existing_secrets:+$'\n'}RUNTIME_ENV"
-  echo "configured secret RUNTIME_ENV"
+configure_generated_encryption_key() {
+  local name=$1
+  local value
+  if contains_name "$existing_secrets" "$name"; then
+    echo "skip secret $name (already configured)"
+    return
+  fi
+  if replace_requested "$name"; then
+    fail "$name cannot be replaced by this helper"
+  fi
+  value=$(openssl rand -base64 32)
+  [[ "$value" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    fail "could not generate $name"
+  printf '%s' "$value" |
+    gh secret set "$name" --env "$environment" --repo "$repository"
+  value=""
+  existing_secrets="${existing_secrets}${existing_secrets:+$'\n'}${name}"
+  echo "configured secret $name"
 }
 
 if [[ "$phase" == "provision" ]]; then
@@ -407,7 +393,8 @@ if [[ "$phase" == "provision" ]]; then
   configure_backend
 else
   configure_known_hosts
-  configure_runtime
+  configure_generated_encryption_key "AUTH_ENCRYPTION_KEY_B64"
+  configure_generated_encryption_key "PRIVACY_ARTIFACT_KEY_B64"
 fi
 
 echo
