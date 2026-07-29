@@ -32,7 +32,7 @@ func registerFeatureFactories(registry *featurehost.Registry) error {
 		"account-privacy-runtime": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return accountprivacyruntime.NewModule(dependencies.PostgreSQL, dependencies.Clock)
 		},
-		"app-shell-api": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+		"app-shell": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return appshell.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
 		},
 	}

@@ -32,7 +32,7 @@ func TestRuntimeDiscoveryIncludesServicesSideAdapters(t *testing.T) {
 		"workspaces",
 		"f10-entitlements",
 		"account-privacy-runtime",
-		"app-shell-api",
+		"app-shell",
 	} {
 		if !seen[featureID] {
 			t.Fatalf("feature %q was not discovered in API runtime", featureID)
