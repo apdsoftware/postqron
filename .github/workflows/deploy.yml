@@ -201,6 +201,19 @@ jobs:
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
           AUTH_ENCRYPTION_KEY_B64: ${{ secrets.AUTH_ENCRYPTION_KEY_B64 }}
+          POSTQRON_AUTH_GOOGLE_CLIENT_ID: ${{ vars.POSTQRON_AUTH_GOOGLE_CLIENT_ID }}
+          POSTQRON_AUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.POSTQRON_AUTH_GOOGLE_CLIENT_SECRET }}
+          POSTQRON_AUTH_GOOGLE_REDIRECT_URL: ${{ vars.POSTQRON_AUTH_GOOGLE_REDIRECT_URL }}
+          POSTQRON_AUTH_APPLE_CLIENT_ID: ${{ vars.POSTQRON_AUTH_APPLE_CLIENT_ID }}
+          POSTQRON_AUTH_APPLE_CLIENT_SECRET: ${{ secrets.POSTQRON_AUTH_APPLE_CLIENT_SECRET }}
+          POSTQRON_AUTH_APPLE_REDIRECT_URL: ${{ vars.POSTQRON_AUTH_APPLE_REDIRECT_URL }}
+          POSTQRON_AUTH_FACEBOOK_CLIENT_ID: ${{ vars.POSTQRON_AUTH_FACEBOOK_CLIENT_ID }}
+          POSTQRON_AUTH_FACEBOOK_CLIENT_SECRET: ${{ secrets.POSTQRON_AUTH_FACEBOOK_CLIENT_SECRET }}
+          POSTQRON_AUTH_FACEBOOK_REDIRECT_URL: ${{ vars.POSTQRON_AUTH_FACEBOOK_REDIRECT_URL }}
+          POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION: ${{ vars.POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION }}
+          POSTQRON_AUTH_LINKEDIN_CLIENT_ID: ${{ vars.POSTQRON_AUTH_LINKEDIN_CLIENT_ID }}
+          POSTQRON_AUTH_LINKEDIN_CLIENT_SECRET: ${{ secrets.POSTQRON_AUTH_LINKEDIN_CLIENT_SECRET }}
+          POSTQRON_AUTH_LINKEDIN_REDIRECT_URL: ${{ vars.POSTQRON_AUTH_LINKEDIN_REDIRECT_URL }}
           PRIVACY_ARTIFACT_KEY_B64: ${{ secrets.PRIVACY_ARTIFACT_KEY_B64 }}
           PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
           PADDLE_CATALOG_JSON: ${{ secrets.PADDLE_CATALOG_JSON }}
@@ -257,8 +270,66 @@ jobs:
             echo "PRELAUNCH_MODE must use its dedicated GitHub Environment variable" >&2
             exit 1
           fi
+          if grep --extended-regexp --quiet \
+            '^[[:space:]]*POSTQRON_AUTH_(GOOGLE|APPLE|FACEBOOK|LINKEDIN)_' \
+            "$RUNNER_TEMP/runtime.env"; then
+            echo "OAuth provider values must use dedicated GitHub Environment values" >&2
+            exit 1
+          fi
           printf 'PRELAUNCH_MODE=%s\n' "$PRELAUNCH_MODE" \
             >> "$RUNNER_TEMP/runtime.env"
+
+          append_oauth_provider() {
+            local provider=$1
+            local client_id_name="POSTQRON_AUTH_${provider}_CLIENT_ID"
+            local client_secret_name="POSTQRON_AUTH_${provider}_CLIENT_SECRET"
+            local redirect_name="POSTQRON_AUTH_${provider}_REDIRECT_URL"
+            local client_id="${!client_id_name}"
+            local client_secret="${!client_secret_name}"
+            local redirect_url="${!redirect_name}"
+            local configured=0
+            local expected_redirect="https://${API_DOMAIN}/api/v1/auth/callback"
+
+            [[ -n "$client_id" ]] && configured=$((configured + 1))
+            [[ -n "$client_secret" ]] && configured=$((configured + 1))
+            [[ -n "$redirect_url" ]] && configured=$((configured + 1))
+            if (( configured == 0 )); then
+              echo "OAuth provider ${provider,,} is disabled"
+              return
+            fi
+            if (( configured != 3 )); then
+              echo "OAuth provider ${provider,,} is incomplete and remains disabled" >&2
+              return
+            fi
+            if [[ "$client_id" == *$'\n'* || "$client_id" == *$'\r'* ||
+              "$client_secret" == *$'\n'* || "$client_secret" == *$'\r'* ]]; then
+              echo "OAuth provider ${provider,,} contains an invalid multiline value; provider remains disabled" >&2
+              return
+            fi
+            if [[ "$redirect_url" != "$expected_redirect" ]]; then
+              echo "OAuth provider ${provider,,} redirect is not the canonical API callback" >&2
+              return
+            fi
+            if [[ "$provider" == "FACEBOOK" &&
+              ! "$POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+              echo "OAuth provider facebook Graph version is missing or invalid; provider remains disabled" >&2
+              return
+            fi
+            {
+              printf '%s=%s\n' "$client_id_name" "$client_id"
+              printf '%s=%s\n' "$client_secret_name" "$client_secret"
+              printf '%s=%s\n' "$redirect_name" "$redirect_url"
+              if [[ "$provider" == "FACEBOOK" ]]; then
+                printf 'POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION=%s\n' \
+                  "$POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION"
+              fi
+            } >> "$RUNNER_TEMP/runtime.env"
+            echo "OAuth provider ${provider,,} enabled"
+          }
+          append_oauth_provider GOOGLE
+          append_oauth_provider APPLE
+          append_oauth_provider FACEBOOK
+          append_oauth_provider LINKEDIN
 
           paddle_values=(
             "$PADDLE_API_KEY"

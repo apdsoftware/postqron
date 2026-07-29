@@ -51,6 +51,29 @@ callbacks. Rotation of `POSTQRON_AUTH_ENCRYPTION_KEY_B64` must be coordinated
 after expiring outstanding OAuth state; privacy artifact key rotation requires
 a separate migration plan for existing artifacts.
 
+Each provider uses dedicated GitHub Environment values. Client IDs, redirect
+URLs, and the Facebook Graph version are variables; client secrets are secrets:
+
+- Google: `POSTQRON_AUTH_GOOGLE_CLIENT_ID`,
+  `POSTQRON_AUTH_GOOGLE_REDIRECT_URL`,
+  `POSTQRON_AUTH_GOOGLE_CLIENT_SECRET`.
+- Apple: `POSTQRON_AUTH_APPLE_CLIENT_ID`,
+  `POSTQRON_AUTH_APPLE_REDIRECT_URL`,
+  `POSTQRON_AUTH_APPLE_CLIENT_SECRET`.
+- Facebook: `POSTQRON_AUTH_FACEBOOK_CLIENT_ID`,
+  `POSTQRON_AUTH_FACEBOOK_REDIRECT_URL`,
+  `POSTQRON_AUTH_FACEBOOK_GRAPH_VERSION`,
+  `POSTQRON_AUTH_FACEBOOK_CLIENT_SECRET`.
+- LinkedIn: `POSTQRON_AUTH_LINKEDIN_CLIENT_ID`,
+  `POSTQRON_AUTH_LINKEDIN_REDIRECT_URL`,
+  `POSTQRON_AUTH_LINKEDIN_CLIENT_SECRET`.
+
+The production redirect registered with every provider is exactly
+`https://api.postqron.com/api/v1/auth/callback`. A provider is exposed by the
+public bootstrap only when its complete block is valid. Missing or partial
+blocks disable only that provider and never disable password authentication.
+Provider values must not be duplicated in `RUNTIME_ENV`.
+
 ## Configure GitHub
 
 Use the interactive helper from an authenticated workstation. It skips names
