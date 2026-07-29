@@ -275,6 +275,7 @@ function reset() {
     privacyExports: new Map(),
     privacyDownloads: new Map(),
     privacyDeletions: new Map(),
+    privacyCancelCapabilities: new Map(),
     sessions: new Map([
       ['admin', { role: 'admin', account_id: 'account-admin' }],
       ['authenticated', { role: 'authenticated', account_id: 'account-authenticated' }],
@@ -843,7 +844,58 @@ const server = createServer(async (request, response) => {
       ownership: { actions: input.ownership_actions || [] },
     }
     state.privacyDeletions.set(id, deletion)
+    if (deletion.scope === 'account') {
+      for (const [token, current] of state.sessions) {
+        if (current.account_id === account.id) {
+          state.sessions.delete(token)
+        }
+      }
+    }
     json(response, 202, deletion)
+    return
+  }
+  if (
+    request.method === 'POST'
+    && url.pathname === '/api/v1/account/deletion-cancel-capabilities'
+  ) {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const token = `cancel-${state.privacyCancelCapabilities.size + 1}`
+    state.privacyCancelCapabilities.set(token, {
+      account_id: account.id,
+      consumed: false,
+    })
+    json(response, 201, {
+      token,
+      expires_at: '2026-08-23T12:00:00.000Z',
+    }, { 'cache-control': 'no-store' })
+    return
+  }
+  if (
+    request.method === 'POST'
+    && /^\/api\/v1\/account\/deletions\/[^/]+\/cancel$/u.test(url.pathname)
+  ) {
+    const deletionID = decodeURIComponent(url.pathname.split('/').at(-2))
+    const deletion = state.privacyDeletions.get(deletionID)
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const capability = state.privacyCancelCapabilities.get(input.token)
+    if (
+      !deletion
+      || deletion.status !== 'grace_period'
+      || !capability
+      || capability.consumed
+      || capability.account_id !== deletion.account_id
+    ) {
+      error(response, 404, 'not_found')
+      return
+    }
+    capability.consumed = true
+    deletion.status = 'cancelled'
+    response.writeHead(204, { 'cache-control': 'no-store' })
+    response.end()
     return
   }
   if (
@@ -853,7 +905,11 @@ const server = createServer(async (request, response) => {
     const account = currentAccount(request)
     const deletionID = decodeURIComponent(url.pathname.split('/').at(-1))
     const deletion = state.privacyDeletions.get(deletionID)
-    if (!account || !deletion || deletion.account_id !== account.id) {
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    if (!deletion || deletion.account_id !== account.id) {
       error(response, 404, 'not_found')
       return
     }

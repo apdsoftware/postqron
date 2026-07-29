@@ -48,6 +48,8 @@ services:
       POSTQRON_AUTH_ALLOWED_ORIGINS: https://${APP_DOMAIN}
       POSTQRON_PRIVACY_ARTIFACT_DIR: /var/lib/postqron/privacy-exports
       POSTQRON_PRIVACY_DOWNLOAD_BASE_URL: https://${API_DOMAIN}
+      POSTQRON_PRIVACY_ARTIFACT_KEY_B64: ${POSTQRON_PRIVACY_ARTIFACT_KEY_B64:?POSTQRON_PRIVACY_ARTIFACT_KEY_B64 is required}
+      POSTQRON_ENV: production
     volumes:
       - privacy_exports:/var/lib/postqron/privacy-exports
     healthcheck:
@@ -65,6 +67,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       POSTQRON_PRIVACY_ARTIFACT_DIR: /var/lib/postqron/privacy-exports
+      POSTQRON_PRIVACY_ARTIFACT_KEY_B64: ${POSTQRON_PRIVACY_ARTIFACT_KEY_B64:?POSTQRON_PRIVACY_ARTIFACT_KEY_B64 is required}
+      POSTQRON_ENV: production
     volumes:
       - privacy_exports:/var/lib/postqron/privacy-exports
     depends_on:

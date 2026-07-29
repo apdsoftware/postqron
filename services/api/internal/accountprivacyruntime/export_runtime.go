@@ -42,9 +42,10 @@ func (queue sqlExportQueue) EnqueueExport(ctx context.Context, job accountprivac
 
 type privateArtifactStore struct {
 	root string
+	key  [32]byte
 }
 
-func newPrivateArtifactStore(root string) (privateArtifactStore, error) {
+func newPrivateArtifactStore(root string, key [32]byte) (privateArtifactStore, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return privateArtifactStore{}, errors.New("POSTQRON_PRIVACY_ARTIFACT_DIR is required")
@@ -59,7 +60,7 @@ func newPrivateArtifactStore(root string) (privateArtifactStore, error) {
 	if err := os.Chmod(absolute, 0o700); err != nil {
 		return privateArtifactStore{}, fmt.Errorf("secure privacy artifact directory: %w", err)
 	}
-	return privateArtifactStore{root: absolute}, nil
+	return privateArtifactStore{root: absolute, key: key}, nil
 }
 
 func (store privateArtifactStore) path(objectKey string) (string, error) {
@@ -162,6 +163,7 @@ func (handler artifactDownloadHandler) ServeHTTP(response http.ResponseWriter, r
 	}
 	defer transaction.Rollback()
 	var objectKey string
+	var plaintextSize int64
 	err = transaction.QueryRowContext(request.Context(), `
 		UPDATE account_privacy_download_tokens token
 		SET consumed_at = $2
@@ -174,8 +176,8 @@ func (handler artifactDownloadHandler) ServeHTTP(response http.ResponseWriter, r
 		  AND token.expires_at > $2
 		  AND export.status = 'ready'
 		  AND export.expires_at > $2
-		RETURNING token.object_key`,
-		hex.EncodeToString(digest[:]), handler.now().UTC()).Scan(&objectKey)
+		RETURNING token.object_key, export.size_bytes`,
+		hex.EncodeToString(digest[:]), handler.now().UTC()).Scan(&objectKey, &plaintextSize)
 	if err != nil {
 		http.NotFound(response, request)
 		return
@@ -200,10 +202,20 @@ func (handler artifactDownloadHandler) ServeHTTP(response http.ResponseWriter, r
 		http.NotFound(response, request)
 		return
 	}
+	if err := decryptArtifact(io.Discard, file, handler.store.key); err != nil {
+		http.NotFound(response, request)
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.NotFound(response, request)
+		return
+	}
 	response.Header().Set("Content-Type", "application/zip")
 	response.Header().Set("Content-Disposition", `attachment; filename="postqron-export.zip"`)
 	response.Header().Set("Cache-Control", "private, no-store")
 	response.Header().Set("X-Content-Type-Options", "nosniff")
-	response.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
-	_, _ = io.Copy(response, file)
+	response.Header().Set("Content-Length", fmt.Sprintf("%d", plaintextSize))
+	if err := decryptArtifact(response, file, handler.store.key); err != nil {
+		return
+	}
 }

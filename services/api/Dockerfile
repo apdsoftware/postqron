@@ -19,7 +19,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./services/api
 
 FROM alpine:3.23 AS runtime
 
-RUN addgroup -S postqron && adduser -S -G postqron postqron
+RUN addgroup -S postqron \
+    && adduser -S -G postqron postqron \
+    && mkdir -p /var/lib/postqron/privacy-exports \
+    && chown -R postqron:postqron /var/lib/postqron \
+    && chmod 0700 /var/lib/postqron/privacy-exports
 WORKDIR /app
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate

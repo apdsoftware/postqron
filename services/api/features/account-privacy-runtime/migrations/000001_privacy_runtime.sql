@@ -38,6 +38,18 @@ CREATE INDEX account_privacy_download_tokens_expiry_idx
     ON account_privacy_download_tokens (expires_at)
     WHERE consumed_at IS NULL;
 
+CREATE TABLE account_privacy_cancel_capabilities (
+    token_hash char(64) PRIMARY KEY CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+    account_id text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz,
+    created_at timestamptz NOT NULL
+);
+
+CREATE INDEX account_privacy_cancel_capabilities_expiry_idx
+    ON account_privacy_cancel_capabilities (expires_at)
+    WHERE consumed_at IS NULL;
+
 CREATE TABLE account_privacy_runtime_audit (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     target_id text NOT NULL,

@@ -26,11 +26,12 @@ const (
 )
 
 type Service struct {
-	database *sql.DB
-	root     string
-	now      func() time.Time
-	logger   *slog.Logger
-	access   AccountAccessBoundary
+	database    *sql.DB
+	root        string
+	now         func() time.Time
+	logger      *slog.Logger
+	access      AccountAccessBoundary
+	artifactKey [32]byte
 }
 
 type AccountAccessBoundary interface {
@@ -90,12 +91,17 @@ func NewWithAccountAccess(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	artifactKey, err := artifactKeyFromEnv()
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
-		database: database,
-		root:     absolute,
-		now:      now,
-		logger:   logger,
-		access:   access,
+		database:    database,
+		root:        absolute,
+		now:         now,
+		logger:      logger,
+		access:      access,
+		artifactKey: artifactKey,
 	}, nil
 }
 
@@ -233,6 +239,7 @@ func (service *Service) finalizeDeletion(
 			DELETE FROM f04_memberships WHERE account_id = $1;
 			DELETE FROM account_privacy_profiles WHERE account_id = $1;
 			DELETE FROM account_privacy_export_requests WHERE account_id = $1;
+			DELETE FROM account_privacy_cancel_capabilities WHERE account_id = $1;
 			UPDATE account_privacy_audit_events SET account_id = NULL WHERE account_id = $1`,
 			job.AccountID, anonymous); err != nil {
 			return err
@@ -481,8 +488,13 @@ func (service *Service) writeExport(
 		temp.Close()
 		return "", 0, err
 	}
+	encryption, err := newEncryptedArtifactWriter(temp, service.artifactKey)
+	if err != nil {
+		temp.Close()
+		return "", 0, err
+	}
 	hash := sha256.New()
-	counting := &countWriter{writer: io.MultiWriter(temp, hash)}
+	counting := &countWriter{writer: io.MultiWriter(encryption, hash)}
 	archive := zip.NewWriter(counting)
 	entries, err := service.exportEntries(ctx, job)
 	if err == nil {
@@ -500,9 +512,10 @@ func (service *Service) writeExport(
 		}
 	}
 	closeErr := archive.Close()
+	encryptionErr := encryption.Close()
 	fileErr := temp.Close()
 	if err == nil {
-		err = errors.Join(closeErr, fileErr)
+		err = errors.Join(closeErr, encryptionErr, fileErr)
 	}
 	if err != nil {
 		return "", 0, err
@@ -631,6 +644,14 @@ func queryJSON(ctx context.Context, database *sql.DB, query string, args ...any)
 }
 
 func (service *Service) purgeExpired(ctx context.Context, limit int) (int, error) {
+	if _, err := service.database.ExecContext(ctx, `
+		DELETE FROM account_privacy_cancel_capabilities
+		WHERE expires_at <= $1 OR consumed_at IS NOT NULL;
+		DELETE FROM account_privacy_download_tokens
+		WHERE expires_at <= $1 OR consumed_at IS NOT NULL`,
+		service.now().UTC()); err != nil {
+		return 0, err
+	}
 	rows, err := service.database.QueryContext(ctx, `
 		SELECT id, COALESCE(object_key, '')
 		FROM account_privacy_export_requests

@@ -20,15 +20,24 @@ func (revoker runtimeProviderRevoker) RevokeForDeletion(
 	request accountprivacy.DeletionRequest,
 	workspaceIDs []string,
 ) error {
-	var connectedSocial int
+	var revocableSocial int
 	if err := revoker.database.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM f05_social_connections
-		WHERE workspace_id = ANY($1) AND status = 'connected'`,
-		workspaceIDs).Scan(&connectedSocial); err != nil {
+		WHERE workspace_id = ANY($1)
+		  AND status <> 'revoked'
+		  AND (
+			access_token_key_id IS NOT NULL
+			OR access_token_ciphertext IS NOT NULL
+			OR refresh_token_key_id IS NOT NULL
+			OR refresh_token_ciphertext IS NOT NULL
+			OR token_expires_at IS NOT NULL
+			OR refresh_locked_until IS NOT NULL
+		  )`,
+		workspaceIDs).Scan(&revocableSocial); err != nil {
 		return fmt.Errorf("inspect social revocation boundary: %w", err)
 	}
-	if connectedSocial > 0 {
+	if revocableSocial > 0 {
 		return errors.New("public social provider revocation boundary is unavailable")
 	}
 	if request.Scope != accountprivacy.DeleteAccount {

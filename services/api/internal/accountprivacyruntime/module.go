@@ -25,6 +25,7 @@ type Module struct {
 	database *sql.DB
 	handler  http.Handler
 	artifact http.Handler
+	cancel   http.Handler
 }
 
 func NewModule(database *sql.DB, clock func() time.Time) (*Module, error) {
@@ -54,13 +55,24 @@ func NewModuleWithAccountAccess(
 	if artifactRoot == "" {
 		artifactRoot = filepath.Join(os.TempDir(), "postqron-privacy-artifacts")
 	}
-	artifactStore, err := newPrivateArtifactStore(artifactRoot)
+	artifactKey, err := artifactKeyFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	artifactStore, err := newPrivateArtifactStore(artifactRoot, artifactKey)
 	if err != nil {
 		return nil, err
 	}
 	publicBaseURL := strings.TrimSpace(os.Getenv("POSTQRON_PRIVACY_DOWNLOAD_BASE_URL"))
 	if publicBaseURL == "" {
 		publicBaseURL = "http://127.0.0.1:8080"
+	}
+	publicBaseURL, err = validateDownloadBaseURL(
+		publicBaseURL,
+		strings.EqualFold(strings.TrimSpace(os.Getenv("POSTQRON_ENV")), "production"),
+	)
+	if err != nil {
+		return nil, err
 	}
 	if access == nil {
 		authStore, err := auth.NewPostgresStore(database)
@@ -110,6 +122,12 @@ func NewModuleWithAccountAccess(
 		database: database,
 		handler:  handler,
 		artifact: artifactDownloadHandler{database: database, store: artifactStore, now: clock},
+		cancel: cancelCapabilityHandler{
+			database:      database,
+			service:       service,
+			authenticator: requestAuthenticator{database: database, clock: clock},
+			now:           clock,
+		},
 	}, nil
 }
 
@@ -136,6 +154,11 @@ func (module *Module) Handler(name string) (http.Handler, bool) {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if strings.HasPrefix(request.URL.Path, artifactRoutePrefix) {
 			module.artifact.ServeHTTP(response, request)
+			return
+		}
+		if request.URL.Path == cancelCapabilityIssuePath ||
+			strings.HasSuffix(request.URL.Path, "/cancel") {
+			module.cancel.ServeHTTP(response, request)
 			return
 		}
 		module.handler.ServeHTTP(response, request)

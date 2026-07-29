@@ -10,7 +10,7 @@ import (
 
 func TestPrivateArtifactStoreRejectsTraversal(t *testing.T) {
 	t.Parallel()
-	store, err := newPrivateArtifactStore(t.TempDir())
+	store, err := newPrivateArtifactStore(t.TempDir(), [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestPrivateArtifactStoreRejectsTraversal(t *testing.T) {
 
 func TestPrivateArtifactStoreDeleteIsIdempotentUnderRace(t *testing.T) {
 	t.Parallel()
-	store, err := newPrivateArtifactStore(t.TempDir())
+	store, err := newPrivateArtifactStore(t.TempDir(), [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}

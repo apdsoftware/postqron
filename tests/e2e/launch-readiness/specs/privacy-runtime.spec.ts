@@ -76,3 +76,49 @@ test('privacy deletion supports grace cancellation and finalization', async ({
   expect((await finalized.json()).status).toBe('completed')
   await context.close()
 })
+
+test('frozen account cancels through a pre-authorized one-time capability', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-PRIVACY-DELETION', 'LR-SECURITY')
+  const context = await browser.newContext()
+  await session(context, 'authenticated')
+  const request = context.request
+
+  const issued = await request.post(
+    `${offBaseURL}/api/v1/account/deletion-cancel-capabilities`,
+  )
+  expect(issued.status()).toBe(201)
+  expect(issued.headers()['cache-control']).toBe('no-store')
+  const capability = await issued.json()
+
+  const created = await request.post(`${offBaseURL}/api/v1/account/deletions`, {
+    data: {
+      scope: 'account',
+      ownership_actions: [{
+        workspace_id: 'workspace-fixture',
+        action: 'delete',
+      }],
+      confirmation: 'DELETE',
+    },
+  })
+  expect(created.status()).toBe(202)
+  const deletion = await created.json()
+
+  const unreachableSessionCancel = await request.delete(
+    `${offBaseURL}/api/v1/account/deletions/${deletion.id}`,
+  )
+  expect(unreachableSessionCancel.status()).toBe(401)
+
+  const cancelled = await request.post(
+    `${offBaseURL}/api/v1/account/deletions/${deletion.id}/cancel`,
+    { data: { token: capability.token } },
+  )
+  expect(cancelled.status()).toBe(204)
+  const replay = await request.post(
+    `${offBaseURL}/api/v1/account/deletions/${deletion.id}/cancel`,
+    { data: { token: capability.token } },
+  )
+  expect(replay.status()).toBe(404)
+  await context.close()
+})
