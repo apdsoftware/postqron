@@ -14,6 +14,8 @@ import (
 
 const (
 	defaultSenderHTTPTimeout             = 10 * time.Second
+	defaultFailureThreshold              = 3
+	defaultCircuitOpenFor                = 2 * time.Minute
 	postqronMailronixEndpointEnv         = "POSTQRON_MAILRONIX_ENDPOINT"
 	postqronMailronixAPIKeySecretNameEnv = "POSTQRON_MAILRONIX_API_KEY_SECRET_NAME"
 	postqronMailronixSenderEmailEnv      = "POSTQRON_MAILRONIX_SENDER_EMAIL"
@@ -285,6 +287,7 @@ func loadMailronixBoundaryConfig(
 	failureThreshold, err := requiredEnvInt(
 		lookup,
 		postqronMailronixFailureThresholdEnv,
+		defaultFailureThreshold,
 	)
 	if err != nil {
 		return MailronixConfig{}, SenderBoundaryConfig{}, err
@@ -292,6 +295,7 @@ func loadMailronixBoundaryConfig(
 	circuitOpenFor, err := requiredEnvDuration(
 		lookup,
 		postqronMailronixCircuitOpenForEnv,
+		defaultCircuitOpenFor,
 	)
 	if err != nil {
 		return MailronixConfig{}, SenderBoundaryConfig{}, err
@@ -342,11 +346,12 @@ func requiredEnvBool(lookup envLookup, name string) (bool, error) {
 	return parsed, nil
 }
 
-func requiredEnvInt(lookup envLookup, name string) (int, error) {
-	value, err := requiredEnvString(lookup, name)
-	if err != nil {
-		return 0, err
+func requiredEnvInt(lookup envLookup, name string, fallback int) (int, error) {
+	value, ok := lookup(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
 	}
+	value = strings.TrimSpace(value)
 	parsed, parseErr := strconv.Atoi(value)
 	if parseErr != nil || parsed < 1 {
 		return 0, fmt.Errorf("%w: invalid %s", ErrInvalidSenderBoundary, name)
@@ -354,11 +359,16 @@ func requiredEnvInt(lookup envLookup, name string) (int, error) {
 	return parsed, nil
 }
 
-func requiredEnvDuration(lookup envLookup, name string) (time.Duration, error) {
-	value, err := requiredEnvString(lookup, name)
-	if err != nil {
-		return 0, err
+func requiredEnvDuration(
+	lookup envLookup,
+	name string,
+	fallback time.Duration,
+) (time.Duration, error) {
+	value, ok := lookup(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
 	}
+	value = strings.TrimSpace(value)
 	parsed, parseErr := time.ParseDuration(value)
 	if parseErr != nil || parsed <= 0 {
 		return 0, fmt.Errorf("%w: invalid %s", ErrInvalidSenderBoundary, name)

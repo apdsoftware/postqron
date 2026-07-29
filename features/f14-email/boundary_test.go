@@ -19,8 +19,6 @@ func testLiveSenderEnv() mapEnv {
 		postqronMailronixAPIKeySecretNameEnv: "MAILRONIX_TRANSACTIONAL_API_KEY",
 		postqronMailronixSenderEmailEnv:      "notifications@postqron.example",
 		postqronMailronixDomainVerifiedEnv:   "true",
-		postqronMailronixFailureThresholdEnv: "3",
-		postqronMailronixCircuitOpenForEnv:   "2m",
 	}
 }
 
@@ -103,7 +101,9 @@ func TestNewSenderBoundaryBuildsLiveMailronixClientFromEnvironment(t *testing.T)
 	}
 	if client.http.Timeout != 12*time.Second ||
 		client.config.Endpoint != MailronixProductionURL ||
-		client.config.APIKeySecret != "MAILRONIX_TRANSACTIONAL_API_KEY" {
+		client.config.APIKeySecret != "MAILRONIX_TRANSACTIONAL_API_KEY" ||
+		client.config.FailureThreshold != defaultFailureThreshold ||
+		client.config.CircuitOpenFor != defaultCircuitOpenFor {
 		t.Fatalf("client config = %#v", client.config)
 	}
 	fields := boundary.Config.Fields()
@@ -111,8 +111,31 @@ func TestNewSenderBoundaryBuildsLiveMailronixClientFromEnvironment(t *testing.T)
 	if fields["email.sender_mode"] != "live" ||
 		fields["email.provider"] != "mailronix" ||
 		fields["email.api_key_secret_name"] != "MAILRONIX_TRANSACTIONAL_API_KEY" ||
+		fields["email.failure_threshold"] != "3" ||
+		fields["email.circuit_open_for"] != "2m0s" ||
 		strings.Contains(joined, "mrx_live_super_secret") {
 		t.Fatalf("redacted fields = %#v", fields)
+	}
+}
+
+func TestNewSenderBoundaryAcceptsExplicitOptionalOverrides(t *testing.T) {
+	env := testLiveSenderEnv()
+	env[postqronMailronixFailureThresholdEnv] = "5"
+	env[postqronMailronixCircuitOpenForEnv] = "30s"
+	boundary, err := newSenderBoundaryFromEnv(
+		env.Lookup,
+		SenderBoundaryOptions{
+			Environment: "production", Production: true, Mode: SenderModeLive,
+		},
+		mapSecrets{"MAILRONIX_TRANSACTIONAL_API_KEY": "mrx_live_super_secret"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := boundary.Sender.(*MailronixClient)
+	if client.config.FailureThreshold != 5 ||
+		client.config.CircuitOpenFor != 30*time.Second {
+		t.Fatalf("client config = %#v", client.config)
 	}
 }
 
@@ -156,6 +179,25 @@ func TestNewSenderBoundaryRedactsInvalidEnvironmentConfigValues(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "mrx_live_super_secret") ||
 		!strings.Contains(err.Error(), postqronMailronixFailureThresholdEnv) {
+		t.Fatalf("error leaked config value: %v", err)
+	}
+}
+
+func TestNewSenderBoundaryRejectsInvalidOptionalDurationValue(t *testing.T) {
+	env := testLiveSenderEnv()
+	env[postqronMailronixCircuitOpenForEnv] = "later"
+	_, err := newSenderBoundaryFromEnv(
+		env.Lookup,
+		SenderBoundaryOptions{
+			Environment: "production", Production: true, Mode: SenderModeLive,
+		},
+		mapSecrets{"MAILRONIX_TRANSACTIONAL_API_KEY": "mrx_live_super_secret"},
+	)
+	if err == nil {
+		t.Fatal("expected invalid config error")
+	}
+	if !strings.Contains(err.Error(), postqronMailronixCircuitOpenForEnv) ||
+		strings.Contains(err.Error(), "later") {
 		t.Fatalf("error leaked config value: %v", err)
 	}
 }

@@ -76,6 +76,10 @@ d’ambiente già previste dal wiring `#220`:
 - `POSTQRON_MAILRONIX_FAILURE_THRESHOLD`
 - `POSTQRON_MAILRONIX_CIRCUIT_OPEN_FOR`
 
+Gli ultimi due valori sono opzionali nel wiring corrente: se assenti, F14 usa i
+default autorevoli `3` e `2m`. Se presenti ma non validi, la factory fallisce
+in chiusura.
+
 Il valore del segreto resta esterno al repository e viene risolto solo tramite
 `SecretProvider`, usando il nome dichiarato in
 `POSTQRON_MAILRONIX_API_KEY_SECRET_NAME`.
