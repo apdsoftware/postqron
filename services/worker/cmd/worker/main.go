@@ -49,6 +49,7 @@ func main() {
 		"version", version,
 	)
 	if shouldSkipRunOnceDatabase(runOnce, os.Getenv("DATABASE_URL")) {
+		runner.New(features, interval, logger).Tick(ctx)
 		logger.Info(
 			"worker run-once skipped database-dependent execution",
 			"reason", "DATABASE_URL is not configured",
