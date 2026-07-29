@@ -9,3 +9,10 @@ condition = "AND"
 paths = ['''^features/f13-compliance/test/compliance\.test\.ts$''']
 regexTarget = "match"
 regexes = ['''idempotency-[12]''']
+
+[[allowlists]]
+description = "F30 uses one deterministic non-secret encryption key fixture"
+condition = "AND"
+paths = ['''^features/f30-app-shell/module_test\.go$''']
+regexTarget = "secret"
+regexes = ['''^(MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=|0123456789abcdef0123456789abcdef)$''']
