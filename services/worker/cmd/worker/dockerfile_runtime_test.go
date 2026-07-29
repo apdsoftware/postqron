@@ -11,10 +11,17 @@ func TestWorkerDockerfileIncludesEmailBrandTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dockerfile := string(contents)
 	if !strings.Contains(
-		string(contents),
+		dockerfile,
 		"COPY features/f01-brand/tokens ./features/f01-brand/tokens",
 	) {
 		t.Fatal("worker Dockerfile must copy F1 tokens required by the F14 renderer")
+	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f03-auth/go.mod features/f03-auth/go.sum features/f03-auth/",
+	) {
+		t.Fatal("worker Dockerfile must copy F3 go.mod for local replace resolution during go mod download")
 	}
 }
