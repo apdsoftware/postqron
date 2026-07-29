@@ -272,6 +272,9 @@ function reset() {
     nextSession: 1,
     nextVerification: 1,
     mailbox: [],
+    privacyExports: new Map(),
+    privacyDownloads: new Map(),
+    privacyDeletions: new Map(),
     sessions: new Map([
       ['admin', { role: 'admin', account_id: 'account-admin' }],
       ['authenticated', { role: 'authenticated', account_id: 'account-authenticated' }],
@@ -753,6 +756,110 @@ const server = createServer(async (request, response) => {
       return
     }
     error(response, 400, 'AUTH_PROVIDER_CALLBACK_INVALID')
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/account/exports') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const id = `export-${account.id}-${state.privacyExports.size + 1}`
+    const exportRequest = {
+      id,
+      account_id: account.id,
+      scope: input.scope || 'account',
+      status: 'ready',
+      requested_at: now,
+      ready_at: now,
+      expires_at: '2026-08-01T12:00:00.000Z',
+      sha256: digest,
+      size_bytes: 128,
+    }
+    state.privacyExports.set(id, exportRequest)
+    json(response, 202, exportRequest)
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/account\/exports\/[^/]+\/download$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    const exportID = decodeURIComponent(url.pathname.split('/').at(-2))
+    const exportRequest = state.privacyExports.get(exportID)
+    if (!account || !exportRequest || exportRequest.account_id !== account.id) {
+      error(response, 404, 'not_found')
+      return
+    }
+    if (url.searchParams.get('fixture_expired') === '1') {
+      error(response, 410, 'export_expired')
+      return
+    }
+    const token = `download-${state.privacyDownloads.size + 1}`
+    state.privacyDownloads.set(token, { exportID, consumed: false })
+    json(response, 200, {
+      url: `http://${request.headers.host}/api/v1/account/privacy-artifacts/${token}`,
+      expires_at: '2026-07-25T12:05:00.000Z',
+      sha256: digest,
+      size_bytes: 128,
+    })
+    return
+  }
+  if (
+    request.method === 'GET'
+    && /^\/api\/v1\/account\/privacy-artifacts\/[^/]+$/u.test(url.pathname)
+  ) {
+    const token = decodeURIComponent(url.pathname.split('/').at(-1))
+    const download = state.privacyDownloads.get(token)
+    if (!download || download.consumed) {
+      error(response, 404, 'not_found')
+      return
+    }
+    download.consumed = true
+    response.writeHead(200, {
+      'content-type': 'application/zip',
+      'cache-control': 'private, no-store',
+    })
+    response.end('fixture-private-export')
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/account/deletions') {
+    const account = currentAccount(request)
+    if (!account) {
+      error(response, 401, 'unauthenticated')
+      return
+    }
+    const input = JSON.parse((await body(request)).toString('utf8') || '{}')
+    const id = `deletion-${account.id}-${state.privacyDeletions.size + 1}`
+    const deletion = {
+      id,
+      account_id: account.id,
+      scope: input.scope || 'workspace',
+      workspace_id: input.workspace_id,
+      status: url.searchParams.get('fixture_finalize') === '1' ? 'completed' : 'grace_period',
+      requested_at: now,
+      grace_ends_at: '2026-08-22T12:00:00.000Z',
+      ownership: { actions: input.ownership_actions || [] },
+    }
+    state.privacyDeletions.set(id, deletion)
+    json(response, 202, deletion)
+    return
+  }
+  if (
+    request.method === 'DELETE'
+    && /^\/api\/v1\/account\/deletions\/[^/]+$/u.test(url.pathname)
+  ) {
+    const account = currentAccount(request)
+    const deletionID = decodeURIComponent(url.pathname.split('/').at(-1))
+    const deletion = state.privacyDeletions.get(deletionID)
+    if (!account || !deletion || deletion.account_id !== account.id) {
+      error(response, 404, 'not_found')
+      return
+    }
+    deletion.status = 'cancelled'
+    response.writeHead(204)
+    response.end()
     return
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/auth/logout') {
