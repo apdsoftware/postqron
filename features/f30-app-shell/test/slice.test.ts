@@ -216,3 +216,25 @@ test('shell implementation contains no email-provider client', async () => {
   assert.doesNotMatch(implementation, /mailronix|smtp|\/email\/send/u)
   assert.match(implementation, /channel: 'transactional'/u)
 })
+
+test('password-only auth hides separator and provider fallback when no providers are configured', async () => {
+  const page = await readFile(new URL('../pages/app.vue', import.meta.url), 'utf8')
+  assert.match(
+    page,
+    /<p[\s\S]*v-if="providers\.length"[\s\S]*class="auth-separator"/u,
+  )
+  assert.match(
+    page,
+    /<div[\s\S]*v-if="providers\.length"[\s\S]*class="auth-providers"/u,
+  )
+  assert.doesNotMatch(page, /providers\.length === 0/u)
+  assert.doesNotMatch(page, /auth\.providerUnavailable/u)
+  assert.match(page, /class="auth-password-form"/u)
+})
+
+test('auth page still renders configured provider actions when providers exist', async () => {
+  const page = await readFile(new URL('../pages/app.vue', import.meta.url), 'utf8')
+  assert.match(page, /v-for="provider in providers"/u)
+  assert.match(page, /@click="start\(provider\)"/u)
+  assert.match(page, /t\(`auth\.provider\.\$\{provider\}`\)/u)
+})
