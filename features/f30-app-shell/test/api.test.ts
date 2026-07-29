@@ -205,13 +205,38 @@ test('account deletion sends an explicit delete action for every owned workspace
     () => buildAccountDeletionOwnershipActions(undefined),
     /APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE/u,
   )
-  assert.throws(
-    () => buildAccountDeletionOwnershipActions({
-      ...accountArea,
-      workspaces: accountArea.workspaces.filter(item =>
-        item.workspace.role === 'member'),
-    }),
-    /APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE/u,
+})
+
+test('member-only AccountArea produces authoritative empty ownership actions', () => {
+  const accountArea = {
+    profile: {
+      account_id: 'account-1',
+      display_name: 'Ada',
+      locale: 'en',
+      timezone: 'UTC',
+      updated_at: '2026-07-28T12:00:00.000Z',
+    },
+    providers: [],
+    workspaces: [{
+      workspace: {
+        id: 'workspace-member',
+        name: 'Shared',
+        role: 'member',
+      },
+      plan: {
+        code: 'team',
+        limits: {},
+        manageable: false,
+        name: 'Team',
+        state: 'active',
+        usage: {},
+      },
+    }],
+  } satisfies AccountArea
+
+  assert.deepEqual(
+    buildAccountDeletionOwnershipActions(accountArea),
+    [],
   )
 })
 

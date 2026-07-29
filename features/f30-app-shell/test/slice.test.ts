@@ -32,7 +32,9 @@ test('all five app catalogs contain the exact same keys', () => {
     'workspace.title',
     'privacy.title',
     'privacy.confirmAccountDeletion',
+    'privacy.confirmAccountDeletionNoOwnedWorkspaces',
     'privacy.accountDeletionOwnedWorkspaces',
+    'privacy.accountDeletionNoOwnedWorkspaces',
     'privacy.accountDeletionOwnershipUnavailable',
     'accountDeletionCancel.title',
     'accountDeletionCancel.securityNote',
@@ -122,6 +124,7 @@ test('privacy flow requires explicit confirmation before deletion requests', asy
   )
   assert.match(privacy, /confirmAction\(message\)/u)
   assert.match(privacy, /privacy\.confirmAccountDeletion/u)
+  assert.match(privacy, /privacy\.confirmAccountDeletionNoOwnedWorkspaces/u)
   assert.match(privacy, /privacy\.confirmWorkspaceDeletion/u)
   assert.match(
     privacy,
@@ -130,6 +133,8 @@ test('privacy flow requires explicit confirmation before deletion requests', asy
   assert.match(privacy, /buildAccountDeletionOwnershipActions\(accountArea\.value\)/u)
   assert.match(privacy, /ownershipActions/u)
   assert.match(privacy, /v-for="item in ownerWorkspaces"/u)
+  assert.match(privacy, /privacy\.accountDeletionNoOwnedWorkspaces/u)
+  assert.match(privacy, /:disabled="!accountArea \|\| working === 'account-delete'"/u)
   assert.match(privacy, /cancelWorkspaceDeletion/u)
   assert.doesNotMatch(privacy, /useAppSessionState/u)
 })

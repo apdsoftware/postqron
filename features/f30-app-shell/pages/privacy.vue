@@ -110,11 +110,13 @@ async function requestDeletion(scope: 'account' | 'workspace') {
     }
   }
   const message = scope === 'account'
-    ? t('privacy.confirmAccountDeletion', {
-        workspaces: ownerWorkspaces.value
-          .map(item => `• ${item.workspace.name}`)
-          .join('\n'),
-      })
+    ? ownerWorkspaces.value.length > 0
+      ? t('privacy.confirmAccountDeletion', {
+          workspaces: ownerWorkspaces.value
+            .map(item => `• ${item.workspace.name}`)
+            .join('\n'),
+        })
+      : t('privacy.confirmAccountDeletionNoOwnedWorkspaces')
     : t('privacy.confirmWorkspaceDeletion', {
         workspace: ownerWorkspace.value?.workspace.name ?? '',
       })
@@ -223,10 +225,10 @@ async function retry() {
             {{ item.workspace.name }}
           </li>
         </ul>
-        <p v-else class="app-inline-alert" role="alert">
-          {{ t('privacy.accountDeletionOwnershipUnavailable') }}
+        <p v-else>
+          {{ t('privacy.accountDeletionNoOwnedWorkspaces') }}
         </p>
-        <button class="pq-button pq-button--secondary" type="button" :disabled="ownerWorkspaces.length === 0 || working === 'account-delete'" @click="requestDeletion('account')">
+        <button class="pq-button pq-button--secondary" type="button" :disabled="!accountArea || working === 'account-delete'" @click="requestDeletion('account')">
           {{ working === 'account-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
         </button>
       </article>

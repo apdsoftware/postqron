@@ -151,9 +151,6 @@ export function buildAccountDeletionOwnershipActions(
       workspace_id: item.workspace.id,
       action: 'delete' as const,
     }))
-  if (actions.length === 0) {
-    throw new Error('APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE')
-  }
   return actions
 }
 
