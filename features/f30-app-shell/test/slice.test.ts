@@ -100,6 +100,7 @@ test('shell exposes accessible states and declarative slots', async () => {
   assert.match(layout, /data-postqron-slot="primary-navigation"/u)
   assert.match(layout, /data-postqron-slot="workspace-actions"/u)
   assert.match(layout, /appRoute\(locale, 'profile'\)[\s\S]*t\('shell\.logout'\)/u)
+  assert.match(layout, /<summary[\s\S]*:aria-label="`\$\{t\('shell\.profile'\)\}/u)
   assert.match(home, /data-postqron-slot="home-primary"/u)
   assert.match(feature, /data-postqron-slot="feature-content"/u)
 })
