@@ -101,6 +101,27 @@ EOF
   } >"$feature_directory/feature.yaml"
 }
 
+write_dependency_stub() {
+  local root=$1
+  local directory_name=$2
+  local feature_id=$3
+  local feature_directory="$root/$directory_name"
+
+  mkdir -p "$feature_directory"
+  cat >"$feature_directory/runtime.ts" <<'EOF'
+export default {}
+EOF
+  cat >"$feature_directory/feature.yaml" <<EOF
+schema_version: 1
+id: $feature_id
+kind: web
+version: 0.1.0
+entrypoint: ./runtime.ts
+dependencies: []
+migrations: []
+EOF
+}
+
 wait_for_api() {
   local port=$1
   local log=$2
@@ -192,6 +213,51 @@ missing_route_status=$(curl --silent --output /dev/null \
   --write-out '%{http_code}' "http://127.0.0.1:$missing_port/api/v1/missing")
 if [[ "$missing_route_status" != "404" ]]; then
   echo "missing factory route returned $missing_route_status, want 404" >&2
+  exit 1
+fi
+stop_api
+
+real_source_root="$temporary_directory/real-source"
+mkdir -p "$real_source_root"
+cp -R "$repository_root/features/f13-compliance" \
+  "$repository_root/features/f01-brand" \
+  "$repository_root/features/f02-marketing-site" \
+  "$repository_root/features/f25-legal-documents" \
+  "$repository_root/features/f26-cookie-consent-api" \
+  "$repository_root/features/f36-i18n" \
+  "$real_source_root/"
+write_dependency_stub "$real_source_root" auth-stub auth
+write_dependency_stub "$real_source_root" f10-stub f10-entitlements
+real_bundle_root="$temporary_directory/real-bundle"
+POSTQRON_BUILD_SERVER_FACTORIES=1 \
+  "$repository_root/scripts/runtime/bundle-features.sh" \
+  "$real_source_root" \
+  "$real_bundle_root"
+
+real_port=$((missing_port + 1))
+real_log="$temporary_directory/real.log"
+API_ADDR="127.0.0.1:$real_port" \
+DATABASE_URL="postgres://unused:unused@127.0.0.1:1/unused?sslmode=disable" \
+POSTQRON_FEATURE_ROOTS="$real_bundle_root" \
+  "$temporary_directory/api" >"$real_log" 2>&1 &
+api_pid=$!
+wait_for_api "$real_port" "$real_log"
+
+features_status=$(curl --silent --output "$temporary_directory/real-features.json" \
+  --write-out '%{http_code}' "http://127.0.0.1:$real_port/api/v1/features")
+if [[ "$features_status" != "200" ]] ||
+  ! grep -q '"id":"cookie-consent-api"' "$temporary_directory/real-features.json" ||
+  ! grep -q '"status":"active"' "$temporary_directory/real-features.json"; then
+  cat "$temporary_directory/real-features.json" >&2
+  echo "real bundled API did not activate cookie-consent-api" >&2
+  exit 1
+fi
+
+cookie_route_status=$(curl --silent --output "$temporary_directory/real-cookie.json" \
+  --write-out '%{http_code}' "http://127.0.0.1:$real_port/api/v1/cookie-preferences")
+if [[ "$cookie_route_status" == "404" ]]; then
+  cat "$temporary_directory/real-cookie.json" >&2
+  echo "real bundled cookie preference route returned 404" >&2
   exit 1
 fi
 stop_api

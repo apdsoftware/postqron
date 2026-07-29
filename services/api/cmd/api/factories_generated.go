@@ -7,6 +7,7 @@ import (
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
 	entitlements "github.com/apdsoftware/postqron/features/f10-entitlements"
+	cookieconsent "github.com/apdsoftware/postqron/features/f26-cookie-consent-api"
 	appshell "github.com/apdsoftware/postqron/features/f30-app-shell"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	accountprivacyruntime "github.com/apdsoftware/postqron/services/api/internal/accountprivacyruntime"
@@ -34,6 +35,9 @@ func registerFeatureFactories(registry *featurehost.Registry) error {
 		},
 		"app-shell": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return appshell.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+		"cookie-consent-api": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return cookieconsent.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
 		},
 	}
 	for featureID, factory := range factories {
