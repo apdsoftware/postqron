@@ -7,6 +7,10 @@ import {
   resolveAppShellApiBase,
   type AppFetch,
 } from '../components/core/api.ts'
+import {
+  buildAccountDeletionOwnershipActions,
+  type AccountArea,
+} from '../components/core/contracts.ts'
 
 const validSession = {
   account: {
@@ -94,6 +98,120 @@ test('HTTP status maps to safe route-guard categories without provider detail', 
   assert.equal(
     normalizeAppApiError({ status: 503 }).kind,
     'configuration',
+  )
+})
+
+test('account deletion sends an explicit delete action for every owned workspace', async () => {
+  const accountArea = {
+    profile: {
+      account_id: 'account-1',
+      display_name: 'Ada',
+      locale: 'en',
+      timezone: 'UTC',
+      updated_at: '2026-07-28T12:00:00.000Z',
+    },
+    providers: [],
+    workspaces: [
+      {
+        workspace: {
+          id: 'workspace-personal',
+          name: 'Ada',
+          role: 'owner',
+        },
+        plan: {
+          code: 'start',
+          limits: {},
+          manageable: false,
+          name: 'Start',
+          state: 'active',
+          usage: {},
+        },
+      },
+      {
+        workspace: {
+          id: 'workspace-member',
+          name: 'Shared',
+          role: 'member',
+        },
+        plan: {
+          code: 'team',
+          limits: {},
+          manageable: false,
+          name: 'Team',
+          state: 'active',
+          usage: {},
+        },
+      },
+      {
+        workspace: {
+          id: 'workspace-studio',
+          name: 'Studio',
+          role: 'owner',
+        },
+        plan: {
+          code: 'pro',
+          limits: {},
+          manageable: true,
+          name: 'Pro',
+          state: 'active',
+          usage: {},
+        },
+      },
+    ],
+  } satisfies AccountArea
+  const ownershipActions = buildAccountDeletionOwnershipActions(accountArea)
+  const calls: Array<{ path: string, options?: Readonly<Record<string, unknown>> }> = []
+  const fetch: AppFetch = async (path, options) => {
+    calls.push({ path, options })
+    if (path === '/api/v1/auth/csrf') {
+      return { csrf_token: 'csrf-token-1' }
+    }
+    return {
+      id: 'deletion-1',
+      account_id: 'account-1',
+      scope: 'account',
+      status: 'grace_period',
+      requested_at: '2026-07-28T12:00:00.000Z',
+      grace_ends_at: '2026-08-25T12:00:00.000Z',
+      ownership: {
+        actions: ownershipActions,
+      },
+    }
+  }
+  const api = new AppShellApi('https://api.postqron.test', fetch)
+
+  await api.requestDeletion({
+    scope: 'account',
+    ownershipActions,
+  })
+
+  assert.deepEqual(ownershipActions, [
+    {
+      workspace_id: 'workspace-personal',
+      action: 'delete',
+    },
+    {
+      workspace_id: 'workspace-studio',
+      action: 'delete',
+    },
+  ])
+  assert.deepEqual(calls[1]?.options?.body, {
+    scope: 'account',
+    workspace_id: undefined,
+    ownership_actions: ownershipActions,
+    confirmation: 'DELETE',
+  })
+  assert.throws(
+    () => buildAccountDeletionOwnershipActions(undefined),
+    /APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE/u,
+  )
+  assert.throws(
+    () => buildAccountDeletionOwnershipActions({
+      ...accountArea,
+      workspaces: accountArea.workspaces.filter(item =>
+        item.workspace.role === 'member'),
+    }),
+    /APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE/u,
   )
 })
 
@@ -246,6 +364,10 @@ test('authenticated mutations fetch a fresh CSRF token immediately before each r
       case '/api/v1/account/deletions/deletion-1':
       case '/api/v1/auth/sessions/revoke':
         return {}
+      case '/api/v1/account/deletion-cancel-capabilities':
+        return {
+          expires_at: '2026-08-26T12:00:00.000Z',
+        }
       case '/api/v1/auth/link':
         return { authorization_url: 'https://provider.example/link' }
       case '/api/v1/app/onboarding':
@@ -323,7 +445,8 @@ test('authenticated mutations fetch a fresh CSRF token immediately before each r
     scope: 'workspace',
     workspaceId: 'workspace-1',
   })
-  await api.cancelDeletion('deletion-1')
+  await api.issueAccountDeletionCancelCapability()
+  await api.cancelWorkspaceDeletion('deletion-1')
   await api.revokeSessions()
 
   const expectedMutationPaths = [
@@ -335,6 +458,7 @@ test('authenticated mutations fetch a fresh CSRF token immediately before each r
     '/api/v1/account/providers/provider-1',
     '/api/v1/account/exports',
     '/api/v1/account/deletions',
+    '/api/v1/account/deletion-cancel-capabilities',
     '/api/v1/account/deletions/deletion-1',
     '/api/v1/auth/sessions/revoke',
   ]
@@ -351,6 +475,93 @@ test('authenticated mutations fetch a fresh CSRF token immediately before each r
       `csrf-token-${index + 1}`,
     )
   }
+})
+
+test('account deletion cancellation uses only the HttpOnly capability cookie', async () => {
+  const calls: Array<{ path: string, options?: Readonly<Record<string, unknown>> }> = []
+  const fetch: AppFetch = async (path, options) => {
+    calls.push({ path, options })
+    if (path === '/api/v1/auth/csrf') {
+      return { csrf_token: 'csrf-token-1' }
+    }
+    if (path === '/api/v1/account/deletion-cancel-capabilities') {
+      return { expires_at: '2026-08-26T12:00:00.000Z' }
+    }
+    if (path === '/api/v1/account/deletions/deletion-1/cancel') {
+      return undefined
+    }
+    throw new Error(`Unexpected path: ${path}`)
+  }
+  const api = new AppShellApi('https://api.postqron.test', fetch)
+
+  assert.deepEqual(
+    await api.issueAccountDeletionCancelCapability(),
+    { expires_at: '2026-08-26T12:00:00.000Z' },
+  )
+  await api.cancelAccountDeletion('deletion-1')
+
+  assert.deepEqual(calls, [
+    {
+      path: '/api/v1/auth/csrf',
+      options: {
+        baseURL: 'https://api.postqron.test',
+        credentials: 'include',
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store',
+        },
+      },
+    },
+    {
+      path: '/api/v1/account/deletion-cancel-capabilities',
+      options: {
+        baseURL: 'https://api.postqron.test',
+        credentials: 'include',
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store',
+          'X-CSRF-Token': 'csrf-token-1',
+        },
+      },
+    },
+    {
+      path: '/api/v1/account/deletions/deletion-1/cancel',
+      options: {
+        baseURL: 'https://api.postqron.test',
+        credentials: 'include',
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store',
+        },
+      },
+    },
+  ])
+})
+
+test('account deletion capability response rejects any JavaScript-visible credential', async () => {
+  const api = new AppShellApi(
+    'https://api.postqron.test',
+    async (path) => {
+      if (path === '/api/v1/auth/csrf') {
+        return { csrf_token: 'csrf-token-1' }
+      }
+      return {
+        expires_at: '2026-08-26T12:00:00.000Z',
+        token: 'must-never-reach-javascript',
+      }
+    },
+  )
+
+  await assert.rejects(
+    () => api.issueAccountDeletionCancelCapability(),
+    (error: unknown) =>
+      error instanceof AppApiError
+      && error.kind === 'configuration'
+      && error.code === 'APP_INVALID_DELETION_CANCEL_CAPABILITY_PAYLOAD',
+  )
 })
 
 test('logout fetches the authenticated CSRF token immediately before the mutation', async () => {

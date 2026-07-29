@@ -115,12 +115,38 @@ export function appRoute(
   }
 }
 
+export function accountDeletionCancellationRoute(
+  locale: AppShellLocale,
+  requestId: string,
+): string {
+  const normalized = requestId.trim()
+  if (normalized === '' || normalized.length > 256) {
+    throw new AppNavigationError(
+      'APP_INVALID_DESTINATION',
+      'A valid account deletion request identifier is required',
+    )
+  }
+  return `${appRoot(locale)}/account-deletions/${encodeURIComponent(normalized)}/cancel`
+}
+
 function unlocalizedAppPath(pathname: string): string {
   const candidate = pathname.split('/')[1]
   if (APP_SHELL_LOCALES.includes(candidate as AppShellLocale)) {
     return `/${pathname.split('/').slice(2).join('/')}`.replace(/\/+$/u, '') || '/'
   }
   return pathname.replace(/\/+$/u, '') || '/'
+}
+
+export function isPublicAccountDeletionCancellationDestination(
+  value: string,
+): boolean {
+  try {
+    const parsed = parseLocal(value)
+    const path = unlocalizedAppPath(parsed.pathname)
+    return /^\/app\/account-deletions\/[^/]+\/cancel$/u.test(path)
+  } catch {
+    return false
+  }
 }
 
 export function parsePurchaseIntent(searchParams: URLSearchParams): PurchaseIntent {

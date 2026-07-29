@@ -4,7 +4,9 @@ import type { AppSession } from '../components/core/contracts.ts'
 import { routeGuardDecision } from '../components/core/guard.ts'
 import {
   AppNavigationError,
+  accountDeletionCancellationRoute,
   authenticatedDestination,
+  isPublicAccountDeletionCancellationDestination,
   sanitizeAppDestination,
 } from '../components/core/navigation.ts'
 
@@ -51,6 +53,23 @@ for (const prefix of localePrefixes) {
     )
     assert.deepEqual(
       routeGuardDecision({ destination: target, session }),
+      { action: 'allow' },
+    )
+  })
+
+  test(`keeps account deletion cancellation public in ${prefix || 'en'}`, () => {
+    const locale = prefix.slice(1) as 'en' | 'it' | 'es' | 'fr' | 'de'
+    const target = accountDeletionCancellationRoute(locale, 'deletion-219')
+    assert.equal(
+      target,
+      `${prefix}/app/account-deletions/deletion-219/cancel`,
+    )
+    assert.equal(
+      isPublicAccountDeletionCancellationDestination(target),
+      true,
+    )
+    assert.deepEqual(
+      routeGuardDecision({ destination: target, failure: 'session' }),
       { action: 'allow' },
     )
   })

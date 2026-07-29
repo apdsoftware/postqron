@@ -2,6 +2,7 @@ import type { AppApiErrorKind } from './api.ts'
 import type { AppSession } from './contracts.ts'
 import {
   appRoot,
+  isPublicAccountDeletionCancellationDestination,
   localeFromAppPath,
   onboardingDestination,
   safeAppDestination,
@@ -16,6 +17,9 @@ export function routeGuardDecision(input: {
   failure?: AppApiErrorKind
   session?: AppSession
 }): RouteGuardDecision {
+  if (isPublicAccountDeletionCancellationDestination(input.destination)) {
+    return { action: 'allow' }
+  }
   const locale = localeFromAppPath(input.destination)
   const destination = safeAppDestination(input.destination, locale)
   if (!input.session) {

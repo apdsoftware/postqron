@@ -7,11 +7,17 @@ import {
   routeGuardDecision,
 } from '../components/core/guard.ts'
 import {
+  isPublicAccountDeletionCancellationDestination,
+} from '../components/core/navigation.ts'
+import {
   useAppSessionState,
   useAppShellApi,
 } from '../components/core/use-app-shell.ts'
 
 export default defineNuxtRouteMiddleware(async (to) => {
+  if (isPublicAccountDeletionCancellationDestination(to.fullPath)) {
+    return
+  }
   try {
     const headers = import.meta.server
       ? useRequestHeaders(['cookie'])

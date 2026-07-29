@@ -2,34 +2,42 @@
 import {
   computed,
   definePageMeta,
+  navigateTo,
   ref,
   useAsyncData,
   useHead,
+  useRoute,
 } from '#imports'
 import {
+  useAccountDeletionCancellationState,
   appStateKindFromError,
   useAppAccountAreaState,
-  useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
 } from '../components/core/use-app-shell.ts'
-import type {
-  DeletionRequest,
-  ExportDownload,
-  ExportRequest,
+import {
+  accountDeletionCancellationRoute,
+  localeFromAppPath,
+} from '../components/core/navigation.ts'
+import {
+  buildAccountDeletionOwnershipActions,
+  type DeletionRequest,
+  type ExportDownload,
+  type ExportRequest,
 } from '../components/core/contracts.ts'
 
 definePageMeta({ layout: 'app-shell' })
 
 const api = useAppShellApi()
-const session = useAppSessionState()
+const route = useRoute()
 const accountArea = useAppAccountAreaState()
+const accountDeletion = useAccountDeletionCancellationState()
 const { t } = useAppShellI18n()
 const exportRequest = ref<ExportRequest>()
 const exportDownload = ref<ExportDownload>()
 const deletionRequest = ref<DeletionRequest>()
 const working = ref<'account-delete' | 'account-export' | 'cancel-delete' | 'workspace-delete' | 'workspace-export' | 'download'>()
-const feedback = ref<'error' | 'saved'>()
+const feedback = ref<'error' | 'ownership-unavailable' | 'saved'>()
 const pageState = ref<'access-denied' | 'offline'>()
 
 useHead(computed(() => ({
@@ -50,6 +58,9 @@ const { pending, refresh } = useAsyncData('postqron-account-privacy', async () =
 
 const ownerWorkspace = computed(() =>
   accountArea.value?.workspaces.find(item => item.workspace.role === 'owner'))
+const ownerWorkspaces = computed(() =>
+  accountArea.value?.workspaces.filter(item =>
+    item.workspace.role === 'owner') ?? [])
 
 function confirmAction(message: string): boolean {
   return import.meta.client ? globalThis.confirm(message) : true
@@ -89,8 +100,21 @@ async function fetchDownload() {
 }
 
 async function requestDeletion(scope: 'account' | 'workspace') {
+  let ownershipActions: DeletionRequest['ownership']['actions'] | undefined
+  if (scope === 'account') {
+    try {
+      ownershipActions = buildAccountDeletionOwnershipActions(accountArea.value)
+    } catch {
+      feedback.value = 'ownership-unavailable'
+      return
+    }
+  }
   const message = scope === 'account'
-    ? t('privacy.confirmAccountDeletion')
+    ? t('privacy.confirmAccountDeletion', {
+        workspaces: ownerWorkspaces.value
+          .map(item => `• ${item.workspace.name}`)
+          .join('\n'),
+      })
     : t('privacy.confirmWorkspaceDeletion', {
         workspace: ownerWorkspace.value?.workspace.name ?? '',
       })
@@ -100,10 +124,27 @@ async function requestDeletion(scope: 'account' | 'workspace') {
   working.value = scope === 'account' ? 'account-delete' : 'workspace-delete'
   feedback.value = undefined
   try {
-    deletionRequest.value = await api.requestDeletion({
+    if (scope === 'account') {
+      await api.issueAccountDeletionCancelCapability()
+    }
+    const deletion = await api.requestDeletion({
       scope,
       workspaceId: scope === 'workspace' ? ownerWorkspace.value?.workspace.id : undefined,
+      ownershipActions,
     })
+    if (scope === 'account') {
+      accountDeletion.value = {
+        requestId: deletion.id,
+        status: deletion.status,
+        graceEndsAt: deletion.grace_ends_at,
+      }
+      await navigateTo(accountDeletionCancellationRoute(
+        localeFromAppPath(route.fullPath),
+        deletion.id,
+      ))
+      return
+    }
+    deletionRequest.value = deletion
     feedback.value = 'saved'
   } catch {
     feedback.value = 'error'
@@ -119,7 +160,7 @@ async function cancelDeletion() {
   working.value = 'cancel-delete'
   feedback.value = undefined
   try {
-    await api.cancelDeletion(deletionRequest.value.id)
+    await api.cancelWorkspaceDeletion(deletionRequest.value.id)
     deletionRequest.value = undefined
     feedback.value = 'saved'
   } catch {
@@ -171,7 +212,21 @@ async function retry() {
       <article class="app-card">
         <span class="app-card__eyebrow">{{ t('privacy.deleteAccount') }}</span>
         <p>{{ t('privacy.deleteDescription') }}</p>
-        <button class="pq-button pq-button--secondary" type="button" :disabled="working === 'account-delete'" @click="requestDeletion('account')">
+        <p v-if="ownerWorkspaces.length">
+          {{ t('privacy.accountDeletionOwnedWorkspaces') }}
+        </p>
+        <ul v-if="ownerWorkspaces.length">
+          <li
+            v-for="item in ownerWorkspaces"
+            :key="item.workspace.id"
+          >
+            {{ item.workspace.name }}
+          </li>
+        </ul>
+        <p v-else class="app-inline-alert" role="alert">
+          {{ t('privacy.accountDeletionOwnershipUnavailable') }}
+        </p>
+        <button class="pq-button pq-button--secondary" type="button" :disabled="ownerWorkspaces.length === 0 || working === 'account-delete'" @click="requestDeletion('account')">
           {{ working === 'account-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
         </button>
       </article>
@@ -211,7 +266,13 @@ async function retry() {
       :data-success="feedback === 'saved'"
       role="status"
     >
-      {{ feedback === 'saved' ? t('privacy.saved') : t('privacy.error') }}
+      {{
+        feedback === 'saved'
+          ? t('privacy.saved')
+          : feedback === 'ownership-unavailable'
+            ? t('privacy.accountDeletionOwnershipUnavailable')
+            : t('privacy.error')
+      }}
     </p>
   </section>
 </template>

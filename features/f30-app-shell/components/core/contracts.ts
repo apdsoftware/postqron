@@ -139,6 +139,24 @@ export interface OwnershipAction {
   workspace_id: string
 }
 
+export function buildAccountDeletionOwnershipActions(
+  accountArea: AccountArea | undefined,
+): OwnershipAction[] {
+  if (!accountArea) {
+    throw new Error('APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE')
+  }
+  const actions = accountArea.workspaces
+    .filter(item => item.workspace.role === 'owner')
+    .map(item => ({
+      workspace_id: item.workspace.id,
+      action: 'delete' as const,
+    }))
+  if (actions.length === 0) {
+    throw new Error('APP_ACCOUNT_DELETION_OWNERSHIP_UNAVAILABLE')
+  }
+  return actions
+}
+
 export interface DeletionRequest {
   account_id: string
   grace_ends_at: string
@@ -150,6 +168,10 @@ export interface DeletionRequest {
   scope: DeletionScope
   status: DeletionStatus
   workspace_id?: string
+}
+
+export interface DeletionCancelCapability {
+  expires_at: string
 }
 
 export interface AppErrorPayload {
@@ -451,6 +473,22 @@ export function parseDeletionRequest(value: unknown): DeletionRequest {
         }
       }),
     },
+  }
+}
+
+export function parseDeletionCancelCapability(
+  value: unknown,
+): DeletionCancelCapability {
+  if (!isRecord(value)
+    || Object.keys(value).length !== 1
+    || typeof value.expires_at !== 'string') {
+    throw new Error('APP_INVALID_DELETION_CANCEL_CAPABILITY_PAYLOAD')
+  }
+  return {
+    expires_at: isoDateTime(
+      value.expires_at,
+      'APP_INVALID_DELETION_CANCEL_CAPABILITY_PAYLOAD',
+    ),
   }
 }
 
