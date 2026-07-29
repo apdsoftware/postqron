@@ -24,4 +24,10 @@ func TestWorkerDockerfileIncludesEmailBrandTokens(t *testing.T) {
 	) {
 		t.Fatal("worker Dockerfile must copy F3 go.mod for local replace resolution during go mod download")
 	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY services/api/go.mod services/api/go.sum services/api/",
+	) {
+		t.Fatal("worker Dockerfile must copy API go.mod so go.work resolution does not break image smoke builds")
+	}
 }

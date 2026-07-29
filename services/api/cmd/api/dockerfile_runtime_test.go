@@ -18,6 +18,12 @@ func TestAPIDockerfilePreservesCustomRuntimeFactories(t *testing.T) {
 	) {
 		t.Fatal("API Dockerfile must disable server factory regeneration when bundling features")
 	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY services/worker/go.mod services/worker/go.sum services/worker/",
+	) {
+		t.Fatal("API Dockerfile must copy worker go.mod so go.work resolution does not break image smoke builds")
+	}
 	if !strings.Contains(dockerfile, "COPY services/api/features ./foundation") {
 		t.Fatal("API Dockerfile must copy services adapters into the runtime foundation root")
 	}

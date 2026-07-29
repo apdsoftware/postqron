@@ -10,6 +10,7 @@ COPY features/f12-account-privacy/go.mod features/f12-account-privacy/go.sum fea
 COPY features/f14-email/go.mod features/f14-email/
 COPY features/f30-app-shell/go.mod features/f30-app-shell/
 COPY services/api/go.mod services/api/go.sum services/api/
+COPY services/worker/go.mod services/worker/go.sum services/worker/
 COPY features/f10-entitlements/go.mod features/f10-entitlements/go.sum features/f10-entitlements/
 RUN GOWORK=off go mod download -C services/api
 
