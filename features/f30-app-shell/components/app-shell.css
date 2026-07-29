@@ -250,6 +250,46 @@
   text-align: center;
 }
 
+.auth-verification h2 {
+  margin: 0;
+}
+
+.auth-verification p {
+  color: var(--pq-color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.auth-verification__actions,
+.email-verification__form,
+.email-verification__success-actions {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pq-space-4);
+}
+
+.email-verification__form,
+.email-verification__success-actions {
+  margin-top: var(--pq-space-6);
+}
+
+.email-verification__fields {
+  min-width: 0;
+}
+
+.auth-verification__actions .pq-button,
+.email-verification__form .pq-button,
+.email-verification__success-actions .pq-button {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+  white-space: normal;
+}
+
 .app-inline-alert {
   margin: 0 0 var(--pq-space-4);
   border: 1px solid var(--pq-color-danger);
