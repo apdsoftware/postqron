@@ -23,6 +23,16 @@ const (
 	authAllowedOriginsEnv  = "POSTQRON_AUTH_ALLOWED_ORIGINS"
 )
 
+var newEmailService = func(
+	database *sql.DB,
+	appDomain string,
+	clock func() time.Time,
+) (verificationMailer, error) {
+	return emailruntime.NewService(database, appDomain, clock)
+}
+
+var errEmailDeliveryUnavailable = errors.New("auth email delivery is unavailable")
+
 type Module struct {
 	database       *sql.DB
 	handler        http.Handler
@@ -78,9 +88,9 @@ func NewModule(
 	if err != nil {
 		return nil, err
 	}
-	emailService, err := emailruntime.NewService(database, appDomain, clock)
+	emailService, err := newEmailService(database, appDomain, clock)
 	if err != nil {
-		return nil, err
+		emailService = nil
 	}
 	handler, err := newHandler(
 		delegate,
@@ -257,6 +267,10 @@ func (handler *handler) register(writer http.ResponseWriter, request *http.Reque
 		writeRegistrationError(writer, err)
 		return
 	}
+	if err := handler.requireEmailDelivery(); err != nil {
+		writeRegistrationError(writer, err)
+		return
+	}
 	result, err := handler.registration.Register(
 		request.Context(),
 		input.Email,
@@ -292,6 +306,10 @@ func (handler *handler) resend(writer http.ResponseWriter, request *http.Request
 		writeRegistrationError(writer, err)
 		return
 	}
+	if err := handler.requireEmailDelivery(); err != nil {
+		writeRegistrationError(writer, err)
+		return
+	}
 	delivery, err := handler.registration.ResendVerification(request.Context(), input.Email)
 	if err != nil {
 		writeRegistrationError(writer, err)
@@ -306,6 +324,13 @@ func (handler *handler) resend(writer http.ResponseWriter, request *http.Request
 	writeJSON(writer, http.StatusAccepted, map[string]any{
 		"verification_requested": true,
 	})
+}
+
+func (handler *handler) requireEmailDelivery() error {
+	if handler.email == nil {
+		return errEmailDeliveryUnavailable
+	}
+	return nil
 }
 
 func registrationLocale(consents []auth.ConsentReceipt) string {
@@ -332,6 +357,14 @@ func decodeRequestJSON(writer http.ResponseWriter, request *http.Request, target
 
 func writeRegistrationError(writer http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, errEmailDeliveryUnavailable):
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{
+				"code":      "AUTH_EMAIL_DELIVERY_UNAVAILABLE",
+				"message":   "Email delivery is temporarily unavailable.",
+				"retryable": true,
+			},
+		})
 	case errors.Is(err, auth.ErrPasswordConfirmation), errors.Is(err, auth.ErrPasswordPolicy):
 		writePasswordOperationError(writer, err)
 	case errors.Is(err, auth.ErrVerificationInvalid):
