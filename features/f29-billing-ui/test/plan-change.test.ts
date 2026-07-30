@@ -307,6 +307,7 @@ test('plan copy is complete for EN/IT/ES/FR/DE and explains blocked cleanup with
   for (const copy of Object.values(BILLING_PLAN_CATALOGS)) {
     assert.deepEqual(Object.keys(copy).sort(), keys)
     assert.ok(Object.values(copy).every(Boolean))
+    assert.match(copy['overview.manage'], /portal|portale|portail/iu)
     assert.match(copy['blocked.values'], /\{used\}/u)
     assert.match(copy['blocked.values'], /\{limit\}/u)
     assert.match(copy['blocked.values'], /\{excess\}/u)
