@@ -55,8 +55,8 @@ test('the social channels page follows the accessible retryable page contract', 
   assert.match(page, /social\.reconnect\(workspaceId\.value/u)
   assert.match(page, /social\.revoke\(workspaceId\.value/u)
   // Fail-closed provider availability drives an explicit unavailable state.
-  assert.match(page, /provider\.status === 'available'/u)
-  assert.match(page, /social\.providerUnavailable/u)
+  assert.match(page, /catalogState\(provider\) === 'available'/u)
+  assert.match(page, /social\.catalogState\./u)
   // Accessible feedback: errors announce as alert, successes as status.
   assert.match(page, /:role="notice\.tone === 'success' \? 'status' : 'alert'"/u)
 })

@@ -29,6 +29,9 @@ export type SocialApiErrorKind =
   | 'quota-exceeded'
   | 'quota-unavailable'
   | 'provider-unavailable'
+  | 'provider-not-configured'
+  | 'provider-review-required'
+  | 'provider-audit-required'
   | 'provider-temporary'
   | 'provider-access-denied'
   | 'already-connected'
@@ -113,6 +116,9 @@ const kindByCode: Readonly<Record<string, SocialApiErrorKind>> = {
   channel_quota_exceeded: 'quota-exceeded',
   channel_quota_unavailable: 'quota-unavailable',
   provider_unavailable: 'provider-unavailable',
+  provider_not_configured: 'provider-not-configured',
+  provider_review_required: 'provider-review-required',
+  provider_audit_required: 'provider-audit-required',
   provider_temporary: 'provider-temporary',
   provider_access_denied: 'provider-access-denied',
   provider_resource_unavailable: 'not-found',

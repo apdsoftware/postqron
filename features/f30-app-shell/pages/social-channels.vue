@@ -2,6 +2,7 @@
 import {
   computed,
   definePageMeta,
+  nextTick,
   ref,
   useAsyncData,
   useHead,
@@ -20,9 +21,11 @@ import { normalizeSocialApiError } from '../components/core/social-api.ts'
 import type {
   SocialBootstrap,
   SocialConnection,
+  SocialProviderCatalogEntry,
   SocialProvider,
   SocialSelection,
 } from '../components/core/social-connections.ts'
+import { publishingModesForConnection } from '../components/core/social-connections.ts'
 import type { AppShellMessageKey } from '../components/core/catalogs.ts'
 
 definePageMeta({ layout: 'app-shell' })
@@ -47,6 +50,10 @@ const reconnecting = ref<string>()
 const revoking = ref<string>()
 const selecting = ref<string>()
 const callbackProcessed = ref(false)
+const catalogHeading = ref<{
+  focus(): void
+  scrollIntoView(options: { behavior: 'smooth', block: 'start' }): void
+}>()
 
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 
@@ -67,7 +74,12 @@ function socialErrorKey(error: unknown): AppShellMessageKey {
     case 'quota-unavailable':
       return 'social.errorQuotaUnavailable'
     case 'provider-unavailable':
+    case 'provider-not-configured':
       return 'social.errorProviderUnavailable'
+    case 'provider-review-required':
+      return 'social.errorProviderReview'
+    case 'provider-audit-required':
+      return 'social.errorProviderAudit'
     case 'provider-temporary':
       return 'social.errorProviderTemporary'
     case 'provider-access-denied':
@@ -158,6 +170,42 @@ function statusBadgeClass(status: SocialConnection['status']): string {
     return 'app-badge app-badge--warning'
   }
   return 'app-badge'
+}
+
+function catalogState(
+  provider: SocialProviderCatalogEntry,
+): 'available' | 'configuring' | 'unavailable' {
+  if (provider.status === 'available' && provider.configuration_state === 'ready') {
+    return 'available'
+  }
+  if (provider.configuration_state === 'review_required'
+    || provider.configuration_state === 'audit_required') {
+    return 'configuring'
+  }
+  return 'unavailable'
+}
+
+function connectionPublishingModes(connection: SocialConnection): string {
+  const activeBootstrap = bootstrap.value
+  if (!activeBootstrap) {
+    return t('social.publishingMode.unknown')
+  }
+  return publishingModesForConnection(activeBootstrap, connection)
+    .map(mode => t(`social.publishingMode.${mode}`))
+    .join(', ') || t('social.publishingMode.unknown')
+}
+
+function configurationMessage(provider: SocialProviderCatalogEntry): string {
+  if ((provider.provider === 'mastodon' || provider.provider === 'bluesky')
+    && catalogState(provider) !== 'available') {
+    return t('social.configuration.decentralized_blocked')
+  }
+  return t(`social.configuration.${provider.configuration_state}`)
+}
+
+function openCatalog() {
+  catalogHeading.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  void nextTick(() => catalogHeading.value?.focus())
 }
 
 async function connect(provider: SocialProvider) {
@@ -261,10 +309,22 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
     <p class="app-eyebrow">
       {{ t('social.eyebrow') }}
     </p>
-    <h1>{{ t('social.title') }}</h1>
-    <p class="app-page__lead">
-      {{ t('social.description') }}
-    </p>
+    <div class="app-page__title-row">
+      <div>
+        <h1>{{ t('social.title') }}</h1>
+        <p class="app-page__lead">
+          {{ t('social.description') }}
+        </p>
+      </div>
+      <button
+        class="pq-button"
+        type="button"
+        @click="openCatalog"
+      >
+        <span aria-hidden="true">＋</span>
+        {{ t('social.addChannel') }}
+      </button>
+    </div>
     <p class="app-inline-note">
       {{ t('social.scopeNote') }}
     </p>
@@ -350,6 +410,10 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
                 <template v-if="connection.handle">· @{{ connection.handle }}</template>
               </span>
               <span>
+                {{ t('social.publishingMode') }}:
+                {{ connectionPublishingModes(connection) }}
+              </span>
+              <span>
                 {{
                   connection.last_verified_at
                     ? t('social.lastVerified', {
@@ -394,38 +458,62 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
       <article class="app-card">
         <div class="app-card__header">
           <span class="app-card__eyebrow">{{ t('social.availabilityEyebrow') }}</span>
-          <h2>{{ t('social.availabilityTitle') }}</h2>
+          <h2
+            id="provider-catalog"
+            ref="catalogHeading"
+            tabindex="-1"
+          >
+            {{ t('social.availabilityTitle') }}
+          </h2>
         </div>
-        <ul class="app-provider-list">
+        <p>{{ t('social.catalogDescription') }}</p>
+        <ul class="app-provider-catalog">
           <li
-            v-for="provider in bootstrap?.providers ?? []"
+            v-for="provider in bootstrap?.catalog ?? []"
             :key="provider.provider"
           >
             <div class="app-provider-list__meta">
               <strong>{{ t(`social.provider.${provider.provider}`) }}</strong>
               <span>
+                {{ provider.resources.map(resource => t(`social.resource.${resource.resource_type}`)).join(' · ') }}
+              </span>
+              <span>
                 {{
-                  provider.status === 'available'
-                    ? t('social.connectHint')
-                    : t('social.providerUnavailableHint')
+                  provider.resources
+                    .flatMap(resource => resource.publishing_modes)
+                    .filter((mode, index, modes) => modes.indexOf(mode) === index)
+                    .map(mode => t(`social.publishingMode.${mode}`))
+                    .join(' · ')
                 }}
               </span>
             </div>
-            <button
-              v-if="provider.status === 'available'"
-              class="pq-button"
-              type="button"
-              :disabled="connecting === provider.provider"
-              @click="connect(provider.provider)"
-            >
-              {{ connecting === provider.provider ? t('social.connecting') : t('social.connect') }}
-            </button>
-            <span
-              v-else
-              class="app-badge app-badge--warning"
-            >
-              {{ t('social.providerUnavailable') }}
-            </span>
+            <div class="app-action-stack">
+              <span
+                :class="[
+                  'app-badge',
+                  catalogState(provider) === 'available'
+                    ? 'app-badge--success'
+                    : 'app-badge--warning',
+                ]"
+              >
+                {{ t(`social.catalogState.${catalogState(provider)}`) }}
+              </span>
+              <button
+                v-if="catalogState(provider) === 'available'"
+                class="pq-button"
+                type="button"
+                :disabled="connecting === provider.provider"
+                @click="connect(provider.provider)"
+              >
+                {{ connecting === provider.provider ? t('social.connecting') : t('social.connect') }}
+              </button>
+              <span
+                v-else
+                class="app-field__help"
+              >
+                {{ configurationMessage(provider) }}
+              </span>
+            </div>
           </li>
         </ul>
       </article>

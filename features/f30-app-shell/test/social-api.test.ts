@@ -6,6 +6,7 @@ import {
   SocialApiError,
   SocialConnectionsApi,
 } from '../components/core/social-api.ts'
+import { socialBootstrapFixture } from './fixtures.ts'
 
 const connection = {
   id: 'conn-1',
@@ -27,10 +28,7 @@ test('bootstrap and list hit the workspace-scoped F5 routes with credentials, no
   const fetch: AppFetch = async (path, options) => {
     calls.push({ path, options })
     if (path.endsWith('/bootstrap')) {
-      return { providers: [
-        { provider: 'facebook_pages', status: 'available', retryable: false },
-        { provider: 'instagram_professional', status: 'unavailable', retryable: false },
-      ] }
+      return socialBootstrapFixture()
     }
     return { connections: [connection] }
   }

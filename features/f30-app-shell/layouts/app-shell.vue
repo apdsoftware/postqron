@@ -33,9 +33,11 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
 
 const links = computed(() => [
   { key: 'home', href: appRoute(locale.value, 'home') },
+  { key: 'publish', href: appRoute(locale.value, 'publish') },
+  { key: 'calendar', href: appRoute(locale.value, 'calendar') },
+  { key: 'social', href: appRoute(locale.value, 'social-channels') },
   { key: 'profile', href: appRoute(locale.value, 'profile') },
   { key: 'security', href: appRoute(locale.value, 'security') },
-  { key: 'social', href: appRoute(locale.value, 'social-channels') },
   { key: 'plan', href: appRoute(locale.value, 'plan') },
   { key: 'workspace', href: appRoute(locale.value, 'workspace') },
   { key: 'privacy', href: appRoute(locale.value, 'privacy') },
@@ -118,6 +120,15 @@ async function logout() {
         </button>
       </div>
 
+      <NuxtLink
+        class="product-sidebar__primary"
+        :to="appRoute(locale, 'publish')"
+        @click="menuOpen = false"
+      >
+        <span aria-hidden="true">＋</span>
+        {{ t('shell.newPost') }}
+      </NuxtLink>
+
       <nav :aria-label="t('shell.navigation')">
         <NuxtLink
           v-for="link in links"
@@ -172,6 +183,13 @@ async function logout() {
           class="product-topbar__actions"
           data-postqron-slot="workspace-actions"
         >
+          <NuxtLink
+            class="pq-button product-topbar__primary"
+            :to="appRoute(locale, 'publish')"
+          >
+            <span aria-hidden="true">＋</span>
+            {{ t('shell.newPost') }}
+          </NuxtLink>
           <PostqronLanguageSwitcher />
         </div>
 

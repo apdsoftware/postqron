@@ -12,6 +12,10 @@ import {
   type AppFetch,
 } from './api.ts'
 import { SocialConnectionsApi } from './social-api.ts'
+import {
+  ComposerApi,
+  SchedulingApi,
+} from './editorial-api.ts'
 import type {
   AccountArea,
   AppBootstrap,
@@ -94,6 +98,24 @@ export function useSocialConnectionsApi(): SocialConnectionsApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()
   return new SocialConnectionsApi(
+    resolveAppShellApiBase(config, import.meta.server),
+    requestFetch as unknown as AppFetch,
+  )
+}
+
+export function useComposerApi(): ComposerApi {
+  const config = useRuntimeConfig()
+  const requestFetch = useRequestFetch()
+  return new ComposerApi(
+    resolveAppShellApiBase(config, import.meta.server),
+    requestFetch as unknown as AppFetch,
+  )
+}
+
+export function useSchedulingApi(): SchedulingApi {
+  const config = useRuntimeConfig()
+  const requestFetch = useRequestFetch()
+  return new SchedulingApi(
     resolveAppShellApiBase(config, import.meta.server),
     requestFetch as unknown as AppFetch,
   )

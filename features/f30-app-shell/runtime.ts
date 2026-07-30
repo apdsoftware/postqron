@@ -24,6 +24,6 @@ export default defineNuxtPlugin((nuxtApp) => {
 
   nuxtApp.provide('postqronAppShell', Object.freeze({
     slots: APP_SHELL_SLOTS,
-    version: '0.1.0',
+    version: '0.2.0',
   }))
 })
