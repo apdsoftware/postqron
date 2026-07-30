@@ -8,16 +8,34 @@ import (
 	"strings"
 	"time"
 
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Service is intentionally only F8 wiring. Issue #329 owns the F5 credential
-// boundary and official publishing adapters; until it lands, registry remains
-// empty and every provider resolution fails closed.
 type Service struct {
 	engine *publishing.Engine
 	pool   *pgxpool.Pool
+}
+
+type ProviderGate struct {
+	Configured     bool
+	ReviewApproved bool
+	AuditVerified  bool
+	QuotaVerified  bool
+}
+
+func (gate ProviderGate) ready() bool {
+	return gate.Configured && gate.ReviewApproved &&
+		gate.AuditVerified && gate.QuotaVerified
+}
+
+type VideoAdapterDependencies struct {
+	Executor *socialconnections.AuthenticatedExecutor
+	Media    videopublishing.MediaSource
+	TikTok   ProviderGate
+	YouTube  ProviderGate
 }
 
 func New(
@@ -25,6 +43,7 @@ func New(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -41,7 +60,11 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	registry := newRuntimeAdapterRegistry()
+	registry, err := newRuntimeAdapterRegistry(videoDependencies...)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	engine, err := publishing.NewEngine(
 		store,
 		postgresCommandGate{database: database},
@@ -63,9 +86,40 @@ func New(
 	return &Service{engine: engine, pool: pool}, nil
 }
 
-func newRuntimeAdapterRegistry() *publishing.AdapterRegistry {
-	// Deliberately empty until the credential/adapter contract in #329 lands.
-	return publishing.NewAdapterRegistry()
+func newRuntimeAdapterRegistry(
+	dependencies ...VideoAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	if len(dependencies) == 0 {
+		return registry, nil
+	}
+	if len(dependencies) != 1 {
+		return nil, errors.New("video adapter dependencies must be supplied once")
+	}
+	config := dependencies[0]
+	if config.TikTok.ready() {
+		adapter, err := videopublishing.NewTikTok(config.Executor)
+		if err != nil {
+			return nil, fmt.Errorf("configure TikTok publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderTikTok), adapter,
+		); err != nil {
+			return nil, err
+		}
+	}
+	if config.YouTube.ready() {
+		adapter, err := videopublishing.NewYouTube(config.Executor, config.Media)
+		if err != nil {
+			return nil, fmt.Errorf("configure YouTube publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderYouTube), adapter,
+		); err != nil {
+			return nil, err
+		}
+	}
+	return registry, nil
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {

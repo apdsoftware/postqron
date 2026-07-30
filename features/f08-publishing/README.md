@@ -44,11 +44,19 @@ injects implementations of:
 
 The immutable destination payload is prepared from a validated F6 revision.
 
-The default runtime registry is deliberately empty and fail-closed. Issue
-[#329](https://github.com/apdsoftware/postqron/issues/329) owns the F5→F8
-credential boundary and official publishing adapters for the D2 matrix. Until
-that dependency lands, F8 provides the durable engine and adapter contract but
-does not claim that any social provider is runtime-publishable.
+The runtime contains official TikTok Direct Post and YouTube Shorts adapters.
+They call providers only through F5 `AuthenticatedExecutor`, with an explicit
+`ExpectedProvider` on every request. Registration remains fail-closed unless
+configuration, provider review, runtime audit, and quota verification gates
+are all true. The default registry therefore remains empty.
+
+TikTok checkpoints creator capability discovery, Direct Post initialization,
+and asynchronous status. It uses a verified, immutable HTTPS pull URL so the
+upload capability URL never crosses the F5 boundary. YouTube checkpoints
+channel capability, a local `multipart/related` upload through F5, and
+asynchronous processing. If either provider loses the response that would
+first reveal its remote identifier, reconciliation returns unknown and never
+blindly repeats the create/upload request.
 
 ## Verification
 

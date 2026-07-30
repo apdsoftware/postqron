@@ -9,7 +9,10 @@ import (
 )
 
 func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
-	registry := newRuntimeAdapterRegistry()
+	registry, err := newRuntimeAdapterRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := registry.ResolvePublisher(
 		context.Background(),
 		"facebook_pages",
@@ -21,5 +24,28 @@ func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
 		"instagram_personal",
 	); !errors.Is(err, publishing.ErrProviderUnavailable) {
 		t.Fatalf("notification publisher resolution error=%v", err)
+	}
+}
+
+func TestVideoAdapterRegistrationFailsClosedWithoutEveryGate(t *testing.T) {
+	registry, err := newRuntimeAdapterRegistry(VideoAdapterDependencies{
+		TikTok: ProviderGate{
+			Configured: true, ReviewApproved: true,
+			AuditVerified: true, QuotaVerified: false,
+		},
+		YouTube: ProviderGate{
+			Configured: true, ReviewApproved: false,
+			AuditVerified: true, QuotaVerified: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"tiktok", "youtube"} {
+		if _, err := registry.ResolvePublisher(
+			context.Background(), provider,
+		); !errors.Is(err, publishing.ErrProviderUnavailable) {
+			t.Fatalf("%s resolution error=%v", provider, err)
+		}
 	}
 }
