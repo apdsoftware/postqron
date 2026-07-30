@@ -19,13 +19,21 @@ type Repository interface {
 	Create(context.Context, Draft) (Draft, error)
 	Get(context.Context, string, string) (Draft, error)
 	List(context.Context, string) ([]Draft, error)
-	Update(context.Context, Draft, int64) (Draft, error)
+	Update(context.Context, Draft, int64, string) (Draft, error)
 	Delete(context.Context, string, string, int64) error
+	ListRevisions(context.Context, string, string) ([]DraftRevision, error)
+}
+
+type MediaResolver interface {
+	Canonicalize(context.Context, string, string, []Media) ([]Media, error)
+	Attach(context.Context, string, string, []string) error
 }
 
 type Service struct {
 	repository Repository
 	authorizer ContentAuthorizer
+	catalog    CapabilityCatalog
+	media      MediaResolver
 	now        func() time.Time
 	random     func([]byte) error
 }
@@ -55,6 +63,7 @@ func NewService(
 	service := &Service{
 		repository: repository,
 		authorizer: authorizer,
+		catalog:    BlockedCapabilityCatalog(),
 		now:        time.Now,
 		random: func(destination []byte) error {
 			_, err := rand.Read(destination)
@@ -67,6 +76,18 @@ func NewService(
 	return service, nil
 }
 
+func WithCapabilityCatalog(catalog CapabilityCatalog) ServiceOption {
+	return func(service *Service) {
+		service.catalog = cloneCatalog(catalog)
+	}
+}
+
+func WithMediaResolver(resolver MediaResolver) ServiceOption {
+	return func(service *Service) {
+		service.media = resolver
+	}
+}
+
 func (service *Service) CreateDraft(
 	ctx context.Context,
 	command CreateDraftCommand,
@@ -75,6 +96,15 @@ func (service *Service) CreateDraft(
 		return DraftView{}, err
 	}
 	content, err := normalizeContent(command.Content)
+	if err != nil {
+		return DraftView{}, err
+	}
+	content, err = service.canonicalizeMedia(
+		ctx,
+		command.WorkspaceID,
+		command.ActorID,
+		content,
+	)
 	if err != nil {
 		return DraftView{}, err
 	}
@@ -95,7 +125,10 @@ func (service *Service) CreateDraft(
 	if err != nil {
 		return DraftView{}, err
 	}
-	return viewOf(draft), nil
+	if err := service.attachMedia(ctx, draft); err != nil {
+		return DraftView{}, err
+	}
+	return service.viewOf(draft), nil
 }
 
 func (service *Service) GetDraft(
@@ -112,7 +145,7 @@ func (service *Service) GetDraft(
 	if err != nil {
 		return DraftView{}, err
 	}
-	return viewOf(draft), nil
+	return service.viewOf(draft), nil
 }
 
 func (service *Service) ListDrafts(
@@ -128,7 +161,7 @@ func (service *Service) ListDrafts(
 	}
 	views := make([]DraftView, len(drafts))
 	for index := range drafts {
-		views[index] = viewOf(drafts[index])
+		views[index] = service.viewOf(drafts[index])
 	}
 	return views, nil
 }
@@ -147,17 +180,34 @@ func (service *Service) UpdateDraft(
 	if err != nil {
 		return DraftView{}, err
 	}
+	content, err = service.canonicalizeMedia(
+		ctx,
+		command.WorkspaceID,
+		command.ActorID,
+		content,
+	)
+	if err != nil {
+		return DraftView{}, err
+	}
 	current, err := service.repository.Get(ctx, command.WorkspaceID, command.DraftID)
 	if err != nil {
 		return DraftView{}, err
 	}
 	current.Content = content
 	current.UpdatedAt = service.now().UTC()
-	draft, err := service.repository.Update(ctx, current, command.ExpectedRevision)
+	draft, err := service.repository.Update(
+		ctx,
+		current,
+		command.ExpectedRevision,
+		strings.TrimSpace(command.AutosaveKey),
+	)
 	if err != nil {
 		return DraftView{}, err
 	}
-	return viewOf(draft), nil
+	if err := service.attachMedia(ctx, draft); err != nil {
+		return DraftView{}, err
+	}
+	return service.viewOf(draft), nil
 }
 
 func (service *Service) DeleteDraft(
@@ -172,6 +222,29 @@ func (service *Service) DeleteDraft(
 		return fmt.Errorf("%w: draft id and positive revision are required", ErrInvalidArgument)
 	}
 	return service.repository.Delete(ctx, workspaceID, draftID, expectedRevision)
+}
+
+func (service *Service) ListDraftRevisions(
+	ctx context.Context,
+	workspaceID, actorID, draftID string,
+) ([]DraftRevision, error) {
+	if err := service.authorize(ctx, workspaceID, actorID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(draftID) == "" {
+		return nil, fmt.Errorf("%w: draft id is required", ErrInvalidArgument)
+	}
+	return service.repository.ListRevisions(ctx, workspaceID, draftID)
+}
+
+func (service *Service) CapabilityCatalog(
+	ctx context.Context,
+	workspaceID, actorID string,
+) (CapabilityCatalog, error) {
+	if err := service.authorize(ctx, workspaceID, actorID); err != nil {
+		return CapabilityCatalog{}, err
+	}
+	return cloneCatalog(service.catalog), nil
 }
 
 func (service *Service) ValidateForScheduling(
@@ -219,25 +292,17 @@ func (service *Service) randomID() (string, error) {
 func normalizeContent(content DraftContent) (DraftContent, error) {
 	content = cloneContent(content)
 	content.Text = norm.NFC.String(content.Text)
+	content.Link = strings.TrimSpace(content.Link)
 	mediaIDs := make(map[string]struct{}, len(content.Media))
 	for index := range content.Media {
 		media := &content.Media[index]
 		media.ID = strings.TrimSpace(media.ID)
-		media.StorageKey = strings.TrimSpace(media.StorageKey)
 		if media.ID == "" {
 			return DraftContent{}, invalidField(
 				fmt.Sprintf("media[%d].id", index),
 				"required",
 				"media_id_required",
 				"Media id is required.",
-			)
-		}
-		if media.StorageKey == "" {
-			return DraftContent{}, invalidField(
-				fmt.Sprintf("media[%d].storage_key", index),
-				"required",
-				"media_storage_key_required",
-				"Media storage key is required.",
 			)
 		}
 		if _, duplicate := mediaIDs[media.ID]; duplicate {
@@ -255,6 +320,7 @@ func normalizeContent(content DraftContent) (DraftContent, error) {
 		destination := &content.Destinations[index]
 		destination.ID = strings.TrimSpace(destination.ID)
 		destination.ChannelID = strings.TrimSpace(destination.ChannelID)
+		destination.CapabilityID = strings.TrimSpace(destination.CapabilityID)
 		if destination.ID == "" {
 			return DraftContent{}, invalidField(
 				fmt.Sprintf("destinations[%d].id", index),
@@ -271,6 +337,14 @@ func normalizeContent(content DraftContent) (DraftContent, error) {
 				"Destination channel id is required.",
 			)
 		}
+		if destination.CapabilityID == "" {
+			return DraftContent{}, invalidField(
+				fmt.Sprintf("destinations[%d].capability_id", index),
+				"required",
+				"capability_id_required",
+				"Destination capability id is required.",
+			)
+		}
 		if _, duplicate := destinationIDs[destination.ID]; duplicate {
 			return DraftContent{}, invalidField(
 				fmt.Sprintf("destinations[%d].id", index),
@@ -283,6 +357,29 @@ func normalizeContent(content DraftContent) (DraftContent, error) {
 		if destination.TextOverride != nil {
 			normalized := norm.NFC.String(*destination.TextOverride)
 			destination.TextOverride = &normalized
+		}
+		if destination.LinkOverride != nil {
+			normalized := strings.TrimSpace(*destination.LinkOverride)
+			destination.LinkOverride = &normalized
+		}
+		for key, value := range destination.Fields {
+			normalizedKey := strings.TrimSpace(key)
+			if normalizedKey == "" || normalizedKey != key {
+				return DraftContent{}, invalidField(
+					fmt.Sprintf("destinations[%d].fields", index),
+					"stable_non_empty_keys",
+					"destination_field_name_invalid",
+					"Destination field names must be non-empty and already normalized.",
+				)
+			}
+			destination.Fields[key] = norm.NFC.String(value)
+		}
+	}
+	for index := range content.Thread {
+		content.Thread[index].Text = norm.NFC.String(content.Thread[index].Text)
+		for mediaIndex := range content.Thread[index].MediaIDs {
+			content.Thread[index].MediaIDs[mediaIndex] =
+				strings.TrimSpace(content.Thread[index].MediaIDs[mediaIndex])
 		}
 	}
 	return content, nil
@@ -297,12 +394,44 @@ func invalidField(field, rule, code, message string) error {
 	}
 }
 
-func viewOf(draft Draft) DraftView {
+func (service *Service) viewOf(draft Draft) DraftView {
 	draft = cloneDraft(draft)
 	return DraftView{
 		Draft:      draft,
-		Validation: Validate(draft.Content),
+		Validation: Validate(draft.Content, service.catalog),
 	}
+}
+
+func (service *Service) canonicalizeMedia(
+	ctx context.Context,
+	workspaceID, actorID string,
+	content DraftContent,
+) (DraftContent, error) {
+	if len(content.Media) == 0 || service.media == nil {
+		return content, nil
+	}
+	canonical, err := service.media.Canonicalize(
+		ctx,
+		workspaceID,
+		actorID,
+		content.Media,
+	)
+	if err != nil {
+		return DraftContent{}, err
+	}
+	content.Media = canonical
+	return content, nil
+}
+
+func (service *Service) attachMedia(ctx context.Context, draft Draft) error {
+	if service.media == nil || len(draft.Content.Media) == 0 {
+		return nil
+	}
+	ids := make([]string, len(draft.Content.Media))
+	for index, media := range draft.Content.Media {
+		ids[index] = media.ID
+	}
+	return service.media.Attach(ctx, draft.WorkspaceID, draft.ID, ids)
 }
 
 func cloneDraft(draft Draft) Draft {
@@ -313,6 +442,11 @@ func cloneDraft(draft Draft) Draft {
 func cloneContent(content DraftContent) DraftContent {
 	copyOfContent := content
 	copyOfContent.Media = append([]Media{}, content.Media...)
+	copyOfContent.Thread = make([]ThreadItem, len(content.Thread))
+	for index, item := range content.Thread {
+		copyOfContent.Thread[index] = item
+		copyOfContent.Thread[index].MediaIDs = append([]string{}, item.MediaIDs...)
+	}
 	copyOfContent.Destinations = make([]Destination, len(content.Destinations))
 	for index, destination := range content.Destinations {
 		copyOfContent.Destinations[index] = destination
@@ -323,6 +457,21 @@ func cloneContent(content DraftContent) DraftContent {
 		if destination.MediaIDs != nil {
 			mediaIDs := append([]string(nil), (*destination.MediaIDs)...)
 			copyOfContent.Destinations[index].MediaIDs = &mediaIDs
+		}
+		if destination.ThreadOverride != nil {
+			thread := make([]ThreadItem, len(*destination.ThreadOverride))
+			for threadIndex, item := range *destination.ThreadOverride {
+				thread[threadIndex] = item
+				thread[threadIndex].MediaIDs = append([]string{}, item.MediaIDs...)
+			}
+			copyOfContent.Destinations[index].ThreadOverride = &thread
+		}
+		if destination.Fields != nil {
+			fields := make(map[string]string, len(destination.Fields))
+			for key, value := range destination.Fields {
+				fields[key] = value
+			}
+			copyOfContent.Destinations[index].Fields = fields
 		}
 	}
 	return copyOfContent

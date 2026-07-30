@@ -1,177 +1,182 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import type { DraftContent, Media } from '../client/contracts.ts'
+import type {
+  CapabilityCatalog,
+  ComposerFormat,
+  Destination,
+  DraftContent,
+  Media,
+} from '../client/contracts.ts'
 import { validateDraft } from '../client/validation.ts'
 
-function image(id: string, contentType = 'image/jpeg'): Media {
-  return {
-    id,
-    storage_key: `workspace/media/${id}`,
-    kind: 'image',
-    content_type: contentType,
-    size_bytes: 2 * 1024 * 1024,
-    width: 1080,
-    height: 1080,
-    color_space: 'sRGB',
-  }
-}
+const catalog = JSON.parse(
+  readFileSync(new URL('./fixtures/capabilities.json', import.meta.url), 'utf8'),
+) as CapabilityCatalog
 
-test('returns a validation outcome for every destination', () => {
-  const content: DraftContent = {
-    text: 'Shared image',
-    media: [image('shared', 'image/png')],
-    destinations: [
-      {
-        id: 'facebook',
-        channel_id: 'page-1',
-        channel_type: 'facebook_page',
-        format: 'image',
-      },
-      {
-        id: 'instagram',
-        channel_id: 'ig-1',
-        channel_type: 'instagram_professional',
-        format: 'image',
-      },
-    ],
-  }
-
-  const report = validateDraft(content)
-
-  assert.equal(report.valid, false)
-  assert.equal(report.destinations.length, 2)
-  assert.equal(report.destinations[0]?.valid, true)
-  assert.equal(report.destinations[1]?.valid, false)
-  assert.ok(
-    report.destinations[1]?.errors.some(
-      (error) =>
-        error.field === 'media[0].content_type' &&
-        error.rule === 'allowed_image_type' &&
-        error.code === 'image_type_invalid',
-    ),
-  )
-})
-
-test('supports per-destination text and media overrides', () => {
-  const content: DraftContent = {
-    text: 'Facebook',
-    media: [image('facebook', 'image/png'), image('instagram')],
-    destinations: [
-      {
-        id: 'facebook',
-        channel_id: 'page-1',
-        channel_type: 'facebook_page',
-        format: 'image',
-        media_ids: ['facebook'],
-      },
-      {
-        id: 'instagram',
-        channel_id: 'ig-1',
-        channel_type: 'instagram_professional',
-        format: 'image',
-        text_override: 'Instagram',
-        media_ids: ['instagram'],
-      },
-    ],
-  }
-
-  assert.equal(validateDraft(content).valid, true)
-})
-
-test('counts normalized Unicode code points and exposes field/rule errors', () => {
-  const content: DraftContent = {
-    text: 'e\u0301'.repeat(2201),
-    media: [image('instagram')],
-    destinations: [
-      {
-        id: 'instagram',
-        channel_id: 'ig-1',
-        channel_type: 'instagram_professional',
-        format: 'image',
-      },
-    ],
-  }
-
-  const report = validateDraft(content)
-
-  assert.equal(report.valid, false)
-  assert.deepEqual(
-    report.destinations[0]?.errors.map(({ field, rule, code }) => ({
-      field,
-      rule,
-      code,
-    })),
-    [
-      {
-        field: 'text',
-        rule: 'maximum_code_points',
-        code: 'text_too_long',
-      },
-    ],
-  )
-})
-
-test('blocks unsupported Instagram text posts and private links', () => {
-  const instagram = validateDraft({
-    text: 'Text only',
-    media: [],
-    destinations: [
-      {
-        id: 'instagram',
-        channel_id: 'ig-1',
-        channel_type: 'instagram_professional',
-        format: 'text',
-      },
-    ],
+test('browser validator covers every provider-agnostic capability family', () => {
+  const imageOne = validImage('image-1')
+  const imageTwo = validImage('image-2')
+  const video = validVideo('video-1')
+  const cases: DraftContent[] = [
+    content({ text: 'text', destinations: [destination('text')] }),
+    content({
+      text: 'link',
+      link: 'https://example.com/post',
+      destinations: [destination('link')],
+    }),
+    content({
+      text: 'image',
+      media: [imageOne],
+      destinations: [destination('image')],
+    }),
+    content({
+      text: 'carousel',
+      media: [imageOne, imageTwo],
+      destinations: [destination('carousel')],
+    }),
+    content({
+      text: 'video',
+      media: [video],
+      destinations: [
+        { ...destination('video'), fields: { visibility: 'public' } },
+      ],
+    }),
+    content({
+      text: 'short',
+      media: [video],
+      destinations: [destination('short_video')],
+    }),
+    content({
+      thread: [
+        { text: 'one', media_ids: [] },
+        { text: 'two', media_ids: [] },
+      ],
+      destinations: [destination('thread')],
+    }),
+  ]
+  cases.forEach((candidate) => {
+    const report = validateDraft(candidate, catalog)
+    assert.equal(report.valid, true, JSON.stringify(report))
+    assert.equal(report.capability_version, catalog.version)
   })
-  assert.ok(
-    instagram.destinations[0]?.errors.some(
-      (error) => error.code === 'format_unsupported',
-    ),
-  )
+})
 
-  const facebook = validateDraft({
-    text: 'https://127.0.0.1/private',
-    media: [],
-    destinations: [
-      {
-        id: 'facebook',
-        channel_id: 'page-1',
-        channel_type: 'facebook_page',
-        format: 'text',
-      },
-    ],
-  })
+test('browser validation fails closed and returns actionable per-destination errors', () => {
+  const report = validateDraft(
+    content({
+      text: 'content',
+      destinations: [
+        {
+          id: 'unknown',
+          channel_id: 'channel',
+          channel_type: 'unknown',
+          capability_id: 'missing',
+          format: 'text',
+        },
+      ],
+    }),
+    catalog,
+  )
+  assert.equal(report.valid, false)
+  const error = report.destinations[0]?.errors[0]
+  assert.equal(error?.code, 'capability_unknown')
+  assert.notEqual(error?.field, '')
+  assert.notEqual(error?.rule, '')
+  assert.notEqual(error?.remedy, '')
+})
+
+test('browser validation enforces safe links and D2-defined custom fields', () => {
+  const unsafeLink = validateDraft(
+    content({
+      link: 'https://192.168.1.20/private',
+      destinations: [destination('link')],
+    }),
+    catalog,
+  )
   assert.ok(
-    facebook.destinations[0]?.errors.some(
+    unsafeLink.destinations[0]?.errors.some(
       (error) => error.code === 'url_host_not_public',
     ),
   )
+
+  const fields = validateDraft(
+    content({
+      media: [validVideo('video')],
+      destinations: [
+        {
+          ...destination('video'),
+          fields: { visibility: 'friends', undeclared: 'value' },
+        },
+      ],
+    }),
+    catalog,
+  )
+  const codes = fields.destinations[0]?.errors.map((error) => error.code) ?? []
+  assert.ok(codes.includes('destination_field_invalid'))
+  assert.ok(codes.includes('destination_field_unknown'))
 })
 
-test('reports structural fields and rules before the server request', () => {
-  const duplicate = image('same')
-  const report = validateDraft({
+test('browser validation preserves NFC code point parity with the server', () => {
+  const report = validateDraft(
+    content({
+      text: 'e\u0301'.repeat(280),
+      destinations: [destination('text')],
+    }),
+    catalog,
+  )
+  assert.equal(report.valid, true, JSON.stringify(report))
+})
+
+function content(overrides: Partial<DraftContent>): DraftContent {
+  return {
     text: '',
-    media: [duplicate, { ...duplicate, storage_key: '' }],
+    link: '',
+    media: [],
+    thread: [],
     destinations: [],
-  })
+    ...overrides,
+  }
+}
 
-  assert.ok(
-    report.errors.some(
-      (error) =>
-        error.field === 'media[1].id' &&
-        error.rule === 'unique' &&
-        error.code === 'media_id_duplicate',
-    ),
-  )
-  assert.ok(
-    report.errors.some(
-      (error) =>
-        error.field === 'media[1].storage_key' &&
-        error.rule === 'required' &&
-        error.code === 'media_storage_key_required',
-    ),
-  )
-})
+function destination(family: ComposerFormat): Destination {
+  const channelFamily = family === 'short_video' ? 'short' : family
+  return {
+    id: `destination-${family}`,
+    channel_id: `channel-${family}`,
+    channel_type: `fixture_${channelFamily}_channel`,
+    capability_id: `fixture:${family}`,
+    format: family,
+  }
+}
+
+function validImage(id: string): Media {
+  return {
+    id,
+    kind: 'image',
+    content_type: 'image/jpeg',
+    size_bytes: 2 * 1024 * 1024,
+    width: 1080,
+    height: 1080,
+    inspection_status: 'ready',
+    url: `/api/v1/media/${id}`,
+  }
+}
+
+function validVideo(id: string): Media {
+  return {
+    id,
+    kind: 'video',
+    content_type: 'video/mp4',
+    size_bytes: 20 * 1024 * 1024,
+    width: 1080,
+    height: 1920,
+    video_codec: 'h264',
+    audio_codec: 'aac',
+    duration_seconds: 30,
+    has_audio: true,
+    inspection_status: 'ready',
+    url: `/api/v1/media/${id}`,
+  }
+}

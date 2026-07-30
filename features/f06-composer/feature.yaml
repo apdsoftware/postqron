@@ -1,9 +1,87 @@
 schema_version: 1
 id: f06-composer
 kind: api
-version: 0.1.0
-entrypoint: ./composer.go
+version: 0.2.0
+entrypoints:
+  server: ./module.go
 dependencies:
+  - auth
+  - workspaces
   - platform
 migrations:
   - ./migrations/000001_create_composer_drafts.sql
+  - ./migrations/000002_runtime_media_and_revisions.sql
+server:
+  routes:
+    - path: /workspaces/{workspace_id}/composer/capabilities
+      handler: ComposerRuntime
+      methods: [GET]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/composer/capabilities
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/drafts
+      handler: ComposerRuntime
+      methods: [GET, POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/drafts
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/drafts/{draft_id}
+      handler: ComposerRuntime
+      methods: [GET, PUT, PATCH, DELETE]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/drafts/{draft_id}
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/drafts/{draft_id}/validate
+      handler: ComposerRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/drafts/{draft_id}/validate
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/drafts/{draft_id}/revisions
+      handler: ComposerRuntime
+      methods: [GET]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/drafts/{draft_id}/revisions
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/composer/media
+      handler: ComposerRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/composer/media
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/composer/media/{media_id}
+      handler: ComposerRuntime
+      methods: [GET, DELETE]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/composer/media/{media_id}
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/composer/media/{media_id}/complete
+      handler: ComposerRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/composer/media/{media_id}/complete
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/composer/media/{media_id}/download
+      handler: ComposerRuntime
+      methods: [GET]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/composer/media/{media_id}/download
+      handler: ComposerRuntime
+      methods: [OPTIONS]
+      visibility: "public"

@@ -7,12 +7,16 @@ import (
 )
 
 type MemoryRepository struct {
-	mutex  sync.RWMutex
-	drafts map[string]Draft
+	mutex     sync.RWMutex
+	drafts    map[string]Draft
+	revisions map[string][]DraftRevision
 }
 
 func NewMemoryRepository() *MemoryRepository {
-	return &MemoryRepository{drafts: make(map[string]Draft)}
+	return &MemoryRepository{
+		drafts:    make(map[string]Draft),
+		revisions: make(map[string][]DraftRevision),
+	}
 }
 
 func draftKey(workspaceID, draftID string) string {
@@ -27,6 +31,7 @@ func (repository *MemoryRepository) Create(_ context.Context, draft Draft) (Draf
 		return Draft{}, ErrConflict
 	}
 	repository.drafts[key] = cloneDraft(draft)
+	repository.revisions[key] = []DraftRevision{revisionOf(draft, "")}
 	return cloneDraft(draft), nil
 }
 
@@ -68,6 +73,7 @@ func (repository *MemoryRepository) Update(
 	_ context.Context,
 	draft Draft,
 	expectedRevision int64,
+	autosaveKey string,
 ) (Draft, error) {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()
@@ -76,6 +82,17 @@ func (repository *MemoryRepository) Update(
 	if !exists {
 		return Draft{}, ErrNotFound
 	}
+	if autosaveKey != "" {
+		for _, revision := range repository.revisions[key] {
+			if revision.AutosaveKey == autosaveKey {
+				replayed := current
+				replayed.Content = cloneContent(revision.Content)
+				replayed.Revision = revision.Revision
+				replayed.UpdatedAt = revision.SavedAt
+				return cloneDraft(replayed), nil
+			}
+		}
+	}
 	if current.Revision != expectedRevision {
 		return Draft{}, ErrConflict
 	}
@@ -83,6 +100,10 @@ func (repository *MemoryRepository) Update(
 	draft.CreatedAt = current.CreatedAt
 	draft.CreatedBy = current.CreatedBy
 	repository.drafts[key] = cloneDraft(draft)
+	repository.revisions[key] = append(
+		repository.revisions[key],
+		revisionOf(draft, autosaveKey),
+	)
 	return cloneDraft(draft), nil
 }
 
@@ -102,5 +123,38 @@ func (repository *MemoryRepository) Delete(
 		return ErrConflict
 	}
 	delete(repository.drafts, key)
+	delete(repository.revisions, key)
 	return nil
+}
+
+func (repository *MemoryRepository) ListRevisions(
+	_ context.Context,
+	workspaceID, draftID string,
+) ([]DraftRevision, error) {
+	repository.mutex.RLock()
+	defer repository.mutex.RUnlock()
+	key := draftKey(workspaceID, draftID)
+	if _, exists := repository.drafts[key]; !exists {
+		return nil, ErrNotFound
+	}
+	stored := repository.revisions[key]
+	revisions := make([]DraftRevision, len(stored))
+	for index, revision := range stored {
+		revisions[index] = revision
+		revisions[index].Content = cloneContent(revision.Content)
+	}
+	sort.Slice(revisions, func(left, right int) bool {
+		return revisions[left].Revision > revisions[right].Revision
+	})
+	return revisions, nil
+}
+
+func revisionOf(draft Draft, autosaveKey string) DraftRevision {
+	return DraftRevision{
+		DraftID:     draft.ID,
+		Revision:    draft.Revision,
+		Content:     cloneContent(draft.Content),
+		AutosaveKey: autosaveKey,
+		SavedAt:     draft.UpdatedAt,
+	}
 }

@@ -31,11 +31,19 @@ func NewHTTPHandler(service *Service, authenticator RequestAuthenticator) http.H
 		handler.createDraft,
 	)
 	mux.HandleFunc(
+		"GET /api/v1/workspaces/{workspace_id}/composer/capabilities",
+		handler.getCapabilities,
+	)
+	mux.HandleFunc(
 		"GET /api/v1/workspaces/{workspace_id}/drafts/{draft_id}",
 		handler.getDraft,
 	)
 	mux.HandleFunc(
 		"PUT /api/v1/workspaces/{workspace_id}/drafts/{draft_id}",
+		handler.updateDraft,
+	)
+	mux.HandleFunc(
+		"PATCH /api/v1/workspaces/{workspace_id}/drafts/{draft_id}",
 		handler.updateDraft,
 	)
 	mux.HandleFunc(
@@ -46,7 +54,32 @@ func NewHTTPHandler(service *Service, authenticator RequestAuthenticator) http.H
 		"POST /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/validate",
 		handler.validateDraft,
 	)
+	mux.HandleFunc(
+		"GET /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/revisions",
+		handler.listDraftRevisions,
+	)
 	return mux
+}
+
+func (handler *HTTPHandler) getCapabilities(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	accountID, authenticated := handler.authenticator.AccountID(request)
+	if !authenticated {
+		writeComposerError(writer, http.StatusUnauthorized, "unauthenticated", nil)
+		return
+	}
+	catalog, err := handler.service.CapabilityCatalog(
+		request.Context(),
+		request.PathValue("workspace_id"),
+		accountID,
+	)
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	writeComposerJSON(writer, http.StatusOK, catalog)
 }
 
 func (handler *HTTPHandler) createDraft(
@@ -134,6 +167,7 @@ func (handler *HTTPHandler) updateDraft(
 	}
 	var payload struct {
 		ExpectedRevision int64        `json:"expected_revision"`
+		AutosaveKey      string       `json:"autosave_key,omitempty"`
 		Content          DraftContent `json:"content"`
 	}
 	if !decodeComposerJSON(writer, request, &payload) {
@@ -144,6 +178,7 @@ func (handler *HTTPHandler) updateDraft(
 		ActorID:          accountID,
 		DraftID:          request.PathValue("draft_id"),
 		ExpectedRevision: payload.ExpectedRevision,
+		AutosaveKey:      payload.AutosaveKey,
 		Content:          payload.Content,
 	})
 	if err != nil {
@@ -151,6 +186,28 @@ func (handler *HTTPHandler) updateDraft(
 		return
 	}
 	writeComposerJSON(writer, http.StatusOK, view)
+}
+
+func (handler *HTTPHandler) listDraftRevisions(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	accountID, authenticated := handler.authenticator.AccountID(request)
+	if !authenticated {
+		writeComposerError(writer, http.StatusUnauthorized, "unauthenticated", nil)
+		return
+	}
+	revisions, err := handler.service.ListDraftRevisions(
+		request.Context(),
+		request.PathValue("workspace_id"),
+		accountID,
+		request.PathValue("draft_id"),
+	)
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	writeComposerJSON(writer, http.StatusOK, map[string]any{"revisions": revisions})
 }
 
 func (handler *HTTPHandler) deleteDraft(
@@ -297,6 +354,14 @@ func writeServiceError(writer http.ResponseWriter, err error) {
 		writeComposerError(writer, http.StatusNotFound, "draft_not_found", nil)
 	case errors.Is(err, ErrConflict):
 		writeComposerError(writer, http.StatusConflict, "revision_conflict", nil)
+	case errors.Is(err, ErrStorageUnavailable):
+		writeComposerErrorWithRetryable(
+			writer,
+			http.StatusServiceUnavailable,
+			"media_storage_unavailable",
+			true,
+			nil,
+		)
 	case errors.Is(err, ErrInvalidArgument):
 		writeComposerError(writer, http.StatusBadRequest, "invalid_request", nil)
 	default:
@@ -310,9 +375,20 @@ func writeComposerError(
 	code string,
 	fieldError *ValidationError,
 ) {
+	writeComposerErrorWithRetryable(writer, status, code, false, fieldError)
+}
+
+func writeComposerErrorWithRetryable(
+	writer http.ResponseWriter,
+	status int,
+	code string,
+	retryable bool,
+	fieldError *ValidationError,
+) {
 	errorBody := map[string]any{
-		"code":    code,
-		"message": http.StatusText(status),
+		"code":      code,
+		"message":   http.StatusText(status),
+		"retryable": retryable,
 	}
 	if fieldError != nil {
 		errorBody["field"] = fieldError.Field
