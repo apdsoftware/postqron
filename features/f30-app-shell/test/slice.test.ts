@@ -221,11 +221,11 @@ test('password-only auth hides separator and provider fallback when no providers
   const page = await readFile(new URL('../pages/app.vue', import.meta.url), 'utf8')
   assert.match(
     page,
-    /<p[\s\S]*v-if="providers\.length"[\s\S]*class="auth-separator"/u,
+    /<p[\s\S]*v-if="providers\.length && !requestedVerification"[\s\S]*class="auth-separator"/u,
   )
   assert.match(
     page,
-    /<div[\s\S]*v-if="providers\.length"[\s\S]*class="auth-providers"/u,
+    /<div[\s\S]*v-if="providers\.length && !requestedVerification"[\s\S]*class="auth-providers"/u,
   )
   assert.doesNotMatch(page, /providers\.length === 0/u)
   assert.doesNotMatch(page, /auth\.providerUnavailable/u)

@@ -308,14 +308,9 @@ async function retry() {
             <h2>{{ t('auth.verificationTitle') }}</h2>
             <p>{{ t('auth.verificationDescription', { email: verifyingEmail }) }}</p>
             <div class="auth-verification__actions">
-              <a
-                class="pq-button pq-button--secondary"
-                :href="appRoute(locale, 'verify-email')"
-              >
-                {{ t('auth.verificationOpen') }}
-              </a>
               <button
                 class="pq-button"
+                data-full-width="true"
                 type="button"
                 :disabled="resendingVerification"
                 @click="resendVerification"
@@ -403,14 +398,14 @@ async function retry() {
           </label>
 
           <p
-            v-if="providers.length"
+            v-if="providers.length && !requestedVerification"
             class="auth-separator"
           >
             {{ t('auth.orProvider') }}
           </p>
 
           <div
-            v-if="providers.length"
+            v-if="providers.length && !requestedVerification"
             class="auth-providers"
           >
             <button
