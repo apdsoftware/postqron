@@ -5,7 +5,9 @@ import {
   ref,
   useAsyncData,
   useHead,
+  useRoute,
 } from '#imports'
+import { appRoute, localeFromAppPath } from '../components/core/navigation.ts'
 import {
   appStateKindFromError,
   useAppAccountAreaState,
@@ -13,13 +15,15 @@ import {
   useAppShellApi,
   useAppShellI18n,
 } from '../components/core/use-app-shell.ts'
+import { formatDateTime } from '../components/core/preferences.ts'
 
 definePageMeta({ layout: 'app-shell' })
 
 const api = useAppShellApi()
+const route = useRoute()
 const session = useAppSessionState()
 const accountArea = useAppAccountAreaState()
-const { t } = useAppShellI18n()
+const { t, locale: uiLocale } = useAppShellI18n()
 const currentPassword = ref('')
 const newPassword = ref('')
 const confirmation = ref('')
@@ -27,6 +31,7 @@ const changing = ref(false)
 const revoking = ref(false)
 const feedback = ref<'changed' | 'error' | 'revoked'>()
 const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
+const locale = computed(() => localeFromAppPath(route.fullPath))
 
 useHead(computed(() => ({
   title: t('documentTitle.security'),
@@ -46,6 +51,7 @@ const { pending, refresh } = useAsyncData('postqron-account-security', async () 
 
 const identityProviders = computed(() =>
   accountArea.value?.providers.filter(provider => provider.kind === 'identity') ?? [])
+const emailVerified = computed(() => session.value?.account.email_verified ?? false)
 
 async function changePassword() {
   changing.value = true
@@ -111,25 +117,65 @@ async function retry() {
 
     <div class="app-page__stack">
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('security.emailStatus') }}</span>
-        <strong>{{ session?.account.email || t('security.emailMissing') }}</strong>
-        <p>{{ session?.account.email_verified ? t('security.verified') : t('security.unverified') }}</p>
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('security.identitySection') }}</span>
+          <h2>{{ t('security.identityTitle') }}</h2>
+        </div>
+        <dl class="app-detail-list">
+          <div class="app-inline-meta">
+            <dt>{{ t('security.emailStatus') }}</dt>
+            <dd>{{ session?.account.email || t('security.emailMissing') }}</dd>
+          </div>
+          <div class="app-inline-meta">
+            <dt>{{ t('security.emailVerification') }}</dt>
+            <dd>
+              <span
+                class="app-badge"
+                :class="emailVerified ? 'app-badge--success' : 'app-badge--warning'"
+              >
+                {{ emailVerified ? t('security.verified') : t('security.unverified') }}
+              </span>
+            </dd>
+          </div>
+        </dl>
       </article>
 
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('security.methods') }}</span>
-        <ul class="app-list">
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('security.methods') }}</span>
+          <h2>{{ t('security.methodsTitle') }}</h2>
+        </div>
+        <p class="app-inline-note">
+          {{ t('security.methodsNote') }}
+        </p>
+        <ul class="app-provider-list">
           <li
             v-for="provider in identityProviders"
             :key="provider.id"
           >
-            {{ provider.name }}<span v-if="provider.only_login_method"> · {{ t('security.onlyMethod') }}</span>
+            <div class="app-provider-list__meta">
+              <strong>{{ provider.name }}</strong>
+              <span>{{ formatDateTime(provider.connected_at, uiLocale.value) }}</span>
+            </div>
+            <span
+              v-if="provider.only_login_method"
+              class="app-badge app-badge--info"
+            >{{ t('security.onlyMethod') }}</span>
           </li>
         </ul>
+        <NuxtLink
+          class="pq-button pq-button--secondary"
+          :to="appRoute(locale, 'providers')"
+        >
+          {{ t('security.manageMethodsLink') }}
+        </NuxtLink>
       </article>
 
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('security.changePassword') }}</span>
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('security.changePassword') }}</span>
+          <h2>{{ t('security.changePasswordTitle') }}</h2>
+        </div>
         <form
           class="app-form-grid"
           @submit.prevent="changePassword"
@@ -141,6 +187,7 @@ async function retry() {
               type="password"
               minlength="12"
               required
+              autocomplete="current-password"
             >
           </label>
           <label class="app-field">
@@ -150,6 +197,7 @@ async function retry() {
               type="password"
               minlength="12"
               required
+              autocomplete="new-password"
             >
           </label>
           <label class="app-field">
@@ -159,6 +207,7 @@ async function retry() {
               type="password"
               minlength="12"
               required
+              autocomplete="new-password"
             >
           </label>
           <button
@@ -172,7 +221,10 @@ async function retry() {
       </article>
 
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('security.sessions') }}</span>
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('security.sessions') }}</span>
+          <h2>{{ t('security.sessionsTitle') }}</h2>
+        </div>
         <p>{{ t('security.sessionsDescription') }}</p>
         <button
           class="pq-button pq-button--secondary"

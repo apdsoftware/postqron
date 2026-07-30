@@ -13,17 +13,22 @@ import {
   useAppShellApi,
   useAppShellI18n,
 } from '../components/core/use-app-shell.ts'
+import {
+  formatDateTime,
+  localeOptions,
+  timezoneGroups,
+} from '../components/core/preferences.ts'
 
 definePageMeta({ layout: 'app-shell' })
 
 const api = useAppShellApi()
 const accountArea = useAppAccountAreaState()
 const session = useAppSessionState()
-const { t } = useAppShellI18n()
+const { t, locale: uiLocale } = useAppShellI18n()
 const saving = ref(false)
 const feedback = ref<'error' | 'saved'>()
 const displayName = ref('')
-const locale = ref('it-IT')
+const localeValue = ref('it-IT')
 const timezone = ref('Europe/Rome')
 const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
@@ -35,7 +40,7 @@ const { pending, refresh } = useAsyncData('postqron-account-profile', async () =
   try {
     accountArea.value = await api.accountArea()
     displayName.value = accountArea.value.profile.display_name
-    locale.value = accountArea.value.profile.locale
+    localeValue.value = accountArea.value.profile.locale
     timezone.value = accountArea.value.profile.timezone
     pageState.value = undefined
     return accountArea.value
@@ -46,13 +51,21 @@ const { pending, refresh } = useAsyncData('postqron-account-profile', async () =
   }
 }, { server: false })
 
+const localeChoices = computed(() => localeOptions(localeValue.value))
+const timezoneChoices = computed(() => timezoneGroups(timezone.value))
+const emailVerified = computed(() => session.value?.account.email_verified ?? false)
+const updatedAtLabel = computed(() =>
+  accountArea.value
+    ? formatDateTime(accountArea.value.profile.updated_at, uiLocale.value)
+    : '')
+
 async function saveProfile() {
   saving.value = true
   feedback.value = undefined
   try {
     const profile = await api.updateProfile({
       displayName: displayName.value,
-      locale: locale.value,
+      locale: localeValue.value,
       timezone: timezone.value,
     })
     if (accountArea.value) {
@@ -94,66 +107,126 @@ async function retry() {
       {{ t('profile.description') }}
     </p>
 
-    <form
-      class="app-form-grid"
-      @submit.prevent="saveProfile"
-    >
-      <label class="app-field">
-        <span>{{ t('profile.displayName') }}</span>
-        <input
-          v-model="displayName"
-          type="text"
-          maxlength="100"
-          required
+    <div class="app-page__stack">
+      <article class="app-card">
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('profile.detailsSection') }}</span>
+          <h2>{{ t('profile.detailsTitle') }}</h2>
+        </div>
+        <form
+          class="app-form-grid"
+          @submit.prevent="saveProfile"
         >
-      </label>
-      <label class="app-field">
-        <span>{{ t('profile.email') }}</span>
-        <input
-          :value="session?.account.email || ''"
-          type="email"
-          disabled
-        >
-      </label>
-      <label class="app-field">
-        <span>{{ t('profile.locale') }}</span>
-        <input
-          v-model="locale"
-          type="text"
-          required
-        >
-      </label>
-      <label class="app-field">
-        <span>{{ t('profile.timezone') }}</span>
-        <input
-          v-model="timezone"
-          type="text"
-          required
-        >
-      </label>
-      <div class="app-inline-meta">
-        <strong>{{ t('profile.updatedAt') }}</strong>
-        <span>{{ accountArea?.profile.updated_at }}</span>
-      </div>
-      <div class="app-inline-meta">
-        <strong>{{ t('profile.emailStatus') }}</strong>
-        <span>{{ session?.account.email_verified ? t('profile.verified') : t('profile.unverified') }}</span>
-      </div>
-      <p
-        v-if="feedback"
-        class="app-inline-alert"
-        :data-success="feedback === 'saved'"
-        role="status"
-      >
-        {{ feedback === 'saved' ? t('profile.saved') : t('profile.error') }}
-      </p>
-      <button
-        class="pq-button"
-        type="submit"
-        :disabled="saving"
-      >
-        {{ saving ? t('profile.saving') : t('profile.submit') }}
-      </button>
-    </form>
+          <label class="app-field">
+            <span>{{ t('profile.displayName') }}</span>
+            <input
+              v-model="displayName"
+              type="text"
+              maxlength="100"
+              required
+              autocomplete="name"
+            >
+          </label>
+          <label class="app-field">
+            <span>{{ t('profile.email') }}</span>
+            <input
+              :value="session?.account.email || ''"
+              type="email"
+              readonly
+              aria-describedby="profile-email-help"
+            >
+            <span
+              id="profile-email-help"
+              class="app-field__help"
+            >{{ t('profile.emailReadonly') }}</span>
+          </label>
+          <label class="app-field">
+            <span>{{ t('profile.locale') }}</span>
+            <select
+              v-model="localeValue"
+              required
+              aria-describedby="profile-locale-help"
+            >
+              <option
+                v-for="option in localeChoices"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <span
+              id="profile-locale-help"
+              class="app-field__help"
+            >{{ t('profile.localeHelp') }}</span>
+          </label>
+          <label class="app-field">
+            <span>{{ t('profile.timezone') }}</span>
+            <select
+              v-model="timezone"
+              required
+              aria-describedby="profile-timezone-help"
+            >
+              <optgroup
+                v-for="group in timezoneChoices"
+                :key="group.region"
+                :label="group.region"
+              >
+                <option
+                  v-for="zone in group.zones"
+                  :key="zone"
+                  :value="zone"
+                >
+                  {{ zone }}
+                </option>
+              </optgroup>
+            </select>
+            <span
+              id="profile-timezone-help"
+              class="app-field__help"
+            >{{ t('profile.timezoneHelp') }}</span>
+          </label>
+          <p
+            v-if="feedback"
+            class="app-inline-alert"
+            :data-success="feedback === 'saved'"
+            role="status"
+          >
+            {{ feedback === 'saved' ? t('profile.saved') : t('profile.error') }}
+          </p>
+          <button
+            class="pq-button"
+            type="submit"
+            :disabled="saving"
+          >
+            {{ saving ? t('profile.saving') : t('profile.submit') }}
+          </button>
+        </form>
+      </article>
+
+      <article class="app-card">
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('profile.statusSection') }}</span>
+          <h2>{{ t('profile.statusTitle') }}</h2>
+        </div>
+        <dl class="app-detail-list">
+          <div class="app-inline-meta">
+            <dt>{{ t('profile.updatedAt') }}</dt>
+            <dd>{{ updatedAtLabel }}</dd>
+          </div>
+          <div class="app-inline-meta">
+            <dt>{{ t('profile.emailStatus') }}</dt>
+            <dd>
+              <span
+                class="app-badge"
+                :class="emailVerified ? 'app-badge--success' : 'app-badge--warning'"
+              >
+                {{ emailVerified ? t('profile.verified') : t('profile.unverified') }}
+              </span>
+            </dd>
+          </div>
+        </dl>
+      </article>
+    </div>
   </section>
 </template>

@@ -97,7 +97,10 @@ async function retry() {
       </article>
     </div>
 
-    <div class="app-page__grid">
+    <nav
+      class="app-page__grid"
+      :aria-label="t('home.quickLinks')"
+    >
       <NuxtLink
         v-for="card in cards"
         :key="card.key"
@@ -108,32 +111,17 @@ async function retry() {
         <strong>{{ t(`home.card.${card.key}.title`) }}</strong>
         <p>{{ t(`home.card.${card.key}.description`) }}</p>
       </NuxtLink>
-    </div>
+    </nav>
 
-    <div
-      class="app-home__summary"
-      data-postqron-slot="home-summary"
-    >
-      <article>
-        <span aria-hidden="true">◎</span>
-        <p>{{ t('home.getStarted') }}</p>
-      </article>
-    </div>
-    <div class="app-home__grid">
-      <section
-        class="app-slot"
+    <div class="app-home__mounts">
+      <div
+        class="app-home__mount"
         data-postqron-slot="home-primary"
-        :aria-label="t('state.empty.title')"
-      >
-        <AppState kind="empty" />
-      </section>
-      <section
-        class="app-slot"
+      />
+      <div
+        class="app-home__mount"
         data-postqron-slot="home-secondary"
-        :aria-label="t('state.empty.title')"
-      >
-        <AppState kind="empty" />
-      </section>
+      />
     </div>
   </section>
 </template>
