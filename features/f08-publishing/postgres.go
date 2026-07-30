@@ -2,8 +2,10 @@ package publishing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -78,6 +80,18 @@ func (store *PostgresStore) Enqueue(
 		if err != nil {
 			return EnqueueResult{}, fmt.Errorf("read idempotent publishing job: %w", err)
 		}
+		matches, matchErr := postgresSnapshotMatches(
+			ctx,
+			transaction,
+			existing.JobID,
+			job.Destinations,
+		)
+		if matchErr != nil {
+			return EnqueueResult{}, matchErr
+		}
+		if !matches {
+			return EnqueueResult{}, ErrConflict
+		}
 		if err := transaction.Commit(ctx); err != nil {
 			return EnqueueResult{}, fmt.Errorf("commit idempotent publishing enqueue: %w", err)
 		}
@@ -96,10 +110,15 @@ func (store *PostgresStore) Enqueue(
 				workspace_id,
 				post_id,
 				generation,
+				draft_revision,
 				channel_id,
 				provider,
 				connection_id,
+				mode,
+				capability_id,
+				capabilities,
 				payload,
+				snapshot_hash,
 				idempotency_key,
 				status,
 				attempt_count,
@@ -110,7 +129,8 @@ func (store *PostgresStore) Enqueue(
 			)
 			VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8,
-				$9, $10, $11, $12, $13, $14, $15, $16, $17
+				$9, $10, $11, $12, $13, $14, $15, $16,
+				$17, $18, $19, $20, $21, $22
 			)
 		`,
 			destination.ID,
@@ -119,10 +139,15 @@ func (store *PostgresStore) Enqueue(
 			destination.WorkspaceID,
 			destination.PostID,
 			destination.Generation,
+			destination.DraftRevision,
 			destination.ChannelID,
 			destination.Provider,
 			destination.ConnectionID,
+			destination.Mode,
+			destination.CapabilityID,
+			destination.Capabilities,
 			destination.Payload,
+			destination.SnapshotHash,
 			destination.IdempotencyKey,
 			string(destination.Status),
 			destination.AttemptCount,
@@ -139,6 +164,44 @@ func (store *PostgresStore) Enqueue(
 		return EnqueueResult{}, fmt.Errorf("commit publishing enqueue: %w", err)
 	}
 	return EnqueueResult{JobID: job.ID, Created: true, Status: job.Status}, nil
+}
+
+func postgresSnapshotMatches(
+	ctx context.Context,
+	transaction pgx.Tx,
+	jobID string,
+	destinations []Destination,
+) (bool, error) {
+	rows, err := transaction.Query(ctx, `
+		SELECT channel_id, snapshot_hash
+		  FROM f08_publication_destinations
+		 WHERE job_id = $1`,
+		jobID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("read immutable destination snapshots: %w", err)
+	}
+	defer rows.Close()
+	stored := make(map[string]string)
+	for rows.Next() {
+		var channelID, snapshotHash string
+		if err := rows.Scan(&channelID, &snapshotHash); err != nil {
+			return false, fmt.Errorf("scan immutable destination snapshot: %w", err)
+		}
+		stored[channelID] = snapshotHash
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("iterate immutable destination snapshots: %w", err)
+	}
+	if len(stored) != len(destinations) {
+		return false, nil
+	}
+	for _, destination := range destinations {
+		if stored[destination.ChannelID] != destination.SnapshotHash {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (store *PostgresStore) ClaimDue(
@@ -158,8 +221,9 @@ func (store *PostgresStore) ClaimDue(
 	}()
 
 	var destinationID string
+	var reclaimed bool
 	err = transaction.QueryRow(ctx, `
-		SELECT id
+		SELECT id, status = 'publishing'
 		FROM f08_publication_destinations
 		WHERE next_attempt_at <= $1
 		  AND (
@@ -172,7 +236,7 @@ func (store *PostgresStore) ClaimDue(
 		ORDER BY next_attempt_at, id
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1
-	`, now).Scan(&destinationID)
+	`, now).Scan(&destinationID, &reclaimed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := transaction.Commit(ctx); err != nil {
 			return Destination{}, false, fmt.Errorf("commit empty publication claim: %w", err)
@@ -210,7 +274,8 @@ func (store *PostgresStore) ClaimDue(
 			attempt_count = $2,
 			cycle_attempt_count = $3,
 			lease_token = $4,
-			locked_until = $5
+			locked_until = $5,
+			needs_reconciliation = needs_reconciliation OR $6
 		WHERE id = $1
 	`,
 		destinationID,
@@ -218,6 +283,7 @@ func (store *PostgresStore) ClaimDue(
 		destination.CycleAttemptCount,
 		leaseToken,
 		lockedUntil,
+		reclaimed,
 	)
 	if err != nil {
 		return Destination{}, false, fmt.Errorf("persist publication claim: %w", err)
@@ -244,6 +310,8 @@ func (store *PostgresStore) ClaimDue(
 	destination.Status = DestinationPublishing
 	destination.LeaseToken = leaseToken
 	destination.LockedUntil = &lockedUntil
+	destination.NeedsReconciliation =
+		destination.NeedsReconciliation || reclaimed
 	return destination, true, nil
 }
 
@@ -265,19 +333,62 @@ func (store *PostgresStore) MarkCancelled(
 
 func (store *PostgresStore) MarkPublished(
 	ctx context.Context,
-	id, leaseToken, remoteID string,
+	id, leaseToken string,
+	result PublishResult,
 	now time.Time,
 ) error {
-	if remoteID == "" {
+	if strings.TrimSpace(result.RemoteID) == "" {
 		return ErrInvalidArgument
 	}
 	return store.transition(ctx, transition{
 		destinationID: id,
 		leaseToken:    leaseToken,
 		status:        DestinationPublished,
-		remoteID:      remoteID,
+		remoteID:      strings.TrimSpace(result.RemoteID),
+		permalink:     strings.TrimSpace(result.Permalink),
+		checkpoint:    result.Checkpoint,
 		now:           now,
 		outcome:       "published",
+	})
+}
+
+func (store *PostgresStore) MarkProgress(
+	ctx context.Context,
+	id, leaseToken string,
+	checkpoint json.RawMessage,
+	next time.Time,
+	now time.Time,
+) error {
+	if !jsonValidObject(checkpoint) || next.IsZero() || now.IsZero() {
+		return ErrInvalidArgument
+	}
+	return store.transition(ctx, transition{
+		destinationID: id,
+		leaseToken:    leaseToken,
+		status:        DestinationRetryWait,
+		checkpoint:    checkpoint,
+		next:          next,
+		now:           now,
+		outcome:       "progress",
+		progress:      true,
+	})
+}
+
+func (store *PostgresStore) MarkNotified(
+	ctx context.Context,
+	id, leaseToken, notificationID string,
+	now time.Time,
+) error {
+	if strings.TrimSpace(notificationID) == "" {
+		return ErrInvalidArgument
+	}
+	return store.transition(ctx, transition{
+		destinationID:  id,
+		leaseToken:     leaseToken,
+		status:         DestinationNotified,
+		notificationID: strings.TrimSpace(notificationID),
+		now:            now,
+		outcome:        "notified",
 	})
 }
 
@@ -417,14 +528,18 @@ func (store *PostgresStore) GetJob(
 }
 
 type transition struct {
-	destinationID string
-	leaseToken    string
-	status        DestinationStatus
-	diagnostic    Diagnostic
-	remoteID      string
-	next          time.Time
-	now           time.Time
-	outcome       string
+	destinationID  string
+	leaseToken     string
+	status         DestinationStatus
+	diagnostic     Diagnostic
+	remoteID       string
+	permalink      string
+	notificationID string
+	checkpoint     json.RawMessage
+	next           time.Time
+	now            time.Time
+	outcome        string
+	progress       bool
 }
 
 func (store *PostgresStore) transition(
@@ -455,37 +570,102 @@ func (store *PostgresStore) transition(
 				lease_token = NULL,
 				locked_until = NULL,
 				remote_id = $3,
+				permalink = NULLIF($4, ''),
+				checkpoint = COALESCE($5::jsonb, checkpoint),
+				needs_reconciliation = false,
 				error_code = NULL,
 				error_detail = NULL,
 				error_retryable = false,
+				error_ambiguous = false,
 				error_at = NULL,
-				published_at = $4
-			WHERE id = $1
-			  AND status = 'publishing'
-			  AND lease_token = $2
-		`, change.destinationID, change.leaseToken, change.remoteID, change.now)
-	case DestinationRetryWait:
-		tag, err = transaction.Exec(ctx, `
-			UPDATE f08_publication_destinations
-			SET status = 'retry_wait',
-				lease_token = NULL,
-				locked_until = NULL,
-				next_attempt_at = $3,
-				error_code = $4,
-				error_detail = $5,
-				error_retryable = $6,
-				error_at = $7
+				published_at = $6
 			WHERE id = $1
 			  AND status = 'publishing'
 			  AND lease_token = $2
 		`,
 			change.destinationID,
 			change.leaseToken,
-			change.next,
-			change.diagnostic.Code,
-			change.diagnostic.Detail,
-			change.diagnostic.Retryable,
-			change.diagnostic.At,
+			change.remoteID,
+			change.permalink,
+			change.checkpoint,
+			change.now,
+		)
+	case DestinationRetryWait:
+		if change.progress {
+			tag, err = transaction.Exec(ctx, `
+				UPDATE f08_publication_destinations
+				SET status = 'retry_wait',
+					lease_token = NULL,
+					locked_until = NULL,
+					next_attempt_at = $3,
+					checkpoint = $4,
+					cycle_attempt_count =
+						GREATEST(cycle_attempt_count - 1, 0),
+					needs_reconciliation = false,
+					error_code = NULL,
+					error_detail = NULL,
+					error_retryable = false,
+					error_ambiguous = false,
+					error_at = NULL
+				WHERE id = $1
+				  AND status = 'publishing'
+				  AND lease_token = $2
+			`,
+				change.destinationID,
+				change.leaseToken,
+				change.next,
+				change.checkpoint,
+			)
+		} else {
+			tag, err = transaction.Exec(ctx, `
+				UPDATE f08_publication_destinations
+				SET status = 'retry_wait',
+					lease_token = NULL,
+					locked_until = NULL,
+					next_attempt_at = $3,
+					needs_reconciliation =
+						needs_reconciliation OR $8,
+					error_code = $4,
+					error_detail = $5,
+					error_retryable = $6,
+					error_ambiguous = $8,
+					error_at = $7
+				WHERE id = $1
+				  AND status = 'publishing'
+				  AND lease_token = $2
+			`,
+				change.destinationID,
+				change.leaseToken,
+				change.next,
+				change.diagnostic.Code,
+				change.diagnostic.Detail,
+				change.diagnostic.Retryable,
+				change.diagnostic.At,
+				change.diagnostic.Ambiguous,
+			)
+		}
+	case DestinationNotified:
+		tag, err = transaction.Exec(ctx, `
+			UPDATE f08_publication_destinations
+			SET status = 'notified',
+				lease_token = NULL,
+				locked_until = NULL,
+				notification_id = $3,
+				needs_reconciliation = false,
+				error_code = NULL,
+				error_detail = NULL,
+				error_retryable = false,
+				error_ambiguous = false,
+				error_at = NULL,
+				published_at = $4
+			WHERE id = $1
+			  AND status = 'publishing'
+			  AND lease_token = $2
+		`,
+			change.destinationID,
+			change.leaseToken,
+			change.notificationID,
+			change.now,
 		)
 	case DestinationDeadLetter:
 		tag, err = transaction.Exec(ctx, `
@@ -496,6 +676,9 @@ func (store *PostgresStore) transition(
 				error_code = $3,
 				error_detail = $4,
 				error_retryable = false,
+				error_ambiguous = $7,
+				needs_reconciliation =
+					needs_reconciliation OR $7,
 				error_at = $5,
 				dead_lettered_at = $6
 			WHERE id = $1
@@ -508,6 +691,7 @@ func (store *PostgresStore) transition(
 			change.diagnostic.Detail,
 			change.diagnostic.At,
 			change.now,
+			change.diagnostic.Ambiguous,
 		)
 	case DestinationCancelled:
 		tag, err = transaction.Exec(ctx, `
@@ -518,6 +702,7 @@ func (store *PostgresStore) transition(
 				error_code = $3,
 				error_detail = $4,
 				error_retryable = false,
+				error_ambiguous = false,
 				error_at = $5,
 				cancelled_at = $6
 			WHERE id = $1
@@ -621,8 +806,8 @@ func refreshJob(
 				CASE
 					WHEN bool_or(status IN ('pending', 'retry_wait')) THEN 'queued'
 					WHEN bool_or(status = 'publishing') THEN 'publishing'
-					WHEN bool_and(status = 'published') THEN 'published'
-					WHEN bool_or(status = 'published')
+					WHEN bool_and(status IN ('published', 'notified')) THEN 'published'
+					WHEN bool_or(status IN ('published', 'notified'))
 						AND bool_or(status IN ('dead_letter', 'cancelled'))
 						THEN 'partially_failed'
 					WHEN bool_or(status = 'dead_letter') THEN 'failed'
@@ -667,10 +852,15 @@ const destinationSelect = `
 		workspace_id,
 		post_id,
 		generation,
+		draft_revision,
 		channel_id,
 		provider,
 		connection_id,
+		mode,
+		capability_id,
+		capabilities,
 		payload,
+		snapshot_hash,
 		idempotency_key,
 		status,
 		attempt_count,
@@ -680,9 +870,14 @@ const destinationSelect = `
 		COALESCE(lease_token, ''),
 		locked_until,
 		COALESCE(remote_id, ''),
+		COALESCE(permalink, ''),
+		COALESCE(notification_id, ''),
+		checkpoint,
+		needs_reconciliation,
 		COALESCE(error_code, ''),
 		COALESCE(error_detail, ''),
 		error_retryable,
+		error_ambiguous,
 		error_at,
 		published_at,
 		dead_lettered_at,
@@ -729,10 +924,15 @@ func scanDestination(row rowScanner) (Destination, error) {
 		&destination.WorkspaceID,
 		&destination.PostID,
 		&destination.Generation,
+		&destination.DraftRevision,
 		&destination.ChannelID,
 		&destination.Provider,
 		&destination.ConnectionID,
+		&destination.Mode,
+		&destination.CapabilityID,
+		&destination.Capabilities,
 		&destination.Payload,
+		&destination.SnapshotHash,
 		&destination.IdempotencyKey,
 		&destination.Status,
 		&destination.AttemptCount,
@@ -742,9 +942,14 @@ func scanDestination(row rowScanner) (Destination, error) {
 		&destination.LeaseToken,
 		&destination.LockedUntil,
 		&destination.RemoteID,
+		&destination.Permalink,
+		&destination.NotificationID,
+		&destination.Checkpoint,
+		&destination.NeedsReconciliation,
 		&destination.LastDiagnostic.Code,
 		&destination.LastDiagnostic.Detail,
 		&destination.LastDiagnostic.Retryable,
+		&destination.LastDiagnostic.Ambiguous,
 		&diagnosticAt,
 		&destination.PublishedAt,
 		&destination.DeadLetteredAt,

@@ -9,6 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -17,7 +20,9 @@ type Store interface {
 	Enqueue(context.Context, Job) (EnqueueResult, error)
 	ClaimDue(context.Context, time.Time, time.Time, string) (Destination, bool, error)
 	MarkCancelled(context.Context, string, string, Diagnostic, time.Time) error
-	MarkPublished(context.Context, string, string, string, time.Time) error
+	MarkPublished(context.Context, string, string, PublishResult, time.Time) error
+	MarkProgress(context.Context, string, string, json.RawMessage, time.Time, time.Time) error
+	MarkNotified(context.Context, string, string, string, time.Time) error
 	MarkRetry(context.Context, string, string, Diagnostic, time.Time) error
 	MarkDeadLetter(context.Context, string, string, Diagnostic, time.Time) error
 	RetryDeadLetter(context.Context, string, string, string, time.Time) (Destination, error)
@@ -30,10 +35,13 @@ type CommandGate interface {
 	IsCurrent(context.Context, string, string, int64) (bool, error)
 }
 
-// Publisher must make IdempotencyKey durable at the provider boundary and
-// return the same RemoteID when a completed request is replayed.
+// Publisher performs at most one remote side effect per Publish call. A
+// multi-step adapter returns Complete=false with a durable checkpoint; F8
+// persists it before the next remote step.
 type Publisher interface {
+	Capabilities() AdapterCapabilities
 	Publish(context.Context, PublishRequest) (PublishResult, error)
+	Reconcile(context.Context, ReconcileRequest) (ReconcileResult, error)
 }
 
 // PublisherResolver is supplied by runtime discovery; publishing keeps no
@@ -42,18 +50,28 @@ type PublisherResolver interface {
 	ResolvePublisher(context.Context, string) (Publisher, error)
 }
 
+type NotificationPublisher interface {
+	Capabilities() AdapterCapabilities
+	Notify(context.Context, NotificationRequest) (NotificationResult, error)
+}
+
+type NotificationResolver interface {
+	ResolveNotificationPublisher(context.Context, string) (NotificationPublisher, error)
+}
+
 type RetryAuthorizer interface {
 	CanRetryPublication(context.Context, string, string) (bool, error)
 }
 
 type Engine struct {
-	store      Store
-	gate       CommandGate
-	resolver   PublisherResolver
-	authorizer RetryAuthorizer
-	policy     RetryPolicy
-	now        func() time.Time
-	random     func([]byte) error
+	store         Store
+	gate          CommandGate
+	resolver      PublisherResolver
+	notifications NotificationResolver
+	authorizer    RetryAuthorizer
+	policy        RetryPolicy
+	now           func() time.Time
+	random        func([]byte) error
 }
 
 type EngineOption func(*Engine)
@@ -67,6 +85,12 @@ func WithClock(clock func() time.Time) EngineOption {
 func WithRandom(random func([]byte) error) EngineOption {
 	return func(engine *Engine) {
 		engine.random = random
+	}
+}
+
+func WithNotificationResolver(resolver NotificationResolver) EngineOption {
+	return func(engine *Engine) {
+		engine.notifications = resolver
 	}
 }
 
@@ -88,12 +112,13 @@ func NewEngine(
 		return nil, err
 	}
 	engine := &Engine{
-		store:      store,
-		gate:       gate,
-		resolver:   resolver,
-		authorizer: authorizer,
-		policy:     policy,
-		now:        time.Now,
+		store:         store,
+		gate:          gate,
+		resolver:      resolver,
+		notifications: unavailableNotificationResolver{},
+		authorizer:    authorizer,
+		policy:        policy,
+		now:           time.Now,
 		random: func(destination []byte) error {
 			_, err := rand.Read(destination)
 			return err
@@ -102,7 +127,7 @@ func NewEngine(
 	for _, option := range options {
 		option(engine)
 	}
-	if engine.now == nil || engine.random == nil {
+	if engine.now == nil || engine.random == nil || engine.notifications == nil {
 		return nil, fmt.Errorf("%w: clock and random source are required", ErrInvalidArgument)
 	}
 	return engine, nil
@@ -148,6 +173,15 @@ func (engine *Engine) Enqueue(
 		Destinations:    make([]Destination, 0, len(request.Destinations)),
 	}
 	for _, input := range request.Destinations {
+		capabilities, capabilityErr := engine.resolveCapabilities(ctx, input)
+		if capabilityErr != nil {
+			return EnqueueResult{}, capabilityErr
+		}
+		payload, payloadErr := canonicalJSON(input.Payload)
+		if payloadErr != nil {
+			return EnqueueResult{}, payloadErr
+		}
+		snapshotHash := destinationSnapshotHash(input, capabilities, payload)
 		destinationID, idErr := engine.randomID("pubdst")
 		if idErr != nil {
 			return EnqueueResult{}, idErr
@@ -157,19 +191,26 @@ func (engine *Engine) Enqueue(
 			maxAttempts = engine.policy.MaxAttempts
 		}
 		job.Destinations = append(job.Destinations, Destination{
-			ID:           destinationID,
-			JobID:        job.ID,
-			CommandID:    job.CommandID,
-			WorkspaceID:  job.WorkspaceID,
-			PostID:       job.PostID,
-			Generation:   job.Generation,
-			ChannelID:    strings.TrimSpace(input.ChannelID),
-			Provider:     strings.TrimSpace(input.Provider),
-			ConnectionID: strings.TrimSpace(input.ConnectionID),
-			Payload:      append([]byte(nil), input.Payload...),
+			ID:            destinationID,
+			JobID:         job.ID,
+			CommandID:     job.CommandID,
+			WorkspaceID:   job.WorkspaceID,
+			PostID:        job.PostID,
+			Generation:    job.Generation,
+			DraftRevision: input.DraftRevision,
+			ChannelID:     strings.TrimSpace(input.ChannelID),
+			Provider:      strings.TrimSpace(input.Provider),
+			ConnectionID:  strings.TrimSpace(input.ConnectionID),
+			Mode:          input.Mode,
+			CapabilityID:  strings.TrimSpace(input.CapabilityID),
+			Capabilities:  capabilities,
+			Payload:       payload,
+			SnapshotHash:  snapshotHash,
 			IdempotencyKey: destinationIdempotencyKey(
 				request.Command.InvalidationKey,
 				input.ChannelID,
+				input.DraftRevision,
+				snapshotHash,
 			),
 			Status:        DestinationPending,
 			MaxAttempts:   maxAttempts,
@@ -232,6 +273,9 @@ func (engine *Engine) DispatchOne(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
+	if destination.Mode == PublishingModeNotification {
+		return true, engine.dispatchNotification(ctx, destination, now)
+	}
 	publisher, err := engine.resolver.ResolvePublisher(ctx, destination.Provider)
 	if err != nil {
 		return true, engine.handleFailure(
@@ -241,39 +285,158 @@ func (engine *Engine) DispatchOne(ctx context.Context) (bool, error) {
 			now,
 		)
 	}
+	capabilities := publisher.Capabilities()
+	if err := validateRuntimeCapabilities(destination, capabilities); err != nil {
+		return true, engine.handleFailure(ctx, destination, err, now)
+	}
+	if destination.NeedsReconciliation && capabilities.Reconciliation {
+		reconciled, reconcileErr := publisher.Reconcile(ctx, ReconcileRequest{
+			WorkspaceID:    destination.WorkspaceID,
+			PostID:         destination.PostID,
+			ChannelID:      destination.ChannelID,
+			ConnectionID:   destination.ConnectionID,
+			Payload:        append([]byte(nil), destination.Payload...),
+			Checkpoint:     append([]byte(nil), destination.Checkpoint...),
+			IdempotencyKey: destination.IdempotencyKey,
+		})
+		if reconcileErr != nil {
+			return true, engine.handleFailure(ctx, destination, reconcileErr, now)
+		}
+		switch reconciled.State {
+		case ReconciliationFound:
+			result := PublishResult{
+				Complete:   true,
+				RemoteID:   strings.TrimSpace(reconciled.RemoteID),
+				Permalink:  strings.TrimSpace(reconciled.Permalink),
+				Checkpoint: append([]byte(nil), reconciled.Checkpoint...),
+			}
+			if err := validateCompletedResult(result); err != nil {
+				return true, engine.handleFailure(ctx, destination, err, now)
+			}
+			if err := engine.store.MarkPublished(
+				ctx, destination.ID, destination.LeaseToken, result, now,
+			); err != nil {
+				return true, fmt.Errorf("record reconciled destination: %w", err)
+			}
+			return true, nil
+		case ReconciliationNotFound:
+			// A definitive not-found closes the ambiguous window. It is safe
+			// to perform the next step under the same lease.
+		case ReconciliationUnknown:
+			return true, engine.handleFailure(ctx, destination, &ProviderError{
+				Code:      "ambiguous_outcome",
+				Detail:    reconciled.Diagnostic,
+				Retryable: true,
+				Ambiguous: true,
+			}, now)
+		default:
+			return true, engine.handleFailure(ctx, destination, &ProviderError{
+				Code:      "invalid_reconciliation",
+				Detail:    "Adapter returned an invalid reconciliation state.",
+				Retryable: false,
+			}, now)
+		}
+	}
 	result, publishErr := publisher.Publish(ctx, PublishRequest{
 		WorkspaceID:    destination.WorkspaceID,
 		PostID:         destination.PostID,
 		ChannelID:      destination.ChannelID,
 		ConnectionID:   destination.ConnectionID,
 		Payload:        append([]byte(nil), destination.Payload...),
+		Checkpoint:     append([]byte(nil), destination.Checkpoint...),
 		IdempotencyKey: destination.IdempotencyKey,
 	})
 	if publishErr != nil {
-		return true, engine.handleFailure(ctx, destination, publishErr, now)
-	}
-	remoteID := strings.TrimSpace(result.RemoteID)
-	if remoteID == "" {
 		return true, engine.handleFailure(
 			ctx,
 			destination,
-			&ProviderError{
-				Code:   "missing_remote_id",
-				Detail: "Provider returned success without a remote publication id.",
-			},
+			classifyPublishError(publishErr, capabilities),
 			now,
 		)
+	}
+	if !result.Complete {
+		if !capabilities.MultiStep || !jsonValidObject(result.Checkpoint) {
+			return true, engine.handleFailure(ctx, destination, &ProviderError{
+				Code:      "invalid_adapter_checkpoint",
+				Detail:    "Adapter returned incomplete work without a valid durable checkpoint.",
+				Retryable: false,
+			}, now)
+		}
+		delay := result.RetryAfter
+		if delay < 0 {
+			delay = 0
+		}
+		if delay > engine.policy.MaxDelay {
+			delay = engine.policy.MaxDelay
+		}
+		if err := engine.store.MarkProgress(
+			ctx,
+			destination.ID,
+			destination.LeaseToken,
+			result.Checkpoint,
+			now.Add(delay),
+			now,
+		); err != nil {
+			return true, fmt.Errorf("persist publication checkpoint: %w", err)
+		}
+		return true, nil
+	}
+	if err := validateCompletedResult(result); err != nil {
+		return true, engine.handleFailure(ctx, destination, err, now)
 	}
 	if err := engine.store.MarkPublished(
 		ctx,
 		destination.ID,
 		destination.LeaseToken,
-		remoteID,
+		result,
 		now,
 	); err != nil {
 		return true, fmt.Errorf("record published destination: %w", err)
 	}
 	return true, nil
+}
+
+func (engine *Engine) dispatchNotification(
+	ctx context.Context,
+	destination Destination,
+	now time.Time,
+) error {
+	notifier, err := engine.notifications.ResolveNotificationPublisher(
+		ctx,
+		destination.Provider,
+	)
+	if err != nil {
+		return engine.handleFailure(ctx, destination, fmt.Errorf(
+			"resolve notification publisher: %w", err,
+		), now)
+	}
+	if err := validateRuntimeCapabilities(destination, notifier.Capabilities()); err != nil {
+		return engine.handleFailure(ctx, destination, err, now)
+	}
+	result, err := notifier.Notify(ctx, NotificationRequest{
+		WorkspaceID:    destination.WorkspaceID,
+		PostID:         destination.PostID,
+		ChannelID:      destination.ChannelID,
+		Payload:        append([]byte(nil), destination.Payload...),
+		IdempotencyKey: destination.IdempotencyKey,
+	})
+	if err != nil {
+		return engine.handleFailure(ctx, destination, err, now)
+	}
+	deliveryID := strings.TrimSpace(result.DeliveryID)
+	if deliveryID == "" {
+		return engine.handleFailure(ctx, destination, &ProviderError{
+			Code:      "missing_notification_id",
+			Detail:    "Notification publisher returned no durable delivery id.",
+			Retryable: false,
+		}, now)
+	}
+	if err := engine.store.MarkNotified(
+		ctx, destination.ID, destination.LeaseToken, deliveryID, now,
+	); err != nil {
+		return fmt.Errorf("record notification delivery: %w", err)
+	}
+	return nil
 }
 
 func (engine *Engine) RetryDestination(
@@ -360,6 +523,7 @@ func diagnosticFromError(err error, now time.Time) (Diagnostic, time.Duration) {
 		diagnostic.Code = sanitizeCode(providerError.Code)
 		diagnostic.Detail = sanitizeDiagnostic(providerError.Detail)
 		diagnostic.Retryable = providerError.Retryable
+		diagnostic.Ambiguous = providerError.Ambiguous
 		return diagnostic, providerError.RetryAfter
 	}
 	return diagnostic, 0
@@ -385,8 +549,14 @@ func validateEnqueue(request EnqueueRequest) error {
 		channelID := strings.TrimSpace(destination.ChannelID)
 		if channelID == "" ||
 			strings.TrimSpace(destination.Provider) == "" ||
-			strings.TrimSpace(destination.ConnectionID) == "" ||
 			!providerPattern.MatchString(strings.TrimSpace(destination.Provider)) ||
+			destination.DraftRevision < 1 ||
+			strings.TrimSpace(destination.CapabilityID) == "" ||
+			strings.TrimSpace(destination.CapabilityVersion) == "" ||
+			(destination.Mode != PublishingModeAuto &&
+				destination.Mode != PublishingModeNotification) ||
+			(destination.Mode == PublishingModeAuto &&
+				strings.TrimSpace(destination.ConnectionID) == "") ||
 			!jsonValidObject(destination.Payload) ||
 			destination.MaxAttempts < 0 {
 			return fmt.Errorf("%w: invalid publication destination", ErrInvalidArgument)
@@ -407,9 +577,212 @@ func jsonValidObject(value []byte) bool {
 	return json.Unmarshal(value, &object) == nil && object != nil
 }
 
-func destinationIdempotencyKey(commandKey, channelID string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(commandKey) + "\x00" + strings.TrimSpace(channelID)))
+func destinationIdempotencyKey(
+	commandKey, channelID string,
+	draftRevision int64,
+	snapshotHash string,
+) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"%s\x00%s\x00%d\x00%s",
+		strings.TrimSpace(commandKey),
+		strings.TrimSpace(channelID),
+		draftRevision,
+		snapshotHash,
+	)))
 	return "publish_" + hex.EncodeToString(sum[:])
+}
+
+func (engine *Engine) resolveCapabilities(
+	ctx context.Context,
+	input DestinationInput,
+) (AdapterCapabilities, error) {
+	provider := strings.TrimSpace(input.Provider)
+	var capabilities AdapterCapabilities
+	switch input.Mode {
+	case PublishingModeAuto:
+		publisher, err := engine.resolver.ResolvePublisher(ctx, provider)
+		if err != nil {
+			return AdapterCapabilities{}, fmt.Errorf(
+				"%w: %s", ErrProviderUnavailable, sanitizeDiagnostic(err.Error()),
+			)
+		}
+		capabilities = publisher.Capabilities()
+		if !capabilities.NativeIdempotency && !capabilities.Reconciliation {
+			return AdapterCapabilities{}, ErrUnsafeAdapter
+		}
+	case PublishingModeNotification:
+		notifier, err := engine.notifications.ResolveNotificationPublisher(
+			ctx,
+			provider,
+		)
+		if err != nil {
+			return AdapterCapabilities{}, fmt.Errorf(
+				"%w: %s", ErrProviderUnavailable, sanitizeDiagnostic(err.Error()),
+			)
+		}
+		capabilities = notifier.Capabilities()
+		if !capabilities.NotificationIdempotency {
+			return AdapterCapabilities{}, ErrUnsafeAdapter
+		}
+	default:
+		return AdapterCapabilities{}, ErrInvalidArgument
+	}
+	if capabilities.Mode != input.Mode ||
+		strings.TrimSpace(capabilities.Version) == "" ||
+		capabilities.Version != strings.TrimSpace(input.CapabilityVersion) {
+		return AdapterCapabilities{}, fmt.Errorf(
+			"%w: adapter capability version or mode mismatch",
+			ErrProviderUnavailable,
+		)
+	}
+	return capabilities, nil
+}
+
+func validateRuntimeCapabilities(
+	destination Destination,
+	current AdapterCapabilities,
+) error {
+	if current != destination.Capabilities {
+		return &ProviderError{
+			Code:      "adapter_capability_drift",
+			Detail:    "The provider adapter no longer matches the immutable capability snapshot.",
+			Retryable: false,
+		}
+	}
+	if destination.Mode == PublishingModeAuto &&
+		!current.NativeIdempotency && !current.Reconciliation {
+		return &ProviderError{
+			Code:      "unsafe_adapter",
+			Detail:    "The provider adapter cannot safely recover an ambiguous request.",
+			Retryable: false,
+		}
+	}
+	if destination.Mode == PublishingModeNotification &&
+		!current.NotificationIdempotency {
+		return &ProviderError{
+			Code:      "unsafe_notification_adapter",
+			Detail:    "The notification adapter does not guarantee idempotent delivery.",
+			Retryable: false,
+		}
+	}
+	return nil
+}
+
+func classifyPublishError(
+	err error,
+	capabilities AdapterCapabilities,
+) error {
+	if err == nil {
+		return err
+	}
+	transportFailure := errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF)
+	var networkError net.Error
+	transportFailure = transportFailure || errors.As(err, &networkError)
+	var requestError *url.Error
+	transportFailure = transportFailure || errors.As(err, &requestError)
+	var providerError *ProviderError
+	if errors.As(err, &providerError) {
+		copyOfError := *providerError
+		if transportFailure {
+			copyOfError.Retryable = true
+			copyOfError.Ambiguous =
+				copyOfError.Ambiguous || !capabilities.NativeIdempotency
+		}
+		return &copyOfError
+	}
+	if !transportFailure {
+		return err
+	}
+	return &ProviderError{
+		Code:      "transport_outcome_unknown",
+		Detail:    err.Error(),
+		Retryable: true,
+		Ambiguous: !capabilities.NativeIdempotency,
+	}
+}
+
+func validateCompletedResult(result PublishResult) error {
+	if !result.Complete || strings.TrimSpace(result.RemoteID) == "" {
+		return &ProviderError{
+			Code:      "missing_remote_id",
+			Detail:    "Provider returned success without a remote publication id.",
+			Retryable: false,
+		}
+	}
+	if result.Permalink != "" {
+		parsed, err := url.ParseRequestURI(strings.TrimSpace(result.Permalink))
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
+			parsed.User != nil {
+			return &ProviderError{
+				Code:      "invalid_permalink",
+				Detail:    "Provider returned an invalid publication permalink.",
+				Retryable: false,
+			}
+		}
+	}
+	if len(result.Checkpoint) > 0 && !jsonValidObject(result.Checkpoint) {
+		return &ProviderError{
+			Code:      "invalid_adapter_checkpoint",
+			Detail:    "Provider returned an invalid final checkpoint.",
+			Retryable: false,
+		}
+	}
+	return nil
+}
+
+func canonicalJSON(value []byte) (json.RawMessage, error) {
+	var decoded any
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		return nil, fmt.Errorf("%w: invalid destination payload", ErrInvalidArgument)
+	}
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("%w: canonicalize destination payload", ErrInvalidArgument)
+	}
+	return canonical, nil
+}
+
+func destinationSnapshotHash(
+	input DestinationInput,
+	capabilities AdapterCapabilities,
+	payload json.RawMessage,
+) string {
+	envelope := struct {
+		ChannelID         string
+		Provider          string
+		ConnectionID      string
+		Mode              PublishingMode
+		DraftRevision     int64
+		CapabilityID      string
+		CapabilityVersion string
+		Capabilities      AdapterCapabilities
+		Payload           json.RawMessage
+	}{
+		ChannelID:         strings.TrimSpace(input.ChannelID),
+		Provider:          strings.TrimSpace(input.Provider),
+		ConnectionID:      strings.TrimSpace(input.ConnectionID),
+		Mode:              input.Mode,
+		DraftRevision:     input.DraftRevision,
+		CapabilityID:      strings.TrimSpace(input.CapabilityID),
+		CapabilityVersion: strings.TrimSpace(input.CapabilityVersion),
+		Capabilities:      capabilities,
+		Payload:           payload,
+	}
+	encoded, _ := json.Marshal(envelope)
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+type unavailableNotificationResolver struct{}
+
+func (unavailableNotificationResolver) ResolveNotificationPublisher(
+	context.Context,
+	string,
+) (NotificationPublisher, error) {
+	return nil, ErrProviderUnavailable
 }
 
 func (engine *Engine) randomID(prefix string) (string, error) {

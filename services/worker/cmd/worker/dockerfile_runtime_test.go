@@ -30,4 +30,10 @@ func TestWorkerDockerfileIncludesEmailBrandTokens(t *testing.T) {
 	) {
 		t.Fatal("worker Dockerfile must copy API go.mod so go.work resolution does not break image smoke builds")
 	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f08-publishing/go.mod features/f08-publishing/go.sum features/f08-publishing/",
+	) {
+		t.Fatal("worker Dockerfile must stage the F8 module before dependency download")
+	}
 }
