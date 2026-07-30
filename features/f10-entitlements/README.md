@@ -41,6 +41,13 @@ The private enforcement override is deliberately absent from Go catalog types,
 HTTP routes, OpenAPI schemas, and public database views. Its administrative
 assignment and audit workflow belongs to F11.
 
+The authenticated web application may run on a separate origin from the API.
+F10 therefore applies the same exact-origin allowlist used by the authenticated
+session runtime (`POSTQRON_AUTH_ALLOWED_ORIGINS`) to the public catalog,
+authoritative overview, and billing actions. Credentialed responses include
+the required CORS headers, and public `OPTIONS` handlers allow browser
+preflights to complete before private routes apply session authentication.
+
 ## Configuration
 
 The runtime reads server-only values from:

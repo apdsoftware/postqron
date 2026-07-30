@@ -20,30 +20,58 @@ server:
       handler: PublicPlans
       methods: [GET]
       visibility: public
+    - path: /billing/plans
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /workspaces/{workspace_id}/billing
       handler: BillingOverview
       methods: [GET]
       visibility: private
+    - path: /workspaces/{workspace_id}/billing
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /workspaces/{workspace_id}/billing/checkout
       handler: BillingCheckout
       methods: [POST]
       visibility: private
+    - path: /workspaces/{workspace_id}/billing/checkout
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /workspaces/{workspace_id}/billing/portal
       handler: BillingPortal
       methods: [POST]
       visibility: private
+    - path: /workspaces/{workspace_id}/billing/portal
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /workspaces/{workspace_id}/billing/subscription/preview
       handler: PreviewSubscriptionChange
       methods: [POST]
       visibility: private
+    - path: /workspaces/{workspace_id}/billing/subscription/preview
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /workspaces/{workspace_id}/billing/subscription
       handler: ApplySubscriptionChange
       methods: [PATCH]
       visibility: private
+    - path: /workspaces/{workspace_id}/billing/subscription
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /workspaces/{workspace_id}/billing/subscription/cancel
       handler: CancelSubscription
       methods: [POST]
       visibility: private
+    - path: /workspaces/{workspace_id}/billing/subscription/cancel
+      handler: BillingPreflight
+      methods: [OPTIONS]
+      visibility: public
     - path: /billing/paddle/webhook
       handler: PaddleWebhook
       methods: [POST]
