@@ -188,9 +188,9 @@ test('verification and post-registration markup expose only valid state actions'
     authPage,
     /class="auth-verification__actions"[\s\S]*data-full-width="true"[\s\S]*resendVerification/u,
   )
-  assert.match(
+  assert.doesNotMatch(
     authPage,
-    /v-if="providers\.length && !requestedVerification"/u,
+    /providers\.length|auth-provider|api\.authorize/u,
   )
 
   assert.match(

@@ -7,22 +7,17 @@ import {
 } from '../components/core/catalogs.ts'
 import {
   appRoute,
-  type AppSection,
 } from '../components/core/navigation.ts'
 
 function source(path: string): Promise<string> {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
-test('social channels route is distinct from the access-methods route', () => {
+test('social channels route remains available in every locale', () => {
   for (const locale of APP_SHELL_LOCALES) {
     assert.equal(
-      appRoute(locale, 'social-channels' as AppSection),
+      appRoute(locale, 'social-channels'),
       `/${locale}/app/social-channels`,
-    )
-    assert.notEqual(
-      appRoute(locale, 'social-channels' as AppSection),
-      appRoute(locale, 'providers'),
     )
   }
 })
@@ -37,10 +32,10 @@ test('the manifest registers a private, session-guarded social channels page', a
   assert.match(manifest, /- social-connections\n/u)
 })
 
-test('the shell navigation exposes Social channels next to Access methods', async () => {
+test('the shell navigation exposes Social channels without access methods', async () => {
   const layout = await source('../layouts/app-shell.vue')
   assert.match(layout, /key: 'social', href: appRoute\(locale\.value, 'social-channels'\)/u)
-  assert.match(layout, /key: 'providers'/u)
+  assert.doesNotMatch(layout, /key: 'providers'|appRoute\([^)]*'providers'/u)
 })
 
 test('the social channels page follows the accessible retryable page contract', async () => {

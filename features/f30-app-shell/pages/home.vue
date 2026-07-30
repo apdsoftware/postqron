@@ -45,7 +45,6 @@ const currentPlan = computed(() =>
 const cards = computed(() => [
   { key: 'profile', href: appRoute(session.value?.account.locale ?? 'en', 'profile') },
   { key: 'security', href: appRoute(session.value?.account.locale ?? 'en', 'security') },
-  { key: 'providers', href: appRoute(session.value?.account.locale ?? 'en', 'providers') },
   { key: 'social', href: appRoute(session.value?.account.locale ?? 'en', 'social-channels') },
   { key: 'plan', href: appRoute(session.value?.account.locale ?? 'en', 'plan') },
   { key: 'workspace', href: appRoute(session.value?.account.locale ?? 'en', 'workspace') },
@@ -90,11 +89,6 @@ async function retry() {
         <span class="app-card__eyebrow">{{ t('home.currentPlanLabel') }}</span>
         <strong>{{ currentPlan?.name || t('home.planUnknown') }}</strong>
         <p>{{ currentPlan?.state || t('home.planUnknown') }}</p>
-      </article>
-      <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('home.providerCountLabel') }}</span>
-        <strong>{{ accountArea?.providers.length ?? 0 }}</strong>
-        <p>{{ t('home.providerCountDescription') }}</p>
       </article>
     </div>
 

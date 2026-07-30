@@ -71,11 +71,6 @@ web:
       file: ./pages/security.vue
       visibility: private
       middleware: [app-session]
-    - name: app-providers
-      path: /app/providers
-      file: ./pages/providers.vue
-      visibility: private
-      middleware: [app-session]
     - name: app-social-channels
       path: /app/social-channels
       file: ./pages/social-channels.vue

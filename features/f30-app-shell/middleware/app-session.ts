@@ -6,7 +6,10 @@ import {
   routeGuardDecision,
 } from '../components/core/guard.ts'
 import {
+  appRoute,
   isPublicAccountDeletionCancellationDestination,
+  isRetiredProviderManagementDestination,
+  localeFromAppPath,
 } from '../components/core/navigation.ts'
 import {
   useAppSessionState,
@@ -16,6 +19,12 @@ import {
 export default defineNuxtRouteMiddleware(async (to) => {
   if (isPublicAccountDeletionCancellationDestination(to.fullPath)) {
     return
+  }
+  if (isRetiredProviderManagementDestination(to.fullPath)) {
+    return navigateTo(
+      appRoute(localeFromAppPath(to.fullPath), 'security'),
+      { redirectCode: 302, replace: true },
+    )
   }
   // The API owns the host-only __Host- session cookie. On cross-origin
   // deployments the web SSR host cannot receive or forward that cookie.

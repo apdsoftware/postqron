@@ -155,11 +155,6 @@
   box-shadow: var(--pq-shadow-sm);
 }
 
-.auth-providers {
-  display: grid;
-  gap: var(--pq-space-3);
-}
-
 .auth-password-form {
   display: grid;
   margin-bottom: var(--pq-space-5);
@@ -173,58 +168,6 @@
   border-radius: var(--pq-radius-md);
   padding: var(--pq-space-3);
   color: var(--pq-color-text);
-  background: var(--pq-color-surface);
-}
-
-.auth-separator {
-  display: flex;
-  margin: 0 0 var(--pq-space-4);
-  color: var(--pq-color-text-muted);
-  gap: var(--pq-space-3);
-  align-items: center;
-  font-size: var(--pq-font-size-sm);
-}
-
-.auth-separator::before,
-.auth-separator::after {
-  height: 1px;
-  content: "";
-  background: var(--pq-color-border);
-  flex: 1;
-}
-
-.auth-provider {
-  display: grid;
-  min-height: 3.25rem;
-  border: 1px solid var(--pq-color-border-strong);
-  border-radius: var(--pq-radius-md);
-  padding: var(--pq-space-2) var(--pq-space-3);
-  color: var(--pq-color-text);
-  grid-template-columns: 2rem 1fr 1rem;
-  gap: var(--pq-space-3);
-  align-items: center;
-  background: var(--pq-color-surface);
-  font-weight: var(--pq-font-weight-semibold);
-  cursor: pointer;
-}
-
-.auth-provider:not(:disabled):hover {
-  border-color: var(--pq-color-brand);
-  background: var(--pq-color-brand-subtle);
-}
-
-.auth-provider:disabled {
-  opacity: 0.58;
-  cursor: not-allowed;
-}
-
-.auth-provider__mark {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--pq-color-border);
-  border-radius: var(--pq-radius-md);
-  place-items: center;
   background: var(--pq-color-surface);
 }
 
@@ -966,8 +909,8 @@
 }
 
 /* Account area: page scaffold, cards, forms, meta rows and badges. These
-   classes back Home, Profile, Security, Access methods and Privacy so labels
-   and values always sit on separate lines with deliberate spacing. */
+   classes back Home, Profile, Security and Privacy so labels and values
+   always sit on separate lines with deliberate spacing. */
 
 .app-page {
   display: grid;

@@ -5,9 +5,7 @@ import {
   ref,
   useAsyncData,
   useHead,
-  useRoute,
 } from '#imports'
-import { appRoute, localeFromAppPath } from '../components/core/navigation.ts'
 import {
   appStateKindFromError,
   useAppAccountAreaState,
@@ -15,15 +13,13 @@ import {
   useAppShellApi,
   useAppShellI18n,
 } from '../components/core/use-app-shell.ts'
-import { formatDateTime } from '../components/core/preferences.ts'
 
 definePageMeta({ layout: 'app-shell' })
 
 const api = useAppShellApi()
-const route = useRoute()
 const session = useAppSessionState()
 const accountArea = useAppAccountAreaState()
-const { t, locale: uiLocale } = useAppShellI18n()
+const { t } = useAppShellI18n()
 const currentPassword = ref('')
 const newPassword = ref('')
 const confirmation = ref('')
@@ -31,7 +27,6 @@ const changing = ref(false)
 const revoking = ref(false)
 const feedback = ref<'changed' | 'error' | 'revoked'>()
 const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
-const locale = computed(() => localeFromAppPath(route.fullPath))
 
 useHead(computed(() => ({
   title: t('documentTitle.security'),
@@ -49,8 +44,6 @@ const { pending, refresh } = useAsyncData('postqron-account-security', async () 
   }
 }, { server: false })
 
-const identityProviders = computed(() =>
-  accountArea.value?.providers.filter(provider => provider.kind === 'identity') ?? [])
 const emailVerified = computed(() => session.value?.account.email_verified ?? false)
 
 async function changePassword() {
@@ -138,37 +131,6 @@ async function retry() {
             </dd>
           </div>
         </dl>
-      </article>
-
-      <article class="app-card">
-        <div class="app-card__header">
-          <span class="app-card__eyebrow">{{ t('security.methods') }}</span>
-          <h2>{{ t('security.methodsTitle') }}</h2>
-        </div>
-        <p class="app-inline-note">
-          {{ t('security.methodsNote') }}
-        </p>
-        <ul class="app-provider-list">
-          <li
-            v-for="provider in identityProviders"
-            :key="provider.id"
-          >
-            <div class="app-provider-list__meta">
-              <strong>{{ provider.name }}</strong>
-              <span>{{ formatDateTime(provider.connected_at, uiLocale.value) }}</span>
-            </div>
-            <span
-              v-if="provider.only_login_method"
-              class="app-badge app-badge--info"
-            >{{ t('security.onlyMethod') }}</span>
-          </li>
-        </ul>
-        <NuxtLink
-          class="pq-button pq-button--secondary"
-          :to="appRoute(locale, 'providers')"
-        >
-          {{ t('security.manageMethodsLink') }}
-        </NuxtLink>
       </article>
 
       <article class="app-card">

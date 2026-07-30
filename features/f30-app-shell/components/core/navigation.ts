@@ -12,7 +12,6 @@ export type AppSection =
   | 'oauth-callback'
   | 'profile'
   | 'security'
-  | 'providers'
   | 'social-channels'
   | 'plan'
   | 'workspace'
@@ -103,8 +102,6 @@ export function appRoute(
       return `${appRoot(locale)}/profile`
     case 'security':
       return `${appRoot(locale)}/security`
-    case 'providers':
-      return `${appRoot(locale)}/providers`
     case 'social-channels':
       return `${appRoot(locale)}/social-channels`
     case 'plan':
@@ -147,6 +144,17 @@ export function isPublicAccountDeletionCancellationDestination(
     const parsed = parseLocal(value)
     const path = unlocalizedAppPath(parsed.pathname)
     return /^\/app\/account-deletions\/[^/]+\/cancel$/u.test(path)
+  } catch {
+    return false
+  }
+}
+
+export function isRetiredProviderManagementDestination(
+  value: string,
+): boolean {
+  try {
+    const parsed = parseLocal(value)
+    return unlocalizedAppPath(parsed.pathname) === '/app/providers'
   } catch {
     return false
   }

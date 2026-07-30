@@ -7,6 +7,7 @@ import {
   accountDeletionCancellationRoute,
   authenticatedDestination,
   isPublicAccountDeletionCancellationDestination,
+  isRetiredProviderManagementDestination,
   sanitizeAppDestination,
 } from '../components/core/navigation.ts'
 
@@ -71,6 +72,17 @@ for (const prefix of localePrefixes) {
     assert.deepEqual(
       routeGuardDecision({ destination: target, failure: 'session' }),
       { action: 'allow' },
+    )
+  })
+
+  test(`recognizes the retired provider-management destination in ${prefix || 'en'}`, () => {
+    assert.equal(
+      isRetiredProviderManagementDestination(`${prefix}/app/providers`),
+      true,
+    )
+    assert.equal(
+      isRetiredProviderManagementDestination(`${prefix}/app/security`),
+      false,
     )
   })
 }
