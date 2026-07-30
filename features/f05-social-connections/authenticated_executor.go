@@ -209,6 +209,20 @@ func (executor *AuthenticatedExecutor) Execute(
 	ctx context.Context,
 	request PublishingRequest,
 ) (PublishingResponse, error) {
+	return executor.execute(ctx, request, authenticatedExecuteOptions{})
+}
+
+type authenticatedExecuteOptions struct {
+	allowLinkedInDMSInitialize bool
+	allowLinkedInAssetStatus   bool
+	allowLinkedInMediaCreate   bool
+}
+
+func (executor *AuthenticatedExecutor) execute(
+	ctx context.Context,
+	request PublishingRequest,
+	options authenticatedExecuteOptions,
+) (PublishingResponse, error) {
 	var err error
 	request, err = snapshotPublishingRequest(request)
 	if err != nil {
@@ -221,6 +235,20 @@ func (executor *AuthenticatedExecutor) Execute(
 		strings.TrimSpace(request.WorkspaceID) == "" ||
 		strings.TrimSpace(request.ConnectionID) == "" {
 		return PublishingResponse{}, ErrInvalidArgument
+	}
+	if request.ExpectedProvider == ProviderLinkedIn {
+		switch {
+		case isLinkedInImagesEndpointRequest(request) &&
+			!(options.allowLinkedInDMSInitialize &&
+				isCanonicalLinkedInDMSInitializeRequest(request)) &&
+			!(options.allowLinkedInAssetStatus &&
+				isCanonicalLinkedInAssetStatusRequest(request)):
+			return PublishingResponse{}, ErrInvalidArgument
+		case hasLinkedInMediaCreatePayload(request) &&
+			(!options.allowLinkedInMediaCreate ||
+				!isCanonicalLinkedInMediaCreateRequest(request)):
+			return PublishingResponse{}, ErrInvalidArgument
+		}
 	}
 	authenticated, body, verifier, err := executor.prepareRequest(request)
 	if err != nil {

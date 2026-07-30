@@ -1476,6 +1476,8 @@ func TestAuthenticatedExecutorIsNotExposedOverHTTP(t *testing.T) {
 		"/api/v1/workspaces/workspace-1/social-connections/connection-1/execute",
 		"/api/v1/workspaces/workspace-1/social-connections/connection-1/publishing",
 		"/api/v1/workspaces/workspace-1/social-connections/connection-1/media",
+		"/api/v1/workspaces/workspace-1/social-connections/connection-1/linkedin-dms-upload",
+		"/api/v1/workspaces/workspace-1/social-connections/connection-1/linkedin-assets/urn:li:image:abc",
 		"/api/v1/internal/authenticated-executor",
 	} {
 		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {
