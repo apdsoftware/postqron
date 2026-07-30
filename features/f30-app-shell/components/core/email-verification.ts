@@ -1,4 +1,8 @@
 export type EmailVerificationResult = 'invalid' | 'no-token' | 'verified'
+export type EmailVerificationResendResult = Readonly<{
+  email: string
+  status: 'error' | 'success'
+}>
 
 export function emailVerificationDataKey(componentId: string): string {
   return `postqron-email-verification:${componentId}`
@@ -18,6 +22,18 @@ export async function completeEmailVerification(
     return 'verified'
   } catch {
     return 'invalid'
+  }
+}
+
+export async function requestEmailVerification(
+  email: string,
+  resend: (email: string) => Promise<void>,
+): Promise<EmailVerificationResendResult> {
+  try {
+    await resend(email)
+    return { email: '', status: 'success' }
+  } catch {
+    return { email, status: 'error' }
   }
 }
 

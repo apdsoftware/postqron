@@ -8,9 +8,37 @@ import {
 import {
   completeEmailVerification,
   emailVerificationDataKey,
+  requestEmailVerification,
   withoutEmailVerificationToken,
   withoutEmailVerificationTokenInHistoryState,
 } from '../components/core/email-verification.ts'
+
+test('successful verification resend clears the email field', async () => {
+  let requestedEmail = ''
+  const result = await requestEmailVerification(
+    'person@example.com',
+    async (email) => {
+      requestedEmail = email
+    },
+  )
+
+  assert.equal(requestedEmail, 'person@example.com')
+  assert.deepEqual(result, { email: '', status: 'success' })
+})
+
+test('failed verification resend preserves the email field for retry', async () => {
+  const result = await requestEmailVerification(
+    'person+correction@example.com',
+    async () => {
+      throw new Error('network unavailable')
+    },
+  )
+
+  assert.deepEqual(result, {
+    email: 'person+correction@example.com',
+    status: 'error',
+  })
+})
 
 test('email verification invokes the one-time operation exactly once', async () => {
   let executions = 0
@@ -181,6 +209,14 @@ test('all locales distinguish verified and resent outcomes', () => {
     assert.ok(catalog['verify.success'])
     assert.ok(catalog['verify.resent'])
     assert.notEqual(catalog['verify.success'], catalog['verify.resent'])
+    assert.match(
+      catalog['verify.resent'],
+      /privacy|privacy|privacidad|vie privée|Privatsphäre/u,
+    )
+    assert.match(
+      catalog['verify.resent'],
+      /already verified|già verificato|ya está verificada|déjà vérifié|bereits bestätigt/u,
+    )
     assert.equal('auth.verificationOpen' in catalog, false)
     assert.doesNotMatch(JSON.stringify(catalog), /one-time-secret/u)
   }
