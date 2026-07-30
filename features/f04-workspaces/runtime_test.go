@@ -256,11 +256,91 @@ func TestRuntimeCurrentWorkspaceFallsBackToAccessibleWorkspace(t *testing.T) {
 	workspace := createPersonal(t, domainService, "owner")
 	repository.selections["owner"] = "missing-workspace"
 
-	current, role, err := service.CurrentWorkspace(context.Background(), "owner")
+	current, err := service.CurrentWorkspace(context.Background(), "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.ID != workspace.ID || role != RoleOwner {
-		t.Fatalf("current workspace = %#v/%s", current, role)
+	if current.ID != workspace.ID || current.Role != RoleOwner {
+		t.Fatalf("current workspace = %#v", current)
+	}
+}
+
+func TestRuntimeConcurrentRoleChangesRetainAnOwner(t *testing.T) {
+	repository := NewMemoryRepository()
+	manager := newTestService(t, repository, 5)
+	workspace := createPersonal(t, manager, "owner-a")
+	inviteAndAccept(
+		t,
+		manager,
+		workspace.ID,
+		"owner-a",
+		"owner-b",
+		"owner-b@example.com",
+	)
+	if err := manager.ChangeRole(
+		context.Background(),
+		workspace.ID,
+		"owner-a",
+		"owner-b",
+		RoleOwner,
+	); err != nil {
+		t.Fatal(err)
+	}
+	repository.selections["owner-a"] = workspace.ID
+	repository.selections["owner-b"] = workspace.ID
+	service, err := NewRuntimeServiceWithManager(
+		repository,
+		manager,
+		func() time.Time { return testNow },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wait sync.WaitGroup
+	for _, change := range [][2]string{
+		{"owner-a", "owner-b"},
+		{"owner-b", "owner-a"},
+	} {
+		wait.Add(1)
+		go func(actorID, targetID string) {
+			defer wait.Done()
+			<-start
+			results <- service.ChangeCurrentMemberRole(
+				context.Background(),
+				actorID,
+				targetID,
+				RoleMember,
+			)
+		}(change[0], change[1])
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+
+	successes := 0
+	for result := range results {
+		if result == nil {
+			successes++
+			continue
+		}
+		if !errors.Is(result, ErrForbidden) && !errors.Is(result, ErrLastOwner) {
+			t.Fatalf("concurrent role change error = %v", result)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful concurrent role changes = %d, want 1", successes)
+	}
+	owners := 0
+	for _, accountID := range []string{"owner-a", "owner-b"} {
+		membership, _ := repository.Membership(workspace.ID, accountID)
+		if membership.Status == MembershipActive && membership.Role == RoleOwner {
+			owners++
+		}
+	}
+	if owners != 1 {
+		t.Fatalf("active Owners = %d, want 1", owners)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -42,9 +43,28 @@ func NewRuntimeHTTPHandler(
 	mux.HandleFunc("POST /api/v1/app/workspaces/select", handler.selectWorkspace)
 	mux.HandleFunc("OPTIONS /api/v1/app/workspaces/select", handler.preflight)
 	mux.HandleFunc("GET /api/v1/app/workspaces/current", handler.currentWorkspace)
+	mux.HandleFunc("PATCH /api/v1/app/workspaces/current", handler.renameCurrentWorkspace)
 	mux.HandleFunc("OPTIONS /api/v1/app/workspaces/current", handler.preflight)
 	mux.HandleFunc("GET /api/v1/app/workspaces/current/members", handler.currentMemberships)
 	mux.HandleFunc("OPTIONS /api/v1/app/workspaces/current/members", handler.preflight)
+	mux.HandleFunc("POST /api/v1/app/workspaces/current/invitations", handler.inviteCurrentMember)
+	mux.HandleFunc("OPTIONS /api/v1/app/workspaces/current/invitations", handler.preflight)
+	mux.HandleFunc(
+		"PUT /api/v1/app/workspaces/current/members/{memberId}/role",
+		handler.changeCurrentMemberRole,
+	)
+	mux.HandleFunc(
+		"OPTIONS /api/v1/app/workspaces/current/members/{memberId}/role",
+		handler.preflight,
+	)
+	mux.HandleFunc(
+		"DELETE /api/v1/app/workspaces/current/members/{memberId}",
+		handler.removeCurrentMember,
+	)
+	mux.HandleFunc(
+		"OPTIONS /api/v1/app/workspaces/current/members/{memberId}",
+		handler.preflight,
+	)
 	handler.handler = handler.cors(mux)
 	return handler, nil
 }
@@ -124,16 +144,42 @@ func (handler *RuntimeHTTPHandler) currentWorkspace(
 	if !ok {
 		return
 	}
-	workspace, role, err := handler.service.CurrentWorkspace(request.Context(), account.ID)
+	workspace, err := handler.service.CurrentWorkspace(request.Context(), account.ID)
 	if err != nil {
 		writeRuntimeError(writer, err)
 		return
 	}
-	writeRuntimeJSON(writer, http.StatusOK, AppWorkspace{
-		ID:   workspace.ID,
-		Name: workspace.Name,
-		Role: role,
-	})
+	writeRuntimeJSON(writer, http.StatusOK, workspace)
+}
+
+func (handler *RuntimeHTTPHandler) renameCurrentWorkspace(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
+	account, ok := handler.authenticate(writer, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err := decodeRuntimeJSON(writer, request, &input); err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	workspace, err := handler.service.RenameCurrentWorkspace(
+		request.Context(),
+		account.ID,
+		input.Name,
+	)
+	if err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	writeRuntimeJSON(writer, http.StatusOK, workspace)
 }
 
 func (handler *RuntimeHTTPHandler) currentMemberships(
@@ -144,12 +190,99 @@ func (handler *RuntimeHTTPHandler) currentMemberships(
 	if !ok {
 		return
 	}
-	memberships, err := handler.service.CurrentMemberships(request.Context(), account.ID)
+	memberships, err := handler.service.CurrentMembers(request.Context(), account.ID)
 	if err != nil {
 		writeRuntimeError(writer, err)
 		return
 	}
 	writeRuntimeJSON(writer, http.StatusOK, memberships)
+}
+
+func (handler *RuntimeHTTPHandler) inviteCurrentMember(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
+	account, ok := handler.authenticate(writer, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+	}
+	if err := decodeRuntimeJSON(writer, request, &input); err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	invitation, err := handler.service.InviteCurrentMember(
+		request.Context(),
+		account.ID,
+		input.Email,
+	)
+	if err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	status := http.StatusCreated
+	if invitation.Reissued {
+		status = http.StatusOK
+	}
+	writeRuntimeJSON(writer, status, invitation)
+}
+
+func (handler *RuntimeHTTPHandler) changeCurrentMemberRole(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
+	account, ok := handler.authenticate(writer, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Role Role `json:"role"`
+	}
+	if err := decodeRuntimeJSON(writer, request, &input); err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	if err := handler.service.ChangeCurrentMemberRole(
+		request.Context(),
+		account.ID,
+		request.PathValue("memberId"),
+		input.Role,
+	); err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *RuntimeHTTPHandler) removeCurrentMember(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
+	account, ok := handler.authenticate(writer, request)
+	if !ok {
+		return
+	}
+	if err := handler.service.RemoveCurrentMember(
+		request.Context(),
+		account.ID,
+		request.PathValue("memberId"),
+	); err != nil {
+		writeRuntimeError(writer, err)
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *RuntimeHTTPHandler) authenticate(
@@ -158,7 +291,7 @@ func (handler *RuntimeHTTPHandler) authenticate(
 ) (AppSessionAccount, bool) {
 	cookie, err := request.Cookie(sessionCookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		writeRuntimeAppError(writer, http.StatusUnauthorized, "APP_UNAUTHENTICATED", true)
+		writeRuntimeAppError(writer, http.StatusUnauthorized, "APP_UNAUTHENTICATED", false)
 		return AppSessionAccount{}, false
 	}
 	account, err := handler.authenticator.Session(request.Context(), cookie.Value)
@@ -173,8 +306,11 @@ func (handler *RuntimeHTTPHandler) preflight(
 	writer http.ResponseWriter,
 	_ *http.Request,
 ) {
-	writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	writer.Header().Set(
+		"Access-Control-Allow-Methods",
+		"GET, PATCH, POST, PUT, DELETE, OPTIONS",
+	)
+	writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
 	writer.Header().Set("Access-Control-Max-Age", "600")
 	writer.WriteHeader(http.StatusNoContent)
 }
@@ -284,18 +420,19 @@ func decodeRuntimeJSON(writer http.ResponseWriter, request *http.Request, target
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return err
+		return fmt.Errorf("%w: malformed JSON body: %v", ErrInvalidArgument, err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return ErrInvalidArgument
+		return fmt.Errorf("%w: request body must contain one JSON value", ErrInvalidArgument)
 	}
 	return nil
 }
 
 func writeRuntimeError(writer http.ResponseWriter, err error) {
+	var stateError interface{ SQLState() string }
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
-		writeRuntimeAppError(writer, http.StatusUnauthorized, "APP_UNAUTHENTICATED", true)
+		writeRuntimeAppError(writer, http.StatusUnauthorized, "APP_UNAUTHENTICATED", false)
 	case errors.Is(err, ErrForbidden):
 		writeRuntimeAppError(writer, http.StatusForbidden, "APP_ACCESS_DENIED", false)
 	case errors.Is(err, ErrNotFound):
@@ -304,9 +441,22 @@ func writeRuntimeError(writer http.ResponseWriter, err error) {
 		writeRuntimeAppError(writer, http.StatusBadRequest, "APP_INVALID_CONSENT", false)
 	case errors.Is(err, ErrConsentOutdated):
 		writeRuntimeAppError(writer, http.StatusConflict, "APP_ONBOARDING_CONFLICT", false)
+	case errors.Is(err, ErrLastOwner):
+		writeRuntimeAppError(writer, http.StatusConflict, "APP_LAST_OWNER", false)
+	case errors.Is(err, ErrMemberLimitReached):
+		writeRuntimeAppError(writer, http.StatusConflict, "APP_MEMBER_LIMIT_REACHED", false)
+	case errors.Is(err, ErrInvitationExpired),
+		errors.Is(err, ErrInvitationRevoked),
+		errors.Is(err, ErrInvitationAccepted),
+		errors.Is(err, ErrEmailMismatch):
+		writeRuntimeAppError(writer, http.StatusConflict, "APP_INVITATION_CONFLICT", false)
 	case errors.Is(err, ErrWorkspaceInactive), errors.Is(err, ErrConflict):
 		writeRuntimeAppError(writer, http.StatusConflict, "APP_WORKSPACE_CONFLICT", false)
-	case errors.Is(err, ErrRuntimeUnavailable):
+	case errors.As(err, &stateError) &&
+		(stateError.SQLState() == "40001" || stateError.SQLState() == "40P01"):
+		writeRuntimeAppError(writer, http.StatusConflict, "APP_CONCURRENT_UPDATE", true)
+	case errors.Is(err, ErrRuntimeUnavailable),
+		errors.Is(err, ErrEntitlementUnavailable):
 		writeRuntimeAppError(writer, http.StatusServiceUnavailable, "APP_CONFIGURATION_UNAVAILABLE", true)
 	case errors.Is(err, ErrInvalidArgument):
 		writeRuntimeAppError(writer, http.StatusBadRequest, "APP_INVALID_REQUEST", false)

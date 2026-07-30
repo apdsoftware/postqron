@@ -33,6 +33,33 @@ type AppWorkspace struct {
 	Role Role   `json:"role"`
 }
 
+type RuntimeWorkspace struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Role      Role            `json:"role"`
+	Status    WorkspaceStatus `json:"status"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+type RuntimeMember struct {
+	ID        string           `json:"id"`
+	AccountID string           `json:"account_id"`
+	Email     string           `json:"email"`
+	Role      Role             `json:"role"`
+	Status    MembershipStatus `json:"status"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+type RuntimeInvitation struct {
+	ID        string           `json:"id"`
+	Status    InvitationStatus `json:"status"`
+	ExpiresAt time.Time        `json:"expires_at"`
+	Token     string           `json:"token"`
+	Reissued  bool             `json:"reissued"`
+}
+
 type AppSession struct {
 	Account struct {
 		ID          string    `json:"id"`
@@ -84,13 +111,21 @@ type RuntimeStore interface {
 	CompleteOnboarding(context.Context, CompleteOnboardingCommand, time.Time) (AppSession, bool, error)
 	SelectWorkspace(context.Context, AppSessionAccount, string, time.Time) error
 	CurrentWorkspace(context.Context, string) (Workspace, Role, error)
-	CurrentMemberships(context.Context, string) ([]Membership, error)
+	CurrentMembers(context.Context, string) ([]RuntimeMember, error)
 	ConsumeOnboardingRequired(context.Context, OnboardingRequiredEvent, time.Time) (Workspace, bool, error)
 }
 
 type RuntimeService struct {
-	store RuntimeStore
-	now   func() time.Time
+	store   RuntimeStore
+	manager RuntimeWorkspaceManager
+	now     func() time.Time
+}
+
+type RuntimeWorkspaceManager interface {
+	RenameWorkspace(context.Context, string, string, string) (Workspace, error)
+	Invite(context.Context, string, string, string) (InvitationResult, error)
+	ChangeRole(context.Context, string, string, string, Role) error
+	RemoveMember(context.Context, string, string, string) error
 }
 
 func NewRuntimeService(store RuntimeStore) (*RuntimeService, error) {
@@ -114,6 +149,23 @@ func NewRuntimeServiceWithClock(
 		clock = time.Now
 	}
 	return &RuntimeService{store: store, now: clock}, nil
+}
+
+func NewRuntimeServiceWithManager(
+	store RuntimeStore,
+	manager RuntimeWorkspaceManager,
+	clock func() time.Time,
+) (*RuntimeService, error) {
+	if store == nil || manager == nil {
+		return nil, fmt.Errorf(
+			"%w: runtime store and workspace manager are required",
+			ErrInvalidArgument,
+		)
+	}
+	if clock == nil {
+		clock = time.Now
+	}
+	return &RuntimeService{store: store, manager: manager, now: clock}, nil
 }
 
 var (
@@ -168,21 +220,133 @@ func (service *RuntimeService) SelectWorkspace(
 func (service *RuntimeService) CurrentWorkspace(
 	ctx context.Context,
 	accountID string,
-) (Workspace, Role, error) {
+) (RuntimeWorkspace, error) {
 	if strings.TrimSpace(accountID) == "" {
-		return Workspace{}, "", ErrUnauthenticated
+		return RuntimeWorkspace{}, ErrUnauthenticated
 	}
-	return service.store.CurrentWorkspace(ctx, accountID)
+	workspace, role, err := service.store.CurrentWorkspace(ctx, accountID)
+	if err != nil {
+		return RuntimeWorkspace{}, err
+	}
+	return runtimeWorkspace(workspace, role), nil
 }
 
-func (service *RuntimeService) CurrentMemberships(
+func (service *RuntimeService) CurrentMembers(
 	ctx context.Context,
 	accountID string,
-) ([]Membership, error) {
+) ([]RuntimeMember, error) {
 	if strings.TrimSpace(accountID) == "" {
 		return nil, ErrUnauthenticated
 	}
-	return service.store.CurrentMemberships(ctx, accountID)
+	return service.store.CurrentMembers(ctx, accountID)
+}
+
+func (service *RuntimeService) RenameCurrentWorkspace(
+	ctx context.Context,
+	accountID, name string,
+) (RuntimeWorkspace, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 80 {
+		return RuntimeWorkspace{}, fmt.Errorf(
+			"%w: workspace name must contain between 1 and 80 characters",
+			ErrInvalidArgument,
+		)
+	}
+	manager, err := service.workspaceManager()
+	if err != nil {
+		return RuntimeWorkspace{}, err
+	}
+	current, err := service.CurrentWorkspace(ctx, accountID)
+	if err != nil {
+		return RuntimeWorkspace{}, err
+	}
+	workspace, err := manager.RenameWorkspace(ctx, current.ID, accountID, name)
+	if err != nil {
+		return RuntimeWorkspace{}, err
+	}
+	return runtimeWorkspace(workspace, current.Role), nil
+}
+
+func (service *RuntimeService) InviteCurrentMember(
+	ctx context.Context,
+	accountID, email string,
+) (RuntimeInvitation, error) {
+	manager, err := service.workspaceManager()
+	if err != nil {
+		return RuntimeInvitation{}, err
+	}
+	current, err := service.CurrentWorkspace(ctx, accountID)
+	if err != nil {
+		return RuntimeInvitation{}, err
+	}
+	result, err := manager.Invite(ctx, current.ID, accountID, email)
+	if err != nil {
+		return RuntimeInvitation{}, err
+	}
+	return RuntimeInvitation{
+		ID:        result.Invitation.ID,
+		Status:    result.Invitation.Status,
+		ExpiresAt: result.Invitation.ExpiresAt,
+		Token:     result.Token,
+		Reissued:  result.Reissued,
+	}, nil
+}
+
+func (service *RuntimeService) ChangeCurrentMemberRole(
+	ctx context.Context,
+	accountID, memberID string,
+	role Role,
+) error {
+	memberID = strings.TrimSpace(memberID)
+	if memberID == "" || !role.Valid() {
+		return fmt.Errorf("%w: member id and valid role are required", ErrInvalidArgument)
+	}
+	manager, err := service.workspaceManager()
+	if err != nil {
+		return err
+	}
+	current, err := service.CurrentWorkspace(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	return manager.ChangeRole(ctx, current.ID, accountID, memberID, role)
+}
+
+func (service *RuntimeService) RemoveCurrentMember(
+	ctx context.Context,
+	accountID, memberID string,
+) error {
+	memberID = strings.TrimSpace(memberID)
+	if memberID == "" {
+		return fmt.Errorf("%w: member id is required", ErrInvalidArgument)
+	}
+	manager, err := service.workspaceManager()
+	if err != nil {
+		return err
+	}
+	current, err := service.CurrentWorkspace(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	return manager.RemoveMember(ctx, current.ID, accountID, memberID)
+}
+
+func (service *RuntimeService) workspaceManager() (RuntimeWorkspaceManager, error) {
+	if service.manager == nil {
+		return nil, ErrRuntimeUnavailable
+	}
+	return service.manager, nil
+}
+
+func runtimeWorkspace(workspace Workspace, role Role) RuntimeWorkspace {
+	return RuntimeWorkspace{
+		ID:        workspace.ID,
+		Name:      workspace.Name,
+		Role:      role,
+		Status:    workspace.Status,
+		CreatedAt: workspace.CreatedAt,
+		UpdatedAt: workspace.UpdatedAt,
+	}
 }
 
 func (service *RuntimeService) ConsumeOnboardingRequired(

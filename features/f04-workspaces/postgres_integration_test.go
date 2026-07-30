@@ -157,6 +157,97 @@ func TestPostgresRepositoryIntegration(t *testing.T) {
 	); !errors.Is(err, ErrLastOwner) {
 		t.Fatalf("last Owner demotion error = %v, want last owner", err)
 	}
+	if err = service.RemoveMember(
+		context.Background(),
+		workspace.ID,
+		memberID,
+		ownerID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.Role(
+		context.Background(),
+		workspace.ID,
+		ownerID,
+	); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("removed Member Role() error = %v, want forbidden", err)
+	}
+
+	raceOwnerA := "integration-race-owner-a-" + suffix
+	raceOwnerB := "integration-race-owner-b-" + suffix
+	raceWorkspace := createPersonal(t, service, raceOwnerA)
+	inviteAndAccept(
+		t,
+		service,
+		raceWorkspace.ID,
+		raceOwnerA,
+		raceOwnerB,
+		"race-"+suffix+"@example.com",
+	)
+	if err = service.ChangeRole(
+		context.Background(),
+		raceWorkspace.ID,
+		raceOwnerA,
+		raceOwnerB,
+		RoleOwner,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	roleResults := make(chan error, 2)
+	wait = sync.WaitGroup{}
+	for _, change := range [][2]string{
+		{raceOwnerA, raceOwnerB},
+		{raceOwnerB, raceOwnerA},
+	} {
+		wait.Add(1)
+		go func(actorID, targetID string) {
+			defer wait.Done()
+			<-start
+			roleResults <- service.ChangeRole(
+				context.Background(),
+				raceWorkspace.ID,
+				actorID,
+				targetID,
+				RoleMember,
+			)
+		}(change[0], change[1])
+	}
+	close(start)
+	wait.Wait()
+	close(roleResults)
+	successes := 0
+	for result := range roleResults {
+		if result == nil {
+			successes++
+			continue
+		}
+		var stateError interface{ SQLState() string }
+		if !errors.Is(result, ErrForbidden) &&
+			!errors.Is(result, ErrLastOwner) &&
+			!(errors.As(result, &stateError) && stateError.SQLState() == "40001") {
+			t.Fatalf("concurrent role change error = %v", result)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful concurrent role changes = %d, want 1", successes)
+	}
+	var ownerCount int
+	if err = database.QueryRowContext(
+		context.Background(),
+		`SELECT count(*)
+		 FROM f04_memberships
+		 WHERE workspace_id = $1
+		   AND status = 'active'
+		   AND role = 'owner'`,
+		raceWorkspace.ID,
+	).Scan(&ownerCount); err != nil {
+		t.Fatal(err)
+	}
+	if ownerCount != 1 {
+		t.Fatalf("concurrent active Owner count = %d, want 1", ownerCount)
+	}
 
 	var emailDigestLength, tokenDigestLength int
 	if err = database.QueryRowContext(

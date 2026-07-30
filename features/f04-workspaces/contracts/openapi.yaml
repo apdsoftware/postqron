@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Postqron workspace API
-  version: 0.1.0
+  version: 0.2.0
   description: >
     Server-side contract for personal workspaces, invitations, memberships,
     fixed Owner/Member roles, and ownership transfer.
@@ -64,7 +64,7 @@ paths:
           description: Account is not an active member of the requested workspace
   /api/v1/app/workspaces/current:
     get:
-      summary: Read the selected workspace or fall back to the first active membership
+      summary: Read base data for the server-selected current workspace
       operationId: currentAppWorkspace
       security:
         - sessionCookie: []
@@ -74,11 +74,50 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AppWorkspace"
+                $ref: "#/components/schemas/RuntimeWorkspace"
         "401":
           description: Invalid or expired session cookie
         "404":
           description: The account has no active workspace memberships
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
+    patch:
+      summary: Rename the current workspace as an active Owner
+      operationId: renameCurrentAppWorkspace
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        "200":
+          description: Updated workspace base data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeWorkspace"
+        "400":
+          description: Invalid name or malformed JSON
+        "401":
+          description: Invalid or expired session cookie
+        "403":
+          description: The authenticated account is not an active Owner
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Workspace state or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
   /api/v1/app/workspaces/current/members:
     get:
       summary: List active members of the current workspace
@@ -93,11 +132,113 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Membership"
+                  $ref: "#/components/schemas/RuntimeMember"
         "401":
           description: Invalid or expired session cookie
         "404":
           description: The account has no active workspace memberships
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
+  /api/v1/app/workspaces/current/invitations:
+    post:
+      summary: Invite a Member to the current workspace as an active Owner
+      operationId: inviteCurrentAppWorkspaceMember
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Existing pending invitation reissued with a rotated token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeInvitation"
+        "201":
+          description: Invitation created; token returned only in this response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeInvitation"
+        "400":
+          description: Invalid email or malformed JSON
+        "401":
+          description: Invalid or expired session cookie
+        "403":
+          description: The authenticated account is not an active Owner
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Member limit, workspace state, or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
+  /api/v1/app/workspaces/current/members/{memberId}/role:
+    put:
+      summary: Change an active current-workspace member role as an Owner
+      operationId: changeCurrentAppWorkspaceMemberRole
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RuntimeMemberId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role:
+                  $ref: "#/components/schemas/Role"
+      responses:
+        "204":
+          description: Role changed or already had the requested value
+        "400":
+          description: Invalid member or role
+        "401":
+          description: Invalid or expired session cookie
+        "403":
+          description: Actor is not an active Owner or target is not active
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Final Owner or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
+  /api/v1/app/workspaces/current/members/{memberId}:
+    delete:
+      summary: Remove an active current-workspace member as an Owner
+      operationId: removeCurrentAppWorkspaceMember
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RuntimeMemberId"
+      responses:
+        "204":
+          description: Active membership removed
+        "400":
+          description: Invalid member identifier
+        "401":
+          description: Invalid or expired session cookie
+        "403":
+          description: Actor is not an active Owner or target is not active
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Final Owner or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/AppUnavailable"
   /api/v1/workspaces/personal:
     put:
       summary: Idempotently ensure the authenticated account's personal workspace
@@ -414,6 +555,14 @@ components:
       scheme: bearer
       description: Server-verified session with a fresh identity confirmation
   parameters:
+    RuntimeMemberId:
+      name: memberId
+      in: path
+      required: true
+      description: Target membership identifier returned by the current members endpoint
+      schema:
+        type: string
+        minLength: 1
     WorkspaceId:
       name: workspaceId
       in: path
@@ -466,6 +615,70 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+    RuntimeWorkspace:
+      type: object
+      additionalProperties: false
+      required: [id, name, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          enum: [active, deletion_pending]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RuntimeMember:
+      type: object
+      additionalProperties: false
+      required: [id, account_id, email, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: Opaque current-workspace membership target identifier
+        account_id:
+          type: string
+          description: Informational account identifier; never used as the acting identity
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          const: active
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RuntimeInvitation:
+      type: object
+      additionalProperties: false
+      required: [id, status, expires_at, token, reissued]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          const: pending
+        expires_at:
+          type: string
+          format: date-time
+        token:
+          type: string
+          minLength: 32
+          writeOnly: true
+        reissued:
+          type: boolean
     AppSession:
       type: object
       additionalProperties: false
