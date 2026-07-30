@@ -116,6 +116,22 @@ export interface WorkspaceMember {
   status: string
 }
 
+export interface CurrentWorkspace {
+  created_at: string
+  id: string
+  name: string
+  role: 'owner' | 'member'
+  status: 'active' | 'deletion_pending'
+  updated_at: string
+}
+
+export interface WorkspaceInvitation {
+  expires_at: string
+  id: string
+  reissued: boolean
+  status: 'pending'
+}
+
 export interface ExportRequest {
   account_id: string
   expires_at: string
@@ -400,6 +416,39 @@ export function parseWorkspaceMembers(value: unknown): WorkspaceMember[] {
       invited_by_account_id: optionalText(member.invited_by_account_id),
     }
   })
+}
+
+export function parseCurrentWorkspace(value: unknown): CurrentWorkspace {
+  if (!isRecord(value)
+    || typeof value.id !== 'string'
+    || typeof value.name !== 'string'
+    || (value.role !== 'owner' && value.role !== 'member')
+    || (value.status !== 'active' && value.status !== 'deletion_pending')) {
+    throw new Error('APP_INVALID_CURRENT_WORKSPACE')
+  }
+  return {
+    id: value.id,
+    name: value.name,
+    role: value.role,
+    status: value.status,
+    created_at: isoDateTime(value.created_at, 'APP_INVALID_CURRENT_WORKSPACE'),
+    updated_at: isoDateTime(value.updated_at, 'APP_INVALID_CURRENT_WORKSPACE'),
+  }
+}
+
+export function parseWorkspaceInvitation(value: unknown): WorkspaceInvitation {
+  if (!isRecord(value)
+    || typeof value.id !== 'string'
+    || value.status !== 'pending'
+    || typeof value.reissued !== 'boolean') {
+    throw new Error('APP_INVALID_WORKSPACE_INVITATION')
+  }
+  return {
+    id: value.id,
+    status: 'pending',
+    reissued: value.reissued,
+    expires_at: isoDateTime(value.expires_at, 'APP_INVALID_WORKSPACE_INVITATION'),
+  }
 }
 
 export function parseExportRequest(value: unknown): ExportRequest {
