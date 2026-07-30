@@ -1,9 +1,33 @@
-# F29 — Pricing and Paddle checkout UI
+# F29 — Plan, usage, and Paddle billing UI
 
-F29 connects the D07 public catalog to the authenticated billing experience.
+F29 connects the D09 v2 public catalog to the authenticated billing experience.
 The pricing page receives every Postqron amount from
 `GET /api/v1/billing/plans`; the browser never contains Paddle price IDs or
 reimplements the server-side price mapping.
+
+The authenticated plan page combines the F10 overview and public catalog. It
+shows the active plan, state or trial, billing interval, renewal/period end,
+subscribed channel capacity, catalog-derived base price, and separate localized
+usage indicators for users, social channels, and scheduled posts. Nullable F10
+limits are rendered as Unlimited rather than converted to numeric sentinels.
+
+The plan comparison uses all four server plans and both billing intervals. It
+preselects the lowest plan compatible with the latest overview, disables plans
+whose catalog limits cannot contain current usage, preserves an eligible
+channel quantity, and derives every displayed total from the catalog. Owners
+with an existing paid subscription review changes through
+`POST .../subscription/preview` and confirm them through
+`PATCH .../subscription`. The same idempotency key is retained between preview,
+request, and safe retry. A first paid subscription still uses the F10 checkout
+endpoint, as required by the Start change contract.
+
+A `202` plan-change result remains pending: the UI does not claim activation
+until a matching overview is visible after the verified Paddle webhook.
+Downgrades scheduled for period end stay pending without changing the current
+entitlement. A `downgrade_limit_exceeded` response lists every authoritative
+`resource`, `used`, `limit`, and `excess` value with localized guidance. F29
+does not call deletion endpoints, disconnect channels, revoke members, or
+modify scheduled posts.
 
 Paid CTAs carry `plan`, `interval`, and `quantity` through the F30 login and
 onboarding return URL. After authentication this slice creates one idempotent
@@ -40,4 +64,6 @@ cancellations; Paddle receipts are intentionally not duplicated.
 For a real sandbox pass, configure a Paddle sandbox catalog in F10, a
 `test_...` client token, and an authenticated Owner workspace, then verify
 success, overlay close, and payment failure. The deterministic test suite uses
-the same event/state boundary without requiring repository secrets.
+the same event/state boundary without requiring repository secrets. The
+plan-change fixture covers an upgrade, an allowed period-end downgrade, and a
+blocked downgrade with no resource mutation.
