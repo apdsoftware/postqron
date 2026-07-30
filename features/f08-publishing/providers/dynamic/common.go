@@ -41,14 +41,33 @@ type MediaSource interface {
 	Open(context.Context, string) (io.ReadCloser, error)
 }
 
+// ConnectionIdentityResolver returns the provider-owned remote identifier from
+// the trusted F5 connection. It must never accept identity from an F8 payload.
+type ConnectionIdentityResolver interface {
+	RemoteID(context.Context, string, string, socialconnections.Provider) (string, error)
+}
+
+type connectionIdentityResolverFunc func(
+	context.Context, string, string, socialconnections.Provider,
+) (string, error)
+
+func (resolve connectionIdentityResolverFunc) RemoteID(
+	ctx context.Context,
+	workspaceID, connectionID string,
+	provider socialconnections.Provider,
+) (string, error) {
+	return resolve(ctx, workspaceID, connectionID, provider)
+}
+
 type media struct {
-	StorageKey  string `json:"storage_key"`
-	ContentType string `json:"content_type"`
-	SizeBytes   int64  `json:"size_bytes"`
-	SHA256      string `json:"sha256"`
-	Alt         string `json:"alt,omitempty"`
-	Width       int    `json:"width,omitempty"`
-	Height      int    `json:"height,omitempty"`
+	StorageKey  string  `json:"storage_key"`
+	ContentType string  `json:"content_type"`
+	SizeBytes   int64   `json:"size_bytes"`
+	SHA256      string  `json:"sha256"`
+	Alt         string  `json:"alt,omitempty"`
+	Width       int     `json:"width,omitempty"`
+	Height      int     `json:"height,omitempty"`
+	FrameRate   float64 `json:"frame_rate,omitempty"`
 }
 
 func capabilities(nativeIdempotency bool) publishing.AdapterCapabilities {
@@ -161,6 +180,12 @@ func jsonBody(value any, code string) ([]byte, error) {
 
 func permanent(code, detail string) error {
 	return &publishing.ProviderError{Code: code, Detail: detail}
+}
+
+func temporary(code, detail string) error {
+	return &publishing.ProviderError{
+		Code: code, Detail: detail, Retryable: true,
+	}
 }
 
 func validMedia(value media) bool {

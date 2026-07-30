@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,28 +27,31 @@ const (
 	mastodonInstancePath = "/api/v2/instance"
 	mastodonMediaPath    = "/api/v2/media"
 	mastodonStatusesPath = "/api/v1/statuses"
+	mastodonReplayWindow = time.Hour
 )
 
 type Mastodon struct {
 	executor authenticatedExecutor
 	media    MediaSource
+	clock    func() time.Time
 }
 
 func NewMastodon(
 	executor *socialconnections.AuthenticatedExecutor,
 	mediaSource MediaSource,
+	clock func() time.Time,
 ) (*Mastodon, error) {
-	if executor == nil {
+	if executor == nil || clock == nil {
 		return nil, publishing.ErrInvalidArgument
 	}
-	return &Mastodon{executor: executor, media: mediaSource}, nil
+	return &Mastodon{executor: executor, media: mediaSource, clock: clock}, nil
 }
 
 func newMastodonForTest(
 	executor authenticatedExecutor,
 	mediaSource MediaSource,
 ) *Mastodon {
-	return &Mastodon{executor: executor, media: mediaSource}
+	return &Mastodon{executor: executor, media: mediaSource, clock: time.Now}
 }
 
 func (*Mastodon) Capabilities() publishing.AdapterCapabilities {
@@ -66,31 +70,42 @@ type mastodonPayload struct {
 }
 
 type mastodonCapabilities struct {
-	MaxCharacters  int      `json:"max_characters"`
-	MaxAttachments int      `json:"max_attachments"`
-	MIMETypes      []string `json:"mime_types"`
-	ImageBytes     int64    `json:"image_bytes"`
-	VideoBytes     int64    `json:"video_bytes"`
+	MaxCharacters            int      `json:"max_characters"`
+	CharactersReservedPerURL int      `json:"characters_reserved_per_url"`
+	MaxAttachments           int      `json:"max_attachments"`
+	DescriptionLimit         int      `json:"description_limit"`
+	MIMETypes                []string `json:"mime_types"`
+	ImageBytes               int64    `json:"image_bytes"`
+	ImageMatrixLimit         int64    `json:"image_matrix_limit"`
+	VideoBytes               int64    `json:"video_bytes"`
+	VideoMatrixLimit         int64    `json:"video_matrix_limit"`
+	VideoFrameRateLimit      float64  `json:"video_frame_rate_limit"`
 }
 
 type mastodonCheckpoint struct {
-	Step         string               `json:"step"`
-	Capabilities mastodonCapabilities `json:"capabilities,omitempty"`
-	MediaIndex   int                  `json:"media_index,omitempty"`
-	MediaIDs     []string             `json:"media_ids,omitempty"`
-	PendingID    string               `json:"pending_media_id,omitempty"`
+	Step             string               `json:"step"`
+	Capabilities     mastodonCapabilities `json:"capabilities,omitempty"`
+	MediaIndex       int                  `json:"media_index,omitempty"`
+	MediaIDs         []string             `json:"media_ids,omitempty"`
+	PendingID        string               `json:"pending_media_id,omitempty"`
+	StatusPreparedAt time.Time            `json:"status_prepared_at,omitempty"`
 }
 
 type mastodonInstanceEnvelope struct {
 	Configuration struct {
 		Statuses struct {
-			MaxCharacters       int `json:"max_characters"`
-			MaxMediaAttachments int `json:"max_media_attachments"`
+			MaxCharacters            int `json:"max_characters"`
+			CharactersReservedPerURL int `json:"characters_reserved_per_url"`
+			MaxMediaAttachments      int `json:"max_media_attachments"`
 		} `json:"statuses"`
 		MediaAttachments struct {
-			SupportedMIMETypes []string `json:"supported_mime_types"`
-			ImageSizeLimit     int64    `json:"image_size_limit"`
-			VideoSizeLimit     int64    `json:"video_size_limit"`
+			SupportedMIMETypes  []string `json:"supported_mime_types"`
+			DescriptionLimit    int      `json:"description_limit"`
+			ImageSizeLimit      int64    `json:"image_size_limit"`
+			ImageMatrixLimit    int64    `json:"image_matrix_limit"`
+			VideoSizeLimit      int64    `json:"video_size_limit"`
+			VideoMatrixLimit    int64    `json:"video_matrix_limit"`
+			VideoFrameRateLimit float64  `json:"video_frame_rate_limit"`
 		} `json:"media_attachments"`
 	} `json:"configuration"`
 }
@@ -139,6 +154,7 @@ func (adapter *Mastodon) Publish(
 		state.Capabilities = capability
 		if len(payload.Media) == 0 {
 			state.Step = "status_pending"
+			state.StatusPreparedAt = adapter.clock().UTC()
 		} else {
 			state.Step = "media_upload_pending"
 		}
@@ -181,6 +197,7 @@ func (adapter *Mastodon) Publish(
 			state.MediaIndex++
 			state.PendingID = ""
 			state.Step = mastodonNextStep(state.MediaIndex, len(payload.Media))
+			adapter.stampStatusPending(&state)
 		}
 		return mastodonProgress(
 			state,
@@ -218,6 +235,7 @@ func (adapter *Mastodon) Publish(
 		state.MediaIndex++
 		state.PendingID = ""
 		state.Step = mastodonNextStep(state.MediaIndex, len(payload.Media))
+		adapter.stampStatusPending(&state)
 		return mastodonProgress(state, 0)
 	case "status_pending":
 		return adapter.publishStatus(ctx, request, payload, state)
@@ -278,6 +296,9 @@ func (adapter *Mastodon) publishStatus(
 	payload mastodonPayload,
 	state mastodonCheckpoint,
 ) (publishing.PublishResult, error) {
+	if err := adapter.validateReplayWindow(state); err != nil {
+		return publishing.PublishResult{}, err
+	}
 	if !publishingKeyPattern.MatchString(request.IdempotencyKey) {
 		return publishing.PublishResult{}, permanent(
 			"invalid_mastodon_idempotency",
@@ -354,7 +375,8 @@ func (adapter *Mastodon) input(
 	); err != nil {
 		return payload, state, err
 	}
-	if !utf8.ValidString(payload.Text) || strings.TrimSpace(payload.Text) == "" ||
+	if !utf8.ValidString(payload.Text) ||
+		(strings.TrimSpace(payload.Text) == "" && len(payload.Media) == 0) ||
 		len(payload.Media) > 16 || state.MediaIndex < 0 ||
 		state.MediaIndex > len(payload.Media) ||
 		len(state.MediaIDs) != state.MediaIndex {
@@ -421,7 +443,8 @@ func (adapter *Mastodon) input(
 				)
 			}
 		case "status_pending":
-			if state.MediaIndex != len(payload.Media) || state.PendingID != "" {
+			if state.MediaIndex != len(payload.Media) || state.PendingID != "" ||
+				state.StatusPreparedAt.IsZero() {
 				return payload, state, permanent(
 					"invalid_mastodon_checkpoint",
 					"Mastodon status checkpoint is invalid.",
@@ -448,18 +471,21 @@ func decodeMastodonCapabilities(
 		)
 	}
 	value := mastodonCapabilities{
-		MaxCharacters:  envelope.Configuration.Statuses.MaxCharacters,
-		MaxAttachments: envelope.Configuration.Statuses.MaxMediaAttachments,
+		MaxCharacters:            envelope.Configuration.Statuses.MaxCharacters,
+		CharactersReservedPerURL: envelope.Configuration.Statuses.CharactersReservedPerURL,
+		MaxAttachments:           envelope.Configuration.Statuses.MaxMediaAttachments,
+		DescriptionLimit:         envelope.Configuration.MediaAttachments.DescriptionLimit,
 		MIMETypes: append(
 			[]string(nil),
 			envelope.Configuration.MediaAttachments.SupportedMIMETypes...,
 		),
-		ImageBytes: envelope.Configuration.MediaAttachments.ImageSizeLimit,
-		VideoBytes: envelope.Configuration.MediaAttachments.VideoSizeLimit,
+		ImageBytes:          envelope.Configuration.MediaAttachments.ImageSizeLimit,
+		ImageMatrixLimit:    envelope.Configuration.MediaAttachments.ImageMatrixLimit,
+		VideoBytes:          envelope.Configuration.MediaAttachments.VideoSizeLimit,
+		VideoMatrixLimit:    envelope.Configuration.MediaAttachments.VideoMatrixLimit,
+		VideoFrameRateLimit: envelope.Configuration.MediaAttachments.VideoFrameRateLimit,
 	}
-	if value.MaxCharacters <= 0 || value.MaxAttachments < 0 ||
-		value.MaxAttachments > 16 || value.ImageBytes < 0 ||
-		value.VideoBytes < 0 {
+	if !validMastodonCapabilityDocument(value) {
 		return mastodonCapabilities{}, permanent(
 			"invalid_mastodon_capabilities",
 			"Mastodon instance capabilities are incomplete.",
@@ -472,8 +498,19 @@ func validateMastodonPayload(
 	payload mastodonPayload,
 	capability mastodonCapabilities,
 ) error {
-	if len([]rune(payload.Text))+len([]rune(payload.SpoilerText)) >
-		capability.MaxCharacters ||
+	if !validMastodonCapabilityDocument(capability) {
+		return permanent(
+			"invalid_mastodon_capabilities",
+			"Mastodon instance capabilities are incomplete.",
+		)
+	}
+	textLength := mastodonTextLength(
+		payload.Text, capability.CharactersReservedPerURL,
+	)
+	if textLength < 0 ||
+		textLength+
+			len([]rune(payload.SpoilerText)) >
+			capability.MaxCharacters ||
 		len(payload.Media) > capability.MaxAttachments {
 		return permanent(
 			"mastodon_capability_mismatch",
@@ -489,6 +526,10 @@ func validateMastodonPayload(
 		)
 	}
 	for _, item := range payload.Media {
+		if len([]rune(item.Alt)) > capability.DescriptionLimit {
+			return permanent("mastodon_capability_mismatch",
+				"Mastodon media description limit is exceeded.")
+		}
 		if !containsString(capability.MIMETypes, item.ContentType) {
 			return permanent(
 				"mastodon_capability_mismatch",
@@ -496,11 +537,22 @@ func validateMastodonPayload(
 			)
 		}
 		limit := capability.ImageBytes
+		matrixLimit := capability.ImageMatrixLimit
 		if strings.HasPrefix(item.ContentType, "video/") ||
 			item.ContentType == "image/gif" {
 			limit = capability.VideoBytes
+			matrixLimit = capability.VideoMatrixLimit
+			if item.FrameRate <= 0 ||
+				item.FrameRate > capability.VideoFrameRateLimit {
+				return permanent("mastodon_capability_mismatch",
+					"Mastodon video frame rate cannot be validated.")
+			}
+		} else if !strings.HasPrefix(item.ContentType, "image/") {
+			return permanent("mastodon_capability_mismatch",
+				"Mastodon media format cannot be validated.")
 		}
-		if limit <= 0 || item.SizeBytes > limit {
+		if limit <= 0 || item.SizeBytes > limit || item.Width <= 0 ||
+			item.Height <= 0 || int64(item.Width) > matrixLimit/int64(item.Height) {
 			return permanent(
 				"mastodon_capability_mismatch",
 				"Mastodon instance media size limit is exceeded.",
@@ -510,13 +562,31 @@ func validateMastodonPayload(
 	return nil
 }
 
+func validMastodonCapabilityDocument(value mastodonCapabilities) bool {
+	if value.MaxCharacters <= 0 || value.CharactersReservedPerURL <= 0 ||
+		value.MaxAttachments < 0 || value.MaxAttachments > 16 ||
+		value.DescriptionLimit <= 0 || value.ImageBytes <= 0 ||
+		value.ImageMatrixLimit <= 0 || value.VideoBytes <= 0 ||
+		value.VideoMatrixLimit <= 0 || value.VideoFrameRateLimit <= 0 ||
+		len(value.MIMETypes) == 0 {
+		return false
+	}
+	for _, contentType := range value.MIMETypes {
+		if !strings.HasPrefix(contentType, "image/") &&
+			!strings.HasPrefix(contentType, "video/") {
+			return false
+		}
+	}
+	return true
+}
+
 func (adapter *Mastodon) multipartMedia(
 	ctx context.Context,
 	item media,
 ) (*socialconnections.PublishingMedia, string, error) {
 	source, err := adapter.media.Open(ctx, item.StorageKey)
 	if err != nil {
-		return nil, "", permanent(
+		return nil, "", temporary(
 			"mastodon_media_unavailable",
 			"Mastodon media could not be opened.",
 		)
@@ -524,7 +594,7 @@ func (adapter *Mastodon) multipartMedia(
 	defer source.Close()
 	file, err := os.CreateTemp("", "postqron-mastodon-media-*")
 	if err != nil {
-		return nil, "", permanent(
+		return nil, "", temporary(
 			"mastodon_media_unavailable",
 			"Mastodon media staging failed.",
 		)
@@ -539,7 +609,7 @@ func (adapter *Mastodon) multipartMedia(
 	writer := multipart.NewWriter(file)
 	if item.Alt != "" {
 		if err = writer.WriteField("description", item.Alt); err != nil {
-			return nil, "", permanent("mastodon_media_unavailable", "Mastodon media staging failed.")
+			return nil, "", temporary("mastodon_media_unavailable", "Mastodon media staging failed.")
 		}
 	}
 	partHeader := make(textproto.MIMEHeader)
@@ -550,11 +620,17 @@ func (adapter *Mastodon) multipartMedia(
 	partHeader.Set("Content-Type", item.ContentType)
 	part, err := writer.CreatePart(partHeader)
 	if err != nil {
-		return nil, "", permanent("mastodon_media_unavailable", "Mastodon media staging failed.")
+		return nil, "", temporary("mastodon_media_unavailable", "Mastodon media staging failed.")
 	}
 	sourceHash := sha256.New()
 	written, err := io.Copy(part, io.TeeReader(source, sourceHash))
-	if err != nil || written != item.SizeBytes ||
+	if err != nil {
+		return nil, "", temporary(
+			"mastodon_media_unavailable",
+			"Mastodon media could not be read.",
+		)
+	}
+	if written != item.SizeBytes ||
 		hex.EncodeToString(sourceHash.Sum(nil)) != item.SHA256 {
 		return nil, "", permanent(
 			"mastodon_media_changed",
@@ -562,11 +638,11 @@ func (adapter *Mastodon) multipartMedia(
 		)
 	}
 	if err = writer.Close(); err != nil {
-		return nil, "", permanent("mastodon_media_unavailable", "Mastodon media staging failed.")
+		return nil, "", temporary("mastodon_media_unavailable", "Mastodon media staging failed.")
 	}
 	size, digest, err := rewindAndDigest(file)
 	if err != nil {
-		return nil, "", permanent("mastodon_media_unavailable", "Mastodon media staging failed.")
+		return nil, "", temporary("mastodon_media_unavailable", "Mastodon media staging failed.")
 	}
 	keep = true
 	return &socialconnections.PublishingMedia{
@@ -588,6 +664,45 @@ func mastodonNextStep(index, total int) string {
 		return "media_upload_pending"
 	}
 	return "status_pending"
+}
+
+func (adapter *Mastodon) stampStatusPending(state *mastodonCheckpoint) {
+	if state.Step == "status_pending" && state.StatusPreparedAt.IsZero() {
+		state.StatusPreparedAt = adapter.clock().UTC()
+	}
+}
+
+func (adapter *Mastodon) validateReplayWindow(state mastodonCheckpoint) error {
+	now := adapter.clock().UTC()
+	if state.StatusPreparedAt.IsZero() || state.StatusPreparedAt.After(now) ||
+		now.Sub(state.StatusPreparedAt) >= mastodonReplayWindow {
+		return permanent(
+			"mastodon_idempotency_window_expired",
+			"Mastodon status creation cannot be replayed safely.",
+		)
+	}
+	return nil
+}
+
+var mastodonURLPattern = regexp.MustCompile(`https?://[^\s<]+`)
+
+func mastodonTextLength(text string, reserved int) int {
+	total := len([]rune(text))
+	for _, match := range mastodonURLPattern.FindAllString(text, -1) {
+		candidate := strings.TrimRight(match, ".,!?;:)]}")
+		parsed, err := url.ParseRequestURI(candidate)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return -1
+		}
+		total -= len([]rune(candidate))
+		total += reserved
+	}
+	if strings.Contains(text, "http://") || strings.Contains(text, "https://") {
+		if len(mastodonURLPattern.FindAllString(text, -1)) == 0 {
+			return -1
+		}
+	}
+	return total
 }
 
 func containsString(values []string, target string) bool {

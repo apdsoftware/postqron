@@ -58,12 +58,21 @@ Both adapters call only the F5 `AuthenticatedExecutor`, always set
 nonces. Discovery, DNS pinning, dynamic OAuth/DPoP refresh and nonce persistence
 remain inside F5.
 
-The worker registers either adapter only when a trusted executor is injected
-and all provider gates (configured, reviewed, runtime-audited, and
-quota-verified) are true. Missing dependencies or evidence leave the provider
-unregistered and fail-closed. Ambiguous media uploads are never retried blindly;
-ambiguous final creates use native Mastodon idempotency or deterministic
-Bluesky reconciliation before another write.
+The worker registers either adapter only when a trusted executor, immutable
+media source, server-side connection identity resolver, and all provider gates
+(configured, reviewed, runtime-audited, and quota-verified) are present.
+`integration/329-publishing-base` does not yet contain the concrete F5
+Mastodon/Bluesky composition from #314/#328. Therefore the real worker
+composition root leaves both adapters unregistered and rejects startup if
+`POSTQRON_F08_MASTODON_ENABLED` or `POSTQRON_F08_BLUESKY_ENABLED` is true; it
+does not install a placeholder executor or media source.
+
+Ambiguous media uploads are never retried blindly. Mastodon status replay is
+allowed only inside the official one-hour idempotency window recorded by a
+server-side checkpoint; after that it fails closed. Bluesky derives the repo
+DID from the F5 connection `RemoteID`, rejects payload disagreement, and
+reconciles the complete canonical record value before accepting an existing
+deterministic key.
 
 ## Verification
 

@@ -40,6 +40,7 @@ func (gate ProviderGate) ready() bool {
 type DynamicAdapterDependencies struct {
 	Executor *socialconnections.AuthenticatedExecutor
 	Media    dynamicpublishing.MediaSource
+	Identity dynamicpublishing.ConnectionIdentityResolver
 	Mastodon ProviderGate
 	Bluesky  ProviderGate
 }
@@ -49,7 +50,7 @@ func New(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
-	dynamicDependencies ...DynamicAdapterDependencies,
+	dynamicDependencies DynamicAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -66,7 +67,7 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	registry, err := newRuntimeAdapterRegistry(dynamicDependencies...)
+	registry, err := newRuntimeAdapterRegistry(dynamicDependencies, clock)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -93,22 +94,15 @@ func New(
 }
 
 func newRuntimeAdapterRegistry(
-	dependencies ...DynamicAdapterDependencies,
+	config DynamicAdapterDependencies,
+	clock func() time.Time,
 ) (*publishing.AdapterRegistry, error) {
 	registry := publishing.NewAdapterRegistry()
-	if len(dependencies) == 0 {
-		return registry, nil
-	}
-	if len(dependencies) != 1 {
-		return nil, errors.New(
-			"dynamic adapter dependencies must be supplied exactly once",
-		)
-	}
-	config := dependencies[0]
 	if config.Mastodon.ready() {
 		adapter, err := dynamicpublishing.NewMastodon(
 			config.Executor,
 			config.Media,
+			clock,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("configure Mastodon publisher: %w", err)
@@ -124,6 +118,7 @@ func newRuntimeAdapterRegistry(
 		adapter, err := dynamicpublishing.NewBluesky(
 			config.Executor,
 			config.Media,
+			config.Identity,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("configure Bluesky publisher: %w", err)

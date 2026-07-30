@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
-	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 )
 
 func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
-	registry, err := newRuntimeAdapterRegistry()
+	registry, err := newRuntimeAdapterRegistry(
+		DynamicAdapterDependencies{}, time.Now,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +48,7 @@ func TestRuntimeDynamicAdaptersStayClosedWithoutTrustedExecutor(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := newRuntimeAdapterRegistry(
 				dependencies,
+				time.Now,
 			); !errors.Is(err, publishing.ErrInvalidArgument) {
 				t.Fatalf("registry error=%v", err)
 			}
@@ -63,7 +66,7 @@ func TestRuntimeDynamicAdaptersRemainUnavailableWithIncompleteGate(t *testing.T)
 			Configured: true, ReviewApproved: true,
 			QuotaVerified: true,
 		},
-	})
+	}, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,33 +80,23 @@ func TestRuntimeDynamicAdaptersRemainUnavailableWithIncompleteGate(t *testing.T)
 	}
 }
 
-func TestRuntimeRegistersOnlyFullyGatedDynamicAdapters(t *testing.T) {
-	executor := &socialconnections.AuthenticatedExecutor{}
-	ready := ProviderGate{
-		Configured: true, ReviewApproved: true,
-		AuditVerified: true, QuotaVerified: true,
+func TestCompositionRootExplicitlyRejectsUnavailableF5Dependencies(t *testing.T) {
+	for _, values := range [][2]string{{"true", "false"}, {"false", "true"}} {
+		if _, err := FailClosedDynamicBootstrap(values[0], values[1]); err == nil {
+			t.Fatalf("bootstrap(%q,%q) succeeded", values[0], values[1])
+		}
 	}
-	registry, err := newRuntimeAdapterRegistry(DynamicAdapterDependencies{
-		Executor: executor,
-		Mastodon: ready,
-		Bluesky:  ready,
-	})
+	dependencies, err := FailClosedDynamicBootstrap("false", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, provider := range []string{"mastodon", "bluesky"} {
-		publisher, resolveErr := registry.ResolvePublisher(
-			context.Background(),
-			provider,
-		)
-		if resolveErr != nil {
-			t.Fatalf("%s resolution error=%v", provider, resolveErr)
-		}
-		capability := publisher.Capabilities()
-		if capability.Mode != publishing.PublishingModeAuto ||
-			!capability.Reconciliation || !capability.MultiStep ||
-			!capability.RemotePermalink {
-			t.Fatalf("%s capabilities=%+v", provider, capability)
-		}
+	registry, err := newRuntimeAdapterRegistry(dependencies, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = registry.ResolvePublisher(
+		context.Background(), "mastodon",
+	); !errors.Is(err, publishing.ErrProviderUnavailable) {
+		t.Fatalf("Mastodon resolution error=%v", err)
 	}
 }

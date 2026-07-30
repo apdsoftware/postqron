@@ -26,6 +26,26 @@ type fixtureFile struct {
 	data []byte
 }
 
+type executorFunc func(
+	context.Context,
+	socialconnections.PublishingRequest,
+) (socialconnections.PublishingResponse, error)
+
+func (execute executorFunc) Execute(
+	ctx context.Context,
+	request socialconnections.PublishingRequest,
+) (socialconnections.PublishingResponse, error) {
+	return execute(ctx, request)
+}
+
+type failingMediaSource struct{}
+
+func (failingMediaSource) Open(
+	context.Context, string,
+) (io.ReadCloser, error) {
+	return nil, errors.New("temporary storage outage")
+}
+
 func (source fixtureFile) Open(
 	_ context.Context,
 	key string,
@@ -309,9 +329,10 @@ func TestBlueskyOfficialTLSMediaAndDeterministicRace(t *testing.T) {
 				_, _ = writer.Write(fixture.Bluesky.Blob)
 			case blueskyCreatePath:
 				var body struct {
-					Repository string `json:"repo"`
-					Collection string `json:"collection"`
-					RKey       string `json:"rkey"`
+					Repository string          `json:"repo"`
+					Collection string          `json:"collection"`
+					RKey       string          `json:"rkey"`
+					Record     json.RawMessage `json:"record"`
 				}
 				if json.NewDecoder(request.Body).Decode(&body) != nil ||
 					body.Collection != blueskyCollection {
@@ -324,6 +345,7 @@ func TestBlueskyOfficialTLSMediaAndDeterministicRace(t *testing.T) {
 				if !exists {
 					record = blueskyRecordEnvelope{
 						URI: uri, CID: fixture.Bluesky.Record.CID,
+						Value: body.Record,
 					}
 					records[uri] = record
 					sideEffects++
@@ -450,8 +472,9 @@ func TestBlueskyAmbiguousCreateReconcilesWithoutDuplicate(t *testing.T) {
 			switch request.URL.Path {
 			case blueskyCreatePath:
 				var input struct {
-					Repository string `json:"repo"`
-					RKey       string `json:"rkey"`
+					Repository string          `json:"repo"`
+					RKey       string          `json:"rkey"`
+					Record     json.RawMessage `json:"record"`
 				}
 				_ = json.NewDecoder(request.Body).Decode(&input)
 				uri := blueskyURI(input.Repository, input.RKey)
@@ -459,8 +482,9 @@ func TestBlueskyAmbiguousCreateReconcilesWithoutDuplicate(t *testing.T) {
 				record, exists := records[uri]
 				if !exists {
 					record = blueskyRecordEnvelope{
-						URI: uri,
-						CID: "bafyreifixturerecord",
+						URI:   uri,
+						CID:   "bafyreifixturerecord",
+						Value: input.Record,
 					}
 					records[uri] = record
 					sideEffects++
@@ -611,9 +635,12 @@ func TestAmbiguousMediaUploadsFailClosed(t *testing.T) {
 			state, _ := encodeCheckpoint(mastodonCheckpoint{
 				Step: "media_upload_pending",
 				Capabilities: mastodonCapabilities{
-					MaxCharacters: 500, MaxAttachments: 4,
+					MaxCharacters: 500, CharactersReservedPerURL: 23,
+					MaxAttachments: 4, DescriptionLimit: 1500,
 					MIMETypes:  []string{"image/png"},
-					ImageBytes: 1 << 20, VideoBytes: 1 << 20,
+					ImageBytes: 1 << 20, ImageMatrixLimit: 1 << 20,
+					VideoBytes: 1 << 20, VideoMatrixLimit: 1 << 20,
+					VideoFrameRateLimit: 60,
 				},
 			}, "fixture")
 			return adapter.Reconcile(context.Background(), publishing.ReconcileRequest{
@@ -708,4 +735,250 @@ func TestBlueskyDeterministicRKeyIsOfficialTID(t *testing.T) {
 	if different == first {
 		t.Fatalf("different idempotency keys produced TID %q", first)
 	}
+	later := mustBlueskyRKey(t, key, "2026-07-30T12:00:00.000001Z")
+	if later <= first {
+		t.Fatalf("TID is not monotonic: later=%q first=%q", later, first)
+	}
+	if tidTimestampMicros(t, first) !=
+		time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC).UnixMicro() {
+		t.Fatalf("TID %q does not encode createdAt", first)
+	}
+}
+
+func TestMastodonExpiredIdempotencyWindowNeverReplaysCreate(t *testing.T) {
+	now := time.Date(2026, 7, 30, 14, 0, 0, 0, time.UTC)
+	var calls atomic.Int32
+	adapter := newMastodonForTest(executorFunc(func(
+		context.Context, socialconnections.PublishingRequest,
+	) (socialconnections.PublishingResponse, error) {
+		calls.Add(1)
+		return socialconnections.PublishingResponse{}, nil
+	}), nil)
+	adapter.clock = func() time.Time { return now }
+	payload := mustJSON(t, mastodonPayload{
+		Text: "already attempted", Visibility: "public",
+	})
+	state := mastodonCheckpoint{
+		Step:             "status_pending",
+		Capabilities:     validMastodonCapabilities(),
+		StatusPreparedAt: now.Add(-mastodonReplayWindow),
+	}
+	checkpoint := mustJSON(t, state)
+	_, err := adapter.Reconcile(context.Background(), publishing.ReconcileRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection",
+		Payload: payload, Checkpoint: checkpoint,
+		IdempotencyKey: "publish_" + strings.Repeat("1", 64),
+	})
+	var providerErr *publishing.ProviderError
+	if !errors.As(err, &providerErr) ||
+		providerErr.Code != "mastodon_idempotency_window_expired" ||
+		providerErr.Retryable || calls.Load() != 0 {
+		t.Fatalf("error=%v calls=%d", err, calls.Load())
+	}
+}
+
+func TestMastodonAllowsMediaOnlyAndEnforcesOfficialCapabilities(t *testing.T) {
+	payload := mastodonPayload{
+		Visibility: "public", Media: []media{validFixtureMedia()},
+	}
+	if _, _, err := newMastodonForTest(nil, nil).input(
+		publishing.PublishRequest{Payload: mustJSON(t, payload)},
+	); err != nil {
+		t.Fatalf("media-only input=%v", err)
+	}
+	if err := validateMastodonPayload(
+		payload, validMastodonCapabilities(),
+	); err != nil {
+		t.Fatalf("media-only validation=%v", err)
+	}
+	capability := validMastodonCapabilities()
+	capability.MaxCharacters = 24
+	if err := validateMastodonPayload(mastodonPayload{
+		Text: "https://example.test/a", Visibility: "public",
+	}, capability); err != nil {
+		t.Fatalf("reserved URL validation=%v", err)
+	}
+	video := validFixtureMedia()
+	video.ContentType = "video/mp4"
+	video.FrameRate = capability.VideoFrameRateLimit + 1
+	if err := validateMastodonPayload(mastodonPayload{
+		Visibility: "public", Media: []media{video},
+	}, capability); err == nil {
+		t.Fatal("video above frame-rate limit accepted")
+	}
+	image := validFixtureMedia()
+	image.Alt = strings.Repeat("x", capability.DescriptionLimit+1)
+	if err := validateMastodonPayload(mastodonPayload{
+		Visibility: "public", Media: []media{image},
+	}, capability); err == nil {
+		t.Fatal("description above instance limit accepted")
+	}
+	image = validFixtureMedia()
+	image.Width = int(capability.ImageMatrixLimit)
+	image.Height = 2
+	if err := validateMastodonPayload(mastodonPayload{
+		Visibility: "public", Media: []media{image},
+	}, capability); err == nil {
+		t.Fatal("image above matrix limit accepted")
+	}
+}
+
+func TestMediaSourceFailuresAreRetryable(t *testing.T) {
+	mastodon := newMastodonForTest(nil, failingMediaSource{})
+	_, _, err := mastodon.multipartMedia(
+		context.Background(), validFixtureMedia(),
+	)
+	assertRetryableProviderError(t, err)
+
+	bluesky := newBlueskyForTest(nil, failingMediaSource{})
+	payload := blueskyPayload{
+		Repository: "did:plc:fixture123", Text: "fixture",
+		CreatedAt: "2026-07-30T12:00:00Z",
+		Media:     []media{validFixtureMedia()},
+	}
+	state := blueskyCheckpoint{
+		Step:         "media_upload_pending",
+		Capabilities: officialBlueskyCapabilities(),
+		RKey: mustBlueskyRKey(
+			t, "publish_"+strings.Repeat("2", 64), payload.CreatedAt,
+		),
+	}
+	_, err = bluesky.Publish(context.Background(), publishing.PublishRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection",
+		Payload: mustJSON(t, payload), Checkpoint: mustJSON(t, state),
+		IdempotencyKey: "publish_" + strings.Repeat("2", 64),
+	})
+	assertRetryableProviderError(t, err)
+}
+
+func TestBlueskyRejectsPayloadRepositoryMismatchBeforeNetwork(t *testing.T) {
+	var calls atomic.Int32
+	adapter := newBlueskyForTest(executorFunc(func(
+		context.Context, socialconnections.PublishingRequest,
+	) (socialconnections.PublishingResponse, error) {
+		calls.Add(1)
+		return socialconnections.PublishingResponse{}, nil
+	}), nil)
+	adapter.identity = connectionIdentityResolverFunc(func(
+		context.Context, string, string, socialconnections.Provider,
+	) (string, error) {
+		return "did:plc:trusted", nil
+	})
+	_, err := adapter.Publish(context.Background(), publishing.PublishRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection",
+		Payload: mustJSON(t, blueskyPayload{
+			Repository: "did:plc:attacker", Text: "fixture",
+			CreatedAt: "2026-07-30T12:00:00Z",
+		}),
+		IdempotencyKey: "publish_" + strings.Repeat("3", 64),
+	})
+	var providerErr *publishing.ProviderError
+	if !errors.As(err, &providerErr) ||
+		providerErr.Code != "bluesky_repository_mismatch" ||
+		calls.Load() != 0 {
+		t.Fatalf("error=%v calls=%d", err, calls.Load())
+	}
+}
+
+func TestBlueskyReconciliationRejectsSemanticRecordMismatch(t *testing.T) {
+	payload := blueskyPayload{
+		Repository: "did:plc:fixture123", Text: "expected",
+		CreatedAt: "2026-07-30T12:00:00Z", Languages: []string{"en"},
+		Media: []media{validFixtureMedia()},
+	}
+	key := "publish_" + strings.Repeat("4", 64)
+	state := blueskyCheckpoint{
+		Step:         "record_pending",
+		Capabilities: officialBlueskyCapabilities(),
+		RKey:         mustBlueskyRKey(t, key, payload.CreatedAt),
+		MediaIndex:   1,
+		Blobs: []json.RawMessage{mustJSON(t, map[string]any{
+			"$type":    "blob",
+			"ref":      map[string]string{"$link": "bafkreiexpectedblob"},
+			"mimeType": "image/png",
+			"size":     int64(len([]byte("fixture-png-15"))),
+		})},
+	}
+	adapter := newBlueskyForTest(executorFunc(func(
+		_ context.Context,
+		request socialconnections.PublishingRequest,
+	) (socialconnections.PublishingResponse, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("unexpected method %s", request.Method)
+		}
+		return socialconnections.PublishingResponse{
+			StatusCode: http.StatusOK,
+			Body: mustJSON(t, blueskyRecordEnvelope{
+				URI: blueskyURI(payload.Repository, state.RKey),
+				CID: "bafyreivalidcid",
+				Value: mustJSON(t, map[string]any{
+					"$type":     blueskyCollection,
+					"text":      payload.Text,
+					"createdAt": payload.CreatedAt,
+					"langs":     payload.Languages,
+					"embed": map[string]any{
+						"$type": "app.bsky.embed.images",
+						"images": []any{map[string]any{
+							"alt": "",
+							"image": map[string]any{
+								"$type": "blob",
+								"ref": map[string]string{
+									"$link": "bafkreiattackerblob",
+								},
+								"mimeType": "image/png",
+								"size":     int64(len([]byte("fixture-png-15"))),
+							},
+							"aspectRatio": map[string]int{
+								"width": 10, "height": 10,
+							},
+						}},
+					},
+				}),
+			}),
+		}, nil
+	}), nil)
+	_, err := adapter.Reconcile(context.Background(), publishing.ReconcileRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection",
+		Payload: mustJSON(t, payload), Checkpoint: mustJSON(t, state),
+		IdempotencyKey: key,
+	})
+	var providerErr *publishing.ProviderError
+	if !errors.As(err, &providerErr) ||
+		providerErr.Code != "invalid_bluesky_reconciliation" {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func validMastodonCapabilities() mastodonCapabilities {
+	return mastodonCapabilities{
+		MaxCharacters: 500, CharactersReservedPerURL: 23,
+		MaxAttachments: 4, DescriptionLimit: 1500,
+		MIMETypes:  []string{"image/png", "video/mp4"},
+		ImageBytes: 1 << 20, ImageMatrixLimit: 1 << 20,
+		VideoBytes: 1 << 20, VideoMatrixLimit: 1 << 20,
+		VideoFrameRateLimit: 60,
+	}
+}
+
+func assertRetryableProviderError(t *testing.T, err error) {
+	t.Helper()
+	var providerErr *publishing.ProviderError
+	if !errors.As(err, &providerErr) || !providerErr.Retryable ||
+		providerErr.Ambiguous {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func tidTimestampMicros(t *testing.T, value string) int64 {
+	t.Helper()
+	const alphabet = "234567abcdefghijklmnopqrstuvwxyz"
+	var decoded uint64
+	for _, character := range value {
+		index := strings.IndexRune(alphabet, character)
+		if index < 0 {
+			t.Fatalf("invalid TID %q", value)
+		}
+		decoded = decoded<<5 | uint64(index)
+	}
+	return int64(decoded >> 10)
 }

@@ -1,9 +1,9 @@
 package dynamic
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -30,23 +30,33 @@ const (
 type Bluesky struct {
 	executor authenticatedExecutor
 	media    MediaSource
+	identity ConnectionIdentityResolver
 }
 
 func NewBluesky(
 	executor *socialconnections.AuthenticatedExecutor,
 	mediaSource MediaSource,
+	identity ConnectionIdentityResolver,
 ) (*Bluesky, error) {
-	if executor == nil {
+	if executor == nil || identity == nil {
 		return nil, publishing.ErrInvalidArgument
 	}
-	return &Bluesky{executor: executor, media: mediaSource}, nil
+	return &Bluesky{executor: executor, media: mediaSource, identity: identity}, nil
 }
 
 func newBlueskyForTest(
 	executor authenticatedExecutor,
 	mediaSource MediaSource,
 ) *Bluesky {
-	return &Bluesky{executor: executor, media: mediaSource}
+	return &Bluesky{
+		executor: executor,
+		media:    mediaSource,
+		identity: connectionIdentityResolverFunc(func(
+			_ context.Context, _, _ string, _ socialconnections.Provider,
+		) (string, error) {
+			return "did:plc:fixture123", nil
+		}),
+	}
 }
 
 func (*Bluesky) Capabilities() publishing.AdapterCapabilities {
@@ -92,8 +102,9 @@ type blueskyBlob struct {
 }
 
 type blueskyRecordEnvelope struct {
-	URI string `json:"uri"`
-	CID string `json:"cid"`
+	URI   string          `json:"uri"`
+	CID   string          `json:"cid"`
+	Value json.RawMessage `json:"value"`
 }
 
 func (adapter *Bluesky) Publish(
@@ -102,6 +113,11 @@ func (adapter *Bluesky) Publish(
 ) (publishing.PublishResult, error) {
 	payload, state, err := adapter.input(request)
 	if err != nil {
+		return publishing.PublishResult{}, err
+	}
+	if err = adapter.authorizeRepository(
+		ctx, request.WorkspaceID, request.ConnectionID, &payload,
+	); err != nil {
 		return publishing.PublishResult{}, err
 	}
 	switch state.Step {
@@ -143,7 +159,7 @@ func (adapter *Bluesky) Publish(
 		item := payload.Media[state.MediaIndex]
 		source, openErr := adapter.media.Open(ctx, item.StorageKey)
 		if openErr != nil {
-			return publishing.PublishResult{}, permanent(
+			return publishing.PublishResult{}, temporary(
 				"bluesky_media_unavailable",
 				"Bluesky media could not be opened.",
 			)
@@ -205,6 +221,11 @@ func (adapter *Bluesky) Reconcile(
 			State: publishing.ReconciliationNotFound,
 		}, nil
 	}
+	if err = adapter.authorizeRepository(
+		ctx, request.WorkspaceID, request.ConnectionID, &payload,
+	); err != nil {
+		return publishing.ReconcileResult{}, err
+	}
 	values := url.Values{
 		"repo":       {payload.Repository},
 		"collection": {blueskyCollection},
@@ -259,7 +280,12 @@ func (adapter *Bluesky) Reconcile(
 		)
 	}
 	expectedURI := blueskyURI(payload.Repository, state.RKey)
-	if envelope.URI != expectedURI || !atCIDPattern.MatchString(envelope.CID) {
+	expectedRecord, recordErr := blueskyRecord(payload, state)
+	if recordErr != nil {
+		return publishing.ReconcileResult{}, recordErr
+	}
+	if envelope.URI != expectedURI || !atCIDPattern.MatchString(envelope.CID) ||
+		!canonicalJSONEqual(envelope.Value, expectedRecord) {
 		return publishing.ReconcileResult{}, permanent(
 			"invalid_bluesky_reconciliation",
 			"Bluesky reconciliation did not match the deterministic record.",
@@ -287,36 +313,9 @@ func (adapter *Bluesky) createRecord(
 	payload blueskyPayload,
 	state blueskyCheckpoint,
 ) (publishing.PublishResult, error) {
-	record := map[string]any{
-		"$type":     blueskyCollection,
-		"text":      payload.Text,
-		"createdAt": payload.CreatedAt,
-	}
-	if len(payload.Languages) != 0 {
-		record["langs"] = payload.Languages
-	}
-	if len(payload.Media) != 0 {
-		images := make([]map[string]any, 0, len(payload.Media))
-		for index, item := range payload.Media {
-			var blob any
-			if json.Unmarshal(state.Blobs[index], &blob) != nil {
-				return publishing.PublishResult{}, permanent(
-					"invalid_bluesky_checkpoint",
-					"Bluesky blob checkpoint is invalid.",
-				)
-			}
-			image := map[string]any{"alt": item.Alt, "image": blob}
-			if item.Width > 0 && item.Height > 0 {
-				image["aspectRatio"] = map[string]int{
-					"width": item.Width, "height": item.Height,
-				}
-			}
-			images = append(images, image)
-		}
-		record["embed"] = map[string]any{
-			"$type":  "app.bsky.embed.images",
-			"images": images,
-		}
+	record, err := blueskyRecord(payload, state)
+	if err != nil {
+		return publishing.PublishResult{}, err
 	}
 	body, err := jsonBody(map[string]any{
 		"repo":       payload.Repository,
@@ -360,6 +359,44 @@ func (adapter *Bluesky) createRecord(
 		Permalink:  blueskyPermalink(payload.Repository, state.RKey),
 		Checkpoint: finalCheckpoint,
 	}, nil
+}
+
+func blueskyRecord(
+	payload blueskyPayload,
+	state blueskyCheckpoint,
+) (map[string]any, error) {
+	record := map[string]any{
+		"$type":     blueskyCollection,
+		"text":      payload.Text,
+		"createdAt": payload.CreatedAt,
+	}
+	if len(payload.Languages) != 0 {
+		record["langs"] = payload.Languages
+	}
+	if len(payload.Media) != 0 {
+		images := make([]map[string]any, 0, len(payload.Media))
+		for index, item := range payload.Media {
+			var blob any
+			if json.Unmarshal(state.Blobs[index], &blob) != nil {
+				return nil, permanent(
+					"invalid_bluesky_checkpoint",
+					"Bluesky blob checkpoint is invalid.",
+				)
+			}
+			image := map[string]any{"alt": item.Alt, "image": blob}
+			if item.Width > 0 && item.Height > 0 {
+				image["aspectRatio"] = map[string]int{
+					"width": item.Width, "height": item.Height,
+				}
+			}
+			images = append(images, image)
+		}
+		record["embed"] = map[string]any{
+			"$type":  "app.bsky.embed.images",
+			"images": images,
+		}
+	}
+	return record, nil
 }
 
 func (adapter *Bluesky) input(
@@ -569,22 +606,18 @@ func blueskyRKey(
 			"Bluesky created_at is invalid.",
 		)
 	}
-	const microsecondsPerDay = int64(24 * time.Hour / time.Microsecond)
-	dayStart := timestamp.UTC().Truncate(24 * time.Hour).UnixMicro()
+	microseconds := timestamp.UTC().UnixMicro()
 	digest := sha256.Sum256([]byte(idempotencyKey))
-	// Preserve the post's UTC day while spreading deterministic keys over the
-	// TID timestamp and clock fields. This avoids relying on process-local
-	// clocks and makes the same F8 key converge after any crash or race.
-	offset := int64(binary.BigEndian.Uint64(digest[:8]) %
-		uint64(microsecondsPerDay))
-	microseconds := dayStart + offset
 	if microseconds < 0 || uint64(microseconds) >= uint64(1)<<53 {
 		return "", permanent(
 			"invalid_bluesky_payload",
 			"Bluesky created_at cannot be represented as an AT Protocol TID.",
 		)
 	}
-	clockID := uint64(digest[8])<<2 | uint64(digest[9]>>6)
+	// AT Protocol reserves ten low bits for a clock identifier. Hashing the
+	// immutable F8 key keeps retries stable while the high bits remain the
+	// actual createdAt timestamp, preserving chronological TID ordering.
+	clockID := uint64(digest[0])<<2 | uint64(digest[1]>>6)
 	value := uint64(microseconds)<<10 | clockID
 	const alphabet = "234567abcdefghijklmnopqrstuvwxyz"
 	encoded := [13]byte{}
@@ -608,6 +641,57 @@ func blueskyURI(repository, rkey string) string {
 
 func blueskyPermalink(repository, rkey string) string {
 	return "https://bsky.app/profile/" + repository + "/post/" + rkey
+}
+
+func (adapter *Bluesky) authorizeRepository(
+	ctx context.Context,
+	workspaceID, connectionID string,
+	payload *blueskyPayload,
+) error {
+	if adapter.identity == nil {
+		return permanent(
+			"bluesky_connection_identity_unavailable",
+			"Bluesky connection identity is unavailable.",
+		)
+	}
+	remoteID, err := adapter.identity.RemoteID(
+		ctx, workspaceID, connectionID, socialconnections.ProviderBluesky,
+	)
+	if err != nil {
+		var providerErr *publishing.ProviderError
+		if errors.As(err, &providerErr) {
+			return providerErr
+		}
+		return temporary(
+			"bluesky_connection_identity_unavailable",
+			"Bluesky connection identity could not be verified.",
+		)
+	}
+	remoteID = strings.TrimSpace(remoteID)
+	if !atDIDPattern.MatchString(remoteID) ||
+		!atDIDPattern.MatchString(payload.Repository) ||
+		payload.Repository != remoteID {
+		return permanent(
+			"bluesky_repository_mismatch",
+			"Bluesky payload repository does not match the trusted connection.",
+		)
+	}
+	payload.Repository = remoteID
+	return nil
+}
+
+func canonicalJSONEqual(actual json.RawMessage, expected any) bool {
+	if len(actual) == 0 {
+		return false
+	}
+	var decoded any
+	if json.Unmarshal(actual, &decoded) != nil {
+		return false
+	}
+	actualCanonical, actualErr := json.Marshal(decoded)
+	expectedCanonical, expectedErr := json.Marshal(expected)
+	return actualErr == nil && expectedErr == nil &&
+		bytes.Equal(actualCanonical, expectedCanonical)
 }
 
 var _ publishing.Publisher = (*Bluesky)(nil)
