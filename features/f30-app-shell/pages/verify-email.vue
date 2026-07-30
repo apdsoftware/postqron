@@ -13,6 +13,7 @@ import {
 import {
   completeEmailVerification,
   emailVerificationDataKey,
+  requestEmailVerification,
   withoutEmailVerificationToken,
   withoutEmailVerificationTokenInHistoryState,
 } from '../components/core/email-verification.ts'
@@ -101,14 +102,13 @@ async function resend() {
   }
   resending.value = true
   resendStatus.value = 'idle'
-  try {
-    await api.resendVerification(email.value)
-    resendStatus.value = 'success'
-  } catch {
-    resendStatus.value = 'error'
-  } finally {
-    resending.value = false
-  }
+  const result = await requestEmailVerification(
+    email.value,
+    candidate => api.resendVerification(candidate),
+  )
+  email.value = result.email
+  resendStatus.value = result.status
+  resending.value = false
 }
 </script>
 
