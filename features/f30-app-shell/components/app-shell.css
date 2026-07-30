@@ -437,7 +437,7 @@
   display: grid;
   min-height: 100vh;
   color: var(--pq-color-text);
-  grid-template-columns: clamp(15rem, 20vw, 16.75rem) minmax(0, 1fr);
+  grid-template-columns: 17rem minmax(0, 1fr);
   background: var(--pq-color-canvas);
 }
 
@@ -446,7 +446,7 @@
   top: 0;
   z-index: 30;
   height: 100vh;
-  padding: var(--pq-space-5) var(--pq-space-4);
+  padding: var(--pq-space-5);
   color: var(--pq-color-text-inverse);
   background:
     linear-gradient(160deg, color-mix(in srgb, var(--pq-color-brand) 88%, black), var(--pq-color-brand));
@@ -493,10 +493,7 @@
 }
 
 .product-shell__body {
-  display: grid;
-  min-height: 100vh;
   min-width: 0;
-  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .product-topbar {
@@ -504,10 +501,10 @@
   top: 0;
   z-index: 20;
   display: grid;
-  min-height: 5rem;
+  min-height: 4.75rem;
   border-bottom: 1px solid var(--pq-color-border);
   padding: var(--pq-space-3) clamp(var(--pq-space-4), 3vw, var(--pq-space-8));
-  grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(12rem, 20rem) minmax(0, 1fr) auto;
   grid-template-areas: "workspace actions profile";
   gap: clamp(var(--pq-space-3), 2vw, var(--pq-space-5));
   align-items: center;
