@@ -16,11 +16,14 @@ import (
 const (
 	socialRuntimeHandlerName = "SocialRuntime"
 
-	configEnabled           = "social.meta.enabled"
+	configEnabled           = "social.enabled"
+	configMetaEnabled       = "social.meta.enabled"
 	configAllowedOrigins    = "social.allowed_origins"
 	configGraphVersion      = "social.meta.graph_version"
-	configCipherKeyID       = "social.meta.cipher_key_id"
-	configCipherKey         = "social.meta.cipher_key_base64"
+	configCipherKeyID       = "social.cipher_key_id"
+	configCipherKey         = "social.cipher_key_base64"
+	configLegacyCipherKeyID = "social.meta.cipher_key_id"
+	configLegacyCipherKey   = "social.meta.cipher_key_base64"
 	configFacebookID        = "social.meta.facebook.client_id"
 	configFacebookSecret    = "social.meta.facebook.client_secret"
 	configFacebookRedirect  = "social.meta.facebook.redirect_url"
@@ -35,7 +38,8 @@ const (
 )
 
 var runtimeEnvironmentKeys = map[string]string{
-	configEnabled:           "POSTQRON_F05_META_ENABLED",
+	configEnabled:           "POSTQRON_F05_ENABLED",
+	configMetaEnabled:       "POSTQRON_F05_META_ENABLED",
 	configAllowedOrigins:    "POSTQRON_AUTH_ALLOWED_ORIGINS",
 	configGraphVersion:      "POSTQRON_F05_META_GRAPH_VERSION",
 	configCipherKeyID:       "POSTQRON_F05_CIPHER_KEY_ID",
@@ -117,9 +121,17 @@ func (module *Module) Configure(values map[string]string) error {
 	}
 
 	var cipher CredentialCipher
-	featureEnabled := configured[configEnabled] == "true"
-	key, keyOK := decodeRuntimeCipherKey(configured[configCipherKey])
-	keyID := strings.TrimSpace(configured[configCipherKeyID])
+	featureEnabled := providerNeutralRuntimeEnabled(configured)
+	key, keyOK := decodeRuntimeCipherKey(providerNeutralConfigValue(
+		configured,
+		configCipherKey,
+		configLegacyCipherKey,
+	))
+	keyID := providerNeutralConfigValue(
+		configured,
+		configCipherKeyID,
+		configLegacyCipherKeyID,
+	)
 	if featureEnabled && keyOK && keyID != "" {
 		var err error
 		cipher, err = NewAESGCMCipher(keyID, key)
@@ -127,7 +139,7 @@ func (module *Module) Configure(values map[string]string) error {
 			cipher = nil
 		}
 	}
-	if featureEnabled && cipher != nil {
+	if configured[configMetaEnabled] == "true" && cipher != nil {
 		module.configureFacebook(configured, adapters, availability)
 		module.configureInstagram(configured, adapters, availability)
 	}
@@ -364,6 +376,23 @@ func runtimeValues(values map[string]string) map[string]string {
 func decodeRuntimeCipherKey(value string) ([]byte, bool) {
 	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
 	return key, err == nil && len(key) == 32
+}
+
+func providerNeutralRuntimeEnabled(values map[string]string) bool {
+	if value := strings.TrimSpace(values[configEnabled]); value != "" {
+		return value == "true"
+	}
+	return strings.TrimSpace(values[configMetaEnabled]) == "true"
+}
+
+func providerNeutralConfigValue(
+	values map[string]string,
+	key, legacyKey string,
+) string {
+	if value := strings.TrimSpace(values[key]); value != "" {
+		return value
+	}
+	return strings.TrimSpace(values[legacyKey])
 }
 
 func allPresent(values map[string]string, keys ...string) bool {

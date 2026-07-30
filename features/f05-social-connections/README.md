@@ -26,6 +26,12 @@ Owner to name one exact remote resource before a connection exists. OAuth
 state is one-time, and PKCE is applied when the configured Meta flow supports
 it.
 
+`OAuthConfig.Scopes` always contains one entry per requested grant.
+`ScopeSeparator` controls only serialization of the outbound OAuth `scope`
+parameter: the zero value remains comma-delimited for exact compatibility with
+the existing Meta adapters, while `OAuthScopeSeparatorSpace` supports the
+individual scope sets used by X, LinkedIn, and Google.
+
 Access and refresh tokens are AES-256-GCM ciphertexts with random nonces,
 external key identifiers, and workspace/provider/resource-bound additional
 authenticated data. Plaintext tokens are never returned by list operations,
@@ -78,10 +84,17 @@ Provider availability is fail-closed. The binary `status` is `available` only
 when a verified adapter is mounted. The client-safe `configuration_state`
 distinguishes `not_configured`, `review_required`, `audit_required`, and
 `ready`; it never identifies which credential or secret is absent. Meta is
-`ready` only when the global flag is exactly `true`, the relevant App Review
+`ready` only when its provider flag is exactly `true`, the relevant App Review
 and runtime-audit flags are exactly `true`, its complete configuration is
 valid, and the external encryption key is a valid 32-byte key. Listing and
 local revocation remain usable when a provider is unavailable.
+
+The shared credential cipher is gated by exact
+`POSTQRON_F05_ENABLED=true`, independently of any provider family. For a safe
+rolling migration, an absent provider-neutral gate falls back to exact
+`POSTQRON_F05_META_ENABLED=true`; once `POSTQRON_F05_ENABLED` is present, its
+value is authoritative. The legacy flag remains the independent Meta adapter
+gate, so enabling the shared runtime cannot accidentally enable Meta.
 
 `providers` remains a two-entry Meta compatibility projection for the F30
 client shipped before #302. New clients consume `catalog`, whose version is
@@ -102,7 +115,8 @@ Runtime secret-store/environment keys:
 | Variable | Purpose |
 | --- | --- |
 | `POSTQRON_AUTH_ALLOWED_ORIGINS` | Comma-separated exact web origins allowed to make credentialed F5 requests, for example `https://postqron.com`; invalid or unlisted origins fail closed. |
-| `POSTQRON_F05_META_ENABLED` | Global fail-closed flag; only exact `true` enables adapters. |
+| `POSTQRON_F05_ENABLED` | Provider-neutral cipher/runtime gate; only exact `true` enables shared credential encryption. When absent, the legacy Meta gate supplies a migration-safe fallback. |
+| `POSTQRON_F05_META_ENABLED` | Meta adapter gate and legacy cipher fallback; only exact `true` enables Meta. |
 | `POSTQRON_F05_META_GRAPH_VERSION` | Explicit supported version such as `v25.0`. |
 | `POSTQRON_F05_CIPHER_KEY_ID` | External encryption-key identifier. |
 | `POSTQRON_F05_CIPHER_KEY_BASE64` | Base64-encoded 32-byte AES key. |

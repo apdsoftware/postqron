@@ -2,17 +2,19 @@ package socialconnections
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestRuntimeConfigurationIsFailClosedUntilReviewAndSecretsAreComplete(
+func TestLegacyMetaGateStillBootstrapsCipherAndMetaAdapters(
 	t *testing.T,
 ) {
 	module := runtimeModuleFixture()
 	if err := module.Configure(map[string]string{
-		configEnabled: "true",
+		configMetaEnabled: "true",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -28,10 +30,10 @@ func TestRuntimeConfigurationIsFailClosedUntilReviewAndSecretsAreComplete(
 		[]byte("0123456789abcdef0123456789abcdef"),
 	)
 	values := map[string]string{
-		configEnabled:           "true",
+		configMetaEnabled:       "true",
 		configGraphVersion:      "v25.0",
-		configCipherKeyID:       "fixture-key",
-		configCipherKey:         key,
+		configLegacyCipherKeyID: "fixture-key",
+		configLegacyCipherKey:   key,
 		configFacebookID:        "facebook-client",
 		configFacebookSecret:    "fixture-facebook-secret",
 		configFacebookRedirect:  "https://app.example.test/api/v1/social-authorizations/callback",
@@ -46,6 +48,9 @@ func TestRuntimeConfigurationIsFailClosedUntilReviewAndSecretsAreComplete(
 	}
 	if err := module.Configure(values); err != nil {
 		t.Fatal(err)
+	}
+	if module.service.cipher == nil {
+		t.Fatal("legacy Meta gate did not bootstrap the shared F5 cipher")
 	}
 	for _, provider := range module.service.Bootstrap().Providers {
 		if provider.Status != ProviderAvailable ||
@@ -62,7 +67,7 @@ func TestRuntimeConfigurationRequiresExactTrueFeatureFlag(t *testing.T) {
 		[]byte("0123456789abcdef0123456789abcdef"),
 	)
 	if err := module.Configure(map[string]string{
-		configEnabled:          "TRUE",
+		configMetaEnabled:      "TRUE",
 		configGraphVersion:     "v25.0",
 		configCipherKeyID:      "fixture-key",
 		configCipherKey:        key,
@@ -86,7 +91,7 @@ func TestRuntimeConfigurationDistinguishesReviewAndAuditGates(t *testing.T) {
 		[]byte("0123456789abcdef0123456789abcdef"),
 	)
 	values := map[string]string{
-		configEnabled:          "true",
+		configMetaEnabled:      "true",
 		configGraphVersion:     "v25.0",
 		configCipherKeyID:      "fixture-key",
 		configCipherKey:        key,
@@ -112,6 +117,122 @@ func TestRuntimeConfigurationDistinguishesReviewAndAuditGates(t *testing.T) {
 	availability = module.service.Bootstrap().Providers[0]
 	if availability.ConfigurationState != ProviderAuditRequired {
 		t.Fatalf("audit gate = %#v", availability)
+	}
+}
+
+func TestProviderNeutralGateBootstrapsCipherWithoutEnablingMeta(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	module := runtimeModuleFixture()
+	if err := module.Configure(map[string]string{
+		configEnabled:     "true",
+		configCipherKeyID: "fixture-key",
+		configCipherKey:   key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if module.service.cipher == nil {
+		t.Fatal("provider-neutral F5 gate did not bootstrap the shared cipher")
+	}
+	for _, provider := range module.service.Bootstrap().Providers {
+		if provider.Status != ProviderUnavailable ||
+			provider.ConfigurationState != ProviderNotConfigured {
+			t.Fatalf("provider-neutral cipher gate enabled Meta: %#v", provider)
+		}
+	}
+}
+
+func TestProviderNeutralGateIsAuthoritativeAndFailClosed(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	values := completeMetaRuntimeValues(key)
+	values[configEnabled] = "false"
+	module := runtimeModuleFixture()
+	if err := module.Configure(values); err != nil {
+		t.Fatal(err)
+	}
+	if module.service.cipher != nil {
+		t.Fatal("explicit provider-neutral false was bypassed by the legacy Meta gate")
+	}
+	for _, provider := range module.service.Bootstrap().Providers {
+		if provider.Status != ProviderUnavailable {
+			t.Fatalf("disabled provider-neutral runtime enabled provider: %#v", provider)
+		}
+	}
+}
+
+func TestProviderNeutralCipherConfigurationRemainsFailClosedWhenPartial(
+	t *testing.T,
+) {
+	validKey := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	tests := []map[string]string{
+		{configEnabled: "true"},
+		{
+			configEnabled:     "true",
+			configCipherKeyID: "fixture-key",
+			configCipherKey:   "not-base64",
+		},
+		{
+			configEnabled:           "true",
+			configCipherKeyID:       "fixture-key",
+			configCipherKey:         "not-base64",
+			configLegacyCipherKey:   validKey,
+			configLegacyCipherKeyID: "legacy-fixture-key",
+		},
+		{
+			configEnabled:   "true",
+			configCipherKey: validKey,
+		},
+		{
+			configEnabled:     "TRUE",
+			configCipherKeyID: "fixture-key",
+			configCipherKey:   validKey,
+		},
+	}
+	for index, values := range tests {
+		module := runtimeModuleFixture()
+		if err := module.Configure(values); err != nil {
+			t.Fatalf("config %d: %v", index, err)
+		}
+		if module.service.cipher != nil {
+			t.Fatalf("partial config %d bootstrapped a cipher", index)
+		}
+		for _, entry := range module.service.Bootstrap().Catalog {
+			if entry.Status != ProviderUnavailable {
+				t.Fatalf("partial config %d enabled provider: %#v", index, entry)
+			}
+		}
+	}
+}
+
+func TestRuntimeBootstrapNeverExposesCipherOrProviderSecrets(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	values := completeMetaRuntimeValues(key)
+	module := runtimeModuleFixture()
+	if err := module.Configure(values); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(module.service.Bootstrap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{
+		key,
+		"fixture-key",
+		"facebook-client",
+		"fixture-facebook-secret",
+		"instagram-client",
+		"fixture-instagram-secret",
+	} {
+		if strings.Contains(string(payload), secret) {
+			t.Fatalf("bootstrap exposed secret-bearing configuration %q", secret)
+		}
 	}
 }
 
@@ -181,5 +302,25 @@ func runtimeModuleFixture() *Module {
 			PermissionManageChannels: true,
 		}},
 		quota: newFakeChannelQuota(),
+	}
+}
+
+func completeMetaRuntimeValues(key string) map[string]string {
+	return map[string]string{
+		configMetaEnabled:       "true",
+		configGraphVersion:      "v25.0",
+		configCipherKeyID:       "fixture-key",
+		configCipherKey:         key,
+		configFacebookID:        "facebook-client",
+		configFacebookSecret:    "fixture-facebook-secret",
+		configFacebookRedirect:  "https://app.example.test/api/v1/social-authorizations/callback",
+		configFacebookConfigID:  "login-config",
+		configFacebookReviewed:  "true",
+		configFacebookAudited:   "true",
+		configInstagramID:       "instagram-client",
+		configInstagramSecret:   "fixture-instagram-secret",
+		configInstagramRedirect: "https://app.example.test/api/v1/social-authorizations/callback",
+		configInstagramReviewed: "true",
+		configInstagramAudited:  "true",
 	}
 }

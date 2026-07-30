@@ -903,7 +903,7 @@ func buildAuthorizationURL(
 	query.Set("client_id", config.ClientID)
 	query.Set("redirect_uri", config.RedirectURL)
 	query.Set("response_type", "code")
-	query.Set("scope", strings.Join(config.Scopes, ","))
+	query.Set("scope", strings.Join(config.Scopes, oauthScopeSeparator(config)))
 	query.Set("state", state)
 	if config.SupportsPKCE {
 		query.Set("code_challenge", pkceChallenge(verifier))
@@ -928,6 +928,15 @@ func validateOAuthConfig(provider Provider, config OAuthConfig) error {
 	}
 	if err := validateRequestedScopes(provider, config.Scopes); err != nil {
 		return err
+	}
+	switch config.ScopeSeparator {
+	case "", OAuthScopeSeparatorComma, OAuthScopeSeparatorSpace:
+	default:
+		return fmt.Errorf(
+			"%w: %s adapter uses an unsupported OAuth scope separator",
+			ErrInvalidArgument,
+			provider,
+		)
 	}
 	reserved := []string{
 		"client_id",
@@ -1000,6 +1009,13 @@ func validateRequestedScopes(provider Provider, scopes []string) error {
 				provider,
 			)
 		}
+		if len(strings.Fields(scope)) != 1 {
+			return fmt.Errorf(
+				"%w: %s adapter must represent scopes as individual entries",
+				ErrInvalidArgument,
+				provider,
+			)
+		}
 		if _, duplicate := seen[scope]; duplicate {
 			return fmt.Errorf(
 				"%w: %s adapter requests duplicate scope %s",
@@ -1023,6 +1039,13 @@ func validateRequestedScopes(provider Provider, scopes []string) error {
 		}
 	}
 	return nil
+}
+
+func oauthScopeSeparator(config OAuthConfig) string {
+	if config.ScopeSeparator == OAuthScopeSeparatorSpace {
+		return string(OAuthScopeSeparatorSpace)
+	}
+	return string(OAuthScopeSeparatorComma)
 }
 
 func isReconnectFailure(kind ProviderFailureKind) bool {
