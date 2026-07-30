@@ -36,4 +36,10 @@ func TestWorkerDockerfileIncludesEmailBrandTokens(t *testing.T) {
 	) {
 		t.Fatal("worker Dockerfile must stage the F8 module before dependency download")
 	}
+	if !strings.Contains(
+		dockerfile,
+		"COPY features/f05-social-connections/go.mod features/f05-social-connections/go.sum features/f05-social-connections/",
+	) {
+		t.Fatal("worker Dockerfile must stage the trusted F5 executor module")
+	}
 }

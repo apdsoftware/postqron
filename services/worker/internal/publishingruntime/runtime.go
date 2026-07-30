@@ -8,16 +8,40 @@ import (
 	"strings"
 	"time"
 
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	dynamicpublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/dynamic"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Service is intentionally only F8 wiring. Issue #329 owns the F5 credential
-// boundary and official publishing adapters; until it lands, registry remains
-// empty and every provider resolution fails closed.
 type Service struct {
 	engine *publishing.Engine
 	pool   *pgxpool.Pool
+}
+
+// ProviderGate is populated only after the F5 connection adapter and its
+// production controls are verified. Missing evidence never enables a
+// publisher merely because its name is present in a destination.
+type ProviderGate struct {
+	Configured     bool
+	ReviewApproved bool
+	AuditVerified  bool
+	QuotaVerified  bool
+}
+
+func (gate ProviderGate) ready() bool {
+	return gate.Configured && gate.ReviewApproved &&
+		gate.AuditVerified && gate.QuotaVerified
+}
+
+// DynamicAdapterDependencies are process-local trusted dependencies. The
+// executor owns credentials, origins, dynamic discovery, PAR, DPoP keys and
+// nonce rotation; F8 receives none of them.
+type DynamicAdapterDependencies struct {
+	Executor *socialconnections.AuthenticatedExecutor
+	Media    dynamicpublishing.MediaSource
+	Mastodon ProviderGate
+	Bluesky  ProviderGate
 }
 
 func New(
@@ -25,6 +49,7 @@ func New(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
+	dynamicDependencies ...DynamicAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -41,7 +66,11 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	registry := newRuntimeAdapterRegistry()
+	registry, err := newRuntimeAdapterRegistry(dynamicDependencies...)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	engine, err := publishing.NewEngine(
 		store,
 		postgresCommandGate{database: database},
@@ -63,9 +92,50 @@ func New(
 	return &Service{engine: engine, pool: pool}, nil
 }
 
-func newRuntimeAdapterRegistry() *publishing.AdapterRegistry {
-	// Deliberately empty until the credential/adapter contract in #329 lands.
-	return publishing.NewAdapterRegistry()
+func newRuntimeAdapterRegistry(
+	dependencies ...DynamicAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	if len(dependencies) == 0 {
+		return registry, nil
+	}
+	if len(dependencies) != 1 {
+		return nil, errors.New(
+			"dynamic adapter dependencies must be supplied exactly once",
+		)
+	}
+	config := dependencies[0]
+	if config.Mastodon.ready() {
+		adapter, err := dynamicpublishing.NewMastodon(
+			config.Executor,
+			config.Media,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("configure Mastodon publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderMastodon),
+			adapter,
+		); err != nil {
+			return nil, err
+		}
+	}
+	if config.Bluesky.ready() {
+		adapter, err := dynamicpublishing.NewBluesky(
+			config.Executor,
+			config.Media,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("configure Bluesky publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderBluesky),
+			adapter,
+		); err != nil {
+			return nil, err
+		}
+	}
+	return registry, nil
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {

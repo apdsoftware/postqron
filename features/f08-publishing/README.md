@@ -44,18 +44,33 @@ injects implementations of:
 
 The immutable destination payload is prepared from a validated F6 revision.
 
-The default runtime registry is deliberately empty and fail-closed. Issue
-[#329](https://github.com/apdsoftware/postqron/issues/329) owns the F5→F8
-credential boundary and official publishing adapters for the D2 matrix. Until
-that dependency lands, F8 provides the durable engine and adapter contract but
-does not claim that any social provider is runtime-publishable.
+The dynamic provider package implements only Mastodon and Bluesky:
+
+- Mastodon reads the connected instance capability document, uploads each
+  attachment through a durable multipart checkpoint, waits for asynchronous
+  processing, and creates the status with the official `Idempotency-Key`.
+- Bluesky uploads image blobs through the connected PDS, creates
+  `app.bsky.feed.post` with a deterministic, Lexicon-valid TID, and reconciles
+  that exact key through `com.atproto.repo.getRecord`.
+
+Both adapters call only the F5 `AuthenticatedExecutor`, always set
+`ExpectedProvider`, and never receive origins, tokens, PAR state, DPoP keys, or
+nonces. Discovery, DNS pinning, dynamic OAuth/DPoP refresh and nonce persistence
+remain inside F5.
+
+The worker registers either adapter only when a trusted executor is injected
+and all provider gates (configured, reviewed, runtime-audited, and
+quota-verified) are true. Missing dependencies or evidence leave the provider
+unregistered and fail-closed. Ambiguous media uploads are never retried blindly;
+ambiguous final creates use native Mastodon idempotency or deterministic
+Bluesky reconciliation before another write.
 
 ## Verification
 
 ```sh
 cd features/f08-publishing
-go test -race ./...
-go vet ./...
+GOWORK=off go test -race ./...
+GOWORK=off go vet ./...
 ```
 
 Set `F08_DATABASE_URL` to run the optional PostgreSQL integration test after

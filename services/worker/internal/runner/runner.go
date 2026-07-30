@@ -73,6 +73,7 @@ func NewRuntime(
 	interval time.Duration,
 	clock func() time.Time,
 	logger *slog.Logger,
+	dynamicPublishing ...publishingruntime.DynamicAdapterDependencies,
 ) (*Runner, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -98,6 +99,7 @@ func NewRuntime(
 		database,
 		databaseURL,
 		clock,
+		dynamicPublishing...,
 	)
 	if err != nil {
 		return nil, err
