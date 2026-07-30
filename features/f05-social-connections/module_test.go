@@ -2,6 +2,7 @@ package socialconnections
 
 import (
 	"encoding/base64"
+	"errors"
 	"testing"
 	"time"
 )
@@ -16,7 +17,7 @@ func TestRuntimeConfigurationIsFailClosedUntilReviewAndSecretsAreComplete(
 		t.Fatal(err)
 	}
 	for _, provider := range module.service.Bootstrap().Providers {
-		if provider.Status != ProviderUnavailable || !provider.Retryable {
+		if provider.Status != ProviderUnavailable || provider.Retryable {
 			t.Fatalf("incomplete provider availability = %#v", provider)
 		}
 	}
@@ -70,6 +71,36 @@ func TestRuntimeConfigurationRequiresExactTrueFeatureFlag(t *testing.T) {
 	availability := module.service.Bootstrap().Providers[0]
 	if availability.Status != ProviderUnavailable {
 		t.Fatalf("non-exact feature flag enabled provider: %#v", availability)
+	}
+}
+
+func TestRuntimeConfigurationUsesExactAuthAllowedOrigins(t *testing.T) {
+	t.Setenv(
+		"POSTQRON_AUTH_ALLOWED_ORIGINS",
+		"https://postqron.com, https://preview.postqron.com,https://postqron.com",
+	)
+	module := runtimeModuleFixture()
+	if err := module.Configure(map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, origin := range []string{
+		"https://postqron.com",
+		"https://preview.postqron.com",
+	} {
+		if _, ok := module.origins[origin]; !ok {
+			t.Fatalf("configured origin %q is missing", origin)
+		}
+	}
+	if len(module.origins) != 2 {
+		t.Fatalf("origin policy = %#v, want two exact origins", module.origins)
+	}
+
+	invalid := runtimeModuleFixture()
+	err := invalid.Configure(map[string]string{
+		configAllowedOrigins: "https://postqron.com/path",
+	})
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("invalid origin error = %v, want ErrInvalidArgument", err)
 	}
 }
 

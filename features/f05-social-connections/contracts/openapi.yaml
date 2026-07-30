@@ -5,7 +5,9 @@ info:
   description: >
     Owner-controlled Meta authorization, explicit resource selection,
     connection state, reconnection, and revocation. Token material is never
-    part of this API.
+    part of this API. Browser responses use credentialed CORS for exact origins
+    from POSTQRON_AUTH_ALLOWED_ORIGINS; mutation requests require an allowed
+    Origin and public OPTIONS operations serve preflight.
 paths:
   /api/v1/workspaces/{workspace_id}/social-connections/bootstrap:
     get:
@@ -26,6 +28,17 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
+    options:
+      operationId: preflightSocialConnectionsBootstrap
+      summary: Serve public credentialed-CORS preflight
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "204":
+          $ref: "#/components/responses/Preflight"
+        "403":
+          $ref: "#/components/responses/OriginForbidden"
   /api/v1/workspaces/{workspace_id}/social-authorizations:
     post:
       operationId: beginSocialAuthorization
@@ -58,6 +71,17 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ProviderUnavailable"
+    options:
+      operationId: preflightSocialAuthorization
+      summary: Serve public credentialed-CORS preflight
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "204":
+          $ref: "#/components/responses/Preflight"
+        "403":
+          $ref: "#/components/responses/OriginForbidden"
   /api/v1/social-authorizations/callback:
     get:
       operationId: completeSocialAuthorization
@@ -92,8 +116,19 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/ProviderUnavailable"
+    options:
+      operationId: preflightSocialAuthorizationCallback
+      summary: Serve public credentialed-CORS preflight
+      security: []
+      responses:
+        "204":
+          $ref: "#/components/responses/Preflight"
+        "403":
+          $ref: "#/components/responses/OriginForbidden"
   /api/v1/workspaces/{workspace_id}/social-connections:
     get:
       operationId: listSocialConnections
@@ -155,6 +190,17 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/ProviderUnavailable"
+    options:
+      operationId: preflightSocialConnections
+      summary: Serve public credentialed-CORS preflight
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "204":
+          $ref: "#/components/responses/Preflight"
+        "403":
+          $ref: "#/components/responses/OriginForbidden"
   /api/v1/workspaces/{workspace_id}/social-connections/{connection_id}/reconnect:
     post:
       operationId: reconnectSocialConnection
@@ -177,6 +223,18 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ProviderUnavailable"
+    options:
+      operationId: preflightSocialConnectionReconnect
+      summary: Serve public credentialed-CORS preflight
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ConnectionId"
+      responses:
+        "204":
+          $ref: "#/components/responses/Preflight"
+        "403":
+          $ref: "#/components/responses/OriginForbidden"
   /api/v1/workspaces/{workspace_id}/social-connections/{connection_id}:
     delete:
       operationId: revokeSocialConnection
@@ -199,6 +257,18 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/Error"
+    options:
+      operationId: preflightSocialConnection
+      summary: Serve public credentialed-CORS preflight
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ConnectionId"
+      responses:
+        "204":
+          $ref: "#/components/responses/Preflight"
+        "403":
+          $ref: "#/components/responses/OriginForbidden"
 components:
   securitySchemes:
     session:
@@ -219,6 +289,16 @@ components:
       schema:
         type: string
   responses:
+    Preflight:
+      description: >
+        Allowed origin; emits Access-Control-Allow-Origin,
+        Access-Control-Allow-Credentials, allowed methods and Content-Type
+    OriginForbidden:
+      description: Origin is absent, invalid, or not in the exact allowlist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unauthenticated:
       description: An authenticated application session is required
       content:
@@ -226,13 +306,15 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Forbidden:
-      description: Owner permission is required for mutations
+      description: >
+        Owner permission and an exact allowed Origin are required for
+        mutations
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     ProviderUnavailable:
-      description: Provider is fail-closed until configuration and review are ready
+      description: Provider is fail-closed because configuration or review is incomplete
       content:
         application/json:
           schema:
@@ -251,6 +333,10 @@ components:
       properties:
         code:
           type: string
+          description: >
+            Client-safe category. Provider failures use provider_access_denied,
+            provider_temporary, provider_resource_unavailable, or
+            provider_invalid_response; raw Meta error codes are not exposed.
         message:
           type: string
         retryable:

@@ -29,7 +29,7 @@ test('bootstrap and list hit the workspace-scoped F5 routes with credentials, no
     if (path.endsWith('/bootstrap')) {
       return { providers: [
         { provider: 'facebook_pages', status: 'available', retryable: false },
-        { provider: 'instagram_professional', status: 'unavailable', retryable: true },
+        { provider: 'instagram_professional', status: 'unavailable', retryable: false },
       ] }
     }
     return { connections: [connection] }
@@ -132,16 +132,30 @@ test('flat F5 error envelope maps to stable, fail-closed kinds', () => {
 
   const unavailable = normalizeSocialApiError({
     status: 503,
-    data: { code: 'provider_unavailable', message: 'x', retryable: true },
+    data: { code: 'provider_unavailable', message: 'x', retryable: false },
   })
   assert.equal(unavailable.kind, 'provider-unavailable')
-  assert.equal(unavailable.retryable, true)
+  assert.equal(unavailable.retryable, false)
 
   const denied = normalizeSocialApiError({
     status: 400,
     data: { code: 'provider_denied', message: 'x', retryable: true },
   })
   assert.equal(denied.kind, 'provider-denied')
+
+  const providerAccessDenied = normalizeSocialApiError({
+    status: 422,
+    data: { code: 'provider_access_denied', message: 'x', retryable: false },
+  })
+  assert.equal(providerAccessDenied.kind, 'provider-access-denied')
+  assert.equal(providerAccessDenied.retryable, false)
+
+  const temporary = normalizeSocialApiError({
+    status: 502,
+    data: { code: 'provider_temporary', message: 'x', retryable: true },
+  })
+  assert.equal(temporary.kind, 'provider-temporary')
+  assert.equal(temporary.retryable, true)
 
   const forbidden = normalizeSocialApiError({ status: 403, data: { code: 'forbidden' } })
   assert.equal(forbidden.kind, 'access-denied')

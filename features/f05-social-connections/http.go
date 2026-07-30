@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -18,19 +19,26 @@ type RequestAuthenticator interface {
 type HTTPHandler struct {
 	service       *Service
 	authenticator RequestAuthenticator
+	origins       map[string]struct{}
 	handler       http.Handler
 }
 
 func NewHTTPHandler(
 	service *Service,
 	authenticator RequestAuthenticator,
+	allowedOrigins ...string,
 ) (http.Handler, error) {
 	if service == nil || authenticator == nil {
 		return nil, fmt.Errorf("%w: HTTP dependencies are required", ErrInvalidArgument)
 	}
+	origins, err := newSocialOriginPolicy(allowedOrigins)
+	if err != nil {
+		return nil, err
+	}
 	handler := &HTTPHandler{
 		service:       service,
 		authenticator: authenticator,
+		origins:       origins,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(
@@ -61,7 +69,7 @@ func NewHTTPHandler(
 		"DELETE /api/v1/workspaces/{workspace_id}/social-connections/{connection_id}",
 		handler.revoke,
 	)
-	handler.handler = securityHeaders(mux)
+	handler.handler = securityHeaders(credentialedSocialCORS(mux, origins))
 	return handler, nil
 }
 
@@ -96,7 +104,7 @@ func (handler *HTTPHandler) beginAuthorization(
 	writer http.ResponseWriter,
 	request *http.Request,
 ) {
-	if !validMutationOrigin(writer, request) {
+	if !handler.validMutationOrigin(writer, request) {
 		return
 	}
 	accountID, ok := handler.accountID(writer, request)
@@ -174,7 +182,7 @@ func (handler *HTTPHandler) selectResource(
 	writer http.ResponseWriter,
 	request *http.Request,
 ) {
-	if !validMutationOrigin(writer, request) {
+	if !handler.validMutationOrigin(writer, request) {
 		return
 	}
 	accountID, ok := handler.accountID(writer, request)
@@ -208,7 +216,7 @@ func (handler *HTTPHandler) reconnect(
 	writer http.ResponseWriter,
 	request *http.Request,
 ) {
-	if !validMutationOrigin(writer, request) {
+	if !handler.validMutationOrigin(writer, request) {
 		return
 	}
 	accountID, ok := handler.accountID(writer, request)
@@ -234,7 +242,7 @@ func (handler *HTTPHandler) revoke(
 	writer http.ResponseWriter,
 	request *http.Request,
 ) {
-	if !validMutationOrigin(writer, request) {
+	if !handler.validMutationOrigin(writer, request) {
 		return
 	}
 	accountID, ok := handler.accountID(writer, request)
@@ -306,7 +314,7 @@ func writeSocialServiceError(writer http.ResponseWriter, err error) {
 			writer,
 			http.StatusServiceUnavailable,
 			"provider_unavailable",
-			true,
+			false,
 		)
 	case errors.Is(err, ErrChannelQuotaExceeded):
 		writeSocialError(
@@ -337,20 +345,30 @@ func writeSocialServiceError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, ErrUnsupportedProvider), errors.Is(err, ErrInvalidArgument):
 		writeSocialError(writer, http.StatusBadRequest, "invalid_request", false)
 	case errors.As(err, &providerFailure):
-		status := http.StatusBadGateway
-		if providerFailure.Kind == FailureAuthentication ||
-			providerFailure.Kind == FailurePermissionMissing ||
-			providerFailure.Kind == FailureResourceGone {
-			status = http.StatusUnprocessableEntity
-		}
+		status, code, retryable := providerFailureResponse(providerFailure)
 		writeSocialError(
 			writer,
 			status,
-			providerFailure.Code,
-			providerFailure.Retryable,
+			code,
+			retryable,
 		)
 	default:
 		writeSocialError(writer, http.StatusInternalServerError, "internal_error", true)
+	}
+}
+
+func providerFailureResponse(
+	failure *ProviderFailure,
+) (status int, code string, retryable bool) {
+	switch failure.Kind {
+	case FailureTemporary:
+		return http.StatusBadGateway, "provider_temporary", true
+	case FailureAuthentication, FailurePermissionMissing:
+		return http.StatusUnprocessableEntity, "provider_access_denied", false
+	case FailureResourceGone:
+		return http.StatusUnprocessableEntity, "provider_resource_unavailable", false
+	default:
+		return http.StatusBadGateway, "provider_invalid_response", false
 	}
 }
 
@@ -373,15 +391,130 @@ func writeSocialJSON(writer http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(writer).Encode(value)
 }
 
-func validMutationOrigin(
+func (handler *HTTPHandler) validMutationOrigin(
 	writer http.ResponseWriter,
 	request *http.Request,
 ) bool {
-	if request.Header.Get("Sec-Fetch-Site") == "cross-site" {
+	origin, ok := socialRequestOrigin(request)
+	if !ok {
+		writeSocialError(writer, http.StatusForbidden, "origin_forbidden", false)
+		return false
+	}
+	if _, allowed := handler.origins[origin]; !allowed {
 		writeSocialError(writer, http.StatusForbidden, "origin_forbidden", false)
 		return false
 	}
 	return true
+}
+
+func credentialedSocialCORS(
+	next http.Handler,
+	allowedOrigins map[string]struct{},
+) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if len(request.Header.Values("Origin")) == 0 {
+			next.ServeHTTP(writer, request)
+			return
+		}
+		origin, ok := socialRequestOrigin(request)
+		if !ok {
+			writeSocialError(writer, http.StatusForbidden, "origin_forbidden", false)
+			return
+		}
+		if _, allowed := allowedOrigins[origin]; !allowed {
+			writeSocialError(writer, http.StatusForbidden, "origin_forbidden", false)
+			return
+		}
+		writer.Header().Set("Access-Control-Allow-Origin", origin)
+		writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		addSocialVaryOrigin(writer.Header())
+		if request.Method == http.MethodOptions {
+			writer.Header().Set(
+				"Access-Control-Allow-Methods",
+				"GET, POST, DELETE, OPTIONS",
+			)
+			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			writer.Header().Set("Access-Control-Max-Age", "600")
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func parseSocialAllowedOrigins(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	origins := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, candidate := range strings.Split(raw, ",") {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		origin, err := normalizeSocialOrigin(candidate)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%w: POSTQRON_AUTH_ALLOWED_ORIGINS contains an invalid origin",
+				ErrInvalidArgument,
+			)
+		}
+		if _, duplicate := seen[origin]; duplicate {
+			continue
+		}
+		seen[origin] = struct{}{}
+		origins = append(origins, origin)
+	}
+	return origins, nil
+}
+
+func newSocialOriginPolicy(origins []string) (map[string]struct{}, error) {
+	policy := make(map[string]struct{}, len(origins))
+	for _, candidate := range origins {
+		origin, err := normalizeSocialOrigin(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("%w: social allowed origin is invalid", ErrInvalidArgument)
+		}
+		policy[origin] = struct{}{}
+	}
+	return policy, nil
+}
+
+func socialRequestOrigin(request *http.Request) (string, bool) {
+	values := request.Header.Values("Origin")
+	if len(values) != 1 {
+		return "", false
+	}
+	origin, err := normalizeSocialOrigin(values[0])
+	return origin, err == nil
+}
+
+func normalizeSocialOrigin(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil ||
+		parsed.Opaque != "" ||
+		(parsed.Scheme != "https" && parsed.Scheme != "http") ||
+		parsed.Host == "" ||
+		parsed.User != nil ||
+		parsed.RawQuery != "" ||
+		parsed.ForceQuery ||
+		parsed.Fragment != "" ||
+		parsed.RawPath != "" ||
+		(parsed.Path != "" && parsed.Path != "/") {
+		return "", errors.New("social origin must be an exact HTTP(S) origin")
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), nil
+}
+
+func addSocialVaryOrigin(header http.Header) {
+	for _, value := range header.Values("Vary") {
+		for _, field := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(field), "Origin") {
+				return
+			}
+		}
+	}
+	header.Add("Vary", "Origin")
 }
 
 func securityHeaders(next http.Handler) http.Handler {

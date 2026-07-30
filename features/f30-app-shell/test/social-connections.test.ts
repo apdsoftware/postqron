@@ -29,7 +29,7 @@ test('bootstrap availability parses fail-closed provider states', () => {
   const bootstrap = parseSocialBootstrap({
     providers: [
       { provider: 'facebook_pages', status: 'available', retryable: false },
-      { provider: 'instagram_professional', status: 'unavailable', retryable: true },
+      { provider: 'instagram_professional', status: 'unavailable', retryable: false },
     ],
   })
   assert.equal(bootstrap.providers.length, 2)

@@ -88,7 +88,7 @@ func NewService(config Config) (*Service, error) {
 			providerAvailability = ProviderAvailability{
 				Provider:  provider,
 				Status:    ProviderUnavailable,
-				Retryable: true,
+				Retryable: false,
 			}
 			if adapter != nil {
 				providerAvailability.Status = ProviderAvailable
@@ -98,7 +98,7 @@ func NewService(config Config) (*Service, error) {
 		providerAvailability.Provider = provider
 		if adapter == nil {
 			providerAvailability.Status = ProviderUnavailable
-			providerAvailability.Retryable = true
+			providerAvailability.Retryable = false
 		}
 		availability[provider] = providerAvailability
 	}

@@ -41,8 +41,13 @@ vertical feature.
   reads the flat `{code,message,retryable}` F5 error envelope, treats every
   undeclared code and unavailable provider as fail-closed, and enforces the
   F10 channel quota server-side (surfacing `channel_quota_exceeded` /
-  `channel_quota_unavailable`). Owner-only mutations rely on the F5
-  same-origin (`Sec-Fetch-Site`) guard, so no CSRF token is exchanged.
+  `channel_quota_unavailable`). Owner-only mutations rely on the F5 exact
+  `Origin` allowlist configured through `POSTQRON_AUTH_ALLOWED_ORIGINS`; F5
+  serves credentialed CORS and public preflight handlers, so no CSRF token is
+  exchanged.
+  Provider bootstrap `unavailable` is rendered as explicit missing Meta
+  configuration, while `provider_access_denied` and `provider_temporary`
+  produce distinct permission and retryable upstream-error messages.
 
 The F30 façade is deliberately a backend-for-frontend contract. Until its
 server adapter is configured, `/app` still renders a retryable configuration
