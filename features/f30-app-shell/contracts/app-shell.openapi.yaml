@@ -111,6 +111,187 @@ paths:
           description: Invalid session
         "403":
           description: Account is not an active member
+  /api/v1/app/workspaces/current:
+    get:
+      summary: Read the server-selected current workspace consumed by the Workspace page
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current workspace base data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeWorkspace"
+        "401":
+          description: Invalid session
+        "404":
+          description: The account has no active workspace memberships
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
+    patch:
+      summary: Rename the current workspace as an active Owner
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        "200":
+          description: Updated workspace base data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeWorkspace"
+        "400":
+          description: Invalid name or malformed JSON
+        "401":
+          description: Invalid session
+        "403":
+          description: The authenticated account is not an active Owner
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Workspace state or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
+  /api/v1/app/workspaces/current/members:
+    get:
+      summary: List active members of the current workspace
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Active memberships in the selected workspace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RuntimeMember"
+        "401":
+          description: Invalid session
+        "404":
+          description: The account has no active workspace memberships
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
+  /api/v1/app/workspaces/current/invitations:
+    post:
+      summary: Invite a Member to the current workspace as an active Owner
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Existing pending invitation reissued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeInvitation"
+        "201":
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeInvitation"
+        "400":
+          description: Invalid email or malformed JSON
+        "401":
+          description: Invalid session
+        "403":
+          description: The authenticated account is not an active Owner
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Member limit, workspace state, or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
+  /api/v1/app/workspaces/current/members/{memberId}/role:
+    put:
+      summary: Change an active current-workspace member role as an Owner
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role:
+                  enum: [owner, member]
+      responses:
+        "204":
+          description: Role changed or already had the requested value
+        "400":
+          description: Invalid member or role
+        "401":
+          description: Invalid session
+        "403":
+          description: Actor is not an active Owner or target is not active
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Final Owner or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
+  /api/v1/app/workspaces/current/members/{memberId}:
+    delete:
+      summary: Remove an active current-workspace member as an Owner
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "204":
+          description: Active membership removed
+        "400":
+          description: Invalid member identifier
+        "401":
+          description: Invalid session
+        "403":
+          description: Actor is not an active Owner or target is not active
+        "404":
+          description: The account has no active workspace memberships
+        "409":
+          description: Final Owner or concurrent update conflict
+        "503":
+          $ref: "#/components/responses/RetryableConfigurationError"
 components:
   securitySchemes:
     sessionCookie:
@@ -184,6 +365,65 @@ components:
           type: string
         role:
           enum: [owner, member]
+    RuntimeWorkspace:
+      type: object
+      additionalProperties: false
+      required: [id, name, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          enum: [owner, member]
+        status:
+          enum: [active, deletion_pending]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RuntimeMember:
+      type: object
+      additionalProperties: false
+      required: [id, account_id, email, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        account_id:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          enum: [owner, member]
+        status:
+          const: active
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RuntimeInvitation:
+      type: object
+      additionalProperties: false
+      required: [id, status, expires_at, reissued]
+      properties:
+        id:
+          type: string
+        status:
+          const: pending
+        expires_at:
+          type: string
+          format: date-time
+        token:
+          type: string
+          minLength: 32
+          writeOnly: true
+        reissued:
+          type: boolean
     AppSession:
       type: object
       additionalProperties: false

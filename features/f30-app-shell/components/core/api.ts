@@ -1,22 +1,26 @@
 import {
   parseAccountArea,
   parseBootstrap,
+  parseCurrentWorkspace,
   parseDeletionCancelCapability,
   parseDeletionRequest,
   parseExportDownload,
   parseExportRequest,
   parseSession,
+  parseWorkspaceInvitation,
   parseWorkspaceMembers,
   type AccountArea,
   type AppBootstrap,
   type AppSession,
   type ConsentReceipt,
+  type CurrentWorkspace,
   type DeletionCancelCapability,
   type DeletionRequest,
   type ExportDownload,
   type ExportRequest,
   type OAuthProvider,
   type RegistrationConsentReceipt,
+  type WorkspaceInvitation,
   type WorkspaceMember,
 } from './contracts.ts'
 import { sanitizeAppDestination } from './navigation.ts'
@@ -453,9 +457,95 @@ export class AppShellApi {
     })
   }
 
+  async currentWorkspace(): Promise<CurrentWorkspace> {
+    const value = await this.#request('/api/v1/app/workspaces/current')
+    try {
+      return parseCurrentWorkspace(value)
+    } catch (error) {
+      throw new AppApiError({
+        cause: error,
+        code: 'APP_INVALID_CURRENT_WORKSPACE',
+        kind: 'configuration',
+        message: 'The current workspace response is invalid',
+        retryable: true,
+      })
+    }
+  }
+
   async currentWorkspaceMembers(): Promise<WorkspaceMember[]> {
-    return parseWorkspaceMembers(
-      await this.#request('/api/v1/app/workspaces/current/members'),
+    try {
+      return parseWorkspaceMembers(
+        await this.#request('/api/v1/app/workspaces/current/members'),
+      )
+    } catch (error) {
+      if (error instanceof AppApiError) {
+        throw error
+      }
+      throw new AppApiError({
+        cause: error,
+        code: 'APP_INVALID_WORKSPACE_MEMBERS',
+        kind: 'configuration',
+        message: 'The workspace members response is invalid',
+        retryable: true,
+      })
+    }
+  }
+
+  async renameCurrentWorkspace(name: string): Promise<CurrentWorkspace> {
+    const value = await this.#csrfMutation('/api/v1/app/workspaces/current', {
+      method: 'PATCH',
+      body: { name: name.trim() },
+    })
+    try {
+      return parseCurrentWorkspace(value)
+    } catch (error) {
+      throw new AppApiError({
+        cause: error,
+        code: 'APP_INVALID_CURRENT_WORKSPACE',
+        kind: 'configuration',
+        message: 'The renamed workspace response is invalid',
+        retryable: true,
+      })
+    }
+  }
+
+  async inviteCurrentWorkspaceMember(email: string): Promise<WorkspaceInvitation> {
+    const value = await this.#csrfMutation('/api/v1/app/workspaces/current/invitations', {
+      method: 'POST',
+      body: { email: email.trim() },
+    })
+    try {
+      return parseWorkspaceInvitation(value)
+    } catch (error) {
+      throw new AppApiError({
+        cause: error,
+        code: 'APP_INVALID_WORKSPACE_INVITATION',
+        kind: 'configuration',
+        message: 'The workspace invitation response is invalid',
+        retryable: true,
+      })
+    }
+  }
+
+  async changeCurrentWorkspaceMemberRole(input: {
+    memberId: string
+    role: 'owner' | 'member'
+  }): Promise<void> {
+    await this.#csrfMutation(
+      `/api/v1/app/workspaces/current/members/${encodeURIComponent(input.memberId)}/role`,
+      {
+        method: 'PUT',
+        body: { role: input.role },
+      },
+    )
+  }
+
+  async removeCurrentWorkspaceMember(memberId: string): Promise<void> {
+    await this.#csrfMutation(
+      `/api/v1/app/workspaces/current/members/${encodeURIComponent(memberId)}`,
+      {
+        method: 'DELETE',
+      },
     )
   }
 
