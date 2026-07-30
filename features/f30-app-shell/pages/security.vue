@@ -42,7 +42,7 @@ const { pending, refresh } = useAsyncData('postqron-account-security', async () 
     pageState.value = appStateKindFromError(error)
     return undefined
   }
-})
+}, { server: false })
 
 const identityProviders = computed(() =>
   accountArea.value?.providers.filter(provider => provider.kind === 'identity') ?? [])

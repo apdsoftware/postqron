@@ -39,7 +39,8 @@ func TestHTTPCallbackSetsSessionCookie(t *testing.T) {
 		!sessionCookie.Secure ||
 		!sessionCookie.HttpOnly ||
 		sessionCookie.SameSite != http.SameSiteLaxMode ||
-		sessionCookie.Path != "/" {
+		sessionCookie.Path != "/" ||
+		sessionCookie.Domain != "" {
 		t.Fatalf("insecure session cookie: %+v", sessionCookie)
 	}
 	if cookieByName(cookies, "__Host-postqron_csrf") != nil {

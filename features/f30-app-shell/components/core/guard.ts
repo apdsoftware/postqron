@@ -22,7 +22,16 @@ export function routeGuardDecision(input: {
   }
   const locale = localeFromAppPath(input.destination)
   const destination = safeAppDestination(input.destination, locale)
-  if (!input.session) {
+  if (
+    input.session
+    && (input.failure === 'offline' || input.failure === 'configuration')
+  ) {
+    return { action: 'allow' }
+  }
+  const session = input.failure === 'session' || input.failure === 'access-denied'
+    ? undefined
+    : input.session
+  if (!session) {
     const login = new URL(appRoot(locale), 'https://postqron.local')
     login.searchParams.set('return_to', destination)
     if (input.failure === 'offline' || input.failure === 'configuration') {
@@ -41,13 +50,13 @@ export function routeGuardDecision(input: {
     destination,
     'https://postqron.local',
   ).pathname
-  if (input.session.onboarding_required && destinationPath !== onboarding) {
+  if (session.onboarding_required && destinationPath !== onboarding) {
     return {
       action: 'redirect',
       location: onboardingDestination(destination),
     }
   }
-  if (!input.session.onboarding_required && destinationPath === onboarding) {
+  if (!session.onboarding_required && destinationPath === onboarding) {
     return {
       action: 'redirect',
       location: `${appRoot(locale)}/home`,

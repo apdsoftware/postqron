@@ -44,7 +44,7 @@ const { pending, refresh } = useAsyncData('postqron-account-profile', async () =
     pageState.value = appStateKindFromError(error)
     return undefined
   }
-})
+}, { server: false })
 
 async function saveProfile() {
   saving.value = true

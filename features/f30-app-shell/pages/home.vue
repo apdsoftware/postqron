@@ -37,7 +37,7 @@ const { pending, refresh } = useAsyncData('postqron-account-home', async () => {
     pageState.value = appStateKindFromError(error)
     return undefined
   }
-})
+}, { server: false })
 
 const currentPlan = computed(() =>
   accountArea.value?.workspaces.find(item =>
@@ -98,16 +98,16 @@ async function retry() {
     </div>
 
     <div class="app-page__grid">
-      <a
+      <NuxtLink
         v-for="card in cards"
         :key="card.key"
         class="app-card app-card--link"
-        :href="card.href"
+        :to="card.href"
       >
         <span class="app-card__eyebrow">{{ t(`home.card.${card.key}.eyebrow`) }}</span>
         <strong>{{ t(`home.card.${card.key}.title`) }}</strong>
         <p>{{ t(`home.card.${card.key}.description`) }}</p>
-      </a>
+      </NuxtLink>
     </div>
 
     <div
