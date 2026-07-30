@@ -2,7 +2,7 @@
 
 - **Stato:** Accettata
 - **Data:** 2026-07-30
-- **Ambito:** F5, F6, F8; coerenza con F7; preparazione di F18
+- **Ambito:** F5, F6, F8; coerenza con F7; dipendenza da F9/F23 per le destinazioni notification-only; preparazione di F18
 - **Fonte:** decisione D2 in `.context/SPEC.md` (F5, F6, F7, F8, sezione «Rischi ed Edge Cases», «Dipendenze tra Funzionalità»); issue #301; epic #300.
 - **Sostituisce:** la versione Meta-only del 2026-07-24 (`page_id` Facebook e Instagram Professional soltanto). Questa revisione estende la copertura ai social gestiti da Buffer al 30 luglio 2026, mantenendo l'integrazione **diretta** con le API ufficiali di ogni provider.
 
@@ -10,12 +10,12 @@
 
 Postqron copre l'insieme dei social network gestibili da Buffer al 30 luglio 2026. Buffer **non** è una dipendenza runtime: è usato solo come riferimento di copertura e di classificazione della modalità di pubblicazione. Ogni canale è integrato tramite un **adapter diretto verso l'API ufficiale del provider**, con contratto capability-driven: nessun formato o vincolo è codificato solo per Meta.
 
-Ogni provider e ogni risorsa remota collegabile (Pagina, account, organizzazione, board, location, profilo) è una risorsa conteggiabile separatamente ai fini di F5 e F10, con adapter, login e stato di connessione indipendenti: un guasto, una revoca o una sospensione su un canale non ne coinvolge automaticamente un altro.
+Ogni provider e ogni risorsa remota collegabile (Pagina, account, organizzazione, board, location, profilo) è una risorsa conteggiabile separatamente ai fini di F5 e F10, con adapter, login e stato di connessione indipendenti: un guasto, una revoca o una sospensione su un canale non ne coinvolge automaticamente un altro. Le destinazioni **notification-only** (vedi sotto) non sono connessioni API — non hanno token né login OAuth di pubblicazione — ma restano destinazioni conteggiabili per F10 come le altre, marcate `notification-only`.
 
 Ogni canale è classificato in **una** delle tre modalità di F8:
 
 - **Auto-publishing** — l'API ufficiale consente al worker di pubblicare direttamente per conto dell'utente. Vale la semantica completa di F8: stato per destinazione, ID remoto, retry idempotente, riconciliazione.
-- **Notification publishing** — non esiste un'API ufficiale di pubblicazione compatibile. Postqron valida, programma e, all'orario previsto, invia all'utente una notifica con il contenuto pronto perché lo pubblichi manualmente sull'app del provider. Nessun byte è pubblicato lato server; non c'è ID remoto né retry di pubblicazione.
+- **Notification publishing** — non esiste un'API ufficiale di pubblicazione né un OAuth di publishing compatibile. La destinazione **non è una connessione API**: è una **destinazione logica notification-only** aggiunta manualmente dall'utente, **senza token di pubblicazione** e senza grant che autorizzi Postqron a postare. Postqron valida, programma e, all'orario previsto, **non chiama alcuna API del provider**: invia all'utente una notifica (F9 email e/o F23 push/deep-link) con il contenuto pronto perché lo pubblichi manualmente sull'app del provider. Nessun byte è pubblicato lato server; non c'è ID remoto né retry di pubblicazione. Una destinazione notification-only richiede **obbligatoriamente** almeno un canale di notifica configurato e verificato (F9 o F23): senza di esso non può essere creata né programmata.
 - **Non supportato** — il canale non è offerto nella prima release.
 
 La programmazione resta di Postqron (F7). Per l'auto-publishing il worker pubblica immediatamente all'orario previsto tramite l'API del provider e non usa lo scheduling nativo del provider, così stato, annullamento, retry e fuso orario hanno una sola semantica. Per il notification publishing l'orario previsto determina l'invio della notifica.
@@ -27,10 +27,10 @@ Classificazione al 30 luglio 2026. È **version-sensitive**: va riverificata all
 | Provider | Risorsa collegabile | Modalità F8 | Note |
 | --- | --- | --- | --- |
 | Facebook Pages | `page_id` (Pagina amministrata) | **Auto** | Graph API Pages; Page access token cifrato. |
-| Facebook Groups | Gruppo | **Notifica** | Le API di pubblicazione sui Gruppi sono state dismesse da Meta; nessun auto-publishing ufficiale compatibile. |
+| Facebook Groups | Gruppo (destinazione logica) | **Notifica** | Nessuna connessione API: Meta ha dismesso la pubblicazione via Groups API. Destinazione notification-only senza token; richiede F9/F23. |
 | Instagram Business | `ig-user-id` (account Professional Business) | **Auto** | Content Publishing API (container + publish). |
 | Instagram Creator | `ig-user-id` (account Professional Creator) | **Auto** | Stesso contratto di Business. |
-| Instagram personale | Account personale | **Notifica** | Nessuna Content Publishing API per account personali. |
+| Instagram personale | Account personale (destinazione logica) | **Notifica** | Nessuna connessione API: nessuna Content Publishing API per account personali. Destinazione notification-only senza token; richiede F9/F23. |
 | X | Account | **Auto** | API v2; tier a sottoscrizione/consumo. |
 | LinkedIn profilo | Membro | **Auto** | Posts API, autore membro (`w_member_social`). |
 | LinkedIn Pagina | Organizzazione | **Auto** | Posts API, autore organizzazione (`w_organization_social`) + Community Management API. |
@@ -46,17 +46,17 @@ Classificazione al 30 luglio 2026. È **version-sensitive**: va riverificata all
 
 ## Matrice capacità F5/F6/F8/F18
 
-Legenda: **Sì** = incluso nella prima release; **Notifica** = consegnato come notification publishing; **Preparata** = contratto e permessi definiti, consegna nella feature Should Have F18; **No** = fuori scope.
+Legenda: **Sì** = incluso nella prima release; **Notifica** = consegnato come notification publishing; **Preparata** = contratto e permessi definiti, consegna nella feature Should Have F18; **No** = fuori scope. Nella colonna **F5** «Sì» indica una connessione API/OAuth reale con token cifrato; «Destinazione notification-only» indica una destinazione logica aggiunta manualmente, senza connessione API né token di pubblicazione.
 
 I formati F6 usano le sigle: **T** testo/link, **I** immagine singola, **C** carousel/multi-immagine, **V** video, **R** reel/short verticale, **Th** thread/catena.
 
 | Risorsa | F5 connessione | F6 formati | F8 pubblicazione | F18 analytics essenziali |
 | --- | --- | --- | --- | --- |
 | Facebook Pages | Sì | T, I, V, R | Auto: stato per destinazione + remote ID | Preparata: insight post/Pagina (`read_insights`), insieme minimo confermato con la versione Graph. |
-| Facebook Groups | Sì | T, I, V | Notifica: reminder all'orario, nessun remote publish | No (nessuna metrica via API). |
+| Facebook Groups | Destinazione notification-only (no API/token) | T, I, V | Notifica: reminder F9/F23 all'orario, nessun remote publish | No (nessuna metrica via API). |
 | Instagram Business | Sì | I, C (2–10), R | Auto: container + `media_publish` + remote ID | Preparata: `reach`, `likes`, `comments`, `shares`, `saved`, `views/plays` quando disponibili. |
 | Instagram Creator | Sì | I, C (2–10), R | Auto: come Business | Preparata: come Business, valori assenti distinti dallo zero. |
-| Instagram personale | Sì | I, V | Notifica: reminder all'orario | No. |
+| Instagram personale | Destinazione notification-only (no API/token) | I, V | Notifica: reminder F9/F23 all'orario | No. |
 | X | Sì | T, I, V, Th | Auto: `POST /2/tweets` + remote ID | Preparata: metriche public del Tweet quando il tier lo consente. |
 | LinkedIn profilo | Sì | T, I, C (documenti), V | Auto: Posts API + remote ID (URN) | Preparata: solo metriche consentite al membro; molte richiedono contesto organizzazione. |
 | LinkedIn Pagina | Sì | T, I, C (documenti), V | Auto: Posts API autore organizzazione + URN | Preparata: analytics organizzazione via Community Management API con permesso dedicato. |
@@ -86,12 +86,15 @@ Per ogni canale la risorsa remota canonica è persistita insieme al token cifrat
 - **Rate limit:** platform rate limiting Graph API; l'adapter registra `x-app-usage` e `x-business-use-case-usage` (per-Pagina) e rispetta `Retry-After`.
 - **Idempotenza:** nessuna idempotency key end-to-end; si applica la chiave interna di F8.
 
-### Meta — Facebook Groups (notifica)
+### Meta — Facebook Groups (notification-only, nessuna connessione API)
 
-- **Risorsa:** Gruppo selezionato dall'utente.
-- **Operazioni:** validazione e programmazione come per gli altri canali; all'orario previsto invio di una notifica (email/push F9/F23) con testo e media pronti perché l'utente pubblichi manualmente. Nessuna chiamata di pubblicazione, nessun remote ID.
-- **Motivo:** Meta ha dismesso la pubblicazione via Groups API; non esiste auto-publishing ufficiale compatibile con lo scheduling SaaS.
-- **Condizione per promuovere ad auto:** disponibilità di un'API ufficiale di pubblicazione sui Gruppi con permessi compatibili.
+- **Natura della destinazione:** **non è una connessione API/OAuth**. È una **destinazione logica notification-only** che l'utente aggiunge manualmente indicando il Gruppo (nome + URL/ID pubblico come etichetta). Postqron **non richiede né conserva un token di pubblicazione** e non riceve alcun grant per postare nel Gruppo.
+- **Identificazione e verifica:** la destinazione è identificata dall'URL/handle del Gruppo fornito dall'utente, normalizzato e mostrato come etichetta con un badge `notification-only`. La verifica è **di forma** (URL Facebook Group valido e raggiungibile) e di **intenzione** (l'utente dichiara di esserne membro con diritto di pubblicare); Postqron non può verificare i permessi via API perché l'API non esiste. Nessuna pubblicazione avviene mai lato server.
+- **Prerequisito obbligatorio (F9/F23):** la destinazione può essere creata e programmata **solo se** il workspace ha almeno un canale di notifica attivo e verificato — email transazionale (F9) e/o push/deep-link (F23). Senza notifica configurata la destinazione è rifiutata alla creazione: un promemoria non recapitabile equivarrebbe a una pubblicazione persa.
+- **Operazioni:** validazione e programmazione come per gli altri canali; all'orario previsto Postqron **non chiama alcuna API Meta** e invia la notifica (F9 email e/o F23 push con deep-link all'app Facebook e contenuto/asset pronti) perché l'utente pubblichi manualmente. Nessun remote ID, nessun retry di pubblicazione; lo stato registra «notifica inviata» ed eventuale conferma manuale.
+- **Conteggio F10:** conta come destinazione verso i limiti di piano al pari delle altre, marcata `notification-only`; non consuma quota API di alcun provider.
+- **Motivo:** Meta ha dismesso la pubblicazione via Groups API; non esiste auto-publishing né OAuth di publishing compatibile con lo scheduling SaaS.
+- **Condizione per promuovere ad auto:** disponibilità di un'API ufficiale di pubblicazione sui Gruppi con OAuth e permessi compatibili.
 
 ### Meta — Instagram Business e Creator (auto)
 
@@ -102,10 +105,14 @@ Per ogni canale la risorsa remota canonica è persistita insieme al token cifrat
 - **Rate limit:** limite di content publishing esposto dall'API (consultato prima di raffiche o quota incerta) oltre agli usage header Graph.
 - **Idempotenza:** container ID come ancora di riconciliazione; publish finale non duplicato alla cieca.
 
-### Meta — Instagram personale (notifica)
+### Meta — Instagram personale (notification-only, nessuna connessione API)
 
-- **Risorsa:** account personale. Nessuna Content Publishing API disponibile → notification publishing come per i Gruppi.
-- **Condizione per promuovere ad auto:** flusso ufficiale di pubblicazione per account personali compatibile con SaaS.
+- **Natura della destinazione:** **non è una connessione API/OAuth**. Nessuna Content Publishing API è disponibile per gli account personali, quindi è una **destinazione logica notification-only** aggiunta manualmente dall'utente, **senza token di pubblicazione** e senza grant di publishing. La Content Publishing API resta possibile solo convertendo l'account in Professional (Business/Creator), che è un canale auto distinto.
+- **Identificazione e verifica:** identificata dallo username Instagram fornito dall'utente, normalizzato e mostrato come etichetta con badge `notification-only`; verifica di forma (username valido) e di intenzione (l'utente dichiara di gestirlo). Postqron non può verificarne i permessi via API.
+- **Prerequisito obbligatorio (F9/F23):** creazione e programmazione consentite **solo con** almeno un canale di notifica attivo e verificato (F9 email e/o F23 push/deep-link). Senza notifica la destinazione è rifiutata alla creazione.
+- **Operazioni:** all'orario previsto Postqron **non chiama alcuna API Meta** e invia la notifica con contenuto/asset pronti perché l'utente pubblichi manualmente dall'app Instagram. Nessun remote ID, nessun retry di pubblicazione.
+- **Conteggio F10:** conta come destinazione verso i limiti di piano, marcata `notification-only`; non consuma quota API.
+- **Condizione per promuovere ad auto:** conversione dell'account in Professional (canale IG Business/Creator) oppure un flusso ufficiale di pubblicazione per account personali compatibile con SaaS.
 
 ### Meta — Threads (auto)
 
@@ -232,7 +239,7 @@ Prerequisiti esterni prima di dichiarare un canale disponibile (gate per-provide
 | Provider | Gate esterni principali |
 | --- | --- |
 | Facebook Pages, Instagram, Threads | App Review Meta, Advanced Access dei permessi usati, verifica organizzazione/dominio, Data Use Checkup. |
-| Facebook Groups, Instagram personale | Nessuna review di pubblicazione (notification publishing); serve solo il consenso di notifica. |
+| Facebook Groups, Instagram personale | Nessuna connessione API né OAuth di pubblicazione (destinazioni notification-only). Nessun token, nessuna review di pubblicazione; prerequisito obbligatorio: almeno un canale di notifica F9/F23 attivo e verificato. |
 | X | Tier a sottoscrizione/consumo attivo e coperto da F10; nessuna review classica. |
 | LinkedIn profilo | Accesso Sign In + `w_member_social`. |
 | LinkedIn Pagina | Community Management API review, Development→Standard Tier, verifica organizzazione, screencast. |
@@ -282,7 +289,7 @@ Successo o fallimento è registrato per singola destinazione (sezione Rischi «C
 
 Ogni provider è dietro un **feature flag fail-closed**: è invisibile e non collegabile finché non ha credenziali configurate, review/audit approvati (dove richiesti) e smoke test superato. Nessun provider può essere dichiarato disponibile senza credenziali, review e smoke test (vincolo epic #300). La sequenza di attivazione è incrementale e non blocca gli altri canali:
 
-1. **Fondamenta Meta** — Facebook Pages e Instagram Business/Creator (auto), riuso della gestione errori/quote già consolidata; abilitazione notification publishing per Facebook Groups e Instagram personale (nessuna review di pubblicazione).
+1. **Fondamenta Meta** — Facebook Pages e Instagram Business/Creator (auto), riuso della gestione errori/quote già consolidata. Le destinazioni notification-only Facebook Groups e Instagram personale si abilitano **solo dopo** che F9 (email) e/o F23 (push/deep-link) sono operativi: non hanno connessione API da approvare, ma dipendono dal canale di notifica per funzionare.
 2. **Canali auto senza review pesante** — Mastodon e Bluesky (self-serve), poi Threads (App Review Meta nello stesso ecosistema).
 3. **Canali auto con review/tier** — LinkedIn profilo, poi LinkedIn Pagina (Community Management API), Pinterest (standard access), Google Business Profile (accesso API), X (tier/costo coperto da F10).
 4. **Canali gated** — TikTok solo dopo audit e composer video; YouTube Shorts dopo verifica/audit del progetto e budget di quota.
