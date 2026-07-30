@@ -36,6 +36,7 @@ const links = computed(() => [
   { key: 'profile', href: appRoute(locale.value, 'profile') },
   { key: 'security', href: appRoute(locale.value, 'security') },
   { key: 'providers', href: appRoute(locale.value, 'providers') },
+  { key: 'social', href: appRoute(locale.value, 'social-channels') },
   { key: 'plan', href: appRoute(locale.value, 'plan') },
   { key: 'workspace', href: appRoute(locale.value, 'workspace') },
   { key: 'privacy', href: appRoute(locale.value, 'privacy') },

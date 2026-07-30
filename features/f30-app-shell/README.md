@@ -30,6 +30,19 @@ vertical feature.
 - The public purchase intent accepts only `start|pro|team`,
   `monthly|annual`, and an integer quantity within the selected plan's public
   channel limit. Invalid or external destinations are rejected.
+- **Social channels** (`/app/social-channels`) is a navigation entry and page
+  distinct from **Access methods** (`/app/providers`): access methods control
+  sign-in, social channels are the Facebook Pages and Instagram Professional
+  resources the workspace publishes to (D02). The page consumes only the F5
+  runtime contract (#282 / PR #287) — client-safe availability bootstrap,
+  connection listing, OAuth start, callback resource selection, reconnection,
+  and revocation — through `core/social-connections.ts` (parsers) and
+  `core/social-api.ts` (client). It never models or renders token material,
+  reads the flat `{code,message,retryable}` F5 error envelope, treats every
+  undeclared code and unavailable provider as fail-closed, and enforces the
+  F10 channel quota server-side (surfacing `channel_quota_exceeded` /
+  `channel_quota_unavailable`). Owner-only mutations rely on the F5
+  same-origin (`Sec-Fetch-Site`) guard, so no CSRF token is exchanged.
 
 The F30 façade is deliberately a backend-for-frontend contract. Until its
 server adapter is configured, `/app` still renders a retryable configuration

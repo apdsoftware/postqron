@@ -13,6 +13,7 @@ dependencies:
   - email
   - f10-entitlements
   - i18n
+  - social-connections
   - workspaces
 migrations: []
 server:
@@ -73,6 +74,11 @@ web:
     - name: app-providers
       path: /app/providers
       file: ./pages/providers.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-social-channels
+      path: /app/social-channels
+      file: ./pages/social-channels.vue
       visibility: private
       middleware: [app-session]
     - name: app-plan
