@@ -15,6 +15,37 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestPostgresAcceptsCanonicalF4TextWorkspaceID(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
+	workspaceID := fmt.Sprintf("personal-account-270-%d", time.Now().UnixNano())
+	store := NewSQLStore(pool)
+
+	created, err := store.ProvisionTrial(ctx, workspaceID, now)
+	if err != nil || !created {
+		t.Fatalf("ProvisionTrial(%q) = %v, %v", workspaceID, created, err)
+	}
+	decision, err := store.ApplyUsage(ctx, UsageCommand{
+		WorkspaceID:    workspaceID,
+		Resource:       ResourceChannels,
+		Delta:          1,
+		IdempotencyKey: "issue-270-real-f4-id",
+		OccurredAt:     now.Add(time.Minute),
+	})
+	if err != nil || !decision.Accepted {
+		t.Fatalf("ApplyUsage(%q) = %#v, %v", workspaceID, decision, err)
+	}
+	overview, err := store.Overview(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("Overview(%q): %v", workspaceID, err)
+	}
+	if overview.Plan.Code != PlanTeam ||
+		usageFor(t, overview, ResourceChannels).Used != 1 {
+		t.Fatalf("text workspace overview = %#v", overview)
+	}
+}
+
 func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -940,6 +971,101 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 	for replay := 0; replay < 2; replay++ {
 		if _, err := pool.Exec(ctx, string(limitsMigration)); err != nil {
 			t.Fatalf("2026-07-27 limits migration replay %d: %v", replay, err)
+		}
+	}
+	boundaryMigration, err := os.ReadFile(filepath.Join(
+		"migrations",
+		"000006_align_workspace_ids_with_f04.sql",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(boundaryMigration)); err != nil {
+		t.Fatalf("align F4/F10 workspace IDs: %v", err)
+	}
+	var (
+		preservedState BillingState
+		preservedType  string
+	)
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT billing_state, pg_typeof(workspace_id)::text
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		pastDueFixture,
+	).Scan(&preservedState, &preservedType); err != nil {
+		t.Fatalf("read preserved UUID billing row: %v", err)
+	}
+	if preservedState != StatePastDue || preservedType != "text" {
+		t.Fatalf(
+			"preserved billing row = state %s, type %s",
+			preservedState,
+			preservedType,
+		)
+	}
+	for _, table := range []string{
+		"f10_workspace_billing",
+		"f10_checkout_sessions",
+		"f10_provider_events",
+		"f10_usage_counters",
+		"f10_usage_operations",
+		"f10_internal_entitlement_overrides",
+	} {
+		var dataType string
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT data_type
+			   FROM information_schema.columns
+			  WHERE table_schema = current_schema()
+			    AND table_name = $1
+			    AND column_name = 'workspace_id'`,
+			table,
+		).Scan(&dataType); err != nil {
+			t.Fatalf("read %s workspace type: %v", table, err)
+		}
+		if dataType != "text" {
+			t.Fatalf("%s.workspace_id type = %s, want text", table, dataType)
+		}
+	}
+	for _, signatures := range [][2]string{
+		{
+			"f10_provision_trial(text,timestamptz)",
+			"f10_provision_trial(uuid,timestamptz)",
+		},
+		{
+			"f10_register_checkout(text,text,text,text,bigint,text,jsonb,timestamptz)",
+			"f10_register_checkout(text,uuid,text,text,bigint,text,jsonb,timestamptz)",
+		},
+		{
+			"f10_apply_billing_event(text,text,timestamptz,text,text,text,bigint,text,text,text,text,timestamptz,timestamptz,boolean)",
+			"f10_apply_billing_event(text,text,timestamptz,uuid,text,text,bigint,text,text,text,text,timestamptz,timestamptz,boolean)",
+		},
+		{
+			"f10_apply_usage(text,text,bigint,text,timestamptz)",
+			"f10_apply_usage(uuid,text,bigint,text,timestamptz)",
+		},
+	} {
+		var (
+			textSignaturePresent bool
+			uuidSignatureAbsent  bool
+		)
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT to_regprocedure($1) IS NOT NULL,
+			        to_regprocedure($2) IS NULL`,
+			signatures[0],
+			signatures[1],
+		).Scan(&textSignaturePresent, &uuidSignatureAbsent); err != nil {
+			t.Fatalf("inspect F10 function signatures: %v", err)
+		}
+		if !textSignaturePresent || !uuidSignatureAbsent {
+			t.Fatalf(
+				"workspace signatures not aligned: text %q=%v uuid %q absent=%v",
+				signatures[0],
+				textSignaturePresent,
+				signatures[1],
+				uuidSignatureAbsent,
+			)
 		}
 	}
 	for _, expected := range []struct {

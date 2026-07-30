@@ -32,6 +32,38 @@ func TestCollect(t *testing.T) {
 	}
 }
 
+func TestCollectOrdersF10WorkspaceBoundaryBeforeF12Recovery(t *testing.T) {
+	features, err := featureruntime.Discover(
+		filepath.Join("..", "..", "features"),
+		filepath.Join("..", "..", "..", "..", "features"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collected, err := Collect(features)
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions := map[string]int{}
+	for index, migration := range collected {
+		positions[migration.FeatureID+"/"+migration.Name] = index
+	}
+	f10Key := "f10-entitlements/000006_align_workspace_ids_with_f04.sql"
+	f12Key := "account-privacy/000003_recover_partial_account_provisioning.sql"
+	f10, f10Found := positions[f10Key]
+	f12, f12Found := positions[f12Key]
+	if !f10Found || !f12Found {
+		t.Fatalf(
+			"required migrations missing: F10=%v F12=%v",
+			f10Found,
+			f12Found,
+		)
+	}
+	if f10 >= f12 {
+		t.Fatalf("migration order: F10=%d F12=%d, want F10 first", f10, f12)
+	}
+}
+
 func TestCollectRejectsDownMigration(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "000001_create_records.sql")

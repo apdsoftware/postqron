@@ -21,7 +21,7 @@ func (store *SQLStore) ProvisionTrial(
 	var created bool
 	err := store.db.QueryRow(
 		ctx,
-		"SELECT f10_provision_trial($1, $2)",
+		"SELECT f10_provision_trial($1::text, $2)",
 		workspaceID,
 		startedAt.UTC(),
 	).Scan(&created)
@@ -41,7 +41,9 @@ func (store *SQLStore) RegisterCheckout(
 	}
 	var matches bool
 	err = store.db.QueryRow(ctx, `
-		SELECT f10_register_checkout($1, $2, $3, $4, $5, $6, $7, $8)
+		SELECT f10_register_checkout(
+			$1, $2::text, $3, $4, $5, $6, $7, $8
+		)
 	`,
 		registration.SessionID,
 		registration.WorkspaceID,
@@ -169,7 +171,7 @@ func (store *SQLStore) ApplyBillingEvent(
 	err := store.db.QueryRow(ctx, `
 		SELECT first_delivery, state_changed
 		  FROM f10_apply_billing_event(
-		       $1, $2, $3, $4, $5, $6, $7, $8,
+		       $1, $2, $3, $4::text, $5, $6, $7, $8,
 		       $9, $10, $11, $12, $13, $14
 		  )
 	`,
