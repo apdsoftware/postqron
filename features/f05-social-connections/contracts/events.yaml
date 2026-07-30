@@ -11,8 +11,9 @@ events:
   - type: social.connection.disconnected
     version: 1
 description: >
-  Transactional outbox events for social connection lifecycle changes.
-  Tokens, display names, handles, picture URLs, and provider error messages are
+  Transactional outbox events emitted by the authenticated F5 runtime and the
+  internal credential boundary. Tokens, display names, handles, picture URLs,
+  provider error messages, feature availability, and F10 quota decisions are
   deliberately excluded.
 required:
   - event_id

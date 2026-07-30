@@ -95,6 +95,7 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 		Repository: repository,
 		Authorizer: authorizer,
 		Cipher:     cipher,
+		Quota:      newFakeChannelQuota(),
 		Adapters: map[Provider]Adapter{
 			ProviderFacebookPages:         facebook,
 			ProviderInstagramProfessional: instagram,
@@ -236,6 +237,77 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	}
 	if eventCount != 5 {
 		t.Fatalf("outbox event count = %d, want 5", eventCount)
+	}
+	testPostgresF10ChannelQuota(t, database, suffix)
+}
+
+func testPostgresF10ChannelQuota(
+	t *testing.T,
+	database *sql.DB,
+	suffix string,
+) {
+	t.Helper()
+	workspaceID := "f05-quota-workspace-" + suffix
+	defer func() {
+		for _, statement := range []string{
+			`DELETE FROM f10_usage_operations WHERE workspace_id = $1`,
+			`DELETE FROM f10_usage_counters WHERE workspace_id = $1`,
+			`DELETE FROM f10_workspace_billing WHERE workspace_id = $1`,
+		} {
+			_, _ = database.ExecContext(
+				context.Background(),
+				statement,
+				workspaceID,
+			)
+		}
+	}()
+	var provisioned bool
+	if err := database.QueryRowContext(
+		context.Background(),
+		`SELECT f10_provision_trial($1, $2)`,
+		workspaceID,
+		serviceTestNow,
+	).Scan(&provisioned); err != nil {
+		t.Fatal(err)
+	}
+	if !provisioned {
+		t.Fatal("F10 fixture workspace was not provisioned")
+	}
+	quota, err := NewPostgresChannelQuota(
+		database,
+		func() time.Time { return serviceTestNow },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 9; index++ {
+		decision, reserveErr := quota.ReserveChannel(
+			context.Background(),
+			workspaceID,
+			"f05:quota-reserve:"+strconv.Itoa(index),
+		)
+		if reserveErr != nil || !decision.Accepted {
+			t.Fatalf("reserve %d = %#v, %v", index, decision, reserveErr)
+		}
+	}
+	decision, err := quota.ReserveChannel(
+		context.Background(),
+		workspaceID,
+		"f05:quota-reserve:over-limit",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Accepted || decision.Retryable {
+		t.Fatalf("over-limit decision = %#v", decision)
+	}
+	decision, err = quota.ReleaseChannel(
+		context.Background(),
+		workspaceID,
+		"f05:quota-release:one",
+	)
+	if err != nil || !decision.Accepted {
+		t.Fatalf("release decision = %#v, %v", decision, err)
 	}
 }
 

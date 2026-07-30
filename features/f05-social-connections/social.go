@@ -64,24 +64,24 @@ type Candidate struct {
 }
 
 type Connection struct {
-	ID                 string
-	WorkspaceID        string
-	Provider           Provider
-	RemoteID           string
-	ResourceType       ResourceType
-	AccountType        AccountType
-	DisplayName        string
-	Handle             string
-	PictureURL         string
-	Scopes             []string
-	Status             ConnectionStatus
-	ReconnectReason    string
-	TokenExpiresAt     *time.Time
-	LastVerifiedAt     *time.Time
-	ConnectedByActorID string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	RevokedAt          *time.Time
+	ID                 string           `json:"id"`
+	WorkspaceID        string           `json:"workspace_id"`
+	Provider           Provider         `json:"provider"`
+	RemoteID           string           `json:"remote_id"`
+	ResourceType       ResourceType     `json:"resource_type"`
+	AccountType        AccountType      `json:"account_type"`
+	DisplayName        string           `json:"display_name"`
+	Handle             string           `json:"handle,omitempty"`
+	PictureURL         string           `json:"picture_url,omitempty"`
+	Scopes             []string         `json:"scopes"`
+	Status             ConnectionStatus `json:"status"`
+	ReconnectReason    string           `json:"reconnect_reason,omitempty"`
+	TokenExpiresAt     *time.Time       `json:"token_expires_at"`
+	LastVerifiedAt     *time.Time       `json:"last_verified_at"`
+	ConnectedByActorID string           `json:"-"`
+	CreatedAt          time.Time        `json:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at"`
+	RevokedAt          *time.Time       `json:"revoked_at,omitempty"`
 }
 
 type Credential struct {
@@ -149,15 +149,32 @@ func (failure *ProviderFailure) Unwrap() error {
 }
 
 type Authorization struct {
-	URL       string
-	ExpiresAt time.Time
+	URL       string    `json:"authorization_url"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type Selection struct {
-	ID        string
-	Provider  Provider
-	Resources []Candidate
-	ExpiresAt time.Time
+	ID        string      `json:"selection_id"`
+	Provider  Provider    `json:"provider"`
+	Resources []Candidate `json:"resources"`
+	ExpiresAt time.Time   `json:"expires_at"`
+}
+
+type ProviderAvailabilityStatus string
+
+const (
+	ProviderAvailable   ProviderAvailabilityStatus = "available"
+	ProviderUnavailable ProviderAvailabilityStatus = "unavailable"
+)
+
+type ProviderAvailability struct {
+	Provider  Provider                   `json:"provider"`
+	Status    ProviderAvailabilityStatus `json:"status"`
+	Retryable bool                       `json:"retryable"`
+}
+
+type ClientBootstrap struct {
+	Providers []ProviderAvailability `json:"providers"`
 }
 
 type BeginRequest struct {
@@ -177,6 +194,12 @@ type SelectRequest struct {
 	ActorID     string
 	SelectionID string
 	RemoteID    string
+}
+
+type ReconnectRequest struct {
+	WorkspaceID  string
+	ActorID      string
+	ConnectionID string
 }
 
 type RevocationResult struct {
@@ -266,6 +289,26 @@ type ConnectCommand struct {
 	Event           Event
 }
 
+type SelectionTarget struct {
+	Provider             Provider
+	RemoteID             string
+	ExistingConnectionID string
+	ExistingStatus       ConnectionStatus
+}
+
+type ChannelQuotaDecision struct {
+	Accepted  bool
+	Code      string
+	Retryable bool
+}
+
+// ChannelQuota is the trusted, server-only F10 boundary. Browser payloads
+// never supply quota resource names, deltas, usage, or plan limits.
+type ChannelQuota interface {
+	ReserveChannel(context.Context, string, string) (ChannelQuotaDecision, error)
+	ReleaseChannel(context.Context, string, string) (ChannelQuotaDecision, error)
+}
+
 type RefreshCommand struct {
 	ConnectionID           string
 	AccessTokenCiphertext  Ciphertext
@@ -281,6 +324,7 @@ type Repository interface {
 	CreateAttempt(context.Context, OAuthAttempt) error
 	ConsumeAttempt(context.Context, string, time.Time) (OAuthAttempt, error)
 	SaveSelection(context.Context, StoredSelection) error
+	InspectSelection(context.Context, string, string, string, string, time.Time) (SelectionTarget, error)
 	Connect(context.Context, ConnectCommand) (Connection, bool, error)
 	ListConnections(context.Context, string) ([]Connection, error)
 	GetCredential(context.Context, string, string) (StoredCredential, error)
@@ -306,4 +350,7 @@ var (
 	ErrNotRefreshable                = errors.New("social credential cannot be refreshed")
 	ErrExternalRevocationUnavailable = errors.New("per-resource provider revocation is unavailable")
 	ErrConnectionRevoked             = errors.New("social connection is revoked")
+	ErrProviderUnavailable           = errors.New("social provider is unavailable")
+	ErrChannelQuotaExceeded          = errors.New("social channel quota exceeded")
+	ErrChannelQuotaUnavailable       = errors.New("social channel quota is unavailable")
 )

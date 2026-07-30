@@ -33,7 +33,9 @@ type Config struct {
 	Repository       Repository
 	Authorizer       Authorizer
 	Cipher           CredentialCipher
+	Quota            ChannelQuota
 	Adapters         map[Provider]Adapter
+	Availability     map[Provider]ProviderAvailability
 	Now              func() time.Time
 	AuthorizationTTL time.Duration
 	SelectionTTL     time.Duration
@@ -45,7 +47,9 @@ type Service struct {
 	repository       Repository
 	authorizer       Authorizer
 	cipher           CredentialCipher
+	quota            ChannelQuota
 	adapters         map[Provider]Adapter
+	availability     map[Provider]ProviderAvailability
 	now              func() time.Time
 	authorizationTTL time.Duration
 	selectionTTL     time.Duration
@@ -54,22 +58,49 @@ type Service struct {
 }
 
 func NewService(config Config) (*Service, error) {
-	if config.Repository == nil || config.Authorizer == nil || config.Cipher == nil {
+	if config.Repository == nil || config.Authorizer == nil || config.Quota == nil {
 		return nil, fmt.Errorf(
-			"%w: repository, authorizer, and credential cipher are required",
+			"%w: repository, authorizer, and channel quota are required",
 			ErrInvalidArgument,
 		)
 	}
 	adapters := make(map[Provider]Adapter, len(SupportedProviders))
+	availability := make(
+		map[Provider]ProviderAvailability,
+		len(SupportedProviders),
+	)
 	for _, provider := range SupportedProviders {
 		adapter := config.Adapters[provider]
+		if adapter != nil {
+			if config.Cipher == nil {
+				return nil, fmt.Errorf(
+					"%w: credential cipher is required for configured adapters",
+					ErrInvalidArgument,
+				)
+			}
+			if err := validateOAuthConfig(provider, adapter.Config()); err != nil {
+				return nil, err
+			}
+			adapters[provider] = adapter
+		}
+		providerAvailability, declared := config.Availability[provider]
+		if !declared {
+			providerAvailability = ProviderAvailability{
+				Provider:  provider,
+				Status:    ProviderUnavailable,
+				Retryable: true,
+			}
+			if adapter != nil {
+				providerAvailability.Status = ProviderAvailable
+				providerAvailability.Retryable = false
+			}
+		}
+		providerAvailability.Provider = provider
 		if adapter == nil {
-			return nil, fmt.Errorf("%w: %s adapter is required", ErrInvalidArgument, provider)
+			providerAvailability.Status = ProviderUnavailable
+			providerAvailability.Retryable = true
 		}
-		if err := validateOAuthConfig(provider, adapter.Config()); err != nil {
-			return nil, err
-		}
-		adapters[provider] = adapter
+		availability[provider] = providerAvailability
 	}
 	if config.Now == nil {
 		config.Now = time.Now
@@ -94,13 +125,43 @@ func NewService(config Config) (*Service, error) {
 		repository:       config.Repository,
 		authorizer:       config.Authorizer,
 		cipher:           config.Cipher,
+		quota:            config.Quota,
 		adapters:         adapters,
+		availability:     availability,
 		now:              config.Now,
 		authorizationTTL: config.AuthorizationTTL,
 		selectionTTL:     config.SelectionTTL,
 		refreshLockTTL:   config.RefreshLockTTL,
 		refreshBefore:    config.RefreshBefore,
 	}, nil
+}
+
+func (service *Service) Bootstrap() ClientBootstrap {
+	bootstrap := ClientBootstrap{
+		Providers: make([]ProviderAvailability, 0, len(SupportedProviders)),
+	}
+	for _, provider := range SupportedProviders {
+		bootstrap.Providers = append(
+			bootstrap.Providers,
+			service.availability[provider],
+		)
+	}
+	return bootstrap
+}
+
+func (service *Service) BootstrapForWorkspace(
+	ctx context.Context,
+	workspaceID, actorID string,
+) (ClientBootstrap, error) {
+	if err := service.authorize(
+		ctx,
+		workspaceID,
+		actorID,
+		PermissionViewWorkspace,
+	); err != nil {
+		return ClientBootstrap{}, err
+	}
+	return service.Bootstrap(), nil
 }
 
 func (service *Service) Begin(
@@ -113,6 +174,9 @@ func (service *Service) Begin(
 	}
 	adapter, ok := service.adapters[request.Provider]
 	if !ok {
+		if slices.Contains(SupportedProviders, request.Provider) {
+			return Authorization{}, ErrProviderUnavailable
+		}
 		return Authorization{}, ErrUnsupportedProvider
 	}
 	if err := service.authorize(
@@ -188,6 +252,9 @@ func (service *Service) Callback(
 		return Selection{}, fmt.Errorf("%w: authorization code is required", ErrInvalidArgument)
 	}
 	adapter := service.adapters[attempt.Provider]
+	if adapter == nil {
+		return Selection{}, ErrProviderUnavailable
+	}
 	verifier := ""
 	if len(attempt.PKCEVerifierCiphertext.Data) > 0 {
 		plaintext, openErr := service.cipher.Open(
@@ -295,6 +362,21 @@ func (service *Service) Select(
 	); err != nil {
 		return Connection{}, err
 	}
+	now := service.now().UTC()
+	target, err := service.repository.InspectSelection(
+		ctx,
+		request.WorkspaceID,
+		request.ActorID,
+		request.SelectionID,
+		request.RemoteID,
+		now,
+	)
+	if err != nil {
+		return Connection{}, err
+	}
+	if service.adapters[target.Provider] == nil || service.cipher == nil {
+		return Connection{}, ErrProviderUnavailable
+	}
 	connectionID, err := randomOpaqueID(18)
 	if err != nil {
 		return Connection{}, fmt.Errorf("generate social connection ID: %w", err)
@@ -311,13 +393,30 @@ func (service *Service) Select(
 	if err != nil {
 		return Connection{}, err
 	}
+	if target.ExistingConnectionID == "" ||
+		target.ExistingStatus == StatusRevoked {
+		decision, quotaErr := service.quota.ReserveChannel(
+			ctx,
+			request.WorkspaceID,
+			connectQuotaKey(request.SelectionID, request.RemoteID),
+		)
+		if quotaErr != nil {
+			return Connection{}, fmt.Errorf("%w: %v", ErrChannelQuotaUnavailable, quotaErr)
+		}
+		if !decision.Accepted {
+			if decision.Retryable {
+				return Connection{}, ErrChannelQuotaUnavailable
+			}
+			return Connection{}, ErrChannelQuotaExceeded
+		}
+	}
 	connection, reconnected, err := service.repository.Connect(ctx, ConnectCommand{
 		NewConnectionID: connectionID,
 		WorkspaceID:     request.WorkspaceID,
 		ActorID:         request.ActorID,
 		SelectionID:     request.SelectionID,
 		RemoteID:        request.RemoteID,
-		Now:             service.now().UTC(),
+		Now:             now,
 		Event:           event,
 	})
 	if err != nil {
@@ -329,6 +428,39 @@ func (service *Service) Select(
 		return connection, nil
 	}
 	return connection, nil
+}
+
+func (service *Service) BeginReconnect(
+	ctx context.Context,
+	request ReconnectRequest,
+) (Authorization, error) {
+	if strings.TrimSpace(request.ConnectionID) == "" {
+		return Authorization{}, fmt.Errorf("%w: connection is required", ErrInvalidArgument)
+	}
+	if err := service.authorize(
+		ctx,
+		request.WorkspaceID,
+		request.ActorID,
+		PermissionManageChannels,
+	); err != nil {
+		return Authorization{}, err
+	}
+	stored, err := service.repository.GetCredential(
+		ctx,
+		request.WorkspaceID,
+		request.ConnectionID,
+	)
+	if err != nil {
+		return Authorization{}, err
+	}
+	if stored.Status == StatusConnected {
+		return Authorization{}, ErrResourceAlreadyUsed
+	}
+	return service.Begin(ctx, BeginRequest{
+		WorkspaceID: request.WorkspaceID,
+		ActorID:     request.ActorID,
+		Provider:    stored.Provider,
+	})
 }
 
 func (service *Service) List(
@@ -364,6 +496,12 @@ func (service *Service) AccessToken(
 	)
 	if err != nil {
 		return "", err
+	}
+	if service.adapters[stored.Provider] == nil || service.cipher == nil {
+		if claimed {
+			_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
+		}
+		return "", ErrProviderUnavailable
 	}
 	if !claimed {
 		return service.openAccessToken(stored)
@@ -445,6 +583,9 @@ func (service *Service) Verify(
 	if stored.Status == StatusRevoked {
 		return ErrConnectionRevoked
 	}
+	if service.adapters[stored.Provider] == nil || service.cipher == nil {
+		return ErrProviderUnavailable
+	}
 	credential, err := service.openCredential(stored)
 	if err != nil {
 		return err
@@ -481,10 +622,14 @@ func (service *Service) Revoke(
 		return RevocationResult{}, err
 	}
 	providerRevoked := false
-	if stored.Status != StatusRevoked && len(stored.AccessTokenCiphertext.Data) > 0 {
+	adapter := service.adapters[stored.Provider]
+	if stored.Status != StatusRevoked &&
+		adapter != nil &&
+		service.cipher != nil &&
+		len(stored.AccessTokenCiphertext.Data) > 0 {
 		credential, openErr := service.openCredential(stored)
 		if openErr == nil {
-			providerRevoked = service.adapters[stored.Provider].Revoke(
+			providerRevoked = adapter.Revoke(
 				ctx,
 				stored.RemoteID,
 				credential,
@@ -513,10 +658,34 @@ func (service *Service) Revoke(
 	if err != nil {
 		return RevocationResult{}, err
 	}
+	decision, quotaErr := service.quota.ReleaseChannel(
+		ctx,
+		workspaceID,
+		revokeQuotaKey(connectionID),
+	)
+	if quotaErr != nil {
+		return RevocationResult{}, fmt.Errorf(
+			"%w: %v",
+			ErrChannelQuotaUnavailable,
+			quotaErr,
+		)
+	}
+	// A non-accepted release means F10 already had no corresponding usage
+	// (for example, a pre-ledger legacy connection). Local credential deletion
+	// remains successful and must not be rolled back.
+	_ = decision
 	return RevocationResult{
 		Connection:      connection,
 		ProviderRevoked: providerRevoked,
 	}, nil
+}
+
+func connectQuotaKey(selectionID, remoteID string) string {
+	return "f05:connect:" + digest(selectionID+"\x00"+remoteID)
+}
+
+func revokeQuotaKey(connectionID string) string {
+	return "f05:revoke:" + digest(connectionID)
 }
 
 func (service *Service) handleCredentialFailure(
