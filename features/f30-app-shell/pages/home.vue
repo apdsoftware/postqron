@@ -46,6 +46,7 @@ const cards = computed(() => [
   { key: 'profile', href: appRoute(session.value?.account.locale ?? 'en', 'profile') },
   { key: 'security', href: appRoute(session.value?.account.locale ?? 'en', 'security') },
   { key: 'providers', href: appRoute(session.value?.account.locale ?? 'en', 'providers') },
+  { key: 'social', href: appRoute(session.value?.account.locale ?? 'en', 'social-channels') },
   { key: 'plan', href: appRoute(session.value?.account.locale ?? 'en', 'plan') },
   { key: 'workspace', href: appRoute(session.value?.account.locale ?? 'en', 'workspace') },
   { key: 'privacy', href: appRoute(session.value?.account.locale ?? 'en', 'privacy') },

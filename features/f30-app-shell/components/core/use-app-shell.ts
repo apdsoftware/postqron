@@ -11,6 +11,7 @@ import {
   resolveAppShellApiBase,
   type AppFetch,
 } from './api.ts'
+import { SocialConnectionsApi } from './social-api.ts'
 import type {
   AccountArea,
   AppBootstrap,
@@ -84,6 +85,15 @@ export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()
   return new AppShellApi(
+    resolveAppShellApiBase(config, import.meta.server),
+    requestFetch as unknown as AppFetch,
+  )
+}
+
+export function useSocialConnectionsApi(): SocialConnectionsApi {
+  const config = useRuntimeConfig()
+  const requestFetch = useRequestFetch()
+  return new SocialConnectionsApi(
     resolveAppShellApiBase(config, import.meta.server),
     requestFetch as unknown as AppFetch,
   )
