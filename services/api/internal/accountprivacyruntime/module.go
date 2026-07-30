@@ -22,10 +22,11 @@ import (
 const sessionCookieName = "__Host-postqron_session"
 
 type Module struct {
-	database *sql.DB
-	handler  http.Handler
-	artifact http.Handler
-	cancel   http.Handler
+	database       *sql.DB
+	handler        http.Handler
+	artifact       http.Handler
+	cancel         http.Handler
+	allowedOrigins map[string]struct{}
 }
 
 func NewModule(database *sql.DB, clock func() time.Time) (*Module, error) {
@@ -128,9 +129,10 @@ func NewModuleWithAccountAccess(
 		return nil, err
 	}
 	return &Module{
-		database: database,
-		handler:  credentialedCORS(handler, allowedOrigins),
-		artifact: artifactDownloadHandler{database: database, store: artifactStore, now: clock},
+		database:       database,
+		handler:        handler,
+		allowedOrigins: allowedOrigins,
+		artifact:       artifactDownloadHandler{database: database, store: artifactStore, now: clock},
 		cancel: cancelCapabilityHandler{
 			store:          sqlCancelCapabilityStore{database: database},
 			service:        service,
@@ -159,7 +161,13 @@ func (module *Module) Ready(ctx context.Context) error {
 }
 
 func (module *Module) Handler(name string) (http.Handler, bool) {
-	if module == nil || module.handler == nil || name != "AccountPrivacy" {
+	if module == nil || module.handler == nil {
+		return nil, false
+	}
+	if name == "AccountPrivacyPreflight" {
+		return credentialedCORS(http.NotFoundHandler(), module.allowedOrigins), true
+	}
+	if name != "AccountPrivacy" {
 		return nil, false
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -174,6 +182,16 @@ func (module *Module) Handler(name string) (http.Handler, bool) {
 		}
 		module.handler.ServeHTTP(response, request)
 	}), true
+}
+
+func (module *Module) WrapAuthenticatedRoute(
+	handlerName string,
+	next http.Handler,
+) http.Handler {
+	if module == nil || handlerName != "AccountPrivacy" {
+		return next
+	}
+	return credentialedCORS(next, module.allowedOrigins)
 }
 
 type requestAuthenticator struct {

@@ -16,22 +16,42 @@ server:
       handler: AccountPrivacy
       methods: [GET]
       visibility: "private"
+    - path: /account
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/profile
       handler: AccountPrivacy
       methods: [PATCH]
       visibility: "private"
+    - path: /account/profile
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/providers/{provider_id}
       handler: AccountPrivacy
       methods: [DELETE]
       visibility: "private"
+    - path: /account/providers/{provider_id}
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/exports
       handler: AccountPrivacy
       methods: [POST]
       visibility: "private"
+    - path: /account/exports
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/exports/{export_id}/download
       handler: AccountPrivacy
       methods: [GET]
       visibility: "private"
+    - path: /account/exports/{export_id}/download
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/privacy-artifacts/{token}
       handler: AccountPrivacy
       methods: [GET]
@@ -40,15 +60,31 @@ server:
       handler: AccountPrivacy
       methods: [POST]
       visibility: "private"
+    - path: /account/deletions
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/deletion-cancel-capabilities
       handler: AccountPrivacy
       methods: [POST]
       visibility: "private"
+    - path: /account/deletion-cancel-capabilities
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
     - path: /account/deletions/{request_id}/cancel
       handler: AccountPrivacy
       methods: [POST]
+      visibility: "public"
+    - path: /account/deletions/{request_id}/cancel
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
       visibility: "public"
     - path: /account/deletions/{request_id}
       handler: AccountPrivacy
       methods: [DELETE]
       visibility: "private"
+    - path: /account/deletions/{request_id}
+      handler: AccountPrivacyPreflight
+      methods: [OPTIONS]
+      visibility: "public"
