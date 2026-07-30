@@ -384,10 +384,10 @@ func (adapter *ThreadsAdapter) verifyGrantedToken(
 	}
 	appID, appIDErr := parseThreadsID(debug.Data.AppID)
 	userID, userIDErr := parseThreadsID(debug.Data.UserID)
+	identityIDsValid := appIDErr == nil && userIDErr == nil
 	if !debug.Data.IsValid ||
-		appIDErr != nil ||
+		!identityIDsValid ||
 		appID != adapter.clientID ||
-		userIDErr != nil ||
 		(expectedUserID != "" && userID != expectedUserID) {
 		return &ProviderFailure{
 			Kind: FailureAuthentication,
