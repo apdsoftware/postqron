@@ -18,6 +18,49 @@ type fakeAuthorizer struct {
 	calls       []Permission
 }
 
+type fakeChannelQuota struct {
+	mu              sync.Mutex
+	reserveDecision ChannelQuotaDecision
+	reserveErr      error
+	releaseDecision ChannelQuotaDecision
+	releaseErr      error
+	reserveKeys     []string
+	releaseKeys     []string
+}
+
+func newFakeChannelQuota() *fakeChannelQuota {
+	return &fakeChannelQuota{
+		reserveDecision: ChannelQuotaDecision{Accepted: true},
+		releaseDecision: ChannelQuotaDecision{Accepted: true},
+	}
+}
+
+func (quota *fakeChannelQuota) ReserveChannel(
+	_ context.Context,
+	_, key string,
+) (ChannelQuotaDecision, error) {
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
+	quota.reserveKeys = append(quota.reserveKeys, key)
+	return quota.reserveDecision, quota.reserveErr
+}
+
+func (quota *fakeChannelQuota) ReleaseChannel(
+	_ context.Context,
+	_, key string,
+) (ChannelQuotaDecision, error) {
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
+	quota.releaseKeys = append(quota.releaseKeys, key)
+	return quota.releaseDecision, quota.releaseErr
+}
+
+func (quota *fakeChannelQuota) counts() (int, int) {
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
+	return len(quota.reserveKeys), len(quota.releaseKeys)
+}
+
 func (authorizer *fakeAuthorizer) Authorize(
 	_ context.Context,
 	_, _ string,
@@ -121,6 +164,7 @@ type serviceFixture struct {
 	authorizer *fakeAuthorizer
 	facebook   *fakeAdapter
 	instagram  *fakeAdapter
+	quota      *fakeChannelQuota
 }
 
 func newServiceFixture(t *testing.T) serviceFixture {
@@ -187,10 +231,12 @@ func newServiceFixture(t *testing.T) serviceFixture {
 			&expires,
 		)},
 	}
+	quota := newFakeChannelQuota()
 	service, err := NewService(Config{
 		Repository: repository,
 		Authorizer: authorizer,
 		Cipher:     cipher,
+		Quota:      quota,
 		Adapters: map[Provider]Adapter{
 			ProviderFacebookPages:         facebook,
 			ProviderInstagramProfessional: instagram,
@@ -206,6 +252,7 @@ func newServiceFixture(t *testing.T) serviceFixture {
 		authorizer: authorizer,
 		facebook:   facebook,
 		instagram:  instagram,
+		quota:      quota,
 	}
 }
 
@@ -557,6 +604,99 @@ func TestRevocationIsOwnerOnlyWipesTokensAndIsIdempotent(t *testing.T) {
 	}
 	if countEvents(fixture.repository.Events(), EventDisconnected) != 1 {
 		t.Fatalf("events = %#v", fixture.repository.Events())
+	}
+}
+
+func TestSelectEnforcesF10QuotaBeforeAddingChannel(t *testing.T) {
+	fixture := newServiceFixture(t)
+	selection := authorizeAndDiscover(
+		t,
+		fixture.service,
+		ProviderFacebookPages,
+	)
+	fixture.quota.reserveDecision = ChannelQuotaDecision{
+		Accepted: false,
+		Code:     "quota_exceeded",
+	}
+	_, err := fixture.service.Select(context.Background(), SelectRequest{
+		WorkspaceID: "workspace-1",
+		ActorID:     "owner-1",
+		SelectionID: selection.ID,
+		RemoteID:    "page-1",
+	})
+	if !errors.Is(err, ErrChannelQuotaExceeded) {
+		t.Fatalf("Select() error = %v, want channel quota exceeded", err)
+	}
+	connections, err := fixture.service.List(
+		context.Background(),
+		"workspace-1",
+		"owner-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(connections) != 0 {
+		t.Fatalf("quota-rejected connections = %#v", connections)
+	}
+	reserves, _ := fixture.quota.counts()
+	if reserves != 1 {
+		t.Fatalf("quota reserve calls = %d, want 1", reserves)
+	}
+}
+
+func TestReconnectRequiredDoesNotConsumeASecondChannelQuota(t *testing.T) {
+	fixture := newServiceFixture(t)
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderInstagramProfessional,
+		"ig-1",
+	)
+	stored, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = fixture.repository.MarkReconnectRequired(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+		"authentication_revoked",
+		serviceTestNow.Add(time.Minute),
+		Event{
+			ID:           "event-reconnect-test",
+			Type:         EventReconnectRequired,
+			Version:      1,
+			WorkspaceID:  "workspace-1",
+			ConnectionID: connection.ID,
+			Provider:     stored.Provider,
+			RemoteID:     stored.RemoteID,
+			OccurredAt:   serviceTestNow.Add(time.Minute),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.instagram.resources = []DiscoveredResource{instagramResource(
+		"ig-1",
+		"postqron",
+		"new-token",
+		stored.TokenExpiresAt,
+	)}
+	reconnected := connectResource(
+		t,
+		fixture.service,
+		ProviderInstagramProfessional,
+		"ig-1",
+	)
+	if reconnected.ID != connection.ID {
+		t.Fatalf("reconnected ID = %q, want %q", reconnected.ID, connection.ID)
+	}
+	reserves, _ := fixture.quota.counts()
+	if reserves != 1 {
+		t.Fatalf("quota reserve calls = %d, want initial connection only", reserves)
 	}
 }
 

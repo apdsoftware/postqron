@@ -175,6 +175,60 @@ func (repository *PostgresRepository) SaveSelection(
 	return transaction.Commit()
 }
 
+func (repository *PostgresRepository) InspectSelection(
+	ctx context.Context,
+	workspaceID, actorID, selectionID, remoteID string,
+	now time.Time,
+) (SelectionTarget, error) {
+	var target SelectionTarget
+	var expiresAt time.Time
+	var selectedAt sql.NullTime
+	var existingID, existingStatus sql.NullString
+	err := repository.database.QueryRowContext(ctx, `
+		SELECT
+			selection.provider,
+			resource.remote_id,
+			selection.expires_at,
+			resource.selected_at,
+			connection.id,
+			connection.status::text
+		FROM f05_resource_selections selection
+		JOIN f05_selection_resources resource
+		  ON resource.selection_id = selection.id
+		LEFT JOIN f05_social_connections connection
+		  ON connection.workspace_id = selection.workspace_id
+		 AND connection.provider = selection.provider
+		 AND connection.remote_id = resource.remote_id
+		WHERE selection.id = $1
+		  AND selection.workspace_id = $2
+		  AND selection.actor_account_id = $3
+		  AND resource.remote_id = $4`,
+		selectionID,
+		workspaceID,
+		actorID,
+		remoteID,
+	).Scan(
+		&target.Provider,
+		&target.RemoteID,
+		&expiresAt,
+		&selectedAt,
+		&existingID,
+		&existingStatus,
+	)
+	if errors.Is(err, sql.ErrNoRows) || selectedAt.Valid {
+		return SelectionTarget{}, ErrResourceNotFound
+	}
+	if err != nil {
+		return SelectionTarget{}, err
+	}
+	if !now.Before(expiresAt) {
+		return SelectionTarget{}, ErrFlowExpired
+	}
+	target.ExistingConnectionID = existingID.String
+	target.ExistingStatus = ConnectionStatus(existingStatus.String)
+	return target, nil
+}
+
 func (repository *PostgresRepository) Connect(
 	ctx context.Context,
 	command ConnectCommand,

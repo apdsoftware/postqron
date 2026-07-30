@@ -6,5 +6,32 @@ entrypoint: ./social.go
 dependencies:
   - auth
   - workspaces
+  - f10-entitlements
 migrations:
   - ./migrations/000001_create_social_connections.sql
+server:
+  routes:
+    - path: /workspaces/{workspace_id}/social-connections/bootstrap
+      handler: SocialRuntime
+      methods: [GET]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/social-authorizations
+      handler: SocialRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /social-authorizations/callback
+      handler: SocialRuntime
+      methods: [GET]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/social-connections
+      handler: SocialRuntime
+      methods: [GET, POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/social-connections/{connection_id}/reconnect
+      handler: SocialRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/social-connections/{connection_id}
+      handler: SocialRuntime
+      methods: [DELETE]
+      visibility: "private"

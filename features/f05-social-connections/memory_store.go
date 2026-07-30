@@ -88,6 +88,47 @@ func (repository *MemoryRepository) SaveSelection(
 	return nil
 }
 
+func (repository *MemoryRepository) InspectSelection(
+	_ context.Context,
+	workspaceID, actorID, selectionID, remoteID string,
+	now time.Time,
+) (SelectionTarget, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	selection, exists := repository.selections[selectionID]
+	if !exists ||
+		selection.WorkspaceID != workspaceID ||
+		selection.ActorID != actorID {
+		return SelectionTarget{}, ErrResourceNotFound
+	}
+	if !now.Before(selection.ExpiresAt) {
+		return SelectionTarget{}, ErrFlowExpired
+	}
+	if selection.selected[remoteID] {
+		return SelectionTarget{}, ErrResourceNotFound
+	}
+	found := false
+	for _, resource := range selection.Resources {
+		if resource.Candidate.RemoteID == remoteID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return SelectionTarget{}, ErrResourceNotFound
+	}
+	target := SelectionTarget{
+		Provider: selection.Provider,
+		RemoteID: remoteID,
+	}
+	key := uniqueConnectionKey(workspaceID, selection.Provider, remoteID)
+	if connectionID, ok := repository.connectionKey[key]; ok {
+		target.ExistingConnectionID = connectionID
+		target.ExistingStatus = repository.connections[connectionID].Status
+	}
+	return target, nil
+}
+
 func (repository *MemoryRepository) Connect(
 	_ context.Context,
 	command ConnectCommand,

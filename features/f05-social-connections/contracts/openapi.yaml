@@ -7,7 +7,26 @@ info:
     connection state, reconnection, and revocation. Token material is never
     part of this API.
 paths:
-  /api/v1/workspaces/{workspaceId}/social-authorizations:
+  /api/v1/workspaces/{workspace_id}/social-connections/bootstrap:
+    get:
+      operationId: getSocialConnectionsBootstrap
+      summary: List client-safe provider availability
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Availability contains no provider credentials or tokens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientBootstrap"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/workspaces/{workspace_id}/social-authorizations:
     post:
       operationId: beginSocialAuthorization
       summary: Start an Owner-authorized social OAuth flow
@@ -33,12 +52,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Authorization"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ProviderUnavailable"
   /api/v1/social-authorizations/callback:
     get:
       operationId: completeSocialAuthorization
       summary: Exchange the provider code and return selectable resources
+      security: []
       parameters:
         - name: state
           in: query
@@ -64,7 +88,13 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
-  /api/v1/workspaces/{workspaceId}/social-connections:
+        "410":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/ProviderUnavailable"
+  /api/v1/workspaces/{workspace_id}/social-connections:
     get:
       operationId: listSocialConnections
       summary: List safe social connection state
@@ -78,9 +108,16 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Connection"
+                type: object
+                additionalProperties: false
+                required: [connections]
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Connection"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
@@ -110,17 +147,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Connection"
-        "200":
-          description: Existing resource explicitly reconnected
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Connection"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Error"
-  /api/v1/workspaces/{workspaceId}/social-connections/{connectionId}:
+        "503":
+          $ref: "#/components/responses/ProviderUnavailable"
+  /api/v1/workspaces/{workspace_id}/social-connections/{connection_id}/reconnect:
+    post:
+      operationId: reconnectSocialConnection
+      summary: Start a new explicit OAuth grant for a disconnected resource
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ConnectionId"
+      responses:
+        "201":
+          description: One-time reconnect authorization created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Authorization"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ProviderUnavailable"
+  /api/v1/workspaces/{workspace_id}/social-connections/{connection_id}:
     delete:
       operationId: revokeSocialConnection
       summary: Revoke locally, delete credentials, and revoke at Meta when safe
@@ -128,50 +185,102 @@ paths:
         - session: []
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: connectionId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: "#/components/parameters/ConnectionId"
       responses:
-        "204":
+        "200":
           description: Local connection revoked and credentials deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Revocation"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     session:
-      type: http
-      scheme: bearer
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
   parameters:
     WorkspaceId:
-      name: workspaceId
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ConnectionId:
+      name: connection_id
       in: path
       required: true
       schema:
         type: string
   responses:
+    Unauthenticated:
+      description: An authenticated application session is required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Forbidden:
       description: Owner permission is required for mutations
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ProviderUnavailable:
+      description: Provider is fail-closed until configuration and review are ready
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Error:
       description: Stable retry-aware domain error
       content:
         application/json:
           schema:
-            type: object
-            additionalProperties: false
-            required: [code, message, retryable]
-            properties:
-              code:
-                type: string
-              message:
-                type: string
-              retryable:
-                type: boolean
+            $ref: "#/components/schemas/Error"
   schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retryable:
+          type: boolean
     Provider:
       type: string
       enum: [facebook_pages, instagram_professional]
+    ProviderAvailability:
+      type: object
+      additionalProperties: false
+      required: [provider, status, retryable]
+      properties:
+        provider:
+          $ref: "#/components/schemas/Provider"
+        status:
+          type: string
+          enum: [available, unavailable]
+        retryable:
+          type: boolean
+    ClientBootstrap:
+      type: object
+      additionalProperties: false
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/ProviderAvailability"
     Authorization:
       type: object
       additionalProperties: false
@@ -283,3 +392,15 @@ components:
         updated_at:
           type: string
           format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+    Revocation:
+      type: object
+      additionalProperties: false
+      required: [connection, provider_revoked]
+      properties:
+        connection:
+          $ref: "#/components/schemas/Connection"
+        provider_revoked:
+          type: boolean
