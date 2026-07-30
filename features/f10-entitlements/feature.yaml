@@ -12,6 +12,7 @@ migrations:
   - ./migrations/000003_paddle_dunning_30_days.sql
   - ./migrations/000004_d09_public_unlimited.sql
   - ./migrations/000005_po_20260727_plan_limits.sql
+  - ./migrations/000006_align_workspace_ids_with_f04.sql
 server:
   routes:
     - path: /billing/plans

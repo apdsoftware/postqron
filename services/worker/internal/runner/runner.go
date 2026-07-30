@@ -217,7 +217,7 @@ func (r *Runner) processOnboardingEvent(ctx context.Context) (bool, error) {
 	if err == nil {
 		err = r.database.QueryRowContext(
 			ctx,
-			`SELECT f10_provision_trial($1, $2)`,
+			`SELECT f10_provision_trial($1::text, $2)`,
 			workspace.ID,
 			event.OccurredAt.UTC(),
 		).Scan(new(bool))

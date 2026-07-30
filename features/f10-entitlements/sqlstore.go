@@ -102,7 +102,7 @@ func (store *SQLStore) ApplyUsage(
 	)
 	err := store.db.QueryRow(ctx, `
 		SELECT accepted, decision_code, retryable, used, quota_limit, remaining, over_limit
-		  FROM f10_apply_usage($1, $2, $3, $4, $5)
+		  FROM f10_apply_usage($1::text, $2, $3, $4, $5)
 	`,
 		command.WorkspaceID,
 		command.Resource,

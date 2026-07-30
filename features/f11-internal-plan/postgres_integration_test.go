@@ -96,8 +96,8 @@ func TestPostgresAssignmentRevocationAuditAndPublicIsolation(t *testing.T) {
 	`, workspaceID).Scan(&publicPlan); err != nil {
 		t.Fatal(err)
 	}
-	if publicPlan != "pro" {
-		t.Fatalf("public plan = %q, want unchanged public Pro plan", publicPlan)
+	if publicPlan != "team" {
+		t.Fatalf("public plan = %q, want unchanged public Team trial", publicPlan)
 	}
 
 	if _, err := pool.Exec(ctx, `
@@ -256,6 +256,11 @@ func internalPlanIntegrationPool(t *testing.T) *pgxpool.Pool {
 
 	for _, path := range []string{
 		filepath.Join("..", "f10-entitlements", "migrations", "000001_create_entitlements.sql"),
+		filepath.Join("..", "f10-entitlements", "migrations", "000002_paddle_d07.sql"),
+		filepath.Join("..", "f10-entitlements", "migrations", "000003_paddle_dunning_30_days.sql"),
+		filepath.Join("..", "f10-entitlements", "migrations", "000004_d09_public_unlimited.sql"),
+		filepath.Join("..", "f10-entitlements", "migrations", "000005_po_20260727_plan_limits.sql"),
+		filepath.Join("..", "f10-entitlements", "migrations", "000006_align_workspace_ids_with_f04.sql"),
 		filepath.Join("migrations", "000001_create_internal_plan_administration.sql"),
 	} {
 		migration, err := os.ReadFile(path)

@@ -10,3 +10,4 @@ dependencies:
 migrations:
   - ./migrations/000001_create_account_privacy.sql
   - ./migrations/000002_enforce_idempotent_exports.sql
+  - ./migrations/000003_recover_partial_account_provisioning.sql
