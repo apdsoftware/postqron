@@ -6,6 +6,7 @@ package socialconnections
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 )
 
@@ -106,6 +107,11 @@ type AdapterCapabilities struct {
 	ResourceSelection bool `json:"resource_selection"`
 	TokenRefresh      bool `json:"token_refresh"`
 	RemoteRevocation  bool `json:"remote_revocation"`
+	DynamicDiscovery  bool `json:"dynamic_discovery"`
+	PAR               bool `json:"par"`
+	DPoP              bool `json:"dpop"`
+	AccessTokenHash   bool `json:"access_token_hash"`
+	AuthenticatedHTTP bool `json:"authenticated_http"`
 }
 
 // AdapterCapabilityReporter is optional so existing test doubles and future
@@ -197,6 +203,134 @@ type ExchangeRequest struct {
 	PKCEVerifier string
 }
 
+type DiscoveryInputKind string
+
+const (
+	DiscoveryInstanceOrigin DiscoveryInputKind = "instance_origin"
+	DiscoveryHandle         DiscoveryInputKind = "handle"
+	DiscoveryDID            DiscoveryInputKind = "did"
+	DiscoveryPDSOrigin      DiscoveryInputKind = "pds_origin"
+)
+
+// DiscoveryInput is deliberately typed and contains no password or
+// app-password variant. Provider adapters must still perform DNS-pinned SSRF
+// validation when dereferencing a syntactically valid input.
+type DiscoveryInput struct {
+	Kind  DiscoveryInputKind `json:"kind"`
+	Value string             `json:"value"`
+}
+
+type OAuthBinding struct {
+	Issuer         string
+	ResourceServer string
+	Subject        string
+}
+
+type RefreshTokenMode string
+
+const (
+	RefreshTokenReusable  RefreshTokenMode = "reusable"
+	RefreshTokenSingleUse RefreshTokenMode = "single_use"
+)
+
+type RevocationPolicy string
+
+const (
+	RevocationBestEffort     RevocationPolicy = "best_effort"
+	RevocationRemoteRequired RevocationPolicy = "remote_required"
+)
+
+type DynamicNetworkPolicy struct {
+	RejectRedirects   bool
+	ValidateAndPinDNS bool
+	MaxResponseBytes  int64
+}
+
+type DynamicOAuthConfig struct {
+	RedirectURL      string
+	Scopes           []string
+	RequiresPAR      bool
+	RequiresDPoP     bool
+	RequiresATH      bool
+	RequiresIssuer   bool
+	RequiresSubject  bool
+	RefreshTokenMode RefreshTokenMode
+	RevocationPolicy RevocationPolicy
+	NetworkPolicy    DynamicNetworkPolicy
+}
+
+type DynamicBeginRequest struct {
+	Discovery       DiscoveryInput
+	PreviousBinding OAuthBinding
+	State           string
+	ExpiresAt       time.Time
+}
+
+type DynamicAuthorization struct {
+	URL           string
+	ProviderState []byte
+	Binding       OAuthBinding
+	PARRequestURI string
+}
+
+type DynamicCallbackRequest struct {
+	Code          string
+	Issuer        string
+	RedirectURL   string
+	ProviderState []byte
+	Binding       OAuthBinding
+}
+
+type DynamicCompletion struct {
+	Resources     []DiscoveredResource
+	ProviderState []byte
+	Binding       OAuthBinding
+}
+
+// AuthenticatedRequest intentionally accepts a relative resource-server path.
+// The adapter owns the bound origin and transport, so callers cannot turn the
+// F5 credential boundary into an arbitrary URL fetch.
+type AuthenticatedRequest struct {
+	Method string
+	Path   string
+	Header http.Header
+	Body   []byte
+}
+
+type AuthenticatedResponse struct {
+	StatusCode int
+	Header     http.Header
+	Body       []byte
+}
+
+type DynamicSession struct {
+	Binding       OAuthBinding
+	Credential    Credential
+	ProviderState []byte
+}
+
+type DynamicRefreshResult struct {
+	Session DynamicSession
+}
+
+type DynamicAuthenticatedResult struct {
+	Response AuthenticatedResponse
+	Session  DynamicSession
+}
+
+// DynamicAdapter is an optional provider-neutral boundary. Static adapters
+// continue to implement Adapter unchanged. Dynamic providers return opaque
+// attempt/session state; F5 encrypts it before persistence and never exposes it
+// to HTTP or publishing callers.
+type DynamicAdapter interface {
+	DynamicConfig() DynamicOAuthConfig
+	BeginDynamic(context.Context, DynamicBeginRequest) (DynamicAuthorization, error)
+	CompleteDynamic(context.Context, DynamicCallbackRequest) (DynamicCompletion, error)
+	RefreshDynamic(context.Context, DynamicSession) (DynamicRefreshResult, error)
+	DoAuthenticated(context.Context, DynamicSession, AuthenticatedRequest) (DynamicAuthenticatedResult, error)
+	RevokeDynamic(context.Context, DynamicSession) error
+}
+
 type Adapter interface {
 	Config() OAuthConfig
 	Exchange(context.Context, ExchangeRequest) (Credential, error)
@@ -204,6 +338,10 @@ type Adapter interface {
 	Refresh(context.Context, Credential) (Credential, error)
 	Verify(context.Context, string, Credential) error
 	Revoke(context.Context, string, Credential) error
+}
+
+type AdapterRevocationPolicyReporter interface {
+	RevocationPolicy() RevocationPolicy
 }
 
 type ProviderFailureKind string
@@ -285,14 +423,17 @@ type ClientBootstrap struct {
 }
 
 type BeginRequest struct {
-	WorkspaceID string
-	ActorID     string
-	Provider    Provider
+	WorkspaceID     string
+	ActorID         string
+	Provider        Provider
+	Discovery       DiscoveryInput
+	previousBinding OAuthBinding
 }
 
 type CallbackRequest struct {
 	State         string
 	Code          string
+	Issuer        string
 	ProviderError string
 }
 
@@ -335,6 +476,8 @@ type OAuthAttempt struct {
 	ActorID                string
 	Provider               Provider
 	PKCEVerifierCiphertext Ciphertext
+	OAuthStateCiphertext   Ciphertext
+	Binding                OAuthBinding
 	CreatedAt              time.Time
 	ExpiresAt              time.Time
 	ConsumedAt             *time.Time
@@ -344,6 +487,9 @@ type StoredResource struct {
 	Candidate              Candidate
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
+	OAuthSessionCiphertext Ciphertext
+	Binding                OAuthBinding
+	RefreshTokenMode       RefreshTokenMode
 	TokenExpiresAt         *time.Time
 }
 
@@ -362,6 +508,12 @@ type StoredCredential struct {
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
 	RefreshLockedUntil     *time.Time
+	OAuthSessionCiphertext Ciphertext
+	Binding                OAuthBinding
+	RefreshTokenMode       RefreshTokenMode
+	SessionLockedUntil     *time.Time
+	SessionLeaseID         string
+	SessionRefreshing      bool
 }
 
 type Event struct {
@@ -427,6 +579,20 @@ type RefreshCommand struct {
 	Event                  Event
 }
 
+type SessionCommand struct {
+	ConnectionID           string
+	SessionLeaseID         string
+	AccessTokenCiphertext  Ciphertext
+	RefreshTokenCiphertext Ciphertext
+	OAuthSessionCiphertext Ciphertext
+	Scopes                 []string
+	ExpiresAt              *time.Time
+	UpdateCredential       bool
+	VerifiedAt             time.Time
+	Now                    time.Time
+	Event                  *Event
+}
+
 type Repository interface {
 	CreateAttempt(context.Context, OAuthAttempt) error
 	ConsumeAttempt(context.Context, string, time.Time) (OAuthAttempt, error)
@@ -438,29 +604,37 @@ type Repository interface {
 	ClaimRefresh(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
 	CompleteRefresh(context.Context, RefreshCommand) (Connection, error)
 	ReleaseRefresh(context.Context, string, string) error
+	ClaimSession(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
+	CompleteSession(context.Context, SessionCommand) (Connection, error)
+	ReleaseSession(context.Context, string, string, string) error
 	MarkReconnectRequired(context.Context, string, string, string, time.Time, Event) (Connection, bool, error)
 	Revoke(context.Context, string, string, time.Time, Event) (Connection, bool, error)
 }
 
 var (
-	ErrInvalidArgument               = errors.New("invalid argument")
-	ErrUnsupportedProvider           = errors.New("unsupported social provider")
-	ErrUnauthorized                  = errors.New("social channel operation not authorized")
-	ErrInvalidState                  = errors.New("invalid or already used OAuth state")
-	ErrFlowExpired                   = errors.New("social authorization flow expired")
-	ErrProviderDenied                = errors.New("social authorization denied by provider")
-	ErrNoResources                   = errors.New("provider returned no publishable resources")
-	ErrResourceNotFound              = errors.New("social resource not found")
-	ErrResourceAlreadyUsed           = errors.New("social resource is already connected")
-	ErrReconnectRequired             = errors.New("social connection must be reconnected")
-	ErrRefreshInProgress             = errors.New("social credential refresh is already in progress")
-	ErrNotRefreshable                = errors.New("social credential cannot be refreshed")
-	ErrExternalRevocationUnavailable = errors.New("per-resource provider revocation is unavailable")
-	ErrConnectionRevoked             = errors.New("social connection is revoked")
-	ErrProviderUnavailable           = errors.New("social provider is unavailable")
-	ErrProviderNotConfigured         = errors.New("social provider is not configured")
-	ErrProviderReviewRequired        = errors.New("social provider review is required")
-	ErrProviderAuditRequired         = errors.New("social provider verification is required")
-	ErrChannelQuotaExceeded          = errors.New("social channel quota exceeded")
-	ErrChannelQuotaUnavailable       = errors.New("social channel quota is unavailable")
+	ErrInvalidArgument                = errors.New("invalid argument")
+	ErrUnsupportedProvider            = errors.New("unsupported social provider")
+	ErrUnauthorized                   = errors.New("social channel operation not authorized")
+	ErrInvalidState                   = errors.New("invalid or already used OAuth state")
+	ErrFlowExpired                    = errors.New("social authorization flow expired")
+	ErrProviderDenied                 = errors.New("social authorization denied by provider")
+	ErrNoResources                    = errors.New("provider returned no publishable resources")
+	ErrResourceNotFound               = errors.New("social resource not found")
+	ErrResourceAlreadyUsed            = errors.New("social resource is already connected")
+	ErrReconnectRequired              = errors.New("social connection must be reconnected")
+	ErrRefreshInProgress              = errors.New("social credential refresh is already in progress")
+	ErrAuthenticatedRequestInProgress = errors.New("social authenticated request is already in progress")
+	ErrAuthenticatedRequestRequired   = errors.New("provider access requires the authenticated request boundary")
+	ErrRefreshOutcomeUnknown          = errors.New("single-use refresh outcome is unknown")
+	ErrNotRefreshable                 = errors.New("social credential cannot be refreshed")
+	ErrExternalRevocationUnavailable  = errors.New("per-resource provider revocation is unavailable")
+	ErrRemoteRevocationRequired       = errors.New("remote provider revocation is required")
+	ErrProviderRequestFailed          = errors.New("authenticated provider request failed")
+	ErrConnectionRevoked              = errors.New("social connection is revoked")
+	ErrProviderUnavailable            = errors.New("social provider is unavailable")
+	ErrProviderNotConfigured          = errors.New("social provider is not configured")
+	ErrProviderReviewRequired         = errors.New("social provider review is required")
+	ErrProviderAuditRequired          = errors.New("social provider verification is required")
+	ErrChannelQuotaExceeded           = errors.New("social channel quota exceeded")
+	ErrChannelQuotaUnavailable        = errors.New("social channel quota is unavailable")
 )
