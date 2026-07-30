@@ -1,0 +1,43 @@
+[
+  {
+    "provider": "x",
+    "payload": {"format": "text", "text": "Hello from Postqron", "author": "postqron"},
+    "list_response": {"data": []},
+    "create_response": {"data": {"id": "1900000000000000001"}}
+  },
+  {
+    "provider": "linkedin",
+    "payload": {"format": "text", "text": "Hello from Postqron", "author": "urn:li:person:123"},
+    "list_response": {"elements": []},
+    "create_response": {}
+  },
+  {
+    "provider": "pinterest",
+    "payload": {
+      "format": "image",
+      "title": "Postqron",
+      "description": "Hello from Postqron",
+      "link": "https://example.com/post",
+      "board_id": "42",
+      "media": [{"source_url": "https://cdn.example.com/image.jpg"}]
+    },
+    "list_response": {"items": []},
+    "create_response": {"id": "99"}
+  },
+  {
+    "provider": "google_business_profile",
+    "payload": {
+      "format": "image",
+      "text": "Hello from Postqron",
+      "location": "accounts/1/locations/2",
+      "language_code": "en",
+      "topic_type": "STANDARD",
+      "media": [{"source_url": "https://cdn.example.com/image.jpg"}]
+    },
+    "list_response": {"localPosts": []},
+    "create_response": {
+      "name": "accounts/1/locations/2/localPosts/3",
+      "searchUrl": "https://business.google.com/posts/3"
+    }
+  }
+]

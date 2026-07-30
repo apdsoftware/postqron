@@ -44,11 +44,20 @@ injects implementations of:
 
 The immutable destination payload is prepared from a validated F6 revision.
 
-The default runtime registry is deliberately empty and fail-closed. Issue
-[#329](https://github.com/apdsoftware/postqron/issues/329) owns the F5→F8
-credential boundary and official publishing adapters for the D2 matrix. Until
-that dependency lands, F8 provides the durable engine and adapter contract but
-does not claim that any social provider is runtime-publishable.
+The default runtime registry is deliberately empty and fail-closed. The static
+provider package for X, LinkedIn profile/Page, Pinterest, and Google Business
+Profile accepts only the credential-free F5 `AuthenticatedExecutor` contract.
+The worker can inject that executor only after the corresponding F5 runtime is
+composed. It registers each adapter only when its explicit F8 enabled, provider
+review, runtime audit, and quota-configuration gates are all true. LinkedIn
+also requires a six-digit API version. A missing executor or gate never falls
+back to direct HTTP or credential access.
+
+Every static adapter persists a baseline of remote IDs and immutable media
+references before its create step. An ambiguous outcome lists the provider
+resource again and accepts exactly one matching item that was absent from the
+baseline. Zero matches is a definitive not-found; multiple matches remain
+ambiguous and never trigger blind republishing.
 
 ## Verification
 

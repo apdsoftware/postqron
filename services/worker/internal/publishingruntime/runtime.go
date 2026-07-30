@@ -5,16 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Service is intentionally only F8 wiring. Issue #329 owns the F5 credential
-// boundary and official publishing adapters; until it lands, registry remains
-// empty and every provider resolution fails closed.
+// Service owns only F8 wiring. Credentials remain behind the injected F5
+// AuthenticatedExecutor boundary.
 type Service struct {
 	engine *publishing.Engine
 	pool   *pgxpool.Pool
@@ -25,6 +26,37 @@ func New(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
+) (*Service, error) {
+	config := runtimeStaticProviderConfig()
+	return newService(ctx, database, databaseURL, clock, nil, config)
+}
+
+// NewWithExecutor is the credential-free F5→F8 worker composition boundary.
+// A nil executor is valid and preserves the default fail-closed registry.
+func NewWithExecutor(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	executor staticproviders.Executor,
+) (*Service, error) {
+	return newService(
+		ctx,
+		database,
+		databaseURL,
+		clock,
+		executor,
+		runtimeStaticProviderConfig(),
+	)
+}
+
+func newService(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	executor staticproviders.Executor,
+	staticConfig staticproviders.Config,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -41,7 +73,11 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	registry := newRuntimeAdapterRegistry()
+	registry, err := newRuntimeAdapterRegistry(executor, staticConfig)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	engine, err := publishing.NewEngine(
 		store,
 		postgresCommandGate{database: database},
@@ -63,9 +99,42 @@ func New(
 	return &Service{engine: engine, pool: pool}, nil
 }
 
-func newRuntimeAdapterRegistry() *publishing.AdapterRegistry {
-	// Deliberately empty until the credential/adapter contract in #329 lands.
-	return publishing.NewAdapterRegistry()
+func newRuntimeAdapterRegistry(
+	executor staticproviders.Executor,
+	config staticproviders.Config,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	config.Executor = executor
+	if err := staticproviders.Register(registry, config); err != nil {
+		return nil, fmt.Errorf("register static publishing adapters: %w", err)
+	}
+	return registry, nil
+}
+
+func runtimeStaticProviderConfig() staticproviders.Config {
+	return staticproviders.Config{
+		LinkedInVersion: strings.TrimSpace(os.Getenv(
+			"POSTQRON_F05_LINKEDIN_API_VERSION",
+		)),
+		Gates: map[string]staticproviders.Gate{
+			staticproviders.ProviderX:         staticProviderGate("X"),
+			staticproviders.ProviderLinkedIn:  staticProviderGate("LINKEDIN"),
+			staticproviders.ProviderPinterest: staticProviderGate("PINTEREST"),
+			staticproviders.ProviderGoogleBusinessProfile: staticProviderGate(
+				"GOOGLE_BUSINESS_PROFILE",
+			),
+		},
+	}
+}
+
+func staticProviderGate(provider string) staticproviders.Gate {
+	prefix := "POSTQRON_F08_" + provider + "_"
+	return staticproviders.Gate{
+		Enabled:         os.Getenv(prefix+"ENABLED") == "true",
+		ReviewApproved:  os.Getenv(prefix+"REVIEW_APPROVED") == "true",
+		AuditVerified:   os.Getenv(prefix+"RUNTIME_AUDIT_VERIFIED") == "true",
+		QuotaConfigured: os.Getenv(prefix+"QUOTA_CONFIGURED") == "true",
+	}
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
