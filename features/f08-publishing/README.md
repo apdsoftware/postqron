@@ -55,13 +55,15 @@ and the Meta response classifiers. F8 adapters still receive only that
 executor and opaque connection IDs; they never receive tokens. Every request
 supplies the exact `ExpectedProvider` confused-deputy guard.
 
-Facebook Pages, Instagram Professional, and Threads are registered only when
-their exact per-provider enable, App Review, runtime-audit, Graph-version, and
-F5 credential dependencies are complete. Missing or partial dependencies abort
-bootstrap. Facebook Groups and Instagram Personal have a durable F8 outbox and
+Facebook Pages and Instagram Professional are registered only when their exact
+per-provider enable, App Review, runtime-audit, Graph-version, and F5 credential
+dependencies are complete. Threads remains explicitly fail-closed in production
+until the verified F5 adapter from #309 / PR #316 is integrated; setting its F8
+enable gate aborts bootstrap and never registers a substitute credential
+adapter. Facebook Groups and Instagram Personal have a durable F8 outbox and
 claim/retry dispatcher implementation, but their production registration is
-rejected with an explicit #343 dependency; they must not be described as
-production-ready.
+rejected with an explicit #343 dependency; none of these three paths may be
+described as production-ready.
 
 Media containers, carousel children, final publish IDs, and permalink reads are
 separate durable steps. Meta does not claim general reconciliation: an
@@ -74,12 +76,12 @@ Production gates:
 
 - `POSTQRON_F08_META_AUTO_ENABLED=true` enables consideration of auto adapters.
 - `POSTQRON_F08_FACEBOOK_PAGES_ENABLED=true`,
-  `POSTQRON_F08_INSTAGRAM_PROFESSIONAL_ENABLED=true`, and
-  `POSTQRON_F08_THREADS_ENABLED=true` enable each reviewed provider.
+  `POSTQRON_F08_INSTAGRAM_PROFESSIONAL_ENABLED=true` enable each reviewed
+  production provider.
 - Existing F5 cipher, Meta, App Review, and runtime-audit gates remain
   authoritative for Facebook Pages and Instagram Professional.
-- Threads additionally requires its explicit F8 Graph version, OAuth client,
-  redirect, App Review, and runtime-audit gates.
+- `POSTQRON_F08_THREADS_ENABLED=true` intentionally fails bootstrap until the
+  F5 dependency in #309 / PR #316 is integrated.
 - `POSTQRON_F08_META_NOTIFICATIONS_ENABLED=true` intentionally fails bootstrap
   until #343 is integrated.
 

@@ -125,6 +125,120 @@ func TestInstagramMultiStepCheckpointsBeforePublish(t *testing.T) {
 	if len(executor.calls) != 4 {
 		t.Fatalf("calls=%d", len(executor.calls))
 	}
+	if executor.calls[1].request.Path !=
+		"/v25.0/container-1?fields=id,status_code" {
+		t.Fatalf("Instagram poll path=%q", executor.calls[1].request.Path)
+	}
+}
+
+func TestThreadsEndToEndCheckpointsPollFinishedAndNeverReplay(t *testing.T) {
+	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
+		{StatusCode: 200, Body: []byte(`{"id":"threads-container-1"}`)},
+		{StatusCode: 200, Body: []byte(
+			`{"id":"threads-container-1","status":"IN_PROGRESS"}`,
+		)},
+		{StatusCode: 200, Body: []byte(
+			`{"id":"threads-container-1","status":"FINISHED"}`,
+		)},
+		{StatusCode: 200, Body: []byte(`{"id":"thread-1"}`)},
+		{StatusCode: 200, Body: []byte(
+			`{"id":"thread-1","permalink":"https://threads.example/t/thread-1"}`,
+		)},
+	}}
+	publisher, err := newPublisher(
+		executor, socialconnections.ProviderThreads, "v1.0",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := publishRequest(`{"format":"text","text":"hello Threads"}`, nil)
+
+	first, err := publisher.Publish(context.Background(), request)
+	if err != nil || first.Complete {
+		t.Fatalf("create result=%+v err=%v", first, err)
+	}
+	assertCheckpoint(t, first.Checkpoint, "container_created", "threads-container-1", "")
+
+	request.Checkpoint = first.Checkpoint
+	waiting, err := publisher.Publish(context.Background(), request)
+	if err != nil || waiting.Complete || waiting.RetryAfter != 5*time.Second {
+		t.Fatalf("waiting result=%+v err=%v", waiting, err)
+	}
+	if string(waiting.Checkpoint) != string(first.Checkpoint) {
+		t.Fatalf("polling changed durable checkpoint: %s", waiting.Checkpoint)
+	}
+
+	request.Checkpoint = waiting.Checkpoint
+	ready, err := publisher.Publish(context.Background(), request)
+	if err != nil || ready.Complete || ready.RetryAfter != 0 {
+		t.Fatalf("ready result=%+v err=%v", ready, err)
+	}
+	assertCheckpoint(t, ready.Checkpoint, "container_ready", "threads-container-1", "")
+
+	request.Checkpoint = ready.Checkpoint
+	published, err := publisher.Publish(context.Background(), request)
+	if err != nil || published.Complete {
+		t.Fatalf("publish result=%+v err=%v", published, err)
+	}
+	assertCheckpoint(
+		t,
+		published.Checkpoint,
+		"published",
+		"threads-container-1",
+		"thread-1",
+	)
+
+	request.Checkpoint = published.Checkpoint
+	final, err := publisher.Publish(context.Background(), request)
+	if err != nil || !final.Complete || final.RemoteID != "thread-1" ||
+		final.Permalink != "https://threads.example/t/thread-1" {
+		t.Fatalf("final result=%+v err=%v", final, err)
+	}
+
+	expectedPaths := []string{
+		"/v1.0/me/threads",
+		"/v1.0/threads-container-1?fields=id,status",
+		"/v1.0/threads-container-1?fields=id,status",
+		"/v1.0/me/threads_publish",
+		"/v1.0/thread-1?fields=id,permalink,permalink_url",
+	}
+	if len(executor.calls) != len(expectedPaths) {
+		t.Fatalf("calls=%d, possible loop or replay: %+v", len(executor.calls), executor.calls)
+	}
+	for index, expected := range expectedPaths {
+		if executor.calls[index].request.Path != expected {
+			t.Fatalf(
+				"call %d path=%q want=%q",
+				index,
+				executor.calls[index].request.Path,
+				expected,
+			)
+		}
+		if executor.calls[index].request.ExpectedProvider !=
+			socialconnections.ProviderThreads {
+			t.Fatalf("call %d provider=%q", index, executor.calls[index].request.ExpectedProvider)
+		}
+	}
+	if string(executor.calls[3].request.Body) !=
+		"creation_id=threads-container-1" {
+		t.Fatalf("threads_publish body=%q", executor.calls[3].request.Body)
+	}
+}
+
+func assertCheckpoint(
+	t *testing.T,
+	body json.RawMessage,
+	step, containerID, remoteID string,
+) {
+	t.Helper()
+	var state checkpoint
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Step != step || state.ContainerID != containerID ||
+		state.RemoteID != remoteID || state.CreatedAt.IsZero() {
+		t.Fatalf("checkpoint=%+v", state)
+	}
 }
 
 func TestCarouselCheckpointsEveryChildBeforeParent(t *testing.T) {

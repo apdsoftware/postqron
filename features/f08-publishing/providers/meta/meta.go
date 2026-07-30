@@ -486,11 +486,15 @@ func (publisher *Publisher) containerReady(
 	request publishing.PublishRequest,
 	containerID string,
 ) (bool, time.Duration, error) {
+	fields := "id,status_code"
+	if publisher.provider == socialconnections.ProviderThreads {
+		fields = "id,status"
+	}
 	response, err := publisher.execute(
 		ctx,
 		request,
 		http.MethodGet,
-		publisher.graphPath(containerID)+"?fields=id,status_code",
+		publisher.graphPath(containerID)+"?fields="+fields,
 		nil,
 	)
 	if err != nil {
@@ -505,12 +509,12 @@ func (publisher *Publisher) containerReady(
 		strings.TrimSpace(result.ID) != containerID {
 		return false, 0, temporary("provider_response_invalid", 0)
 	}
-	status := strings.TrimSpace(result.StatusCode)
-	if status == "" {
-		status = strings.TrimSpace(result.Status)
+	status := result.StatusCode
+	if publisher.provider == socialconnections.ProviderThreads {
+		status = result.Status
 	}
-	switch strings.ToUpper(status) {
-	case "FINISHED", "PUBLISHED":
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FINISHED":
 		return true, 0, nil
 	case "ERROR", "EXPIRED":
 		return false, 0, permanent("media_processing_failed")

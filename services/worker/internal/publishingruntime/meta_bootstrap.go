@@ -21,7 +21,6 @@ import (
 const (
 	metaFacebookOrigin  = "https://graph.facebook.com"
 	metaInstagramOrigin = "https://graph.instagram.com"
-	metaThreadsOrigin   = "https://graph.threads.net"
 )
 
 func productionMetaAutoConfig(
@@ -30,6 +29,11 @@ func productionMetaAutoConfig(
 ) (metapublishing.RegistrationConfig, error) {
 	if exactTrue("POSTQRON_F08_META_AUTO_ENABLED") == false {
 		return metapublishing.RegistrationConfig{}, nil
+	}
+	if exactTrue("POSTQRON_F08_THREADS_ENABLED") {
+		return metapublishing.RegistrationConfig{}, errors.New(
+			"Threads publishing is unavailable until F5 PR #316 is integrated",
+		)
 	}
 	if !exactTrue("POSTQRON_F05_ENABLED") ||
 		!exactTrue("POSTQRON_F05_META_ENABLED") {
@@ -59,9 +63,6 @@ func productionMetaAutoConfig(
 		return metapublishing.RegistrationConfig{}, err
 	}
 	graphVersion := strings.TrimSpace(os.Getenv("POSTQRON_F05_META_GRAPH_VERSION"))
-	threadsVersion := strings.TrimSpace(
-		os.Getenv("POSTQRON_F08_THREADS_GRAPH_VERSION"),
-	)
 	adapters := make(map[socialconnections.Provider]socialconnections.Adapter)
 	origins := make(map[socialconnections.Provider]string)
 	var providers []socialconnections.Provider
@@ -131,31 +132,6 @@ func productionMetaAutoConfig(
 			socialconnections.ProviderInstagramProfessional,
 		)
 	}
-	if exactTrue("POSTQRON_F08_THREADS_ENABLED") {
-		if !exactTrue("POSTQRON_F08_THREADS_APP_REVIEW_APPROVED") ||
-			!exactTrue("POSTQRON_F08_THREADS_RUNTIME_AUDIT_VERIFIED") {
-			return metapublishing.RegistrationConfig{}, errors.New(
-				"Threads publishing requires review and audit gates",
-			)
-		}
-		adapter := threadsCredentialAdapter{
-			clientID: strings.TrimSpace(
-				os.Getenv("POSTQRON_F08_THREADS_CLIENT_ID"),
-			),
-			redirectURL: strings.TrimSpace(
-				os.Getenv("POSTQRON_F08_THREADS_REDIRECT_URL"),
-			),
-		}
-		if adapter.clientID == "" || adapter.redirectURL == "" ||
-			threadsVersion == "" {
-			return metapublishing.RegistrationConfig{}, errors.New(
-				"Threads publishing configuration is incomplete",
-			)
-		}
-		adapters[socialconnections.ProviderThreads] = adapter
-		origins[socialconnections.ProviderThreads] = metaThreadsOrigin
-		providers = append(providers, socialconnections.ProviderThreads)
-	}
 	if len(providers) == 0 {
 		return metapublishing.RegistrationConfig{}, errors.New(
 			"Meta auto publishing gate enabled without an approved provider",
@@ -185,10 +161,9 @@ func productionMetaAutoConfig(
 		return metapublishing.RegistrationConfig{}, err
 	}
 	return metapublishing.RegistrationConfig{
-		Executor:            executor,
-		GraphVersion:        graphVersion,
-		ThreadsGraphVersion: threadsVersion,
-		AutoProviders:       providers,
+		Executor:      executor,
+		GraphVersion:  graphVersion,
+		AutoProviders: providers,
 	}, nil
 }
 
@@ -205,61 +180,6 @@ func (denySocialMutation) Authorize(
 	socialconnections.Permission,
 ) error {
 	return socialconnections.ErrUnauthorized
-}
-
-type threadsCredentialAdapter struct {
-	clientID    string
-	redirectURL string
-}
-
-func (adapter threadsCredentialAdapter) Config() socialconnections.OAuthConfig {
-	return socialconnections.OAuthConfig{
-		ClientID:         adapter.clientID,
-		AuthorizationURL: "https://threads.net/oauth/authorize",
-		RedirectURL:      adapter.redirectURL,
-		Scopes: []string{
-			"threads_basic",
-			"threads_content_publish",
-		},
-		ScopeSeparator: socialconnections.OAuthScopeSeparatorComma,
-	}
-}
-
-func (threadsCredentialAdapter) Exchange(
-	context.Context,
-	socialconnections.ExchangeRequest,
-) (socialconnections.Credential, error) {
-	return socialconnections.Credential{}, socialconnections.ErrProviderUnavailable
-}
-
-func (threadsCredentialAdapter) Discover(
-	context.Context,
-	socialconnections.Credential,
-) ([]socialconnections.DiscoveredResource, error) {
-	return nil, socialconnections.ErrProviderUnavailable
-}
-
-func (threadsCredentialAdapter) Refresh(
-	context.Context,
-	socialconnections.Credential,
-) (socialconnections.Credential, error) {
-	return socialconnections.Credential{}, socialconnections.ErrNotRefreshable
-}
-
-func (threadsCredentialAdapter) Verify(
-	context.Context,
-	string,
-	socialconnections.Credential,
-) error {
-	return socialconnections.ErrProviderUnavailable
-}
-
-func (threadsCredentialAdapter) Revoke(
-	context.Context,
-	string,
-	socialconnections.Credential,
-) error {
-	return socialconnections.ErrExternalRevocationUnavailable
 }
 
 type pinnedMetaTransport struct {
