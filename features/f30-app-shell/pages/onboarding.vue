@@ -38,7 +38,7 @@ const selectedWorkspace = ref(session.value?.workspaces[0]?.id ?? '')
 const accepted = ref(false)
 const saving = ref(false)
 const error = ref(false)
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.onboarding'),

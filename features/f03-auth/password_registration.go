@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -177,7 +178,7 @@ func (service *PasswordRegistrationService) Register(
 			ID:              accountID,
 			Email:           normalized,
 			NormalizedEmail: normalized,
-			DisplayName:     "",
+			DisplayName:     fallbackRegistrationDisplayName(normalized),
 			ContractCountry: "IT",
 			CreatedAt:       now,
 		},
@@ -234,6 +235,20 @@ func (service *PasswordRegistrationService) VerifyEmail(
 		return ErrVerificationInvalid
 	}
 	return nil
+}
+
+func fallbackRegistrationDisplayName(email string) string {
+	displayName := strings.TrimSpace(email)
+	if localPart, _, found := strings.Cut(displayName, "@"); found {
+		displayName = strings.TrimSpace(localPart)
+	}
+	if displayName == "" {
+		return "Postqron user"
+	}
+	if utf8.RuneCountInString(displayName) <= 100 {
+		return displayName
+	}
+	return string([]rune(displayName)[:100])
 }
 
 func (service *PasswordRegistrationService) ResendVerification(

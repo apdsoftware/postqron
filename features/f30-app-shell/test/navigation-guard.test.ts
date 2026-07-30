@@ -96,7 +96,7 @@ test('new accounts are sent to onboarding with the exact safe destination', () =
   )
 })
 
-test('offline and denied guards expose only stable application state', () => {
+test('offline, unavailable, and denied guards expose only stable application state', () => {
   assert.deepEqual(
     routeGuardDecision({
       destination: '/de/app/home',
@@ -104,7 +104,7 @@ test('offline and denied guards expose only stable application state', () => {
     }),
     {
       action: 'redirect',
-      location: '/de/app?return_to=%2Fde%2Fapp%2Fhome&app_state=offline',
+      location: '/de/app?return_to=%2Fde%2Fapp%2Fhome&app_state=unavailable',
     },
   )
   assert.deepEqual(
@@ -119,11 +119,19 @@ test('offline and denied guards expose only stable application state', () => {
   )
 })
 
-test('a retryable network failure preserves a previously validated session', () => {
+test('transport and service failures preserve a previously validated session', () => {
   assert.deepEqual(
     routeGuardDecision({
       destination: '/it/app/profile',
       failure: 'offline',
+      session,
+    }),
+    { action: 'allow' },
+  )
+  assert.deepEqual(
+    routeGuardDecision({
+      destination: '/it/app/profile',
+      failure: 'unknown',
       session,
     }),
     { action: 'allow' },

@@ -38,6 +38,8 @@ test('all five app catalogs contain the exact same keys', () => {
     'privacy.accountDeletionOwnershipUnavailable',
     'accountDeletionCancel.title',
     'accountDeletionCancel.securityNote',
+    'state.unavailable.title',
+    'state.unavailable.description',
     'verify.title',
     'auth.confirmation',
     'auth.registerSubmit',
@@ -207,6 +209,7 @@ test('account pages render retryable loading and failure states', async () => {
     assert.match(source, /kind="loading"/u)
     assert.match(source, /:kind="pageState"/u)
     assert.match(source, /@retry="retry"/u)
+    assert.match(source, /'unavailable'/u)
   }
 })
 

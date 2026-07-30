@@ -6,8 +6,8 @@ import {
   useState,
 } from '#imports'
 import {
+  appServiceStateFromError,
   AppShellApi,
-  normalizeAppApiError,
   resolveAppShellApiBase,
   type AppFetch,
 } from './api.ts'
@@ -91,8 +91,6 @@ export function useAppShellApi(): AppShellApi {
 
 export function appStateKindFromError(
   error: unknown,
-): 'access-denied' | 'offline' {
-  return normalizeAppApiError(error).kind === 'access-denied'
-    ? 'access-denied'
-    : 'offline'
+): 'access-denied' | 'offline' | 'unavailable' {
+  return appServiceStateFromError(error)
 }

@@ -20,7 +20,7 @@ const api = useAppShellApi()
 const session = useAppSessionState()
 const { t } = useAppShellI18n()
 const members = ref<WorkspaceMember[]>([])
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.workspace'),

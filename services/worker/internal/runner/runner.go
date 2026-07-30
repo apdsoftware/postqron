@@ -10,12 +10,31 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/apdsoftware/postqron/services/worker/internal/privacyruntime"
 )
+
+var newWorkspaceRuntimeService = func(
+	database *sql.DB,
+	clock func() time.Time,
+) (workspaceOnboardingRuntime, error) {
+	repository, err := workspaces.NewPostgresRepository(database)
+	if err != nil {
+		return nil, err
+	}
+	return workspaces.NewRuntimeServiceWithClock(repository, clock)
+}
+
+type workspaceOnboardingRuntime interface {
+	ConsumeOnboardingRequired(
+		context.Context,
+		workspaces.OnboardingRequiredEvent,
+	) (workspaces.Workspace, bool, error)
+}
 
 type Runner struct {
 	features []featureruntime.Feature
@@ -169,15 +188,11 @@ func (r *Runner) processOnboardingEvent(ctx context.Context) (bool, error) {
 		)
 		return true, fmt.Errorf("decode onboarding event: %w", err)
 	}
-	repository, err := workspaces.NewPostgresRepository(r.database)
+	service, err := newWorkspaceRuntimeService(r.database, r.clock)
 	if err != nil {
 		return true, err
 	}
-	service, err := workspaces.NewRuntimeServiceWithClock(repository, r.clock)
-	if err != nil {
-		return true, err
-	}
-	_, _, err = service.ConsumeOnboardingRequired(ctx, workspaces.OnboardingRequiredEvent{
+	workspace, _, err := service.ConsumeOnboardingRequired(ctx, workspaces.OnboardingRequiredEvent{
 		AccountID:            event.AccountID,
 		Email:                event.Email,
 		DisplayName:          event.DisplayName,
@@ -195,9 +210,17 @@ func (r *Runner) processOnboardingEvent(ctx context.Context) (bool, error) {
 			) VALUES ($1, $2, 'it-IT', 'Europe/Rome', $3)
 			ON CONFLICT (account_id) DO NOTHING`,
 			event.AccountID,
-			strings.TrimSpace(event.DisplayName),
+			accountProfileDisplayName(event.DisplayName, event.Email),
 			r.clock().UTC(),
 		)
+	}
+	if err == nil {
+		err = r.database.QueryRowContext(
+			ctx,
+			`SELECT f10_provision_trial($1, $2)`,
+			workspace.ID,
+			event.OccurredAt.UTC(),
+		).Scan(new(bool))
 	}
 	if err != nil {
 		_, _ = r.database.ExecContext(
@@ -221,4 +244,21 @@ func (r *Runner) processOnboardingEvent(ctx context.Context) (bool, error) {
 		return true, fmt.Errorf("mark onboarding event published: %w", err)
 	}
 	return true, nil
+}
+
+func accountProfileDisplayName(displayName, email string) string {
+	name := strings.TrimSpace(displayName)
+	if name == "" {
+		name = strings.TrimSpace(email)
+		if localPart, _, found := strings.Cut(name, "@"); found {
+			name = strings.TrimSpace(localPart)
+		}
+	}
+	if name == "" {
+		name = "Postqron user"
+	}
+	if utf8.RuneCountInString(name) <= 100 {
+		return name
+	}
+	return string([]rune(name)[:100])
 }

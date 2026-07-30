@@ -26,7 +26,7 @@ const confirmation = ref('')
 const changing = ref(false)
 const revoking = ref(false)
 const feedback = ref<'changed' | 'error' | 'revoked'>()
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.security'),

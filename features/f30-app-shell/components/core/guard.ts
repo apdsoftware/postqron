@@ -24,7 +24,11 @@ export function routeGuardDecision(input: {
   const destination = safeAppDestination(input.destination, locale)
   if (
     input.session
-    && (input.failure === 'offline' || input.failure === 'configuration')
+    && (
+      input.failure === 'offline'
+      || input.failure === 'configuration'
+      || input.failure === 'unknown'
+    )
   ) {
     return { action: 'allow' }
   }
@@ -34,8 +38,10 @@ export function routeGuardDecision(input: {
   if (!session) {
     const login = new URL(appRoot(locale), 'https://postqron.local')
     login.searchParams.set('return_to', destination)
-    if (input.failure === 'offline' || input.failure === 'configuration') {
+    if (input.failure === 'offline') {
       login.searchParams.set('app_state', 'offline')
+    } else if (input.failure === 'configuration' || input.failure === 'unknown') {
+      login.searchParams.set('app_state', 'unavailable')
     } else if (input.failure === 'access-denied') {
       login.searchParams.set('app_state', 'access-denied')
     }

@@ -25,7 +25,7 @@ const feedback = ref<'error' | 'saved'>()
 const displayName = ref('')
 const locale = ref('it-IT')
 const timezone = ref('Europe/Rome')
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.profile'),
