@@ -27,6 +27,7 @@ const (
 	ProviderGoogleBusinessProfile = "google_business_profile"
 
 	capabilityVersion = "static-publishing-v1"
+	defaultPollLimit  = 6
 )
 
 // Executor is deliberately the exact credential-free portion of the F5
@@ -79,6 +80,7 @@ type Config struct {
 	Media           MediaResolver
 	LinkedInVersion string
 	ReconcilePolls  int
+	CreatePollLimit int
 	Gates           map[string]Gate
 }
 
@@ -98,6 +100,7 @@ type Adapter struct {
 	media           MediaResolver
 	linkedinVersion string
 	reconcilePolls  int
+	createPollLimit int
 }
 
 // Register mounts only fully gated adapters. Missing configuration is not an
@@ -131,13 +134,16 @@ func Register(registry *publishing.AdapterRegistry, config Config) error {
 			!validLinkedInVersion(config.LinkedInVersion) {
 			continue
 		}
-		if (definition.name == ProviderX ||
-			definition.name == ProviderLinkedIn) && config.Media == nil {
+		if definition.name == ProviderX && config.Media == nil {
 			return publishing.ErrInvalidArgument
 		}
 		polls := config.ReconcilePolls
 		if polls <= 0 {
 			polls = 3
+		}
+		createPollLimit := config.CreatePollLimit
+		if createPollLimit <= 0 {
+			createPollLimit = defaultPollLimit
 		}
 		adapter := &Adapter{
 			provider:        definition.name,
@@ -147,6 +153,7 @@ func Register(registry *publishing.AdapterRegistry, config Config) error {
 			media:           config.Media,
 			linkedinVersion: strings.TrimSpace(config.LinkedInVersion),
 			reconcilePolls:  polls,
+			createPollLimit: createPollLimit,
 		}
 		if err := registry.RegisterPublisher(definition.name, adapter); err != nil {
 			return err
@@ -171,8 +178,8 @@ func (adapter *Adapter) ProviderCapabilities() []Capability {
 		return []Capability{{ID: "x.post", Formats: []string{"text", "image", "video"}, MultiStep: true}}
 	case ProviderLinkedIn:
 		return []Capability{
-			{ID: "linkedin.profile.post", Formats: []string{"text", "image"}, MultiStep: true},
-			{ID: "linkedin.page.post", Formats: []string{"text", "image"}, MultiStep: true},
+			{ID: "linkedin.profile.post", Formats: []string{"text"}, MultiStep: true},
+			{ID: "linkedin.page.post", Formats: []string{"text"}, MultiStep: true},
 		}
 	case ProviderPinterest:
 		return []Capability{{ID: "pinterest.pin", Formats: []string{"image"}, MultiStep: true}}
@@ -235,6 +242,14 @@ func (adapter *Adapter) Publish(
 	if err != nil {
 		return publishing.PublishResult{}, err
 	}
+	if adapter.provider == ProviderLinkedIn && len(content.Media) != 0 {
+		// LinkedIn DMS uses a signed www.linkedin.com upload origin distinct
+		// from the API resource server. The current public F5 boundary accepts
+		// relative paths only, so #345 must land before this can be safe.
+		return publishing.PublishResult{}, permanent(
+			"linkedin_media_upload_boundary_unavailable",
+		)
+	}
 	state, err := decodeCheckpoint(request.Checkpoint)
 	if err != nil {
 		return publishing.PublishResult{}, err
@@ -263,9 +278,6 @@ func (adapter *Adapter) Publish(
 	}
 	if adapter.provider == ProviderX && len(content.Media) != 0 {
 		return adapter.publishXMedia(ctx, request, content, state)
-	}
-	if adapter.provider == ProviderLinkedIn && len(content.Media) != 0 {
-		return adapter.publishLinkedInMedia(ctx, request, content, state)
 	}
 	if state.Stage == "create_poll" {
 		return adapter.pollCreated(ctx, request, content, state)
@@ -301,18 +313,11 @@ func (adapter *Adapter) create(
 	if err != nil {
 		return publishing.PublishResult{}, err
 	}
-	if adapter.provider == ProviderLinkedIn {
-		state.Stage = "create_poll"
-		state.PollCount = 0
-		return publishing.PublishResult{
-			Complete:   false,
-			Checkpoint: mustJSON(state),
-			RetryAfter: time.Second,
-		}, nil
-	}
 	remoteID, permalink, err := adapter.createdResult(response, content)
 	if err != nil {
-		return publishing.PublishResult{}, err
+		return publishing.PublishResult{}, ambiguous(
+			"provider_create_response_ambiguous",
+		)
 	}
 	state.Stage = "complete"
 	return publishing.PublishResult{
@@ -329,6 +334,15 @@ func (adapter *Adapter) pollCreated(
 	content payload,
 	state checkpoint,
 ) (publishing.PublishResult, error) {
+	limit := adapter.createPollLimit
+	if limit <= 0 {
+		limit = defaultPollLimit
+	}
+	if state.PollCount >= limit {
+		return publishing.PublishResult{}, permanent(
+			"linkedin_create_poll_exhausted",
+		)
+	}
 	items, err := adapter.list(ctx, request, content)
 	if err != nil {
 		return publishing.PublishResult{}, err
@@ -342,6 +356,11 @@ func (adapter *Adapter) pollCreated(
 		}, nil
 	}
 	state.PollCount++
+	if state.PollCount >= limit {
+		return publishing.PublishResult{}, permanent(
+			"linkedin_create_poll_exhausted",
+		)
+	}
 	return publishing.PublishResult{
 		Complete: false, Checkpoint: mustJSON(state), RetryAfter: time.Second,
 	}, nil
@@ -372,6 +391,11 @@ func (adapter *Adapter) Reconcile(
 	if state.Version != 1 || state.Target != target ||
 		!equalStrings(state.MediaRefs, mediaRefs(content)) {
 		return publishing.ReconcileResult{}, permanent("checkpoint_invalid")
+	}
+	if adapter.provider == ProviderLinkedIn && len(content.Media) != 0 {
+		return publishing.ReconcileResult{}, permanent(
+			"linkedin_media_upload_boundary_unavailable",
+		)
 	}
 	if mediaResult, handled, mediaErr := adapter.reconcileMedia(
 		ctx, request, content, state,
@@ -552,6 +576,12 @@ func permanent(code string) *publishing.ProviderError {
 	return &publishing.ProviderError{Code: code, Retryable: false}
 }
 
+func ambiguous(code string) *publishing.ProviderError {
+	return &publishing.ProviderError{
+		Code: code, Retryable: true, Ambiguous: true,
+	}
+}
+
 func decodeCheckpoint(raw json.RawMessage) (checkpoint, error) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("{}")) {
 		return checkpoint{}, nil
@@ -600,16 +630,16 @@ func validCheckpointShape(value checkpoint) bool {
 			value.MediaIndex > 0 && len(value.MediaIDs) == value.MediaIndex
 	case "linkedin_upload":
 		return strings.HasPrefix(value.UploadID, "urn:li:image:") &&
-			strings.HasPrefix(value.UploadPath, "/dms-uploads/") &&
+			validLinkedInUploadURL(value.UploadPath) &&
 			len(value.MediaIDs) == 0 && value.MediaIndex == 0
 	case "linkedin_create":
 		return strings.HasPrefix(value.UploadID, "urn:li:image:") &&
-			strings.HasPrefix(value.UploadPath, "/dms-uploads/") &&
+			validLinkedInUploadURL(value.UploadPath) &&
 			len(value.MediaIDs) == 1 &&
 			value.MediaIDs[0] == value.UploadID
 	case "create_poll", "complete":
 		return value.UploadPath == "" ||
-			strings.HasPrefix(value.UploadPath, "/dms-uploads/")
+			validLinkedInUploadURL(value.UploadPath)
 	default:
 		return false
 	}

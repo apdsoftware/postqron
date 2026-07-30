@@ -173,6 +173,14 @@ func TestRegistersExactStaticProviderSetAndCapabilities(t *testing.T) {
 			!capabilities.RemotePermalink {
 			t.Fatalf("%s capabilities=%+v", provider, capabilities)
 		}
+		if provider == ProviderLinkedIn {
+			for _, capability := range publisher.(*Adapter).ProviderCapabilities() {
+				if len(capability.Formats) != 1 ||
+					capability.Formats[0] != "text" {
+					t.Fatalf("LinkedIn capability=%+v", capability)
+				}
+			}
+		}
 	}
 	for _, excluded := range []string{
 		"facebook_pages", "instagram_professional", "tiktok", "youtube",
@@ -181,6 +189,26 @@ func TestRegistersExactStaticProviderSetAndCapabilities(t *testing.T) {
 		if _, err := registry.ResolvePublisher(context.Background(), excluded); !errors.Is(err, publishing.ErrProviderUnavailable) {
 			t.Fatalf("excluded provider %s error=%v", excluded, err)
 		}
+	}
+}
+
+func TestLinkedInTextRegistersWithoutMediaResolver(t *testing.T) {
+	registry := publishing.NewAdapterRegistry()
+	if err := Register(registry, Config{
+		Executor:        &fixtureExecutor{},
+		Targets:         target(socialconnections.ProviderLinkedIn, "urn:li:person:123"),
+		LinkedInVersion: "202606",
+		Gates: map[string]Gate{
+			ProviderLinkedIn: readyGates()[ProviderLinkedIn],
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.ResolvePublisher(
+		context.Background(),
+		ProviderLinkedIn,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -278,8 +306,7 @@ func TestLinkedInProfileAndPageUseVersionedOfficialHeaders(t *testing.T) {
 	for _, author := range []string{"urn:li:person:123", "urn:li:organization:456"} {
 		executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
 			{StatusCode: 200, Body: []byte(`{"elements":[]}`)},
-			{StatusCode: 201, Header: http.Header{"X-Restli-Id": {"urn:li:share:ignored"}}, Body: []byte(`{}`)},
-			{StatusCode: 200, Body: []byte(`{"elements":[{"id":"urn:li:share:789","author":"` + author + `","commentary":"hello"}]}`)},
+			{StatusCode: 201, Header: http.Header{"X-Restli-Id": {"urn:li:share:ignored"}}, Body: []byte(`{"id":"urn:li:share:789"}`)},
 		}}
 		adapter := &Adapter{
 			provider: ProviderLinkedIn, expected: socialconnections.ProviderLinkedIn,
@@ -299,15 +326,7 @@ func TestLinkedInProfileAndPageUseVersionedOfficialHeaders(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Complete {
-			t.Fatal("LinkedIn create must wait for body-visible finder evidence")
-		}
-		request.Checkpoint = result.Checkpoint
-		result, err = adapter.Publish(context.Background(), request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.RemoteID != "urn:li:share:789" {
+		if !result.Complete || result.RemoteID != "urn:li:share:789" {
 			t.Fatalf("result=%+v", result)
 		}
 		create := executor.calls[1].request
@@ -315,9 +334,6 @@ func TestLinkedInProfileAndPageUseVersionedOfficialHeaders(t *testing.T) {
 			create.Header.Get("Linkedin-Version") != "202606" ||
 			create.Header.Get("X-Restli-Protocol-Version") != "2.0.0" {
 			t.Fatalf("headers=%v provider=%s", create.Header, create.ExpectedProvider)
-		}
-		if finder := executor.calls[2].request; finder.Header.Get("X-RestLi-Method") != "FINDER" {
-			t.Fatalf("finder headers=%v", finder.Header)
 		}
 	}
 }
@@ -719,7 +735,7 @@ func TestAmbiguousXMediaCreateReconcilesWithoutSecondCreate(t *testing.T) {
 	}
 }
 
-func TestLinkedInOfficialInitializeUploadUsesMediaAndFinderBodyEvidence(
+func TestLinkedInSignedUploadURLIsPreservedAndMediaPathFailsClosed(
 	t *testing.T,
 ) {
 	raw := []byte("official-linkedin-image")
@@ -736,20 +752,22 @@ func TestLinkedInOfficialInitializeUploadUsesMediaAndFinderBodyEvidence(
 			"alt_text":"alt"
 		}]
 	}`, len(raw), digest))
-	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
-		{StatusCode: 200, Body: []byte(`{"elements":[]}`)},
-		{StatusCode: 200, Body: []byte(`{"value":{
-			"uploadUrl":"https://www.linkedin.com/dms-uploads/image/upload?sig=opaque",
-			"image":"urn:li:image:abc"
-		}}`)},
-		{StatusCode: 201, Body: []byte(`{}`)},
-		{StatusCode: 201, Header: http.Header{"X-Restli-Id": {"urn:li:share:ignored"}}, Body: []byte(`{}`)},
-		{StatusCode: 200, Body: []byte(`{"elements":[{
-			"id":"urn:li:share:789",
-			"author":"urn:li:organization:456",
-			"commentary":"with media"
-		}]}`)},
-	}}
+	signedURL := "https://www.linkedin.com/dms-uploads/image/upload" +
+		"?ca=123&cn=opaque%2Bsignature"
+	uploadID, parsedURL, err := decodeLinkedInInitialize([]byte(`{"value":{
+		"uploadUrl":"` + signedURL + `",
+		"image":"urn:li:image:abc"
+	}}`))
+	if err != nil || uploadID != "urn:li:image:abc" || parsedURL != signedURL {
+		t.Fatalf("upload id=%q url=%q err=%v", uploadID, parsedURL, err)
+	}
+	if _, _, err = decodeLinkedInInitialize([]byte(`{"value":{
+		"uploadUrl":"https://api.linkedin.com/dms-uploads/image/upload?sig=opaque",
+		"image":"urn:li:image:abc"
+	}}`)); err == nil {
+		t.Fatal("API resource-server origin must not substitute the signed DMS origin")
+	}
+	executor := &fixtureExecutor{}
 	adapter := &Adapter{
 		provider: ProviderLinkedIn, expected: socialconnections.ProviderLinkedIn,
 		executor: executor, targets: target(socialconnections.ProviderLinkedIn, author),
@@ -762,29 +780,256 @@ func TestLinkedInOfficialInitializeUploadUsesMediaAndFinderBodyEvidence(
 	request := publishing.PublishRequest{
 		WorkspaceID: "workspace", ConnectionID: "connection", Payload: payload,
 	}
-	for attempt := 0; attempt < 5; attempt++ {
-		result, err := adapter.Publish(context.Background(), request)
-		if err != nil {
-			t.Fatalf("attempt %d: %v", attempt, err)
-		}
-		request.Checkpoint = result.Checkpoint
-		if attempt < 4 && result.Complete {
-			t.Fatalf("attempt %d completed before finder evidence", attempt)
-		}
-		if attempt == 4 && (!result.Complete ||
-			result.RemoteID != "urn:li:share:789") {
-			t.Fatalf("result=%+v", result)
+	_, err = adapter.Publish(context.Background(), request)
+	var providerError *publishing.ProviderError
+	if !errors.As(err, &providerError) ||
+		providerError.Code != "linkedin_media_upload_boundary_unavailable" ||
+		providerError.Retryable {
+		t.Fatalf("error=%v", err)
+	}
+	if len(executor.calls) != 0 {
+		t.Fatalf("media path made %d requests before a safe F5 DMS boundary", len(executor.calls))
+	}
+	request.Checkpoint = mustJSON(checkpoint{
+		Version: 1, Stage: "linkedin_create", Target: author,
+		MediaRefs: []string{
+			"ref\x00asset\x00image/png\x00" + fmt.Sprint(len(raw)) +
+				"\x00" + fmt.Sprintf("%x", digest) + "\x00alt",
+		},
+		MediaIDs:   []string{"urn:li:image:abc"},
+		UploadID:   "urn:li:image:abc",
+		UploadPath: signedURL,
+	})
+	if _, err = adapter.Publish(context.Background(), request); err == nil {
+		t.Fatal("forged media checkpoint reached LinkedIn create")
+	}
+	if len(executor.calls) != 0 {
+		t.Fatalf("media checkpoint made %d requests without AVAILABLE proof", len(executor.calls))
+	}
+}
+
+func TestCreate2xxWithoutIDIsAmbiguousAndNeverPostsTwice(t *testing.T) {
+	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
+		{StatusCode: 200, Body: []byte(`{"data":[]}`)},
+		{StatusCode: 201, Body: []byte(`{}`)},
+		{StatusCode: 200, Body: []byte(`{"data":[{
+			"id":"200","text":"publish once"
+		}]}`)},
+	}}
+	adapter := &Adapter{
+		provider: ProviderX, expected: socialconnections.ProviderX,
+		executor: executor, targets: target(socialconnections.ProviderX, "123"),
+		reconcilePolls: 1,
+	}
+	payload := json.RawMessage(`{"format":"text","text":"publish once"}`)
+	request := publishing.PublishRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection", Payload: payload,
+	}
+	progress, err := adapter.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Checkpoint = progress.Checkpoint
+	_, err = adapter.Publish(context.Background(), request)
+	var providerError *publishing.ProviderError
+	if !errors.As(err, &providerError) || !providerError.Ambiguous ||
+		!providerError.Retryable {
+		t.Fatalf("create error=%v", err)
+	}
+	reconciled, err := adapter.Reconcile(
+		context.Background(),
+		publishing.ReconcileRequest{
+			WorkspaceID: "workspace", ConnectionID: "connection",
+			Payload: payload, Checkpoint: progress.Checkpoint,
+		},
+	)
+	if err != nil || reconciled.State != publishing.ReconciliationFound ||
+		reconciled.RemoteID != "200" {
+		t.Fatalf("reconciled=%+v err=%v", reconciled, err)
+	}
+	posts := 0
+	for _, call := range executor.calls {
+		if call.request.Method == http.MethodPost {
+			posts++
 		}
 	}
-	upload := executor.calls[2]
-	if upload.request.Method != http.MethodPut || upload.request.Media == nil ||
-		string(upload.mediaBody) != string(raw) || len(upload.request.Body) != 0 {
-		t.Fatalf("upload=%+v bytes=%q", upload.request, upload.mediaBody)
+	if posts != 1 {
+		t.Fatalf("create POST calls=%d", posts)
 	}
-	finder := executor.calls[4].request
-	if finder.Header.Get("X-RestLi-Method") != "FINDER" ||
+}
+
+func TestEveryProviderCreate2xxWithoutIDIsAmbiguous(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		expected socialconnections.Provider
+		target   string
+		payload  string
+		listBody string
+	}{
+		{
+			name: "x", provider: ProviderX,
+			expected: socialconnections.ProviderX, target: "123",
+			payload:  `{"format":"text","text":"once"}`,
+			listBody: `{"data":[]}`,
+		},
+		{
+			name: "linkedin", provider: ProviderLinkedIn,
+			expected: socialconnections.ProviderLinkedIn,
+			target:   "urn:li:person:123",
+			payload:  `{"format":"text","text":"once"}`,
+			listBody: `{"elements":[]}`,
+		},
+		{
+			name: "pinterest", provider: ProviderPinterest,
+			expected: socialconnections.ProviderPinterest, target: "42",
+			payload: `{"format":"image","title":"once","media":[{
+				"source_url":"https://cdn.example.com/image.jpg"
+			}]}`,
+			listBody: `{"items":[]}`,
+		},
+		{
+			name:     "google business profile",
+			provider: ProviderGoogleBusinessProfile,
+			expected: socialconnections.ProviderGoogleBusinessProfile,
+			target:   "accounts/1/locations/2",
+			payload:  `{"format":"text","text":"once"}`,
+			listBody: `{"localPosts":[]}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := &fixtureExecutor{
+				responses: []socialconnections.PublishingResponse{
+					{StatusCode: 200, Body: []byte(test.listBody)},
+					{StatusCode: 201, Body: []byte(`{}`)},
+				},
+			}
+			adapter := &Adapter{
+				provider: test.provider, expected: test.expected,
+				executor: executor, targets: target(test.expected, test.target),
+				linkedinVersion: "202606",
+			}
+			request := publishing.PublishRequest{
+				WorkspaceID: "workspace", ConnectionID: "connection",
+				Payload: json.RawMessage(test.payload),
+			}
+			progress, err := adapter.Publish(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Checkpoint = progress.Checkpoint
+			_, err = adapter.Publish(context.Background(), request)
+			var providerError *publishing.ProviderError
+			if !errors.As(err, &providerError) ||
+				!providerError.Ambiguous || !providerError.Retryable {
+				t.Fatalf("error=%v", err)
+			}
+			posts := 0
+			for _, call := range executor.calls {
+				if call.request.Method == http.MethodPost {
+					posts++
+				}
+			}
+			if posts != 1 {
+				t.Fatalf("create POST calls=%d", posts)
+			}
+		})
+	}
+}
+
+func TestLinkedInAmbiguousCreateReconcilesThroughFinderBoundary(t *testing.T) {
+	author := "urn:li:organization:456"
+	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
+		{StatusCode: 200, Body: []byte(`{"elements":[]}`)},
+		{StatusCode: 201, Header: http.Header{
+			"X-Restli-Id": {"urn:li:share:ignored"},
+		}, Body: []byte(`{}`)},
+		{StatusCode: 200, Body: []byte(`{"elements":[{
+			"id":"urn:li:share:789",
+			"author":"urn:li:organization:456",
+			"commentary":"once"
+		}]}`)},
+	}}
+	adapter := &Adapter{
+		provider: ProviderLinkedIn, expected: socialconnections.ProviderLinkedIn,
+		executor: executor, targets: target(socialconnections.ProviderLinkedIn, author),
+		linkedinVersion: "202606", reconcilePolls: 1,
+	}
+	payload := json.RawMessage(`{"format":"text","text":"once"}`)
+	request := publishing.PublishRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection", Payload: payload,
+	}
+	progress, err := adapter.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Checkpoint = progress.Checkpoint
+	if _, err = adapter.Publish(context.Background(), request); err == nil {
+		t.Fatal("body-less create must be ambiguous")
+	}
+	result, err := adapter.Reconcile(
+		context.Background(),
+		publishing.ReconcileRequest{
+			WorkspaceID: "workspace", ConnectionID: "connection",
+			Payload: payload, Checkpoint: progress.Checkpoint,
+		},
+	)
+	if err != nil || result.State != publishing.ReconciliationFound ||
+		result.RemoteID != "urn:li:share:789" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	finder := executor.calls[2].request
+	if finder.Method != http.MethodGet ||
+		finder.Header.Get("X-RestLi-Method") != "FINDER" ||
 		finder.Header.Get("X-Restli-Id") != "" {
-		t.Fatalf("finder headers=%v", finder.Header)
+		t.Fatalf("finder=%+v", finder)
+	}
+	posts := 0
+	for _, call := range executor.calls {
+		if call.request.Method == http.MethodPost {
+			posts++
+		}
+	}
+	if posts != 1 {
+		t.Fatalf("create POST calls=%d", posts)
+	}
+}
+
+func TestLinkedInLegacyCreatePollHasFiniteLimit(t *testing.T) {
+	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
+		{StatusCode: 200, Body: []byte(`{"elements":[]}`)},
+		{StatusCode: 200, Body: []byte(`{"elements":[]}`)},
+	}}
+	author := "urn:li:person:123"
+	adapter := &Adapter{
+		provider: ProviderLinkedIn, expected: socialconnections.ProviderLinkedIn,
+		executor: executor, targets: target(socialconnections.ProviderLinkedIn, author),
+		linkedinVersion: "202606", createPollLimit: 2,
+	}
+	request := publishing.PublishRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection",
+		Payload: json.RawMessage(
+			`{"format":"text","text":"eventually visible"}`,
+		),
+		Checkpoint: mustJSON(checkpoint{
+			Version: 1, Stage: "create_poll", Target: author,
+		}),
+	}
+	first, err := adapter.Publish(context.Background(), request)
+	if err != nil || first.Complete {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	request.Checkpoint = first.Checkpoint
+	_, err = adapter.Publish(context.Background(), request)
+	var providerError *publishing.ProviderError
+	if !errors.As(err, &providerError) ||
+		providerError.Code != "linkedin_create_poll_exhausted" ||
+		providerError.Retryable {
+		t.Fatalf("error=%v", err)
+	}
+	if len(executor.calls) != 2 {
+		t.Fatalf("poll calls=%d", len(executor.calls))
 	}
 }
 

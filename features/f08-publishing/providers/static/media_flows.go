@@ -48,7 +48,9 @@ func (adapter *Adapter) publishXMedia(
 		}
 		uploadID, _, err := decodeXMediaState(response.Body)
 		if err != nil {
-			return publishing.PublishResult{}, err
+			return publishing.PublishResult{}, ambiguous(
+				"provider_media_initialize_response_ambiguous",
+			)
 		}
 		state.Stage = "x_append"
 		state.UploadID = uploadID
@@ -82,10 +84,9 @@ func (adapter *Adapter) publishXMedia(
 		}
 		uploadID, delay, err := decodeXMediaState(response.Body)
 		if err != nil || uploadID != state.UploadID {
-			if err != nil {
-				return publishing.PublishResult{}, err
-			}
-			return publishing.PublishResult{}, permanent("provider_response_invalid")
+			return publishing.PublishResult{}, ambiguous(
+				"provider_media_finalize_response_ambiguous",
+			)
 		}
 		state.Stage = "x_status"
 		return progress(state, delay), nil
@@ -119,61 +120,6 @@ func (adapter *Adapter) publishXMedia(
 		default:
 			return publishing.PublishResult{}, permanent("media_processing_failed")
 		}
-	default:
-		return publishing.PublishResult{}, permanent("checkpoint_invalid")
-	}
-}
-
-func (adapter *Adapter) publishLinkedInMedia(
-	ctx context.Context,
-	request publishing.PublishRequest,
-	content payload,
-	state checkpoint,
-) (publishing.PublishResult, error) {
-	current := content.Media[0]
-	switch state.Stage {
-	case "create":
-		response, err := adapter.execute(
-			ctx, request, http.MethodPost,
-			"/rest/images?action=initializeUpload",
-			adapter.createHeaders(),
-			canonicalJSON(map[string]any{
-				"initializeUploadRequest": map[string]any{"owner": content.Author},
-			}),
-		)
-		if err != nil {
-			return publishing.PublishResult{}, err
-		}
-		uploadID, uploadPath, err := decodeLinkedInInitialize(response.Body)
-		if err != nil {
-			return publishing.PublishResult{}, err
-		}
-		state.Stage = "linkedin_upload"
-		state.UploadID = uploadID
-		state.UploadPath = uploadPath
-		return progress(state, 0), nil
-	case "linkedin_upload":
-		mediaRequest, err := adapter.openMedia(
-			ctx, request.WorkspaceID, current,
-		)
-		if err != nil {
-			return publishing.PublishResult{}, err
-		}
-		_, err = adapter.executeMedia(
-			ctx, request, http.MethodPut, state.UploadPath,
-			http.Header{"Content-Type": {current.ContentType}},
-			mediaRequest,
-		)
-		if err != nil {
-			return publishing.PublishResult{}, err
-		}
-		state.MediaIDs = []string{state.UploadID}
-		state.Stage = "linkedin_create"
-		return progress(state, 0), nil
-	case "create_poll":
-		return adapter.pollCreated(ctx, request, content, state)
-	case "linkedin_create":
-		return adapter.create(ctx, request, content, state)
 	default:
 		return publishing.PublishResult{}, permanent("checkpoint_invalid")
 	}
@@ -219,11 +165,6 @@ func (adapter *Adapter) reconcileMedia(
 		return publishing.ReconcileResult{
 			State:      publishing.ReconciliationNotFound,
 			Diagnostic: "Provider media status proves the checkpoint can resume without creating a post.",
-		}, true, nil
-	case "linkedin_upload":
-		return publishing.ReconcileResult{
-			State:      publishing.ReconciliationNotFound,
-			Diagnostic: "The provider-issued upload URL and immutable media digest make PUT replay safe.",
 		}, true, nil
 	default:
 		return publishing.ReconcileResult{}, false, nil
@@ -336,15 +277,19 @@ func decodeLinkedInInitialize(body []byte) (string, string, error) {
 		!strings.HasPrefix(value.Value.Image, "urn:li:image:") {
 		return "", "", permanent("provider_response_invalid")
 	}
-	target, err := url.Parse(value.Value.UploadURL)
-	if err != nil || target.Scheme != "https" ||
-		(target.Host != "www.linkedin.com" &&
-			target.Host != "api.linkedin.com") ||
-		target.User != nil || target.Fragment != "" ||
-		!strings.HasPrefix(target.EscapedPath(), "/dms-uploads/") {
+	if !validLinkedInUploadURL(value.Value.UploadURL) {
 		return "", "", permanent("provider_response_invalid")
 	}
-	return value.Value.Image, target.RequestURI(), nil
+	return value.Value.Image, value.Value.UploadURL, nil
+}
+
+func validLinkedInUploadURL(raw string) bool {
+	target, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && target.Scheme == "https" &&
+		target.Host == "www.linkedin.com" &&
+		target.User == nil && target.Fragment == "" &&
+		strings.HasPrefix(target.EscapedPath(), "/dms-uploads/") &&
+		target.RawQuery != ""
 }
 
 func xMediaCategory(contentType string) string {

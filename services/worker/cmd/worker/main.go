@@ -64,7 +64,7 @@ func main() {
 	}
 	defer database.Close()
 
-	worker, err := runner.NewRuntimeWithExecutor(
+	worker, err := runner.NewRuntime(
 		features,
 		database,
 		os.Getenv("DATABASE_URL"),
@@ -72,7 +72,6 @@ func main() {
 		interval,
 		time.Now,
 		logger,
-		nil,
 	)
 	if err != nil {
 		logger.Error("configure worker", "error", err)

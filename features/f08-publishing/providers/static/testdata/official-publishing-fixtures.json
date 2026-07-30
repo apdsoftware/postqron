@@ -35,6 +35,7 @@
     "list_response": {"elements": []},
     "create_response": {},
     "media_flow": {
+      "disabled_dependency": 345,
       "initializeUpload": {
         "value": {
           "uploadUrl": "https://www.linkedin.com/dms-uploads/image/upload?sig=opaque",

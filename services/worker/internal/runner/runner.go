@@ -75,15 +75,19 @@ func NewRuntime(
 	clock func() time.Time,
 	logger *slog.Logger,
 ) (*Runner, error) {
+	executor, err := publishingruntime.NewF5AuthenticatedExecutor(database, clock)
+	if err != nil {
+		return nil, err
+	}
 	return NewRuntimeWithExecutor(
 		features, database, databaseURL, appDomain, interval, clock,
-		logger, nil,
+		logger, executor,
 	)
 }
 
-// NewRuntimeWithExecutor is the real worker composition root for F5→F8.
-// Passing nil keeps publishing fail-closed; enabling any F8 static provider
-// without a bootstrapped public F5 AuthenticatedExecutor fails startup.
+// NewRuntimeWithExecutor is the testable F5→F8 composition seam. Production
+// calls NewRuntime, which constructs the public F5 AuthenticatedExecutor from
+// fail-closed worker configuration.
 func NewRuntimeWithExecutor(
 	features []featureruntime.Feature,
 	database *sql.DB,

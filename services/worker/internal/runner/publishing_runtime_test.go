@@ -3,22 +3,13 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 )
-
-type runnerF5Authorizer struct{}
-
-func (runnerF5Authorizer) Authorize(
-	context.Context, string, string, socialconnections.Permission,
-) error {
-	return nil
-}
 
 func TestTickDispatchesF8Runtime(t *testing.T) {
 	var output bytes.Buffer
@@ -75,31 +66,18 @@ func TestRealRunnerCompositionAcceptsValidGatesOnlyWithF5Executor(
 	); err == nil {
 		t.Fatal("valid gates without F5 executor must fail closed")
 	}
-	repository, err := socialconnections.NewPostgresRepository(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	quota, err := socialconnections.NewPostgresChannelQuota(database, time.Now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f5Service, err := socialconnections.NewService(socialconnections.Config{
-		Repository: repository, Authorizer: runnerF5Authorizer{}, Quota: quota,
-		Now: time.Now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	executor, err := socialconnections.NewAuthenticatedExecutor(
-		socialconnections.AuthenticatedExecutorConfig{Service: f5Service},
+	t.Setenv("POSTQRON_F05_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_CIPHER_KEY_ID", "worker-test-key")
+	t.Setenv(
+		"POSTQRON_F05_CIPHER_KEY_BASE64",
+		base64.StdEncoding.EncodeToString(
+			[]byte("0123456789abcdef0123456789abcdef"),
+		),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	worker, err := NewRuntimeWithExecutor(
+	t.Setenv("POSTQRON_F05_X_RESOURCE_SERVER", "https://api.x.com")
+	worker, err := NewRuntime(
 		nil, database, "postgres://worker:worker@127.0.0.1/postqron",
 		"example.test", time.Second, time.Now, logger,
-		executor,
 	)
 	if err != nil {
 		t.Fatalf("compose gated runner: %v", err)

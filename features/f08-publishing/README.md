@@ -45,11 +45,16 @@ injects implementations of:
 The immutable destination payload is prepared from a validated F6 revision.
 
 The static-provider registry is fail-closed. The real runner composition root
-calls `NewWithExecutor`; it accepts only the public, credential-free F5
-`AuthenticatedExecutor`. Each X, LinkedIn profile/Page, Pinterest, or Google
-Business Profile adapter is registered only when enabled, provider-review,
-runtime-audit, and quota gates are all true. LinkedIn also requires a six-digit
-API version. X and LinkedIn media publishing additionally require an absolute
+constructs the public, credential-free F5 `AuthenticatedExecutor` and passes it
+to `NewWithExecutor`; production never injects `nil` when a provider gate is
+ready. Each X, LinkedIn profile/Page, Pinterest, or Google Business Profile
+adapter is registered only when enabled, provider-review, runtime-audit, and
+quota gates are all true. A ready gate additionally requires
+`POSTQRON_F05_ENABLED=true`, the F5 credential cipher, and the provider's exact
+official resource server in `POSTQRON_F05_<PROVIDER>_RESOURCE_SERVER`. Requests
+use an HTTPS-only, redirect-free transport which validates every DNS result and
+dials a pinned public address. LinkedIn also requires a six-digit API version.
+X media publishing additionally requires an absolute
 `POSTQRON_F08_MEDIA_ROOT`; objects are opened only from
 `<root>/<workspace>/<immutable-ref>`. A missing executor, target resolver,
 media resolver, version, or gate fails closed without direct HTTP, credential,
@@ -58,10 +63,17 @@ token, or secret access.
 Targets are loaded server-side from the connected F5 resource. Payload
 `author`, `board_id`, or `location` values can only repeat that binding; they
 cannot select another resource. X and LinkedIn reject preloaded provider media
-IDs. X checkpoints initialize, append, finalize, and status before create.
-LinkedIn checkpoints `initializeUpload`, binary upload, create, and finder
-polling. Binary streams cross the credential boundary only as
-`PublishingRequest.Media`.
+IDs. X checkpoints initialize, append, finalize, and status before create;
+binary streams cross the credential boundary only as
+`PublishingRequest.Media`. LinkedIn text publishing accepts a remote ID only
+from sanitized response-body evidence and otherwise enters reconciliation.
+LinkedIn image publishing is disabled fail-closed pending #345: the provider
+returns a signed `www.linkedin.com/dms-uploads` URL, while the current public
+F5 boundary safely accepts only relative paths for the distinct
+`api.linkedin.com` resource server. F8 preserves and validates that signed URL
+but never rewrites it, sends it to the API origin, or opens an arbitrary-origin
+HTTP path. No LinkedIn create can occur before that dependency supplies an
+allowlisted DMS upload boundary and asset `AVAILABLE` verification.
 
 Every adapter persists a fully paginated baseline and immutable ordered media
 snapshot before its create step. Reconciliation paginates every result page
