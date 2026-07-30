@@ -2,13 +2,18 @@
 import {
   computed,
   definePageMeta,
+  onMounted,
   ref,
   useAsyncData,
   useHead,
   useState,
+  watch,
 } from '#imports'
 import { pricingCopy } from '../../f02-marketing-site/src/catalog.ts'
-import { createIdempotencyKey } from '../src/billing.ts'
+import {
+  createIdempotencyKey,
+  loadBillingOverview,
+} from '../src/billing.ts'
 import { useBillingApi, useBillingI18n } from '../src/use-billing.ts'
 
 definePageMeta({ layout: 'app-shell' })
@@ -25,10 +30,30 @@ const portalOpening = ref(false)
 const portalError = ref(false)
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const isOwner = computed(() => session.value?.current_workspace?.role === 'owner')
-const { data: overview, pending, refresh, status } = await useAsyncData(
+const { data: overview, pending, refresh, status } = useAsyncData(
   'billing-overview',
-  () => api.overview(workspaceId.value),
+  () => loadBillingOverview(api, workspaceId.value),
+  {
+    immediate: false,
+    server: false,
+  },
 )
+
+async function loadOverview() {
+  if (!workspaceId.value) {
+    return
+  }
+  await refresh()
+}
+
+onMounted(() => {
+  void loadOverview()
+})
+watch(workspaceId, (current, previous) => {
+  if (current && current !== previous) {
+    void loadOverview()
+  }
+})
 
 const planName = computed(() => {
   if (overview.value?.plan.code === 'unlimited') {
@@ -63,7 +88,7 @@ async function openPortal() {
       </p>
     </header>
     <div
-      v-if="pending"
+      v-if="pending || status === 'idle'"
       class="billing-state"
       role="status"
     >
@@ -78,6 +103,7 @@ async function openPortal() {
       <button
         class="pq-button"
         type="button"
+        :disabled="!workspaceId"
         @click="refresh"
       >
         {{ t('checkout.retry') }}

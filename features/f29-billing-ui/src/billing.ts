@@ -71,6 +71,10 @@ export interface BillingOverview {
   usage: BillingUsage[]
 }
 
+export interface BillingOverviewClient {
+  overview(workspaceId: string): Promise<BillingOverview>
+}
+
 export type BillingFetch = (
   path: string,
   options?: Readonly<Record<string, unknown>>,
@@ -379,6 +383,16 @@ export function entitlementConfirmed(
     && channelsSatisfied
 }
 
+export async function loadBillingOverview(
+  api: BillingOverviewClient,
+  workspaceId: string,
+): Promise<BillingOverview | undefined> {
+  if (!workspaceId) {
+    return undefined
+  }
+  return api.overview(workspaceId)
+}
+
 export class BillingApi {
   readonly #baseURL: string
   readonly #fetch: BillingFetch
@@ -413,6 +427,11 @@ export class BillingApi {
   }
 
   async overview(workspaceId: string): Promise<BillingOverview> {
+    if (!workspaceId) {
+      throw new BillingApiError('BILLING_WORKSPACE_UNAVAILABLE', {
+        retryable: false,
+      })
+    }
     return parseOverview(await this.#request(
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/billing`,
     ))

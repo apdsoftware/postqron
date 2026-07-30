@@ -8,6 +8,7 @@ import {
   createIdempotencyKey,
   entitlementConfirmed,
   intentCompatibleWithPlan,
+  loadBillingOverview,
   parseCheckoutSession,
   parsePurchaseIntent,
   safePaddleClientToken,
@@ -115,6 +116,45 @@ test('Paddle success stays processing until the webhook entitlement is visible',
   assert.equal(state, 'processing')
   state = checkoutTransition(state, 'entitlement-confirmed')
   assert.equal(state, 'confirmed')
+})
+
+test('billing overview waits for a non-empty client workspace', async () => {
+  const workspaces: string[] = []
+  const overview = {
+    plan: proPlan,
+    interval: 'monthly',
+    state: 'active',
+    period: {
+      start: '2026-07-01T00:00:00Z',
+      end: '2026-08-01T00:00:00Z',
+    },
+    usage: [],
+  } as BillingOverview
+  const api = {
+    async overview(workspaceId: string) {
+      workspaces.push(workspaceId)
+      return overview
+    },
+  }
+
+  assert.equal(await loadBillingOverview(api, ''), undefined)
+  assert.deepEqual(workspaces, [])
+  assert.equal(await loadBillingOverview(api, 'workspace-fixture'), overview)
+  assert.deepEqual(workspaces, ['workspace-fixture'])
+})
+
+test('billing API rejects an empty workspace before issuing a request', async () => {
+  let calls = 0
+  const api = new BillingApi('https://api.postqron.test', async () => {
+    calls += 1
+    return {}
+  })
+
+  await assert.rejects(
+    () => api.overview(''),
+    { message: 'BILLING_WORKSPACE_UNAVAILABLE' },
+  )
+  assert.equal(calls, 0)
 })
 
 test('close, payment failure, retry, invalid sessions, and tokens are safe', () => {
