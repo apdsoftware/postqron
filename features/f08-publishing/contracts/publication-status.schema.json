@@ -23,18 +23,22 @@
         "publishing",
         "retry_wait",
         "published",
+        "notified",
         "dead_letter",
         "cancelled"
       ]
     },
     "remote_id": { "type": "string", "minLength": 1 },
+    "permalink": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "notification_id": { "type": "string", "minLength": 1 },
     "diagnostic": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "code": { "type": "string" },
         "detail": { "type": "string" },
-        "retryable": { "type": "boolean" }
+        "retryable": { "type": "boolean" },
+        "ambiguous": { "type": "boolean" }
       }
     },
     "occurred_at": { "type": "string", "format": "date-time" }

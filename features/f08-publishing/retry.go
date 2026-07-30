@@ -46,6 +46,7 @@ type ProviderError struct {
 	Code       string
 	Detail     string
 	Retryable  bool
+	Ambiguous  bool
 	RetryAfter time.Duration
 }
 

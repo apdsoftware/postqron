@@ -1,9 +1,8 @@
 // Package publishing owns reliable, per-destination publication execution.
 //
-// Every provider call receives a durable idempotency key. Provider adapters
-// must return the same remote publication for every call with the same key;
-// this closes the crash window between a successful remote call and the local
-// transaction that records its result.
+// Every provider call receives a durable idempotency key. An adapter is
+// executable only when it provides native idempotency or reconciliation for
+// the crash window between a remote side effect and its local commit.
 package publishing
 
 const FeatureID = "publishing"

@@ -33,7 +33,10 @@
         "required": [
           "channel_id",
           "provider",
-          "connection_id",
+          "mode",
+          "draft_revision",
+          "capability_id",
+          "capability_version",
           "payload"
         ],
         "properties": {
@@ -43,6 +46,10 @@
             "pattern": "^[a-z][a-z0-9_-]{0,63}$"
           },
           "connection_id": { "type": "string", "minLength": 1 },
+          "mode": { "enum": ["auto", "notification"] },
+          "draft_revision": { "type": "integer", "minimum": 1 },
+          "capability_id": { "type": "string", "minLength": 1 },
+          "capability_version": { "type": "string", "minLength": 1 },
           "payload": { "type": "object" },
           "max_attempts": { "type": "integer", "minimum": 1 }
         }

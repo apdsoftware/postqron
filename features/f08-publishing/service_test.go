@@ -63,6 +63,9 @@ func TestExpiredLeaseReplayDoesNotCreateDuplicate(t *testing.T) {
 			provider.Creates(),
 		)
 	}
+	if provider.ReconcileCalls() != 0 {
+		t.Fatalf("native-idempotent reclaim reconciled %d times", provider.ReconcileCalls())
+	}
 }
 
 func TestConcurrentWorkersClaimDestinationOnce(t *testing.T) {
@@ -356,11 +359,15 @@ func testEnqueueRequest(
 
 func testDestination(channelID, provider string, attempts int) DestinationInput {
 	return DestinationInput{
-		ChannelID:    channelID,
-		Provider:     provider,
-		ConnectionID: "connection-" + channelID,
-		Payload:      []byte(`{"text":"hello"}`),
-		MaxAttempts:  attempts,
+		ChannelID:         channelID,
+		Provider:          provider,
+		ConnectionID:      "connection-" + channelID,
+		Mode:              PublishingModeAuto,
+		DraftRevision:     1,
+		CapabilityID:      provider + ".text",
+		CapabilityVersion: "test-v1",
+		Payload:           []byte(`{"text":"hello"}`),
+		MaxAttempts:       attempts,
 	}
 }
 
@@ -411,30 +418,56 @@ func (authorizer *fakeAuthorizer) CanRetryPublication(
 }
 
 type fakeResolver struct {
-	publisher Publisher
-	err       error
+	mutex        sync.Mutex
+	publisher    Publisher
+	err          error
+	lastProvider string
 }
 
 func (resolver *fakeResolver) ResolvePublisher(
 	_ context.Context,
-	_ string,
+	provider string,
 ) (Publisher, error) {
+	resolver.mutex.Lock()
+	defer resolver.mutex.Unlock()
+	resolver.lastProvider = provider
 	return resolver.publisher, resolver.err
 }
 
+func (resolver *fakeResolver) LastProvider() string {
+	resolver.mutex.Lock()
+	defer resolver.mutex.Unlock()
+	return resolver.lastProvider
+}
+
 type fakeProvider struct {
-	mutex    sync.Mutex
-	calls    int
-	creates  int
-	remote   map[string]string
-	failures map[string][]error
+	mutex           sync.Mutex
+	calls           int
+	creates         int
+	remote          map[string]string
+	failures        map[string][]error
+	capabilities    AdapterCapabilities
+	reconciliations map[string]ReconcileResult
+	reconcileCalls  int
 }
 
 func newFakeProvider() *fakeProvider {
 	return &fakeProvider{
 		remote:   make(map[string]string),
 		failures: make(map[string][]error),
+		capabilities: AdapterCapabilities{
+			Version:           "test-v1",
+			Mode:              PublishingModeAuto,
+			NativeIdempotency: true,
+		},
+		reconciliations: make(map[string]ReconcileResult),
 	}
+}
+
+func (provider *fakeProvider) Capabilities() AdapterCapabilities {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	return provider.capabilities
 }
 
 func (provider *fakeProvider) Fail(channelID string, failures ...error) {
@@ -451,7 +484,7 @@ func (provider *fakeProvider) Publish(
 	defer provider.mutex.Unlock()
 	provider.calls++
 	if remoteID, exists := provider.remote[request.IdempotencyKey]; exists {
-		return PublishResult{RemoteID: remoteID}, nil
+		return PublishResult{Complete: true, RemoteID: remoteID}, nil
 	}
 	if failures := provider.failures[request.ChannelID]; len(failures) > 0 {
 		failure := failures[0]
@@ -461,7 +494,26 @@ func (provider *fakeProvider) Publish(
 	provider.creates++
 	remoteID := fmt.Sprintf("remote-%d", provider.creates)
 	provider.remote[request.IdempotencyKey] = remoteID
-	return PublishResult{RemoteID: remoteID}, nil
+	return PublishResult{Complete: true, RemoteID: remoteID}, nil
+}
+
+func (provider *fakeProvider) Reconcile(
+	_ context.Context,
+	request ReconcileRequest,
+) (ReconcileResult, error) {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	provider.reconcileCalls++
+	if result, exists := provider.reconciliations[request.IdempotencyKey]; exists {
+		return result, nil
+	}
+	if remoteID, exists := provider.remote[request.IdempotencyKey]; exists {
+		return ReconcileResult{
+			State:    ReconciliationFound,
+			RemoteID: remoteID,
+		}, nil
+	}
+	return ReconcileResult{State: ReconciliationNotFound}, nil
 }
 
 func (provider *fakeProvider) Calls() int {
@@ -474,4 +526,10 @@ func (provider *fakeProvider) Creates() int {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	return provider.creates
+}
+
+func (provider *fakeProvider) ReconcileCalls() int {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	return provider.reconcileCalls
 }

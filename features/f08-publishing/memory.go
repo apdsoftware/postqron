@@ -2,7 +2,9 @@ package publishing
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,6 +37,9 @@ func (store *MemoryStore) Enqueue(
 	defer store.mutex.Unlock()
 	if existingID, exists := store.commandJobs[job.CommandID]; exists {
 		existing := store.jobs[existingID]
+		if !store.sameSnapshotLocked(existingID, job.Destinations) {
+			return EnqueueResult{}, ErrConflict
+		}
 		return EnqueueResult{
 			JobID:   existing.ID,
 			Created: false,
@@ -87,6 +92,9 @@ func (store *MemoryStore) ClaimDue(
 		if !claimable || destination.NextAttemptAt.After(now) {
 			continue
 		}
+		if destination.Status == DestinationPublishing {
+			destination.NeedsReconciliation = true
+		}
 		destination.Status = DestinationPublishing
 		destination.AttemptCount++
 		destination.CycleAttemptCount++
@@ -125,13 +133,14 @@ func (store *MemoryStore) MarkCancelled(
 
 func (store *MemoryStore) MarkPublished(
 	_ context.Context,
-	id, leaseToken, remoteID string,
+	id, leaseToken string,
+	result PublishResult,
 	now time.Time,
 ) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	destination, err := store.claimedLocked(id, leaseToken)
-	if err != nil || remoteID == "" {
+	if err != nil || strings.TrimSpace(result.RemoteID) == "" {
 		if err != nil {
 			return err
 		}
@@ -141,12 +150,71 @@ func (store *MemoryStore) MarkPublished(
 		if otherID != id &&
 			other.Provider == destination.Provider &&
 			other.ConnectionID == destination.ConnectionID &&
-			other.RemoteID == remoteID {
+			other.RemoteID == result.RemoteID {
 			return ErrConflict
 		}
 	}
 	destination.Status = DestinationPublished
-	destination.RemoteID = remoteID
+	destination.RemoteID = strings.TrimSpace(result.RemoteID)
+	destination.Permalink = strings.TrimSpace(result.Permalink)
+	destination.Checkpoint = append([]byte(nil), result.Checkpoint...)
+	destination.NeedsReconciliation = false
+	destination.LastDiagnostic = Diagnostic{}
+	destination.LeaseToken = ""
+	destination.LockedUntil = nil
+	publishedAt := now
+	destination.PublishedAt = &publishedAt
+	store.destinations[id] = destination
+	store.refreshJobLocked(destination.JobID, now)
+	return nil
+}
+
+func (store *MemoryStore) MarkProgress(
+	_ context.Context,
+	id, leaseToken string,
+	checkpoint json.RawMessage,
+	next time.Time,
+	now time.Time,
+) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	destination, err := store.claimedLocked(id, leaseToken)
+	if err != nil {
+		return err
+	}
+	if !jsonValidObject(checkpoint) || next.IsZero() || now.IsZero() {
+		return ErrInvalidArgument
+	}
+	destination.Status = DestinationRetryWait
+	destination.Checkpoint = append([]byte(nil), checkpoint...)
+	destination.NextAttemptAt = next
+	destination.NeedsReconciliation = false
+	if destination.CycleAttemptCount > 0 {
+		destination.CycleAttemptCount--
+	}
+	destination.LeaseToken = ""
+	destination.LockedUntil = nil
+	store.destinations[id] = destination
+	store.refreshJobLocked(destination.JobID, now)
+	return nil
+}
+
+func (store *MemoryStore) MarkNotified(
+	_ context.Context,
+	id, leaseToken, notificationID string,
+	now time.Time,
+) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	destination, err := store.claimedLocked(id, leaseToken)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(notificationID) == "" {
+		return ErrInvalidArgument
+	}
+	destination.Status = DestinationNotified
+	destination.NotificationID = strings.TrimSpace(notificationID)
 	destination.LastDiagnostic = Diagnostic{}
 	destination.LeaseToken = ""
 	destination.LockedUntil = nil
@@ -175,6 +243,7 @@ func (store *MemoryStore) MarkRetry(
 	destination.Status = DestinationRetryWait
 	destination.LastDiagnostic = diagnostic
 	destination.NextAttemptAt = next
+	destination.NeedsReconciliation = diagnostic.Ambiguous
 	destination.LeaseToken = ""
 	destination.LockedUntil = nil
 	store.destinations[id] = destination
@@ -196,6 +265,8 @@ func (store *MemoryStore) MarkDeadLetter(
 	}
 	destination.Status = DestinationDeadLetter
 	destination.LastDiagnostic = diagnostic
+	destination.NeedsReconciliation =
+		destination.NeedsReconciliation || diagnostic.Ambiguous
 	destination.LeaseToken = ""
 	destination.LockedUntil = nil
 	deadLetteredAt := now
@@ -281,6 +352,8 @@ func (store *MemoryStore) refreshJobLocked(jobID string, now time.Time) {
 			publishing++
 		case DestinationPublished:
 			published++
+		case DestinationNotified:
+			published++
 		case DestinationDeadLetter:
 			deadLetter++
 		case DestinationCancelled:
@@ -329,9 +402,16 @@ func validateJob(job Job) error {
 			destination.WorkspaceID != job.WorkspaceID ||
 			destination.PostID != job.PostID ||
 			destination.Generation != job.Generation ||
+			destination.DraftRevision < 1 ||
 			destination.ChannelID == "" ||
 			destination.Provider == "" ||
-			destination.ConnectionID == "" ||
+			(destination.Mode == PublishingModeAuto && destination.ConnectionID == "") ||
+			(destination.Mode != PublishingModeAuto &&
+				destination.Mode != PublishingModeNotification) ||
+			destination.CapabilityID == "" ||
+			destination.Capabilities.Version == "" ||
+			destination.Capabilities.Mode != destination.Mode ||
+			len(destination.SnapshotHash) != 64 ||
 			destination.IdempotencyKey == "" ||
 			destination.Status != DestinationPending ||
 			destination.AttemptCount != 0 ||
@@ -362,6 +442,7 @@ func cloneJob(source Job) Job {
 
 func cloneDestination(source Destination) Destination {
 	source.Payload = append([]byte(nil), source.Payload...)
+	source.Checkpoint = append([]byte(nil), source.Checkpoint...)
 	if source.LockedUntil != nil {
 		value := *source.LockedUntil
 		source.LockedUntil = &value
@@ -379,6 +460,27 @@ func cloneDestination(source Destination) Destination {
 		source.CancelledAt = &value
 	}
 	return source
+}
+
+func (store *MemoryStore) sameSnapshotLocked(
+	jobID string,
+	destinations []Destination,
+) bool {
+	stored := make(map[string]string)
+	for _, destination := range store.destinations {
+		if destination.JobID == jobID {
+			stored[destination.ChannelID] = destination.SnapshotHash
+		}
+	}
+	if len(stored) != len(destinations) {
+		return false
+	}
+	for _, destination := range destinations {
+		if stored[destination.ChannelID] != destination.SnapshotHash {
+			return false
+		}
+	}
+	return true
 }
 
 var _ Store = (*MemoryStore)(nil)

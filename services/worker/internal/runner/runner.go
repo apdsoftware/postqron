@@ -16,6 +16,7 @@ import (
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/apdsoftware/postqron/services/worker/internal/privacyruntime"
+	"github.com/apdsoftware/postqron/services/worker/internal/publishingruntime"
 )
 
 var newWorkspaceRuntimeService = func(
@@ -37,13 +38,19 @@ type workspaceOnboardingRuntime interface {
 }
 
 type Runner struct {
-	features []featureruntime.Feature
-	database *sql.DB
-	interval time.Duration
-	clock    func() time.Time
-	logger   *slog.Logger
-	email    *emailruntime.Service
-	privacy  *privacyruntime.Service
+	features        []featureruntime.Feature
+	database        *sql.DB
+	interval        time.Duration
+	clock           func() time.Time
+	logger          *slog.Logger
+	email           *emailruntime.Service
+	privacy         *privacyruntime.Service
+	publishing      publishingDispatcher
+	closePublishing func()
+}
+
+type publishingDispatcher interface {
+	DispatchOne(context.Context) (bool, error)
 }
 
 func New(features []featureruntime.Feature, interval time.Duration, logger *slog.Logger) *Runner {
@@ -61,6 +68,7 @@ func New(features []featureruntime.Feature, interval time.Duration, logger *slog
 func NewRuntime(
 	features []featureruntime.Feature,
 	database *sql.DB,
+	databaseURL string,
 	appDomain string,
 	interval time.Duration,
 	clock func() time.Time,
@@ -85,14 +93,25 @@ func NewRuntime(
 	if err != nil {
 		return nil, err
 	}
+	publishingService, err := publishingruntime.New(
+		context.Background(),
+		database,
+		databaseURL,
+		clock,
+	)
+	if err != nil {
+		return nil, err
+	}
 	return &Runner{
-		features: features,
-		database: database,
-		interval: interval,
-		clock:    clock,
-		logger:   logger,
-		email:    emailService,
-		privacy:  privacyService,
+		features:        features,
+		database:        database,
+		interval:        interval,
+		clock:           clock,
+		logger:          logger,
+		email:           emailService,
+		privacy:         privacyService,
+		publishing:      publishingService,
+		closePublishing: publishingService.Close,
 	}, nil
 }
 
@@ -114,6 +133,13 @@ func (r *Runner) Tick(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	if r.publishing != nil {
+		if dispatched, err := r.publishing.DispatchOne(ctx); err != nil {
+			r.logger.Error("worker F8 publishing dispatch failed", "error", err)
+		} else if dispatched {
+			r.logger.Info("worker F8 publishing dispatch processed")
+		}
+	}
 	if r.database != nil && r.email != nil {
 		if processed, err := r.processOnboardingEvent(ctx); err != nil {
 			r.logger.Error("worker onboarding bridge failed", "error", err)
@@ -133,6 +159,12 @@ func (r *Runner) Tick(ctx context.Context) {
 			"feature", feature.Manifest.ID,
 			"version", feature.Manifest.Version,
 		)
+	}
+}
+
+func (r *Runner) Close() {
+	if r != nil && r.closePublishing != nil {
+		r.closePublishing()
 	}
 }
 
