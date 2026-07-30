@@ -57,7 +57,9 @@ func (runtimeNotificationStore) PutIfAbsent(
 	string,
 	string,
 	string,
+	string,
+	string,
 	json.RawMessage,
-) (string, error) {
-	return "meta_notification_0123456789abcdef0123456789abcdef", nil
+) (string, bool, error) {
+	return "meta_notification_0123456789abcdef0123456789abcdef", true, nil
 }

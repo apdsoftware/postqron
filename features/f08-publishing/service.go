@@ -289,6 +289,15 @@ func (engine *Engine) DispatchOne(ctx context.Context) (bool, error) {
 	if err := validateRuntimeCapabilities(destination, capabilities); err != nil {
 		return true, engine.handleFailure(ctx, destination, err, now)
 	}
+	if destination.NeedsReconciliation && !capabilities.Reconciliation &&
+		!capabilities.NativeIdempotency {
+		return true, engine.handleFailure(ctx, destination, &ProviderError{
+			Code:      "ambiguous_outcome_unrecoverable",
+			Detail:    "The provider outcome cannot be reconciled safely.",
+			Retryable: false,
+			Ambiguous: true,
+		}, now)
+	}
 	if destination.NeedsReconciliation && capabilities.Reconciliation {
 		reconciled, reconcileErr := publisher.Reconcile(ctx, ReconcileRequest{
 			WorkspaceID:    destination.WorkspaceID,
@@ -607,7 +616,8 @@ func (engine *Engine) resolveCapabilities(
 			)
 		}
 		capabilities = publisher.Capabilities()
-		if !capabilities.NativeIdempotency && !capabilities.Reconciliation {
+		if !capabilities.NativeIdempotency && !capabilities.Reconciliation &&
+			!capabilities.FailClosedOnAmbiguous {
 			return AdapterCapabilities{}, ErrUnsafeAdapter
 		}
 	case PublishingModeNotification:
@@ -650,7 +660,8 @@ func validateRuntimeCapabilities(
 		}
 	}
 	if destination.Mode == PublishingModeAuto &&
-		!current.NativeIdempotency && !current.Reconciliation {
+		!current.NativeIdempotency && !current.Reconciliation &&
+		!current.FailClosedOnAmbiguous {
 		return &ProviderError{
 			Code:      "unsafe_adapter",
 			Detail:    "The provider adapter cannot safely recover an ambiguous request.",
@@ -691,17 +702,24 @@ func classifyPublishError(
 			copyOfError.Ambiguous =
 				copyOfError.Ambiguous || !capabilities.NativeIdempotency
 		}
+		if copyOfError.Ambiguous && capabilities.FailClosedOnAmbiguous {
+			copyOfError.Retryable = false
+		}
 		return &copyOfError
 	}
 	if !transportFailure {
 		return err
 	}
-	return &ProviderError{
+	result := &ProviderError{
 		Code:      "transport_outcome_unknown",
 		Detail:    err.Error(),
 		Retryable: true,
 		Ambiguous: !capabilities.NativeIdempotency,
 	}
+	if result.Ambiguous && capabilities.FailClosedOnAmbiguous {
+		result.Retryable = false
+	}
+	return result
 }
 
 func validateCompletedResult(result PublishResult) error {

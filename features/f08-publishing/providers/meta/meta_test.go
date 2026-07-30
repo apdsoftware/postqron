@@ -262,10 +262,9 @@ type memoryNotificationStore struct {
 
 func (store *memoryNotificationStore) PutIfAbsent(
 	_ context.Context,
-	provider, _ string,
-	idempotencyKey string,
+	provider, _, _, _, idempotencyKey string,
 	_ json.RawMessage,
-) (string, error) {
+) (string, bool, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if store.records == nil {
@@ -273,11 +272,11 @@ func (store *memoryNotificationStore) PutIfAbsent(
 	}
 	key := provider + ":" + idempotencyKey
 	if id := store.records[key]; id != "" {
-		return id, nil
+		return id, true, nil
 	}
 	id := StableNotificationID(provider, idempotencyKey)
 	store.records[key] = id
-	return id, nil
+	return id, true, nil
 }
 
 func TestNotificationPublishingIsIdempotentUnderRace(t *testing.T) {
@@ -439,6 +438,61 @@ func TestMetaResponseClassifierMapsSanitizedSchedulingSemantics(t *testing.T) {
 	}
 }
 
+func TestResponseIDAcceptsOfficialAdditionalFieldsAndPostID(t *testing.T) {
+	for _, test := range []struct {
+		body string
+		want string
+	}{
+		{
+			body: `{"id":"media-1","post_id":"legacy-1","status":"published"}`,
+			want: "media-1",
+		},
+		{
+			body: `{"post_id":"page_1_2","success":true,"trace":"ignored"}`,
+			want: "page_1_2",
+		},
+	} {
+		got, err := responseID([]byte(test.body))
+		if err != nil || got != test.want {
+			t.Fatalf("responseID(%s)=%q,%v want %q", test.body, got, err, test.want)
+		}
+	}
+}
+
+func TestMetaCapabilitiesDriveMediaValidation(t *testing.T) {
+	executor := &fixtureExecutor{}
+	instagram, err := newPublisher(
+		executor,
+		socialconnections.ProviderInstagramProfessional,
+		"v25.0",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities := instagram.Capabilities()
+	if capabilities.MediaFormats == "" || capabilities.Reconciliation {
+		t.Fatalf("capabilities=%+v", capabilities)
+	}
+	var formats []formatCapability
+	if err = json.Unmarshal([]byte(capabilities.MediaFormats), &formats); err != nil {
+		t.Fatal(err)
+	}
+	if len(formats) != 3 || formats[2].Format != "carousel" ||
+		formats[2].Minimum != 2 || formats[2].Maximum != 10 ||
+		formats[2].Media != "image" {
+		t.Fatalf("formats=%+v", formats)
+	}
+	if err = validatePayload(
+		capabilities,
+		Payload{
+			Format: "carousel",
+			Media:  []Media{{URL: "https://media.example/only-one.jpg"}},
+		},
+	); err == nil {
+		t.Fatal("capability-driven carousel minimum was not enforced")
+	}
+}
+
 func TestOfficialOfflineFixtureCoversMetaExecutionModes(t *testing.T) {
 	source, err := os.ReadFile("testdata/official-meta-fixtures.json")
 	if err != nil {
@@ -466,8 +520,8 @@ func TestOfficialOfflineFixtureCoversMetaExecutionModes(t *testing.T) {
 		switch fixture.Mode {
 		case "auto":
 			auto++
-			if !fixture.Reconciliation || !fixture.MultiStep {
-				t.Fatalf("unsafe auto fixture=%+v", fixture)
+			if fixture.Reconciliation || !fixture.MultiStep {
+				t.Fatalf("auto fixture overstates reconciliation=%+v", fixture)
 			}
 		case "notification":
 			notification++

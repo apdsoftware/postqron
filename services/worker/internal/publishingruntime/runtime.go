@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 // only by injecting an already configured F5 AuthenticatedExecutor. The
 // default worker registry remains empty and fails closed.
 type Service struct {
-	engine *publishing.Engine
-	pool   *pgxpool.Pool
+	engine                 *publishing.Engine
+	notificationDispatcher *metapublishing.NotificationDispatcher
+	pool                   *pgxpool.Pool
 }
 
 type runtimeConfig struct {
@@ -31,6 +33,23 @@ func WithMetaAdapters(config metapublishing.RegistrationConfig) Option {
 	return func(runtime *runtimeConfig) {
 		runtime.meta = config
 	}
+}
+
+func NewMetaRegistrationConfig(
+	database *sql.DB,
+	clock func() time.Time,
+) (metapublishing.RegistrationConfig, error) {
+	config, err := productionMetaAutoConfig(database, clock)
+	if err != nil {
+		return metapublishing.RegistrationConfig{}, err
+	}
+	if strings.TrimSpace(os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED")) == "true" {
+		return metapublishing.RegistrationConfig{}, fmt.Errorf(
+			"%w: social notification delivery requires issue 343",
+			publishing.ErrProviderUnavailable,
+		)
+	}
+	return config, nil
 }
 
 func New(
@@ -66,6 +85,26 @@ func New(
 		pool.Close()
 		return nil, err
 	}
+	var notificationDispatcher *metapublishing.NotificationDispatcher
+	if config.meta.NotificationStore != nil || config.meta.NotificationSender != nil {
+		store, ok := config.meta.NotificationStore.(*metapublishing.PostgresNotificationStore)
+		if !ok || config.meta.NotificationSender == nil {
+			pool.Close()
+			return nil, fmt.Errorf(
+				"%w: incomplete Meta notification dispatcher",
+				publishing.ErrProviderUnavailable,
+			)
+		}
+		notificationDispatcher, err = metapublishing.NewNotificationDispatcher(
+			store,
+			config.meta.NotificationSender,
+			2*time.Minute,
+		)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 	engine, err := publishing.NewEngine(
 		store,
 		postgresCommandGate{database: database},
@@ -84,7 +123,11 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	return &Service{engine: engine, pool: pool}, nil
+	return &Service{
+		engine:                 engine,
+		notificationDispatcher: notificationDispatcher,
+		pool:                   pool,
+	}, nil
 }
 
 func newRuntimeAdapterRegistry(
@@ -100,6 +143,12 @@ func newRuntimeAdapterRegistry(
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	if service == nil || service.engine == nil {
 		return false, errors.New("publishing runtime is not configured")
+	}
+	if service.notificationDispatcher != nil {
+		dispatched, err := service.notificationDispatcher.DispatchOne(ctx)
+		if err != nil || dispatched {
+			return dispatched, err
+		}
 	}
 	return service.engine.DispatchOne(ctx)
 }

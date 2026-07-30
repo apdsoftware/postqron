@@ -30,6 +30,8 @@ var newWorkspaceRuntimeService = func(
 	return workspaces.NewRuntimeServiceWithClock(repository, clock)
 }
 
+var newMetaRegistrationConfig = publishingruntime.NewMetaRegistrationConfig
+
 type workspaceOnboardingRuntime interface {
 	ConsumeOnboardingRequired(
 		context.Context,
@@ -93,11 +95,16 @@ func NewRuntime(
 	if err != nil {
 		return nil, err
 	}
+	metaConfig, err := newMetaRegistrationConfig(database, clock)
+	if err != nil {
+		return nil, err
+	}
 	publishingService, err := publishingruntime.New(
 		context.Background(),
 		database,
 		databaseURL,
 		clock,
+		publishingruntime.WithMetaAdapters(metaConfig),
 	)
 	if err != nil {
 		return nil, err

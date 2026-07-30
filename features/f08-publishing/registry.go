@@ -34,7 +34,8 @@ func (registry *AdapterRegistry) RegisterPublisher(
 	capabilities := publisher.Capabilities()
 	if capabilities.Mode != PublishingModeAuto ||
 		strings.TrimSpace(capabilities.Version) == "" ||
-		(!capabilities.NativeIdempotency && !capabilities.Reconciliation) {
+		(!capabilities.NativeIdempotency && !capabilities.Reconciliation &&
+			!capabilities.FailClosedOnAmbiguous) {
 		return ErrUnsafeAdapter
 	}
 	registry.mu.Lock()

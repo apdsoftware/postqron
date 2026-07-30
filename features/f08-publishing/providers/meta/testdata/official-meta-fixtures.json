@@ -4,7 +4,7 @@
     "mode": "auto",
     "formats": ["text", "link", "image"],
     "create_path": "/v25.0/me/feed",
-    "reconciliation": true,
+    "reconciliation": false,
     "multi_step": true
   },
   {
@@ -13,7 +13,7 @@
     "formats": ["image", "carousel", "reel"],
     "create_path": "/v25.0/me/media",
     "publish_path": "/v25.0/me/media_publish",
-    "reconciliation": true,
+    "reconciliation": false,
     "multi_step": true
   },
   {
@@ -22,7 +22,7 @@
     "formats": ["text", "image", "carousel", "reel"],
     "create_path": "/v1.0/me/threads",
     "publish_path": "/v1.0/me/threads_publish",
-    "reconciliation": true,
+    "reconciliation": false,
     "multi_step": true
   },
   {

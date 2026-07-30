@@ -15,7 +15,9 @@ type RegistrationConfig struct {
 	Executor            *socialconnections.AuthenticatedExecutor
 	GraphVersion        string
 	ThreadsGraphVersion string
+	AutoProviders       []socialconnections.Provider
 	NotificationStore   NotificationStore
+	NotificationSender  NotificationSender
 }
 
 func Register(
@@ -27,33 +29,44 @@ func Register(
 	}
 	autoConfigured := config.Executor != nil ||
 		strings.TrimSpace(config.GraphVersion) != "" ||
-		strings.TrimSpace(config.ThreadsGraphVersion) != ""
+		strings.TrimSpace(config.ThreadsGraphVersion) != "" ||
+		len(config.AutoProviders) != 0
 	if autoConfigured {
-		if config.Executor == nil ||
-			strings.TrimSpace(config.GraphVersion) == "" ||
-			strings.TrimSpace(config.ThreadsGraphVersion) == "" {
+		if config.Executor == nil {
 			return fmt.Errorf(
 				"%w: incomplete Meta authenticated executor registration",
 				publishing.ErrProviderUnavailable,
 			)
 		}
-		for _, provider := range []struct {
-			name    socialconnections.Provider
-			version string
-		}{
-			{
-				name:    socialconnections.ProviderFacebookPages,
-				version: config.GraphVersion,
-			},
-			{
-				name:    socialconnections.ProviderInstagramProfessional,
-				version: config.GraphVersion,
-			},
-			{
-				name:    socialconnections.ProviderThreads,
-				version: config.ThreadsGraphVersion,
-			},
-		} {
+		providers := config.AutoProviders
+		if len(providers) == 0 {
+			providers = []socialconnections.Provider{
+				socialconnections.ProviderFacebookPages,
+				socialconnections.ProviderInstagramProfessional,
+				socialconnections.ProviderThreads,
+			}
+		}
+		for _, name := range providers {
+			version := config.GraphVersion
+			if name == socialconnections.ProviderThreads {
+				version = config.ThreadsGraphVersion
+			}
+			if name != socialconnections.ProviderFacebookPages &&
+				name != socialconnections.ProviderInstagramProfessional &&
+				name != socialconnections.ProviderThreads {
+				return publishing.ErrInvalidArgument
+			}
+			if strings.TrimSpace(version) == "" {
+				return fmt.Errorf(
+					"%w: missing Graph version for %s",
+					publishing.ErrProviderUnavailable,
+					name,
+				)
+			}
+			provider := struct {
+				name    socialconnections.Provider
+				version string
+			}{name: name, version: version}
 			adapter, err := NewPublisher(Config{
 				Executor: config.Executor, Provider: provider.name,
 				GraphVersion: provider.version,

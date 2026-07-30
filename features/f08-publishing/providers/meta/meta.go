@@ -64,12 +64,14 @@ func newPublisher(
 
 func (publisher *Publisher) Capabilities() publishing.AdapterCapabilities {
 	return publishing.AdapterCapabilities{
-		Version:           capabilityVersion,
-		Mode:              publishing.PublishingModeAuto,
-		Reconciliation:    true,
-		MultiStep:         true,
-		RemotePermalink:   true,
-		NativeIdempotency: false,
+		Version:               capabilityVersion,
+		Mode:                  publishing.PublishingModeAuto,
+		Reconciliation:        false,
+		FailClosedOnAmbiguous: true,
+		MultiStep:             true,
+		RemotePermalink:       true,
+		NativeIdempotency:     false,
+		MediaFormats:          mediaFormats(publisher.provider),
 	}
 }
 
@@ -357,7 +359,7 @@ func (publisher *Publisher) validate(
 	if err := strictJSON(request.Payload, &payload); err != nil {
 		return Payload{}, checkpoint{}, permanent("payload_invalid")
 	}
-	if err := validatePayload(publisher.provider, payload); err != nil {
+	if err := validatePayload(publisher.Capabilities(), payload); err != nil {
 		return Payload{}, checkpoint{}, err
 	}
 	var state checkpoint
@@ -370,56 +372,84 @@ func (publisher *Publisher) validate(
 	return payload, state, nil
 }
 
-func validatePayload(provider socialconnections.Provider, payload Payload) error {
+type formatCapability struct {
+	Format   string `json:"format"`
+	Media    string `json:"media"`
+	Minimum  int    `json:"minimum"`
+	Maximum  int    `json:"maximum"`
+	TextMax  int    `json:"text_max"`
+	LinkOnly bool   `json:"link_only,omitempty"`
+}
+
+func validatePayload(capabilities publishing.AdapterCapabilities, payload Payload) error {
 	if !utf8.ValidString(payload.Text) {
 		return permanent("payload_invalid")
 	}
-	textLimit := 5000
-	if provider == socialconnections.ProviderInstagramProfessional {
-		textLimit = 2200
-	}
-	if provider == socialconnections.ProviderThreads {
-		textLimit = 500
-	}
-	if utf8.RuneCountInString(payload.Text) > textLimit {
-		return permanent("payload_invalid")
-	}
-	switch payload.Format {
-	case "text":
-		if strings.TrimSpace(payload.Text) == "" || len(payload.Media) != 0 ||
-			(provider != socialconnections.ProviderFacebookPages &&
-				provider != socialconnections.ProviderThreads) {
-			return permanent("payload_invalid")
-		}
-	case "link":
-		if strings.TrimSpace(payload.Text) == "" ||
-			!absoluteHTTPS(payload.Link) || len(payload.Media) != 0 ||
-			provider != socialconnections.ProviderFacebookPages {
-			return permanent("payload_invalid")
-		}
-	case "image", "reel":
-		if len(payload.Media) != 1 || !absoluteHTTPS(payload.Media[0].URL) {
-			return permanent("payload_invalid")
-		}
-	case "carousel":
-		maximum := 10
-		if provider == socialconnections.ProviderThreads {
-			maximum = 20
-		}
-		if len(payload.Media) < 2 || len(payload.Media) > maximum ||
-			(provider != socialconnections.ProviderInstagramProfessional &&
-				provider != socialconnections.ProviderThreads) {
-			return permanent("payload_invalid")
-		}
-		for _, media := range payload.Media {
-			if !absoluteHTTPS(media.URL) {
-				return permanent("payload_invalid")
-			}
-		}
-	default:
+	var formats []formatCapability
+	if capabilities.MediaFormats == "" ||
+		json.Unmarshal([]byte(capabilities.MediaFormats), &formats) != nil {
 		return permanent("capability_not_supported")
 	}
+	var selected *formatCapability
+	for index := range formats {
+		if formats[index].Format == payload.Format {
+			selected = &formats[index]
+			break
+		}
+	}
+	if selected == nil {
+		return permanent("capability_not_supported")
+	}
+	if utf8.RuneCountInString(payload.Text) > selected.TextMax ||
+		len(payload.Media) < selected.Minimum ||
+		len(payload.Media) > selected.Maximum ||
+		(selected.Minimum == 0 && len(payload.Media) != 0) {
+		return permanent("payload_invalid")
+	}
+	if (payload.Format == "text" || payload.Format == "link") &&
+		strings.TrimSpace(payload.Text) == "" {
+		return permanent("payload_invalid")
+	}
+	if selected.LinkOnly {
+		if !absoluteHTTPS(payload.Link) {
+			return permanent("payload_invalid")
+		}
+	} else if strings.TrimSpace(payload.Link) != "" {
+		return permanent("payload_invalid")
+	}
+	for _, media := range payload.Media {
+		if !absoluteHTTPS(media.URL) {
+			return permanent("payload_invalid")
+		}
+	}
 	return nil
+}
+
+func mediaFormats(provider socialconnections.Provider) string {
+	var formats []formatCapability
+	switch provider {
+	case socialconnections.ProviderFacebookPages:
+		formats = []formatCapability{
+			{Format: "text", Media: "none", TextMax: 5000},
+			{Format: "link", Media: "none", TextMax: 5000, LinkOnly: true},
+			{Format: "image", Media: "image", Minimum: 1, Maximum: 1, TextMax: 5000},
+		}
+	case socialconnections.ProviderInstagramProfessional:
+		formats = []formatCapability{
+			{Format: "image", Media: "image", Minimum: 1, Maximum: 1, TextMax: 2200},
+			{Format: "reel", Media: "video", Minimum: 1, Maximum: 1, TextMax: 2200},
+			{Format: "carousel", Media: "image", Minimum: 2, Maximum: 10, TextMax: 2200},
+		}
+	case socialconnections.ProviderThreads:
+		formats = []formatCapability{
+			{Format: "text", Media: "none", TextMax: 500},
+			{Format: "image", Media: "image", Minimum: 1, Maximum: 1, TextMax: 500},
+			{Format: "reel", Media: "video", Minimum: 1, Maximum: 1, TextMax: 500},
+			{Format: "carousel", Media: "image", Minimum: 2, Maximum: 20, TextMax: 500},
+		}
+	}
+	encoded, _ := json.Marshal(formats)
+	return string(encoded)
 }
 
 func (publisher *Publisher) containerValues(payload Payload) (url.Values, error) {
@@ -560,13 +590,20 @@ func (publisher *Publisher) graphPath(parts ...string) string {
 
 func responseID(body []byte) (string, error) {
 	var response struct {
-		ID string `json:"id"`
+		ID     string `json:"id"`
+		PostID string `json:"post_id"`
 	}
-	if err := strictJSON(body, &response); err != nil ||
-		strings.TrimSpace(response.ID) == "" {
+	if err := json.Unmarshal(body, &response); err != nil {
 		return "", errors.New("provider response id is missing")
 	}
-	return strings.TrimSpace(response.ID), nil
+	identifier := strings.TrimSpace(response.ID)
+	if identifier == "" {
+		identifier = strings.TrimSpace(response.PostID)
+	}
+	if identifier == "" {
+		return "", errors.New("provider response id is missing")
+	}
+	return identifier, nil
 }
 
 func progress(state checkpoint, retryAfter time.Duration) (publishing.PublishResult, error) {
@@ -720,7 +757,15 @@ func absoluteHTTPS(value string) bool {
 // NotificationStore persists user-directed manual publishing notifications.
 // PutIfAbsent must be atomic on idempotencyKey.
 type NotificationStore interface {
-	PutIfAbsent(context.Context, string, string, string, json.RawMessage) (string, error)
+	PutIfAbsent(
+		context.Context,
+		string,
+		string,
+		string,
+		string,
+		string,
+		json.RawMessage,
+	) (string, bool, error)
 }
 
 type NotificationPublisher struct {
@@ -765,8 +810,9 @@ func (publisher *NotificationPublisher) Notify(
 		validateNotificationPayload(publisher.provider, payload) != nil {
 		return publishing.NotificationResult{}, publishing.ErrInvalidArgument
 	}
-	deliveryID, err := publisher.store.PutIfAbsent(
-		ctx, publisher.provider, request.WorkspaceID,
+	deliveryID, delivered, err := publisher.store.PutIfAbsent(
+		ctx, publisher.provider, request.WorkspaceID, request.PostID,
+		request.ChannelID,
 		request.IdempotencyKey, append(json.RawMessage(nil), request.Payload...),
 	)
 	if err != nil {
@@ -774,6 +820,12 @@ func (publisher *NotificationPublisher) Notify(
 	}
 	if strings.TrimSpace(deliveryID) == "" {
 		return publishing.NotificationResult{}, permanent("notification_delivery_invalid")
+	}
+	if !delivered {
+		return publishing.NotificationResult{}, temporary(
+			"notification_delivery_pending",
+			5*time.Second,
+		)
 	}
 	return publishing.NotificationResult{DeliveryID: deliveryID}, nil
 }

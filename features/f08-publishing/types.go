@@ -43,9 +43,13 @@ type AdapterCapabilities struct {
 	Mode                    PublishingMode `json:"mode"`
 	NativeIdempotency       bool           `json:"native_idempotency"`
 	Reconciliation          bool           `json:"reconciliation"`
+	FailClosedOnAmbiguous   bool           `json:"fail_closed_on_ambiguous,omitempty"`
 	MultiStep               bool           `json:"multi_step"`
 	RemotePermalink         bool           `json:"remote_permalink"`
 	NotificationIdempotency bool           `json:"notification_idempotency"`
+	// MediaFormats is a canonical, versioned JSON capability document. It is
+	// kept as a string so immutable snapshots remain directly comparable.
+	MediaFormats string `json:"media_formats,omitempty"`
 }
 
 type CommandState string
