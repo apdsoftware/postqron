@@ -132,6 +132,19 @@ func (adapter *MetaAdapter) Config() OAuthConfig {
 	}
 }
 
+func (adapter *MetaAdapter) AdapterCapabilities() AdapterCapabilities {
+	capabilities := AdapterCapabilities{
+		Authorization:     true,
+		PKCE:              adapter.supportsPKCE,
+		ResourceSelection: true,
+	}
+	if adapter.provider == ProviderInstagramProfessional {
+		capabilities.TokenRefresh = true
+		capabilities.RemoteRevocation = true
+	}
+	return capabilities
+}
+
 func (adapter *MetaAdapter) Exchange(
 	ctx context.Context,
 	request ExchangeRequest,

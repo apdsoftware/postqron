@@ -38,7 +38,20 @@ properties:
     type: string
   provider:
     type: string
-    enum: [facebook_pages, instagram_professional]
+    enum:
+      - facebook_pages
+      - facebook_groups
+      - instagram_professional
+      - instagram_personal
+      - x
+      - linkedin
+      - pinterest
+      - tiktok
+      - google_business_profile
+      - mastodon
+      - youtube
+      - threads
+      - bluesky
   remote_id:
     type: string
   actor_account_id:
