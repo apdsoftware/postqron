@@ -4,7 +4,7 @@ export const schedulingPostStatuses = [
   "published",
   "failed",
   "cancelled",
-] as const;
+] as const
 
 export type SchedulingPostStatus = (typeof schedulingPostStatuses)[number];
 
