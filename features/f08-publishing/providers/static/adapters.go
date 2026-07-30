@@ -8,11 +8,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
@@ -33,6 +35,30 @@ type Executor interface {
 	Execute(context.Context, socialconnections.PublishingRequest) (socialconnections.PublishingResponse, error)
 }
 
+// TargetResolver returns the immutable server-side F5 connection binding.
+// Provider targets supplied by publication payloads are never authoritative.
+type TargetResolver interface {
+	ResolveTarget(context.Context, string, string) (ConnectionTarget, error)
+}
+
+type ConnectionTarget struct {
+	Provider socialconnections.Provider
+	RemoteID string
+}
+
+// MediaResolver opens an immutable, workspace-bound media object. The
+// returned stream is passed to F5 only through PublishingRequest.Media.
+type MediaResolver interface {
+	OpenMedia(context.Context, string, string) (ResolvedMedia, error)
+}
+
+type ResolvedMedia struct {
+	Body        io.ReadCloser
+	Size        int64
+	SHA256      string
+	ContentType string
+}
+
 // Gate is supplied by worker configuration. Registration is fail-closed unless
 // every operational approval is explicit.
 type Gate struct {
@@ -49,7 +75,10 @@ func (gate Gate) ready() bool {
 
 type Config struct {
 	Executor        Executor
+	Targets         TargetResolver
+	Media           MediaResolver
 	LinkedInVersion string
+	ReconcilePolls  int
 	Gates           map[string]Gate
 }
 
@@ -65,7 +94,10 @@ type Adapter struct {
 	provider        string
 	expected        socialconnections.Provider
 	executor        Executor
+	targets         TargetResolver
+	media           MediaResolver
 	linkedinVersion string
+	reconcilePolls  int
 }
 
 // Register mounts only fully gated adapters. Missing configuration is not an
@@ -74,7 +106,7 @@ func Register(registry *publishing.AdapterRegistry, config Config) error {
 	if registry == nil {
 		return publishing.ErrInvalidArgument
 	}
-	if config.Executor == nil {
+	if config.Executor == nil || config.Targets == nil {
 		for _, gate := range config.Gates {
 			if gate.ready() {
 				return publishing.ErrInvalidArgument
@@ -99,11 +131,22 @@ func Register(registry *publishing.AdapterRegistry, config Config) error {
 			!validLinkedInVersion(config.LinkedInVersion) {
 			continue
 		}
+		if (definition.name == ProviderX ||
+			definition.name == ProviderLinkedIn) && config.Media == nil {
+			return publishing.ErrInvalidArgument
+		}
+		polls := config.ReconcilePolls
+		if polls <= 0 {
+			polls = 3
+		}
 		adapter := &Adapter{
 			provider:        definition.name,
 			expected:        definition.expected,
 			executor:        config.Executor,
+			targets:         config.Targets,
+			media:           config.Media,
 			linkedinVersion: strings.TrimSpace(config.LinkedInVersion),
+			reconcilePolls:  polls,
 		}
 		if err := registry.RegisterPublisher(definition.name, adapter); err != nil {
 			return err
@@ -155,15 +198,26 @@ type payload struct {
 }
 
 type media struct {
-	ID        string `json:"id,omitempty"`
-	SourceURL string `json:"source_url,omitempty"`
-	AltText   string `json:"alt_text,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Ref         string `json:"ref,omitempty"`
+	SourceURL   string `json:"source_url,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	AltText     string `json:"alt_text,omitempty"`
 }
 
 type checkpoint struct {
+	Version     int      `json:"version"`
 	Stage       string   `json:"stage"`
+	Target      string   `json:"target"`
 	BaselineIDs []string `json:"baseline_ids"`
 	MediaRefs   []string `json:"media_refs,omitempty"`
+	MediaIDs    []string `json:"media_ids,omitempty"`
+	MediaIndex  int      `json:"media_index,omitempty"`
+	UploadID    string   `json:"upload_id,omitempty"`
+	UploadPath  string   `json:"upload_path,omitempty"`
+	PollCount   int      `json:"poll_count,omitempty"`
 }
 
 func (adapter *Adapter) Publish(
@@ -177,6 +231,10 @@ func (adapter *Adapter) Publish(
 	if err != nil {
 		return publishing.PublishResult{}, err
 	}
+	content, target, err := adapter.bindTarget(ctx, request.WorkspaceID, request.ConnectionID, content)
+	if err != nil {
+		return publishing.PublishResult{}, err
+	}
 	state, err := decodeCheckpoint(request.Checkpoint)
 	if err != nil {
 		return publishing.PublishResult{}, err
@@ -186,7 +244,9 @@ func (adapter *Adapter) Publish(
 		if listErr != nil {
 			return publishing.PublishResult{}, listErr
 		}
+		state.Version = 1
 		state.Stage = "create"
+		state.Target = target
 		state.BaselineIDs = itemIDs(items)
 		state.MediaRefs = mediaRefs(content)
 		encoded, encodeErr := json.Marshal(state)
@@ -195,11 +255,40 @@ func (adapter *Adapter) Publish(
 		}
 		return publishing.PublishResult{Complete: false, Checkpoint: encoded}, nil
 	}
-	if state.Stage != "create" {
+	if state.Version != 1 || state.Target != target {
 		return publishing.PublishResult{}, permanent("checkpoint_invalid")
 	}
 	if !equalStrings(state.MediaRefs, mediaRefs(content)) {
 		return publishing.PublishResult{}, permanent("checkpoint_invalid")
+	}
+	if adapter.provider == ProviderX && len(content.Media) != 0 {
+		return adapter.publishXMedia(ctx, request, content, state)
+	}
+	if adapter.provider == ProviderLinkedIn && len(content.Media) != 0 {
+		return adapter.publishLinkedInMedia(ctx, request, content, state)
+	}
+	if state.Stage == "create_poll" {
+		return adapter.pollCreated(ctx, request, content, state)
+	}
+	if state.Stage != "create" {
+		return publishing.PublishResult{}, permanent("checkpoint_invalid")
+	}
+	return adapter.create(ctx, request, content, state)
+}
+
+func (adapter *Adapter) create(
+	ctx context.Context,
+	request publishing.PublishRequest,
+	content payload,
+	state checkpoint,
+) (publishing.PublishResult, error) {
+	if len(state.MediaIDs) != 0 {
+		if len(state.MediaIDs) != len(content.Media) {
+			return publishing.PublishResult{}, permanent("checkpoint_invalid")
+		}
+		for index := range content.Media {
+			content.Media[index].ID = state.MediaIDs[index]
+		}
 	}
 	response, err := adapter.execute(
 		ctx,
@@ -212,19 +301,49 @@ func (adapter *Adapter) Publish(
 	if err != nil {
 		return publishing.PublishResult{}, err
 	}
+	if adapter.provider == ProviderLinkedIn {
+		state.Stage = "create_poll"
+		state.PollCount = 0
+		return publishing.PublishResult{
+			Complete:   false,
+			Checkpoint: mustJSON(state),
+			RetryAfter: time.Second,
+		}, nil
+	}
 	remoteID, permalink, err := adapter.createdResult(response, content)
 	if err != nil {
 		return publishing.PublishResult{}, err
 	}
+	state.Stage = "complete"
 	return publishing.PublishResult{
-		Complete:  true,
-		RemoteID:  remoteID,
-		Permalink: permalink,
-		Checkpoint: mustJSON(checkpoint{
-			Stage:       "complete",
-			BaselineIDs: state.BaselineIDs,
-			MediaRefs:   state.MediaRefs,
-		}),
+		Complete:   true,
+		RemoteID:   remoteID,
+		Permalink:  permalink,
+		Checkpoint: mustJSON(state),
+	}, nil
+}
+
+func (adapter *Adapter) pollCreated(
+	ctx context.Context,
+	request publishing.PublishRequest,
+	content payload,
+	state checkpoint,
+) (publishing.PublishResult, error) {
+	items, err := adapter.list(ctx, request, content)
+	if err != nil {
+		return publishing.PublishResult{}, err
+	}
+	match, unique := adapter.uniqueNewMatch(content, state.BaselineIDs, items)
+	if unique {
+		state.Stage = "complete"
+		return publishing.PublishResult{
+			Complete: true, RemoteID: match.ID, Permalink: match.Permalink,
+			Checkpoint: mustJSON(state),
+		}, nil
+	}
+	state.PollCount++
+	return publishing.PublishResult{
+		Complete: false, Checkpoint: mustJSON(state), RetryAfter: time.Second,
 	}, nil
 }
 
@@ -239,6 +358,10 @@ func (adapter *Adapter) Reconcile(
 	if err != nil {
 		return publishing.ReconcileResult{}, err
 	}
+	content, target, err := adapter.bindTarget(ctx, request.WorkspaceID, request.ConnectionID, content)
+	if err != nil {
+		return publishing.ReconcileResult{}, err
+	}
 	state, err := decodeCheckpoint(request.Checkpoint)
 	if err != nil || state.Stage == "" {
 		return publishing.ReconcileResult{
@@ -246,28 +369,57 @@ func (adapter *Adapter) Reconcile(
 			Diagnostic: "A durable pre-create checkpoint is unavailable.",
 		}, nil
 	}
-	if !equalStrings(state.MediaRefs, mediaRefs(content)) {
+	if state.Version != 1 || state.Target != target ||
+		!equalStrings(state.MediaRefs, mediaRefs(content)) {
 		return publishing.ReconcileResult{}, permanent("checkpoint_invalid")
 	}
-	if state.Stage != "create" {
+	if mediaResult, handled, mediaErr := adapter.reconcileMedia(
+		ctx, request, content, state,
+	); handled {
+		return mediaResult, mediaErr
+	}
+	if state.Stage != "create" && state.Stage != "x_create" &&
+		state.Stage != "linkedin_create" && state.Stage != "create_poll" {
 		return publishing.ReconcileResult{
 			State:      publishing.ReconciliationUnknown,
-			Diagnostic: "The durable checkpoint is not in the pre-create state.",
+			Diagnostic: "The durable checkpoint cannot prove a safe replay.",
 		}, nil
 	}
-	items, err := adapter.list(ctx, publishing.PublishRequest{
-		WorkspaceID:  request.WorkspaceID,
-		PostID:       request.PostID,
-		ChannelID:    request.ChannelID,
-		ConnectionID: request.ConnectionID,
-		Payload:      request.Payload,
-		Checkpoint:   request.Checkpoint,
-	}, content)
-	if err != nil {
-		return publishing.ReconcileResult{}, err
+	polls := adapter.reconcilePolls
+	if polls <= 0 {
+		polls = 3
 	}
-	baseline := make(map[string]struct{}, len(state.BaselineIDs))
-	for _, id := range state.BaselineIDs {
+	for index := 0; index < polls; index++ {
+		items, listErr := adapter.list(ctx, publishing.PublishRequest{
+			WorkspaceID: request.WorkspaceID, PostID: request.PostID,
+			ChannelID: request.ChannelID, ConnectionID: request.ConnectionID,
+			Payload: request.Payload, Checkpoint: request.Checkpoint,
+		}, content)
+		if listErr != nil {
+			return publishing.ReconcileResult{}, listErr
+		}
+		match, unique := adapter.uniqueNewMatch(content, state.BaselineIDs, items)
+		if unique {
+			state.Stage = "complete"
+			return publishing.ReconcileResult{
+				State: publishing.ReconciliationFound, RemoteID: match.ID,
+				Permalink: match.Permalink, Checkpoint: mustJSON(state),
+			}, nil
+		}
+	}
+	return publishing.ReconcileResult{
+		State:      publishing.ReconciliationUnknown,
+		Diagnostic: "No unique remote publication is visible after deterministic paginated polling.",
+	}, nil
+}
+
+func (adapter *Adapter) uniqueNewMatch(
+	content payload,
+	baselineIDs []string,
+	items []remoteItem,
+) (remoteItem, bool) {
+	baseline := make(map[string]struct{}, len(baselineIDs))
+	for _, id := range baselineIDs {
 		baseline[id] = struct{}{}
 	}
 	matches := make([]remoteItem, 0, 1)
@@ -276,25 +428,60 @@ func (adapter *Adapter) Reconcile(
 			matches = append(matches, item)
 		}
 	}
-	if len(matches) == 0 {
-		return publishing.ReconcileResult{State: publishing.ReconciliationNotFound}, nil
+	return func() (remoteItem, bool) {
+		if len(matches) != 1 {
+			return remoteItem{}, false
+		}
+		return matches[0], true
+	}()
+}
+
+func (adapter *Adapter) bindTarget(
+	ctx context.Context,
+	workspaceID, connectionID string,
+	content payload,
+) (payload, string, error) {
+	if adapter == nil || adapter.targets == nil {
+		return payload{}, "", permanent("provider_unavailable")
 	}
-	if len(matches) != 1 {
-		return publishing.ReconcileResult{
-			State:      publishing.ReconciliationUnknown,
-			Diagnostic: "More than one new remote item matches the immutable publication.",
-		}, nil
+	target, err := adapter.targets.ResolveTarget(ctx, workspaceID, connectionID)
+	if err != nil || target.Provider != adapter.expected {
+		return payload{}, "", permanent("connection_target_invalid")
 	}
-	return publishing.ReconcileResult{
-		State:     publishing.ReconciliationFound,
-		RemoteID:  matches[0].ID,
-		Permalink: matches[0].Permalink,
-		Checkpoint: mustJSON(checkpoint{
-			Stage:       "complete",
-			BaselineIDs: state.BaselineIDs,
-			MediaRefs:   state.MediaRefs,
-		}),
-	}, nil
+	target.RemoteID = strings.TrimSpace(target.RemoteID)
+	if target.RemoteID == "" {
+		return payload{}, "", permanent("connection_target_invalid")
+	}
+	switch adapter.provider {
+	case ProviderX:
+		if _, ok := cleanSegment(target.RemoteID); !ok ||
+			(content.Author != "" && content.Author != target.RemoteID) {
+			return payload{}, "", permanent("connection_target_mismatch")
+		}
+		content.Author = target.RemoteID
+	case ProviderLinkedIn:
+		if (!strings.HasPrefix(target.RemoteID, "urn:li:person:") &&
+			!strings.HasPrefix(target.RemoteID, "urn:li:organization:")) ||
+			(content.Author != "" && content.Author != target.RemoteID) {
+			return payload{}, "", permanent("connection_target_mismatch")
+		}
+		content.Author = target.RemoteID
+	case ProviderPinterest:
+		if _, ok := cleanSegment(target.RemoteID); !ok ||
+			(content.BoardID != "" && content.BoardID != target.RemoteID) {
+			return payload{}, "", permanent("connection_target_mismatch")
+		}
+		content.BoardID = target.RemoteID
+	case ProviderGoogleBusinessProfile:
+		location, ok := canonicalLocation(target.RemoteID)
+		if !ok || (content.Location != "" && content.Location != location) {
+			return payload{}, "", permanent("connection_target_mismatch")
+		}
+		content.Location = location
+	default:
+		return payload{}, "", permanent("provider_unavailable")
+	}
+	return content, target.RemoteID, nil
 }
 
 func (adapter *Adapter) execute(
@@ -312,6 +499,24 @@ func (adapter *Adapter) execute(
 		Path:             requestPath,
 		Header:           header,
 		Body:             body,
+	})
+	if err != nil {
+		return socialconnections.PublishingResponse{}, mapExecutorError(err)
+	}
+	return response, nil
+}
+
+func (adapter *Adapter) executeMedia(
+	ctx context.Context,
+	request publishing.PublishRequest,
+	method, requestPath string,
+	header http.Header,
+	media socialconnections.PublishingMedia,
+) (socialconnections.PublishingResponse, error) {
+	response, err := adapter.executor.Execute(ctx, socialconnections.PublishingRequest{
+		WorkspaceID: request.WorkspaceID, ConnectionID: request.ConnectionID,
+		ExpectedProvider: adapter.expected, Method: method, Path: requestPath,
+		Header: header, Media: &media,
 	})
 	if err != nil {
 		return socialconnections.PublishingResponse{}, mapExecutorError(err)
@@ -359,9 +564,55 @@ func decodeCheckpoint(raw json.RawMessage) (checkpoint, error) {
 	}
 	sort.Strings(value.BaselineIDs)
 	value.BaselineIDs = compact(value.BaselineIDs)
-	sort.Strings(value.MediaRefs)
-	value.MediaRefs = compact(value.MediaRefs)
+	if value.Version < 0 || value.MediaIndex < 0 || value.PollCount < 0 {
+		return checkpoint{}, permanent("checkpoint_invalid")
+	}
+	if !validCheckpointShape(value) {
+		return checkpoint{}, permanent("checkpoint_invalid")
+	}
 	return value, nil
+}
+
+func validCheckpointShape(value checkpoint) bool {
+	if value.Stage == "" {
+		return value.Version == 0 && value.Target == "" &&
+			len(value.BaselineIDs) == 0 && len(value.MediaRefs) == 0 &&
+			len(value.MediaIDs) == 0 && value.MediaIndex == 0 &&
+			value.UploadID == "" && value.UploadPath == "" &&
+			value.PollCount == 0
+	}
+	if value.Version != 1 || strings.TrimSpace(value.Target) == "" {
+		return false
+	}
+	switch value.Stage {
+	case "create":
+		return value.UploadID == "" && value.UploadPath == "" &&
+			len(value.MediaIDs) == 0 && value.MediaIndex == 0
+	case "x_initialize":
+		return value.UploadID == "" && value.UploadPath == "" &&
+			len(value.MediaIDs) == value.MediaIndex
+	case "x_append", "x_finalize", "x_status":
+		return validRemoteID(ProviderX, value.UploadID) &&
+			value.UploadPath == "" &&
+			len(value.MediaIDs) == value.MediaIndex
+	case "x_create":
+		return value.UploadID == "" && value.UploadPath == "" &&
+			value.MediaIndex > 0 && len(value.MediaIDs) == value.MediaIndex
+	case "linkedin_upload":
+		return strings.HasPrefix(value.UploadID, "urn:li:image:") &&
+			strings.HasPrefix(value.UploadPath, "/dms-uploads/") &&
+			len(value.MediaIDs) == 0 && value.MediaIndex == 0
+	case "linkedin_create":
+		return strings.HasPrefix(value.UploadID, "urn:li:image:") &&
+			strings.HasPrefix(value.UploadPath, "/dms-uploads/") &&
+			len(value.MediaIDs) == 1 &&
+			value.MediaIDs[0] == value.UploadID
+	case "create_poll", "complete":
+		return value.UploadPath == "" ||
+			strings.HasPrefix(value.UploadPath, "/dms-uploads/")
+	default:
+		return false
+	}
 }
 
 func validLinkedInVersion(value string) bool {
@@ -408,14 +659,16 @@ func itemIDs(items []remoteItem) []string {
 func mediaRefs(content payload) []string {
 	refs := make([]string, 0, len(content.Media))
 	for _, item := range content.Media {
-		if item.ID != "" {
-			refs = append(refs, "id:"+item.ID)
+		if item.Ref != "" {
+			refs = append(refs, strings.Join([]string{
+				"ref", item.Ref, item.ContentType,
+				fmtInt64(item.Size), item.SHA256, item.AltText,
+			}, "\x00"))
 		} else {
 			refs = append(refs, "url:"+item.SourceURL)
 		}
 	}
-	sort.Strings(refs)
-	return compact(refs)
+	return refs
 }
 
 func equalStrings(left, right []string) bool {

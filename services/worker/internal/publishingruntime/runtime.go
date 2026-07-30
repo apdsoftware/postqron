@@ -2,13 +2,19 @@ package publishingruntime
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,7 +33,7 @@ func New(
 	databaseURL string,
 	clock func() time.Time,
 ) (*Service, error) {
-	config := runtimeStaticProviderConfig()
+	config := runtimeStaticProviderConfig(database)
 	return newService(ctx, database, databaseURL, clock, nil, config)
 }
 
@@ -38,15 +44,19 @@ func NewWithExecutor(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
-	executor staticproviders.Executor,
+	executor *socialconnections.AuthenticatedExecutor,
 ) (*Service, error) {
+	var boundary staticproviders.Executor
+	if executor != nil {
+		boundary = executor
+	}
 	return newService(
 		ctx,
 		database,
 		databaseURL,
 		clock,
-		executor,
-		runtimeStaticProviderConfig(),
+		boundary,
+		runtimeStaticProviderConfig(database),
 	)
 }
 
@@ -111,8 +121,10 @@ func newRuntimeAdapterRegistry(
 	return registry, nil
 }
 
-func runtimeStaticProviderConfig() staticproviders.Config {
+func runtimeStaticProviderConfig(database *sql.DB) staticproviders.Config {
 	return staticproviders.Config{
+		Targets: postgresConnectionTargets{database: database},
+		Media:   runtimeMediaResolver(),
 		LinkedInVersion: strings.TrimSpace(os.Getenv(
 			"POSTQRON_F05_LINKEDIN_API_VERSION",
 		)),
@@ -125,6 +137,119 @@ func runtimeStaticProviderConfig() staticproviders.Config {
 			),
 		},
 	}
+}
+
+type postgresConnectionTargets struct {
+	database *sql.DB
+}
+
+func (resolver postgresConnectionTargets) ResolveTarget(
+	ctx context.Context,
+	workspaceID, connectionID string,
+) (staticproviders.ConnectionTarget, error) {
+	if resolver.database == nil {
+		return staticproviders.ConnectionTarget{}, errors.New(
+			"social connection target store is unavailable",
+		)
+	}
+	var (
+		provider string
+		remoteID string
+	)
+	err := resolver.database.QueryRowContext(ctx, `
+		SELECT provider::text, remote_id
+		  FROM f05_social_connections
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND status = 'connected'`,
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(connectionID),
+	).Scan(&provider, &remoteID)
+	if err != nil {
+		return staticproviders.ConnectionTarget{}, fmt.Errorf(
+			"resolve F5 connection target: %w", err,
+		)
+	}
+	return staticproviders.ConnectionTarget{
+		Provider: socialProvider(provider),
+		RemoteID: strings.TrimSpace(remoteID),
+	}, nil
+}
+
+func socialProvider(value string) socialconnections.Provider {
+	return socialconnections.Provider(strings.TrimSpace(value))
+}
+
+type filesystemMediaResolver struct {
+	root string
+}
+
+func runtimeMediaResolver() staticproviders.MediaResolver {
+	root := strings.TrimSpace(os.Getenv("POSTQRON_F08_MEDIA_ROOT"))
+	if root == "" || !filepath.IsAbs(root) {
+		return nil
+	}
+	return filesystemMediaResolver{root: filepath.Clean(root)}
+}
+
+func (resolver filesystemMediaResolver) OpenMedia(
+	_ context.Context,
+	workspaceID, ref string,
+) (staticproviders.ResolvedMedia, error) {
+	if !safeMediaSegment(workspaceID) || !safeMediaSegment(ref) {
+		return staticproviders.ResolvedMedia{}, errors.New(
+			"media reference is invalid",
+		)
+	}
+	target := filepath.Join(resolver.root, workspaceID, ref)
+	expectedParent := filepath.Join(resolver.root, workspaceID)
+	if filepath.Dir(target) != expectedParent {
+		return staticproviders.ResolvedMedia{}, errors.New(
+			"media reference escapes workspace",
+		)
+	}
+	file, err := os.Open(target)
+	if err != nil {
+		return staticproviders.ResolvedMedia{}, err
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, errors.New(
+			"media object is not a regular file",
+		)
+	}
+	hasher := sha256.New()
+	prefix := make([]byte, 512)
+	read, readErr := io.ReadFull(file, prefix)
+	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) &&
+		!errors.Is(readErr, io.EOF) {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, readErr
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, err
+	}
+	if _, err = io.Copy(hasher, file); err != nil {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, err
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, err
+	}
+	return staticproviders.ResolvedMedia{
+		Body: file, Size: info.Size(),
+		SHA256:      hex.EncodeToString(hasher.Sum(nil)),
+		ContentType: http.DetectContentType(prefix[:read]),
+	}, nil
+}
+
+func safeMediaSegment(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value != "." && value != ".." &&
+		!strings.ContainsAny(value, `/\`+"\x00")
 }
 
 func staticProviderGate(provider string) staticproviders.Gate {

@@ -1,8 +1,10 @@
 package publishingruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
@@ -31,6 +33,26 @@ func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
 
 type rejectingExecutor struct{}
 
+type runtimeTargetResolver struct{}
+
+func (runtimeTargetResolver) ResolveTarget(
+	context.Context, string, string,
+) (staticproviders.ConnectionTarget, error) {
+	return staticproviders.ConnectionTarget{
+		Provider: socialconnections.ProviderX, RemoteID: "123",
+	}, nil
+}
+
+type fixtureRuntimeMediaResolver struct{}
+
+func (fixtureRuntimeMediaResolver) OpenMedia(
+	context.Context, string, string,
+) (staticproviders.ResolvedMedia, error) {
+	return staticproviders.ResolvedMedia{
+		Body: io.NopCloser(bytes.NewReader(nil)),
+	}, nil
+}
+
 func (rejectingExecutor) Execute(
 	context.Context,
 	socialconnections.PublishingRequest,
@@ -44,6 +66,8 @@ func (rejectingExecutor) Execute(
 func TestRuntimeRegistersOnlyExplicitlyGatedStaticProviders(t *testing.T) {
 	registry, err := newRuntimeAdapterRegistry(rejectingExecutor{}, staticproviders.Config{
 		LinkedInVersion: "202606",
+		Targets:         runtimeTargetResolver{},
+		Media:           fixtureRuntimeMediaResolver{},
 		Gates: map[string]staticproviders.Gate{
 			staticproviders.ProviderX: {
 				Enabled: true, ReviewApproved: true,
@@ -80,7 +104,7 @@ func TestRuntimeEnvironmentGateFailsClosed(t *testing.T) {
 	} {
 		t.Setenv(key, "true")
 	}
-	config := runtimeStaticProviderConfig()
+	config := runtimeStaticProviderConfig(nil)
 	gate := config.Gates[staticproviders.ProviderX]
 	if !gate.Enabled || !gate.ReviewApproved ||
 		!gate.AuditVerified || !gate.QuotaConfigured {
@@ -89,7 +113,7 @@ func TestRuntimeEnvironmentGateFailsClosed(t *testing.T) {
 	t.Setenv("POSTQRON_F08_X_QUOTA_CONFIGURED", "false")
 	registry, err := newRuntimeAdapterRegistry(
 		rejectingExecutor{},
-		runtimeStaticProviderConfig(),
+		runtimeStaticProviderConfig(nil),
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -44,20 +44,32 @@ injects implementations of:
 
 The immutable destination payload is prepared from a validated F6 revision.
 
-The default runtime registry is deliberately empty and fail-closed. The static
-provider package for X, LinkedIn profile/Page, Pinterest, and Google Business
-Profile accepts only the credential-free F5 `AuthenticatedExecutor` contract.
-The worker can inject that executor only after the corresponding F5 runtime is
-composed. It registers each adapter only when its explicit F8 enabled, provider
-review, runtime audit, and quota-configuration gates are all true. LinkedIn
-also requires a six-digit API version. A missing executor or gate never falls
-back to direct HTTP or credential access.
+The static-provider registry is fail-closed. The real runner composition root
+calls `NewWithExecutor`; it accepts only the public, credential-free F5
+`AuthenticatedExecutor`. Each X, LinkedIn profile/Page, Pinterest, or Google
+Business Profile adapter is registered only when enabled, provider-review,
+runtime-audit, and quota gates are all true. LinkedIn also requires a six-digit
+API version. X and LinkedIn media publishing additionally require an absolute
+`POSTQRON_F08_MEDIA_ROOT`; objects are opened only from
+`<root>/<workspace>/<immutable-ref>`. A missing executor, target resolver,
+media resolver, version, or gate fails closed without direct HTTP, credential,
+token, or secret access.
 
-Every static adapter persists a baseline of remote IDs and immutable media
-references before its create step. An ambiguous outcome lists the provider
-resource again and accepts exactly one matching item that was absent from the
-baseline. Zero matches is a definitive not-found; multiple matches remain
-ambiguous and never trigger blind republishing.
+Targets are loaded server-side from the connected F5 resource. Payload
+`author`, `board_id`, or `location` values can only repeat that binding; they
+cannot select another resource. X and LinkedIn reject preloaded provider media
+IDs. X checkpoints initialize, append, finalize, and status before create.
+LinkedIn checkpoints `initializeUpload`, binary upload, create, and finder
+polling. Binary streams cross the credential boundary only as
+`PublishingRequest.Media`.
+
+Every adapter persists a fully paginated baseline and immutable ordered media
+snapshot before its create step. Reconciliation paginates every result page
+and polls deterministically. It accepts only one matching item absent from the
+baseline. Zero visible matches and multiple matches remain unknown during the
+provider's eventual-consistency window, so F8 never repeats a create based on
+a single page or a transient absence. Pinterest image variants are selected
+in sorted-key order to keep reconciliation deterministic.
 
 ## Verification
 

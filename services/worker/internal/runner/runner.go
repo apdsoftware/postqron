@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/apdsoftware/postqron/services/worker/internal/privacyruntime"
@@ -74,6 +75,25 @@ func NewRuntime(
 	clock func() time.Time,
 	logger *slog.Logger,
 ) (*Runner, error) {
+	return NewRuntimeWithExecutor(
+		features, database, databaseURL, appDomain, interval, clock,
+		logger, nil,
+	)
+}
+
+// NewRuntimeWithExecutor is the real worker composition root for F5→F8.
+// Passing nil keeps publishing fail-closed; enabling any F8 static provider
+// without a bootstrapped public F5 AuthenticatedExecutor fails startup.
+func NewRuntimeWithExecutor(
+	features []featureruntime.Feature,
+	database *sql.DB,
+	databaseURL string,
+	appDomain string,
+	interval time.Duration,
+	clock func() time.Time,
+	logger *slog.Logger,
+	executor *socialconnections.AuthenticatedExecutor,
+) (*Runner, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -93,11 +113,12 @@ func NewRuntime(
 	if err != nil {
 		return nil, err
 	}
-	publishingService, err := publishingruntime.New(
+	publishingService, err := publishingruntime.NewWithExecutor(
 		context.Background(),
 		database,
 		databaseURL,
 		clock,
+		executor,
 	)
 	if err != nil {
 		return nil, err

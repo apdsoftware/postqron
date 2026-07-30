@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
@@ -53,7 +55,14 @@ func (adapter *Adapter) decodePayload(raw json.RawMessage) (payload, error) {
 	}
 	for index := range value.Media {
 		value.Media[index].ID = strings.TrimSpace(value.Media[index].ID)
+		value.Media[index].Ref = strings.TrimSpace(value.Media[index].Ref)
 		value.Media[index].SourceURL = strings.TrimSpace(value.Media[index].SourceURL)
+		value.Media[index].ContentType = strings.ToLower(strings.TrimSpace(
+			value.Media[index].ContentType,
+		))
+		value.Media[index].SHA256 = strings.ToLower(strings.TrimSpace(
+			value.Media[index].SHA256,
+		))
 		value.Media[index].AltText = strings.TrimSpace(value.Media[index].AltText)
 	}
 	if !adapter.validPayload(value) {
@@ -68,54 +77,90 @@ func (adapter *Adapter) validPayload(value payload) bool {
 		if value.Format != "text" && value.Format != "image" && value.Format != "video" {
 			return false
 		}
-		if _, ok := cleanSegment(value.Author); !ok {
+		if value.Author != "" {
+			if _, ok := cleanSegment(value.Author); !ok {
+				return false
+			}
+		}
+		if value.BoardID != "" || value.Location != "" {
 			return false
 		}
 		if value.Text == "" && len(value.Media) == 0 {
 			return false
 		}
 		for _, item := range value.Media {
-			if _, ok := cleanSegment(item.ID); !ok {
+			if !validUploadMedia(item) {
 				return false
 			}
 		}
 		if value.Format == "text" {
 			return len(value.Media) == 0
 		}
-		return len(value.Media) > 0 && len(value.Media) <= 4
+		if value.Format == "video" {
+			return len(value.Media) == 1 &&
+				strings.HasPrefix(value.Media[0].ContentType, "video/")
+		}
+		if len(value.Media) == 0 || len(value.Media) > 4 {
+			return false
+		}
+		for _, item := range value.Media {
+			if !strings.HasPrefix(item.ContentType, "image/") ||
+				item.ContentType == "image/gif" {
+				return false
+			}
+		}
+		return true
 	case ProviderLinkedIn:
 		if value.Format != "text" && value.Format != "image" {
 			return false
 		}
-		if !strings.HasPrefix(value.Author, "urn:li:person:") &&
+		if value.Author != "" &&
+			!strings.HasPrefix(value.Author, "urn:li:person:") &&
 			!strings.HasPrefix(value.Author, "urn:li:organization:") {
+			return false
+		}
+		if value.BoardID != "" || value.Location != "" {
 			return false
 		}
 		if value.Text == "" && len(value.Media) == 0 {
 			return false
 		}
 		for _, item := range value.Media {
-			if !strings.HasPrefix(item.ID, "urn:li:image:") {
+			if !validUploadMedia(item) {
 				return false
 			}
 		}
 		if value.Format == "text" {
 			return len(value.Media) == 0
 		}
-		return len(value.Media) == 1
+		return len(value.Media) == 1 &&
+			strings.HasPrefix(value.Media[0].ContentType, "image/")
 	case ProviderPinterest:
-		if value.Format != "image" || value.BoardID == "" ||
+		if value.Format != "image" ||
 			len(value.Media) != 1 || !validHTTPS(value.Media[0].SourceURL) {
 			return false
 		}
-		if _, ok := cleanSegment(value.BoardID); !ok {
+		if value.BoardID != "" {
+			if _, ok := cleanSegment(value.BoardID); !ok {
+				return false
+			}
+		}
+		if value.Author != "" || value.Location != "" ||
+			value.Media[0].ID != "" || value.Media[0].Ref != "" {
 			return false
 		}
 		return value.Link == "" || validHTTPS(value.Link)
 	case ProviderGoogleBusinessProfile:
-		_, ok := canonicalLocation(value.Location)
-		if !ok || (value.Format != "text" && value.Format != "image") ||
+		if value.Location != "" {
+			if _, ok := canonicalLocation(value.Location); !ok {
+				return false
+			}
+		}
+		if (value.Format != "text" && value.Format != "image") ||
 			value.Text == "" {
+			return false
+		}
+		if value.Author != "" || value.BoardID != "" {
 			return false
 		}
 		if value.TopicType != "STANDARD" || len(value.Media) > 1 {
@@ -124,7 +169,31 @@ func (adapter *Adapter) validPayload(value payload) bool {
 		if value.Format == "text" {
 			return len(value.Media) == 0
 		}
-		return len(value.Media) == 1 && validHTTPS(value.Media[0].SourceURL)
+		return len(value.Media) == 1 && validHTTPS(value.Media[0].SourceURL) &&
+			value.Media[0].ID == "" && value.Media[0].Ref == ""
+	default:
+		return false
+	}
+}
+
+func validUploadMedia(item media) bool {
+	if item.ID != "" || item.SourceURL != "" || item.Ref == "" ||
+		item.Size <= 0 || len(item.SHA256) != 64 {
+		return false
+	}
+	for _, character := range item.SHA256 {
+		if (character < '0' || character > '9') &&
+			(character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	if _, ok := cleanSegment(item.Ref); !ok {
+		return false
+	}
+	switch item.ContentType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp",
+		"video/mp4", "video/webm", "video/quicktime":
+		return true
 	default:
 		return false
 	}
@@ -154,25 +223,43 @@ func (adapter *Adapter) createPath(content payload) string {
 	}
 }
 
-func (adapter *Adapter) listPath(content payload) string {
+func (adapter *Adapter) listPath(content payload, cursor string) string {
+	values := make(url.Values)
 	switch adapter.provider {
 	case ProviderX:
-		return queryPath("/2/tweets/search/recent", url.Values{
-			"query":        {"from:" + content.Author},
+		author, _ := cleanSegment(content.Author)
+		values = url.Values{
 			"max_results":  {"100"},
 			"tweet.fields": {"attachments"},
-		})
+		}
+		if cursor != "" {
+			values.Set("pagination_token", cursor)
+		}
+		return queryPath("/2/users/"+author+"/tweets", values)
 	case ProviderLinkedIn:
-		return queryPath("/rest/posts", url.Values{
+		values = url.Values{
 			"q":      {"author"},
 			"author": {content.Author},
 			"count":  {"100"},
-		})
+			"sortBy": {"CREATED"},
+		}
+		if cursor != "" {
+			values.Set("start", cursor)
+		}
+		return queryPath("/rest/posts", values)
 	case ProviderPinterest:
 		board, _ := cleanSegment(content.BoardID)
-		return "/v5/boards/" + board + "/pins?page_size=100"
+		values.Set("page_size", "100")
+		if cursor != "" {
+			values.Set("bookmark", cursor)
+		}
+		return queryPath("/v5/boards/"+board+"/pins", values)
 	case ProviderGoogleBusinessProfile:
-		return "/v4/" + content.Location + "/localPosts?pageSize=100"
+		values.Set("pageSize", "100")
+		if cursor != "" {
+			values.Set("pageToken", cursor)
+		}
+		return queryPath("/v4/"+content.Location+"/localPosts", values)
 	default:
 		return "/"
 	}
@@ -249,17 +336,49 @@ func (adapter *Adapter) list(
 	request publishing.PublishRequest,
 	content payload,
 ) ([]remoteItem, error) {
-	response, err := adapter.execute(
-		ctx, request, http.MethodGet, adapter.listPath(content),
-		adapter.createHeaders(), nil,
-	)
-	if err != nil {
-		return nil, err
+	const maximumPages = 100
+	items := make([]remoteItem, 0)
+	cursor := ""
+	seen := make(map[string]struct{})
+	for page := 0; page < maximumPages; page++ {
+		headers := adapter.createHeaders()
+		if adapter.provider == ProviderLinkedIn {
+			headers.Set("X-RestLi-Method", "FINDER")
+		}
+		response, err := adapter.execute(
+			ctx, request, http.MethodGet, adapter.listPath(content, cursor),
+			headers, nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+		pageItems, next, err := adapter.decodeListPage(response.Body)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, pageItems...)
+		if next == "" {
+			return items, nil
+		}
+		if _, duplicate := seen[next]; duplicate {
+			return nil, permanent("provider_pagination_invalid")
+		}
+		seen[next] = struct{}{}
+		cursor = next
 	}
-	return adapter.decodeList(response.Body)
+	return nil, &publishing.ProviderError{
+		Code: "provider_pagination_incomplete", Retryable: true,
+	}
 }
 
 func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
+	items, _, err := adapter.decodeListPage(body)
+	return items, err
+}
+
+func (adapter *Adapter) decodeListPage(
+	body []byte,
+) ([]remoteItem, string, error) {
 	switch adapter.provider {
 	case ProviderX:
 		var response struct {
@@ -270,15 +389,19 @@ func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
 					MediaKeys []string `json:"media_keys"`
 				} `json:"attachments"`
 			} `json:"data"`
+			Meta struct {
+				NextToken string `json:"next_token"`
+			} `json:"meta"`
 		}
 		if strictJSON(body, &response) != nil {
-			return nil, permanent("provider_response_invalid")
+			return nil, "", permanent("provider_response_invalid")
 		}
 		items := make([]remoteItem, 0, len(response.Data))
 		for _, value := range response.Data {
 			items = append(items, remoteItem{ID: value.ID, Text: value.Text, Permalink: permalinkFor(adapter.provider, value.ID)})
 		}
-		return validRemoteItems(items)
+		items, err := validRemoteItems(items)
+		return items, strings.TrimSpace(response.Meta.NextToken), err
 	case ProviderLinkedIn:
 		var response struct {
 			Elements []struct {
@@ -286,15 +409,42 @@ func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
 				Author     string `json:"author"`
 				Commentary string `json:"commentary"`
 			} `json:"elements"`
+			Paging struct {
+				Start int `json:"start"`
+				Count int `json:"count"`
+				Links []struct {
+					Rel  string `json:"rel"`
+					Href string `json:"href"`
+				} `json:"links"`
+			} `json:"paging"`
 		}
 		if strictJSON(body, &response) != nil {
-			return nil, permanent("provider_response_invalid")
+			return nil, "", permanent("provider_response_invalid")
 		}
 		items := make([]remoteItem, 0, len(response.Elements))
 		for _, value := range response.Elements {
 			items = append(items, remoteItem{ID: value.ID, Author: value.Author, Text: value.Commentary, Permalink: permalinkFor(adapter.provider, value.ID)})
 		}
-		return validRemoteItems(items)
+		items, err := validRemoteItems(items)
+		if err != nil {
+			return nil, "", err
+		}
+		next := ""
+		for _, link := range response.Paging.Links {
+			if strings.EqualFold(link.Rel, "next") {
+				target, parseErr := url.Parse(link.Href)
+				if parseErr != nil {
+					return nil, "", permanent("provider_pagination_invalid")
+				}
+				next = target.Query().Get("start")
+				break
+			}
+		}
+		if next == "" && response.Paging.Count > 0 &&
+			len(response.Elements) >= response.Paging.Count {
+			next = strconv.Itoa(response.Paging.Start + len(response.Elements))
+		}
+		return items, next, nil
 	case ProviderPinterest:
 		var response struct {
 			Items []struct {
@@ -308,16 +458,21 @@ func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
 					} `json:"images"`
 				} `json:"media"`
 			} `json:"items"`
+			Bookmark string `json:"bookmark"`
 		}
 		if strictJSON(body, &response) != nil {
-			return nil, permanent("provider_response_invalid")
+			return nil, "", permanent("provider_response_invalid")
 		}
 		items := make([]remoteItem, 0, len(response.Items))
 		for _, value := range response.Items {
 			source := ""
-			for _, image := range value.Media.Images {
-				source = image.URL
-				break
+			keys := make([]string, 0, len(value.Media.Images))
+			for key := range value.Media.Images {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			if len(keys) != 0 {
+				source = value.Media.Images[keys[0]].URL
 			}
 			items = append(items, remoteItem{
 				ID: value.ID, Title: value.Title, Description: value.Description,
@@ -325,7 +480,8 @@ func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
 				Permalink: permalinkFor(adapter.provider, value.ID),
 			})
 		}
-		return validRemoteItems(items)
+		items, err := validRemoteItems(items)
+		return items, strings.TrimSpace(response.Bookmark), err
 	case ProviderGoogleBusinessProfile:
 		var response struct {
 			LocalPosts []struct {
@@ -336,9 +492,10 @@ func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
 					SourceURL string `json:"sourceUrl"`
 				} `json:"media"`
 			} `json:"localPosts"`
+			NextPageToken string `json:"nextPageToken"`
 		}
 		if strictJSON(body, &response) != nil {
-			return nil, permanent("provider_response_invalid")
+			return nil, "", permanent("provider_response_invalid")
 		}
 		items := make([]remoteItem, 0, len(response.LocalPosts))
 		for _, value := range response.LocalPosts {
@@ -351,9 +508,10 @@ func (adapter *Adapter) decodeList(body []byte) ([]remoteItem, error) {
 				Permalink: value.SearchURL,
 			})
 		}
-		return validRemoteItems(items)
+		items, err := validRemoteItems(items)
+		return items, strings.TrimSpace(response.NextPageToken), err
 	default:
-		return nil, permanent("provider_response_invalid")
+		return nil, "", permanent("provider_response_invalid")
 	}
 }
 
@@ -374,11 +532,14 @@ func (adapter *Adapter) createdResult(
 		}
 		return value.Data.ID, permalinkFor(adapter.provider, value.Data.ID), nil
 	case ProviderLinkedIn:
-		id := strings.TrimSpace(response.Header.Get("X-Restli-Id"))
-		if !validRemoteID(adapter.provider, id) {
+		var value struct {
+			ID string `json:"id"`
+		}
+		if strictJSON(response.Body, &value) != nil ||
+			!validRemoteID(adapter.provider, value.ID) {
 			return "", "", permanent("provider_response_invalid")
 		}
-		return id, permalinkFor(adapter.provider, id), nil
+		return value.ID, permalinkFor(adapter.provider, value.ID), nil
 	case ProviderPinterest:
 		var value struct {
 			ID string `json:"id"`
