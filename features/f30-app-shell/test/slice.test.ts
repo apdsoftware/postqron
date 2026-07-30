@@ -16,7 +16,6 @@ test('all five app catalogs contain the exact same keys', () => {
   for (const key of [
     'documentTitle.profile',
     'documentTitle.security',
-    'documentTitle.providers',
     'documentTitle.plan',
     'documentTitle.workspace',
     'documentTitle.privacy',
@@ -27,7 +26,6 @@ test('all five app catalogs contain the exact same keys', () => {
     'home.card.profile.title',
     'profile.title',
     'security.title',
-    'providers.title',
     'plan.title',
     'workspace.title',
     'privacy.title',
@@ -45,6 +43,32 @@ test('all five app catalogs contain the exact same keys', () => {
     'auth.registerSubmit',
   ] as const) {
     assert.ok(APP_SHELL_CATALOGS.en[key])
+  }
+
+  const removedKeys = [
+    'documentTitle.providers',
+    'shell.nav.providers',
+    'home.providerCountLabel',
+    'home.providerCountDescription',
+    'security.methodsTitle',
+    'security.methodsNote',
+    'security.manageMethodsLink',
+    'security.methods',
+    'security.onlyMethod',
+    'auth.orProvider',
+    'auth.provider.google',
+    'auth.provider.apple',
+    'auth.provider.facebook',
+    'auth.provider.linkedin',
+    'auth.providerUnavailable',
+  ]
+  for (const locale of APP_SHELL_LOCALES) {
+    const keys = Object.keys(APP_SHELL_CATALOGS[locale])
+    for (const key of removedKeys) {
+      assert.equal(keys.includes(key), false, `${locale}.${key}`)
+    }
+    assert.equal(keys.some(key => key.startsWith('home.card.providers.')), false)
+    assert.equal(keys.some(key => key.startsWith('providers.')), false)
   }
 })
 
@@ -90,6 +114,11 @@ test('manifest discovers public entry, callback, private routes, and no central 
   )
   assert.match(manifest, /path: \/app\n[\s\S]*visibility: public/u)
   assert.match(manifest, /path: \/app\/oauth\/callback/u)
+  assert.match(
+    manifest,
+    /name: app-providers-legacy-redirect\n\s+path: \/app\/providers\n\s+file: \.\/pages\/providers-redirect\.vue\n\s+visibility: private\n\s+middleware: \[app-session\]/u,
+  )
+  assert.doesNotMatch(manifest, /file: \.\/pages\/providers\.vue/u)
   assert.match(manifest, /path: \/app\/home[\s\S]*visibility: private[\s\S]*middleware: \[app-session\]/u)
   assert.match(manifest, /path: \/app\/onboarding[\s\S]*visibility: private/u)
   assert.match(
@@ -143,7 +172,6 @@ test('protected navigation validates the API-owned session in the browser', asyn
       'plan',
       'privacy',
       'profile',
-      'providers',
       'security',
       'workspace',
     ].map(page => readFile(new URL(`../pages/${page}.vue`, import.meta.url), 'utf8')),
@@ -152,6 +180,10 @@ test('protected navigation validates the API-owned session in the browser', asyn
   assert.match(middleware, /if \(import\.meta\.server\) \{\s+return\s+\}/u)
   assert.doesNotMatch(middleware, /useRequestHeaders/u)
   assert.match(middleware, /failure\.kind === 'session'[\s\S]*sessionState\.value = undefined/u)
+  assert.match(
+    middleware,
+    /legacyProviderManagementRedirect\(to\.fullPath\)[\s\S]*navigateTo\(\s*legacyRedirect/u,
+  )
   for (const page of pages) {
     assert.match(page, /useAsyncData\([\s\S]*\}, \{ server: false \}\)/u)
   }
@@ -211,7 +243,6 @@ test('account pages render retryable loading and failure states', async () => {
     '../pages/home.vue',
     '../pages/profile.vue',
     '../pages/security.vue',
-    '../pages/providers.vue',
     '../pages/plan.vue',
     '../pages/workspace.vue',
     '../pages/privacy.vue',
@@ -258,24 +289,31 @@ test('shell implementation contains no email-provider client', async () => {
   assert.match(implementation, /channel: 'transactional'/u)
 })
 
-test('password-only auth hides separator and provider fallback when no providers are configured', async () => {
+test('password-only auth never renders provider actions from bootstrap', async () => {
   const page = await readFile(new URL('../pages/app.vue', import.meta.url), 'utf8')
-  assert.match(
-    page,
-    /<p[\s\S]*v-if="providers\.length && !requestedVerification"[\s\S]*class="auth-separator"/u,
-  )
-  assert.match(
-    page,
-    /<div[\s\S]*v-if="providers\.length && !requestedVerification"[\s\S]*class="auth-providers"/u,
-  )
-  assert.doesNotMatch(page, /providers\.length === 0/u)
-  assert.doesNotMatch(page, /auth\.providerUnavailable/u)
   assert.match(page, /class="auth-password-form"/u)
+  assert.match(page, /registerWithPassword/u)
+  assert.match(page, /signInWithPassword/u)
+  assert.doesNotMatch(
+    page,
+    /OAuthProvider|submittingProvider|api\.authorize|auth-separator|auth-providers|auth-provider|auth\.provider/u,
+  )
 })
 
-test('auth page still renders configured provider actions when providers exist', async () => {
-  const page = await readFile(new URL('../pages/app.vue', import.meta.url), 'utf8')
-  assert.match(page, /v-for="provider in providers"/u)
-  assert.match(page, /@click="start\(provider\)"/u)
-  assert.match(page, /t\(`auth\.provider\.\$\{provider\}`\)/u)
+test('account UI exposes no provider-management navigation, summary, or security section', async () => {
+  const [layout, home, security, navigation, manifest] = await Promise.all([
+    '../layouts/app-shell.vue',
+    '../pages/home.vue',
+    '../pages/security.vue',
+    '../components/core/navigation.ts',
+    '../feature.yaml',
+  ].map(path => readFile(new URL(path, import.meta.url), 'utf8')))
+
+  const visibleAccountUi = `${layout}\n${home}\n${security}`
+  assert.doesNotMatch(
+    visibleAccountUi,
+    /key: 'providers'|appRoute\([^)]*'providers'|home\.providerCount|home\.card\.providers|security\.(?:methods|manageMethods|onlyMethod)|identityProviders/u,
+  )
+  assert.doesNotMatch(navigation, /\| 'providers'|case 'providers'/u)
+  assert.doesNotMatch(manifest, /file: \.\/pages\/providers\.vue/u)
 })

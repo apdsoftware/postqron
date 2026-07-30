@@ -71,9 +71,9 @@ web:
       file: ./pages/security.vue
       visibility: private
       middleware: [app-session]
-    - name: app-providers
+    - name: app-providers-legacy-redirect
       path: /app/providers
-      file: ./pages/providers.vue
+      file: ./pages/providers-redirect.vue
       visibility: private
       middleware: [app-session]
     - name: app-social-channels

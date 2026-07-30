@@ -1,10 +1,9 @@
 # F30 — Product app shell
 
-This slice owns the real `/app` entry point, primary email/password sign-in,
-optional OAuth hand-off, onboarding UI,
-server-session route guard, responsive product chrome, application states, and
-declarative extension slots. It does not own pricing, checkout, admin, or any
-vertical feature.
+This slice owns the real `/app` entry point, the launch email/password sign-in
+and registration UI, onboarding UI, server-session route guard, responsive
+product chrome, application states, and declarative extension slots. It does
+not own pricing, checkout, admin, or any vertical feature.
 
 ## Runtime boundaries
 
@@ -12,6 +11,10 @@ vertical feature.
   `__Host-postqron_session` cookie. Private routes always resolve the session
   through `GET /api/v1/app/session`; the client never treats a profile payload
   or query parameter as proof of authentication.
+- The launch UI is password-only. F30 does not render provider sign-in,
+  linking, or unlinking controls, and the retired `/app/providers` destination
+  redirects to Security instead of rendering an empty page. F3 OAuth/OIDC
+  contracts and the callback compatibility route remain unchanged.
 - Onboarding delegates legal receipts to F3 and workspace creation/selection
   to F4 through the F30 façade described in
   `contracts/app-shell.openapi.yaml`.
@@ -30,17 +33,16 @@ vertical feature.
 - The public purchase intent accepts only `start|pro|team`,
   `monthly|annual`, and an integer quantity within the selected plan's public
   channel limit. Invalid or external destinations are rejected.
-- **Social channels** (`/app/social-channels`) is a navigation entry and page
-  distinct from **Access methods** (`/app/providers`): access methods control
-  sign-in, social channels are the Facebook Pages and Instagram Professional
-  resources the workspace publishes to (D02). The page consumes only the F5
-  runtime contract (#282 / PR #287) — client-safe availability bootstrap,
-  connection listing, OAuth start, callback resource selection, reconnection,
-  and revocation — through `core/social-connections.ts` (parsers) and
-  `core/social-api.ts` (client). It never models or renders token material,
-  reads the flat `{code,message,retryable}` F5 error envelope, treats every
-  undeclared code and unavailable provider as fail-closed, and enforces the
-  F10 channel quota server-side (surfacing `channel_quota_exceeded` /
+- **Social channels** (`/app/social-channels`) is a navigation entry for the
+  Facebook Pages and Instagram Professional resources the workspace publishes
+  to (D02); it is unrelated to account authentication. The page consumes only
+  the F5 runtime contract (#282 / PR #287) — client-safe availability
+  bootstrap, connection listing, OAuth start, callback resource selection,
+  reconnection, and revocation — through `core/social-connections.ts`
+  (parsers) and `core/social-api.ts` (client). It never models or renders token
+  material, reads the flat `{code,message,retryable}` F5 error envelope, treats
+  every undeclared code and unavailable provider as fail-closed, and enforces
+  the F10 channel quota server-side (surfacing `channel_quota_exceeded` /
   `channel_quota_unavailable`). Owner-only mutations rely on the F5 exact
   `Origin` allowlist configured through `POSTQRON_AUTH_ALLOWED_ORIGINS`; F5
   serves credentialed CORS and public preflight handlers, so no CSRF token is

@@ -7,6 +7,7 @@ import {
   accountDeletionCancellationRoute,
   authenticatedDestination,
   isPublicAccountDeletionCancellationDestination,
+  legacyProviderManagementRedirect,
   sanitizeAppDestination,
 } from '../components/core/navigation.ts'
 
@@ -73,7 +74,25 @@ for (const prefix of localePrefixes) {
       { action: 'allow' },
     )
   })
+
+  test(`redirects the retired provider-management destination in ${prefix || 'en'}`, () => {
+    assert.equal(
+      legacyProviderManagementRedirect(`${prefix}/app/providers?from=bookmark`),
+      `${prefix}/app/security`,
+    )
+    assert.equal(
+      legacyProviderManagementRedirect(`${prefix}/app/security`),
+      undefined,
+    )
+  })
 }
+
+test('legacy provider redirect defaults an unlocalized request to English security', () => {
+  assert.equal(
+    legacyProviderManagementRedirect('/app/providers'),
+    '/en/app/security',
+  )
+})
 
 test('preserves the public unlimited purchase intent without quantity', () => {
   const target = '/en/app?plan=unlimited&interval=annual'

@@ -9,10 +9,7 @@ import {
   useRequestHeaders,
   useRoute,
 } from '#imports'
-import {
-  buildRegistrationConsents,
-  type OAuthProvider,
-} from '../components/core/contracts.ts'
+import { buildRegistrationConsents } from '../components/core/contracts.ts'
 import {
   AppNavigationError,
   appRoute,
@@ -43,7 +40,6 @@ const confirmation = ref('')
 const requestedVerification = ref(false)
 const verifyingEmail = ref('')
 const submittingPassword = ref(false)
-const submittingProvider = ref<OAuthProvider>()
 const resendingVerification = ref(false)
 const formError = ref<string>()
 const invalidIntent = ref(false)
@@ -110,38 +106,6 @@ const terms = computed(() =>
   bootstrapState.value?.legal_documents.find(document => document.key === 'terms'))
 const privacy = computed(() =>
   bootstrapState.value?.legal_documents.find(document => document.key === 'privacy'))
-const providers = computed<OAuthProvider[]>(() =>
-  bootstrapState.value?.providers ?? [])
-
-async function start(provider: OAuthProvider) {
-  if (mode.value === 'register' && !accepted.value) {
-    formError.value = 'consent'
-    return
-  }
-  if (!bootstrapState.value) {
-    formError.value = 'configuration'
-    return
-  }
-  submittingProvider.value = provider
-  formError.value = undefined
-  try {
-    const authorizationURL = await api.authorize({
-      provider,
-      returnTo,
-      contractCountry: mode.value === 'register' ? 'IT' : undefined,
-      consents: mode.value === 'register'
-        ? buildRegistrationConsents(bootstrapState.value.legal_documents)
-        : undefined,
-    })
-    if (import.meta.client) {
-      globalThis.location.assign(authorizationURL)
-    }
-  } catch (error) {
-    formError.value = error instanceof Error ? error.message : 'configuration'
-  } finally {
-    submittingProvider.value = undefined
-  }
-}
 
 async function signInWithPassword() {
   submittingPassword.value = true
@@ -415,37 +379,6 @@ async function retry() {
             </span>
           </label>
 
-          <p
-            v-if="providers.length && !requestedVerification"
-            class="auth-separator"
-          >
-            {{ t('auth.orProvider') }}
-          </p>
-
-          <div
-            v-if="providers.length && !requestedVerification"
-            class="auth-providers"
-          >
-            <button
-              v-for="provider in providers"
-              :key="provider"
-              class="auth-provider"
-              type="button"
-              :disabled="Boolean(submittingProvider) || invalidIntent"
-              @click="start(provider)"
-            >
-              <span
-                class="auth-provider__mark"
-                aria-hidden="true"
-              >{{ provider.slice(0, 1).toUpperCase() }}</span>
-              {{ t(`auth.provider.${provider}`) }}
-              <span
-                v-if="submittingProvider === provider"
-                class="pq-button__spinner"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
         </div>
       </section>
     </main>
