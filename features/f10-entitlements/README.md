@@ -15,6 +15,15 @@ semantics:
   from payment recovery;
 - Paddle-only checkout, subscription changes, cancellation, and temporary
   customer portal sessions;
+- Owner-only plan-change previews and requests, with a durable
+  `dispatching`/`pending` record that leaves the active entitlement unchanged
+  until a matching signed Paddle webhook is applied;
+- authoritative downgrade checks for members, channels, and scheduled
+  publications; every overage is returned as `resource`, `used`, `limit`, and
+  `excess`, and no workspace resource is deleted or silently suspended;
+- workspace-level serialization shared with quota reservations, local
+  idempotent replay, one active change at a time, stale-event rejection, and a
+  second guard at webhook application;
 - exact server-side validation of the expected Paddle product/price line items;
 - raw-body `Paddle-Signature` verification, event deduplication, and
   `occurred_at` ordering;
@@ -92,7 +101,7 @@ No central registry is needed. Include both the platform root and this slice:
 POSTQRON_FEATURE_ROOTS="services/api/features:features/f10-entitlements"
 ```
 
-The same roots validate all five forward-only F10 migrations:
+The same roots validate all seven forward-only F10 migrations:
 
 ```sh
 go run ./services/api/cmd/migrate \
@@ -110,3 +119,8 @@ GOWORK=off go test ./...
 Set `TEST_DATABASE_URL` to enable PostgreSQL integration tests. Live Paddle
 catalog and lifecycle evidence is collected only through the protected workflow
 and the operations runbook.
+
+The PostgreSQL suite covers exact downgrade boundaries and overages for all
+three resources, concurrent quota reservation versus downgrade, idempotent
+request replay before and after the webhook, signed webhook application, and
+forward-migration replay.

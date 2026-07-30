@@ -3,7 +3,10 @@ package entitlements
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +17,457 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestPostgresPlanChangeGuardIdempotencyRaceAndSignedWebhook(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 30, 15, 0, 0, 0, time.UTC)
+	workspaceID := fmt.Sprintf("plan-change-%d", time.Now().UnixNano())
+	store := NewSQLStore(pool)
+	seedPaidWorkspace(
+		t,
+		pool,
+		workspaceID,
+		PlanTeam,
+		IntervalMonthly,
+		limit(9),
+		"ctm_plan_change",
+		"sub_plan_change",
+		now,
+	)
+	service := NewService(store)
+	service.now = func() time.Time { return now.Add(time.Minute) }
+	for _, command := range []struct {
+		resource Resource
+		amount   int64
+	}{
+		{ResourceMembers, 3},
+		{ResourceChannels, 6},
+		{ResourceScheduledPublications, 250},
+	} {
+		decision, err := service.Reserve(
+			ctx,
+			workspaceID,
+			command.resource,
+			command.amount,
+			"seed:"+string(command.resource),
+		)
+		if err != nil || !decision.Accepted {
+			t.Fatalf("seed %s = %#v, %v", command.resource, decision, err)
+		}
+	}
+
+	provider := &changeProviderStub{}
+	changes, err := NewSubscriptionChangeService(
+		ownerStub{owner: true},
+		provider,
+		store,
+		testPaddleCatalog(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := SubscriptionChangeRequest{
+		WorkspaceID:    workspaceID,
+		AccountID:      "owner",
+		Plan:           PlanPro,
+		Interval:       IntervalMonthly,
+		Channels:       limit(6),
+		IdempotencyKey: "team-to-pro",
+	}
+	result, err := changes.Apply(ctx, request)
+	if err != nil || result.Status != ChangePending || provider.updates != 1 {
+		t.Fatalf("first change = %#v, updates=%d, %v", result, provider.updates, err)
+	}
+	result, err = changes.Apply(ctx, request)
+	if err != nil || result.Status != ChangePending || provider.updates != 1 {
+		t.Fatalf("idempotent replay = %#v, updates=%d, %v", result, provider.updates, err)
+	}
+	reusedKey := request
+	reusedKey.Plan = PlanUnlimited
+	reusedKey.Channels = nil
+	if _, err := changes.Apply(ctx, reusedKey); !errors.Is(
+		err,
+		ErrIdempotencyConflict,
+	) {
+		t.Fatalf("reused key error = %v", err)
+	}
+
+	var plan PlanCode
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT plan_code
+		   FROM f10_workspace_billing
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan != PlanTeam {
+		t.Fatalf("request activated %s before webhook", plan)
+	}
+
+	var conflicts atomic.Int64
+	var wait sync.WaitGroup
+	for index := 0; index < 12; index++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			concurrent := request
+			concurrent.Plan = PlanUnlimited
+			concurrent.Channels = nil
+			concurrent.IdempotencyKey = fmt.Sprintf("concurrent-%02d", index)
+			_, err := changes.Apply(ctx, concurrent)
+			if errors.Is(err, ErrChangeInProgress) {
+				conflicts.Add(1)
+				return
+			}
+			t.Errorf("concurrent change %d error = %v", index, err)
+		}(index)
+	}
+	wait.Wait()
+	if conflicts.Load() != 12 || provider.updates != 1 {
+		t.Fatalf("conflicts=%d updates=%d", conflicts.Load(), provider.updates)
+	}
+
+	denied, err := service.Reserve(
+		ctx,
+		workspaceID,
+		ResourceChannels,
+		1,
+		"pending-target-channel",
+	)
+	if err != nil || denied.Accepted || denied.Code != "limit_reached" ||
+		denied.Usage.Limit == nil || *denied.Usage.Limit != 6 {
+		t.Fatalf("pending downgrade race guard = %#v, %v", denied, err)
+	}
+
+	catalog := testPaddleCatalog()
+	items, err := catalog.ExpectedItems(PlanPro, IntervalMonthly, limit(6))
+	if err != nil {
+		t.Fatal(err)
+	}
+	webhook, err := NewPaddleWebhookHandler("endpoint_secret", catalog, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	webhook.now = func() time.Time { return now.Add(2 * time.Minute) }
+	body := paddleEventBody(
+		t,
+		"evt_plan_change_applied",
+		"transaction.completed",
+		now.Add(2*time.Minute),
+		map[string]any{
+			"id":              "txn_plan_change",
+			"status":          "completed",
+			"customer_id":     "ctm_plan_change",
+			"subscription_id": "sub_plan_change",
+			"items":           paddleWebhookItems(items),
+			"billing_period": map[string]any{
+				"starts_at": now.AddDate(0, 1, 0),
+				"ends_at":   now.AddDate(0, 2, 0),
+			},
+		},
+	)
+	for delivery := 0; delivery < 2; delivery++ {
+		httpRequest := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/billing/paddle/webhook",
+			strings.NewReader(string(body)),
+		)
+		httpRequest.Header.Set(
+			"Paddle-Signature",
+			paddleSignature("endpoint_secret", now.Add(2*time.Minute), body),
+		)
+		response := httptest.NewRecorder()
+		webhook.ServeHTTP(response, httpRequest)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf(
+				"signed webhook delivery %d status=%d body=%s",
+				delivery,
+				response.Code,
+				response.Body.String(),
+			)
+		}
+	}
+	var status ChangeStatus
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT billing.plan_code, change.status
+		   FROM f10_workspace_billing AS billing
+		   JOIN f10_subscription_changes AS change USING (workspace_id)
+		  WHERE billing.workspace_id = $1`,
+		workspaceID,
+	).Scan(&plan, &status); err != nil {
+		t.Fatal(err)
+	}
+	if plan != PlanPro || status != ChangeApplied {
+		t.Fatalf("after webhook plan=%s status=%s", plan, status)
+	}
+	result, err = changes.Apply(ctx, request)
+	if err != nil || result.Status != ChangeApplied || provider.updates != 1 {
+		t.Fatalf(
+			"post-webhook idempotent replay = %#v, updates=%d, %v",
+			result,
+			provider.updates,
+			err,
+		)
+	}
+}
+
+func TestPostgresPlanChangeAndUsageRaceFailsClosed(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 30, 16, 0, 0, 0, time.UTC)
+	workspaceID := fmt.Sprintf("plan-change-race-%d", time.Now().UnixNano())
+	store := NewSQLStore(pool)
+	seedPaidWorkspace(
+		t,
+		pool,
+		workspaceID,
+		PlanTeam,
+		IntervalMonthly,
+		limit(9),
+		"ctm_plan_change_race",
+		"sub_plan_change_race",
+		now,
+	)
+	service := NewService(store)
+	service.now = func() time.Time { return now.Add(time.Minute) }
+	if decision, err := service.Reserve(
+		ctx,
+		workspaceID,
+		ResourceChannels,
+		6,
+		"race:seed-six",
+	); err != nil || !decision.Accepted {
+		t.Fatalf("seed race usage = %#v, %v", decision, err)
+	}
+
+	provider := &changeProviderStub{}
+	changes, err := NewSubscriptionChangeService(
+		ownerStub{owner: true},
+		provider,
+		store,
+		testPaddleCatalog(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	var (
+		changeAccepted bool
+		usageAccepted  bool
+		changeErr      error
+		usageErr       error
+	)
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		<-start
+		_, changeErr = changes.Apply(ctx, SubscriptionChangeRequest{
+			WorkspaceID:    workspaceID,
+			AccountID:      "owner",
+			Plan:           PlanPro,
+			Interval:       IntervalMonthly,
+			Channels:       limit(6),
+			IdempotencyKey: "race:downgrade",
+		})
+		changeAccepted = changeErr == nil
+	}()
+	go func() {
+		defer wait.Done()
+		<-start
+		decision, err := service.Reserve(
+			ctx,
+			workspaceID,
+			ResourceChannels,
+			1,
+			"race:seventh-channel",
+		)
+		usageErr = err
+		usageAccepted = err == nil && decision.Accepted
+	}()
+	close(start)
+	wait.Wait()
+
+	if changeErr != nil && !errors.Is(changeErr, ErrDowngradeBlocked) {
+		t.Fatalf("change race error = %v", changeErr)
+	}
+	if usageErr != nil {
+		t.Fatalf("usage race error = %v", usageErr)
+	}
+	if changeAccepted == usageAccepted {
+		t.Fatalf(
+			"race did not fail closed: changeAccepted=%v usageAccepted=%v",
+			changeAccepted,
+			usageAccepted,
+		)
+	}
+}
+
+func TestPostgresDowngradeGuardReturnsAllStructuredOverages(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 30, 17, 0, 0, 0, time.UTC)
+	workspaceID := fmt.Sprintf("plan-change-overages-%d", time.Now().UnixNano())
+	store := NewSQLStore(pool)
+	seedPaidWorkspace(
+		t,
+		pool,
+		workspaceID,
+		PlanUnlimited,
+		IntervalAnnual,
+		nil,
+		"ctm_plan_change_overages",
+		"sub_plan_change_overages",
+		now,
+	)
+	service := NewService(store)
+	service.now = func() time.Time { return now.Add(time.Minute) }
+	for _, command := range []struct {
+		resource Resource
+		amount   int64
+	}{
+		{ResourceMembers, 4},
+		{ResourceChannels, 7},
+		{ResourceScheduledPublications, 251},
+	} {
+		decision, err := service.Reserve(
+			ctx,
+			workspaceID,
+			command.resource,
+			command.amount,
+			"overage:"+string(command.resource),
+		)
+		if err != nil || !decision.Accepted {
+			t.Fatalf("seed %s = %#v, %v", command.resource, decision, err)
+		}
+	}
+	provider := &changeProviderStub{}
+	changes, err := NewSubscriptionChangeService(
+		ownerStub{owner: true},
+		provider,
+		store,
+		testPaddleCatalog(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = changes.Apply(ctx, SubscriptionChangeRequest{
+		WorkspaceID:    workspaceID,
+		AccountID:      "owner",
+		Plan:           PlanPro,
+		Interval:       IntervalAnnual,
+		Channels:       limit(6),
+		IdempotencyKey: "blocked-all-resources",
+	})
+	var blocked *DowngradeBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("error = %v", err)
+	}
+	want := map[Resource]DowngradeOverage{
+		ResourceMembers: {
+			Resource: ResourceMembers, Used: 4, Limit: 3, Excess: 1,
+		},
+		ResourceChannels: {
+			Resource: ResourceChannels, Used: 7, Limit: 6, Excess: 1,
+		},
+		ResourceScheduledPublications: {
+			Resource: ResourceScheduledPublications,
+			Used:     251,
+			Limit:    250,
+			Excess:   1,
+		},
+	}
+	if len(blocked.Overages) != len(want) {
+		t.Fatalf("overages = %#v", blocked.Overages)
+	}
+	for _, overage := range blocked.Overages {
+		if overage != want[overage.Resource] {
+			t.Fatalf("%s overage = %#v", overage.Resource, overage)
+		}
+	}
+	var changesCount int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)
+		   FROM f10_subscription_changes
+		  WHERE workspace_id = $1`,
+		workspaceID,
+	).Scan(&changesCount); err != nil {
+		t.Fatal(err)
+	}
+	if changesCount != 0 || provider.updates != 0 {
+		t.Fatalf(
+			"blocked change persisted/dispatched: rows=%d updates=%d",
+			changesCount,
+			provider.updates,
+		)
+	}
+	overview, err := service.GetOverview(ctx, workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Plan.Code != PlanUnlimited {
+		t.Fatalf("blocked downgrade changed plan to %s", overview.Plan.Code)
+	}
+	for _, current := range overview.Usage {
+		if current.Used != want[current.Resource].Used {
+			t.Fatalf("blocked downgrade changed %s usage: %#v", current.Resource, current)
+		}
+	}
+}
+
+func seedPaidWorkspace(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	workspaceID string,
+	plan PlanCode,
+	interval BillingInterval,
+	channels *int64,
+	customerID string,
+	subscriptionID string,
+	now time.Time,
+) {
+	t.Helper()
+	store := NewSQLStore(pool)
+	created, err := store.ProvisionTrial(
+		context.Background(),
+		workspaceID,
+		now.Add(-24*time.Hour),
+	)
+	if err != nil || !created {
+		t.Fatalf("seed trial = %v, %v", created, err)
+	}
+	if _, err := pool.Exec(
+		context.Background(),
+		`UPDATE f10_workspace_billing
+		    SET plan_code = $2,
+		        billing_interval = $3,
+		        billing_state = 'active',
+		        channel_quantity = $4,
+		        paddle_customer_id = $5,
+		        paddle_subscription_id = $6,
+		        provider_period_start = $7,
+		        provider_period_end = $8,
+		        last_provider_event_created_at = $7,
+		        last_provider_event_id = 'evt_seed',
+		        updated_at = $7
+		  WHERE workspace_id = $1`,
+		workspaceID,
+		plan,
+		interval,
+		channels,
+		customerID,
+		subscriptionID,
+		now,
+		now.AddDate(0, 1, 0),
+	); err != nil {
+		t.Fatalf("seed paid workspace: %v", err)
+	}
+}
 
 func TestPostgresAcceptsCanonicalF4TextWorkspaceID(t *testing.T) {
 	pool := integrationPool(t)
@@ -248,7 +702,15 @@ func TestPostgresAtomicLimitsLifecycleAndPublicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testBillingLifecycle(t, pool, store, workspaceID, now)
+	billingLifecycleWorkspace := "6b864720-e4ea-42bb-9d39-f824b19b4ea4"
+	if created, err := store.ProvisionTrial(
+		ctx,
+		billingLifecycleWorkspace,
+		now,
+	); err != nil || !created {
+		t.Fatalf("provision billing lifecycle workspace = %v, %v", created, err)
+	}
+	testBillingLifecycle(t, pool, store, billingLifecycleWorkspace, now)
 	testUnlimitedEntitlementAndConservativeDowngrade(t, pool, store, now)
 	testProductOwnerPlanLimitBoundaries(t, pool, store, now)
 	testMonthlyQuotaWindow(t, pool)
@@ -475,28 +937,30 @@ func testUnlimitedEntitlementAndConservativeDowngrade(
 		Start: paid.Period.End,
 		End:   paid.Period.End.AddDate(1, 0, 0),
 	}
-	if result, err := store.ApplyBillingEvent(ctx, downgrade); err != nil ||
-		!result.StateChanged {
-		t.Fatalf("Unlimited downgrade = %#v, %v", result, err)
+	if result, err := store.ApplyBillingEvent(ctx, downgrade); err == nil ||
+		result.StateChanged {
+		t.Fatalf("unguarded Unlimited downgrade = %#v, %v", result, err)
 	}
 	overview, err = service.GetOverview(ctx, workspaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	channels := usageFor(t, overview, ResourceChannels)
-	if channels.Used != 1_000_000 || channels.Limit == nil ||
-		*channels.Limit != 9 || !channels.OverLimit {
-		t.Fatalf("downgrade deleted or hid channel overage: %#v", channels)
+	if overview.Plan.Code != PlanUnlimited ||
+		channels.Used != 1_000_000 ||
+		channels.Limit != nil ||
+		channels.OverLimit {
+		t.Fatalf("blocked downgrade changed or deleted resources: %#v", overview)
 	}
-	denied, err := service.Reserve(
+	accepted, err := service.Reserve(
 		ctx,
 		workspaceID,
 		ResourceChannels,
 		1,
-		"downgraded:new-channel",
+		"blocked-downgrade:new-channel",
 	)
-	if err != nil || denied.Accepted || denied.Code != "limit_reached" {
-		t.Fatalf("downgraded addition = %#v, %v", denied, err)
+	if err != nil || !accepted.Accepted {
+		t.Fatalf("blocked downgrade changed active entitlement = %#v, %v", accepted, err)
 	}
 }
 
@@ -723,6 +1187,15 @@ func testBillingLifecycle(
 	})
 	if err != nil || !recoveredUsage.Accepted {
 		t.Fatalf("usage after payment recovery = %#v, %v", recoveredUsage, err)
+	}
+	if released, err := store.ApplyUsage(ctx, UsageCommand{
+		WorkspaceID:    workspaceID,
+		Resource:       ResourceMembers,
+		Delta:          -1,
+		IdempotencyKey: "member:before-cancellation",
+		OccurredAt:     recovered.OccurredAt.Add(2 * time.Second),
+	}); err != nil || !released.Accepted || released.Usage.Used != 1 {
+		t.Fatalf("usage before cancellation = %#v, %v", released, err)
 	}
 
 	canceled := recovered
@@ -983,6 +1456,18 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, string(boundaryMigration)); err != nil {
 		t.Fatalf("align F4/F10 workspace IDs: %v", err)
 	}
+	planChangeMigration, err := os.ReadFile(filepath.Join(
+		"migrations",
+		"000007_authoritative_plan_changes.sql",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for replay := 0; replay < 2; replay++ {
+		if _, err := pool.Exec(ctx, string(planChangeMigration)); err != nil {
+			t.Fatalf("authoritative plan change migration replay %d: %v", replay, err)
+		}
+	}
 	var (
 		preservedState BillingState
 		preservedType  string
@@ -1010,6 +1495,7 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 		"f10_usage_counters",
 		"f10_usage_operations",
 		"f10_internal_entitlement_overrides",
+		"f10_subscription_changes",
 	} {
 		var dataType string
 		if err := pool.QueryRow(
