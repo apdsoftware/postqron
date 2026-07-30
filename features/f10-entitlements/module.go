@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +23,7 @@ const (
 	configPaddleAPIKey        = "billing.paddle_api_key"
 	configPaddleWebhookSecret = "billing.paddle_webhook_secret"
 	configPaddleCatalogJSON   = "billing.paddle_catalog_json"
+	billingAllowedOriginsEnv  = "POSTQRON_AUTH_ALLOWED_ORIGINS"
 )
 
 var ErrIncompletePaddleRuntimeConfig = errors.New(
@@ -41,10 +44,16 @@ func NewPostgresModule(
 	clock func() time.Time,
 ) (*Module, error) {
 	handler := &HTTPHandler{}
+	allowedOrigins, err := normalizeBillingOrigins(
+		os.Getenv(billingAllowedOriginsEnv),
+	)
+	if err != nil {
+		return nil, err
+	}
 	return &Module{
 		database: database,
 		clock:    clock,
-		handlers: catalogOnlyHandlers(handler),
+		handlers: catalogOnlyHandlers(handler, allowedOrigins),
 	}, nil
 }
 
@@ -134,7 +143,13 @@ func (module *Module) Configure(values map[string]string) error {
 		authenticator: authenticator,
 		viewer:        access,
 	}
-	module.handlers = configuredHandlers(handler)
+	allowedOrigins, err := normalizeBillingOrigins(
+		os.Getenv(billingAllowedOriginsEnv),
+	)
+	if err != nil {
+		return err
+	}
+	module.handlers = configuredHandlers(handler, allowedOrigins)
 	return nil
 }
 
@@ -164,7 +179,10 @@ func (module *Module) Handler(name string) (http.Handler, bool) {
 	return handler, ok && handler != nil
 }
 
-func catalogOnlyHandlers(handler *HTTPHandler) map[string]http.Handler {
+func catalogOnlyHandlers(
+	handler *HTTPHandler,
+	allowedOrigins []string,
+) map[string]http.Handler {
 	unavailable := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writeEntitlementError(
 			writer,
@@ -172,26 +190,125 @@ func catalogOnlyHandlers(handler *HTTPHandler) map[string]http.Handler {
 			"billing_unavailable",
 		)
 	})
-	handlers := configuredHandlers(handler)
+	handlers := configuredHandlers(handler, allowedOrigins)
 	for name := range handlers {
-		if name != "PublicPlans" {
-			handlers[name] = unavailable
+		if name != "PublicPlans" && name != "BillingPreflight" {
+			handlers[name] = withBillingCORS(unavailable, allowedOrigins)
 		}
 	}
 	return handlers
 }
 
-func configuredHandlers(handler *HTTPHandler) map[string]http.Handler {
+func configuredHandlers(
+	handler *HTTPHandler,
+	allowedOrigins []string,
+) map[string]http.Handler {
 	return map[string]http.Handler{
-		"PublicPlans":               http.HandlerFunc(handler.plans),
-		"BillingOverview":           http.HandlerFunc(handler.overview),
-		"BillingCheckout":           http.HandlerFunc(handler.createCheckout),
-		"BillingPortal":             http.HandlerFunc(handler.createPortal),
-		"PreviewSubscriptionChange": http.HandlerFunc(handler.previewSubscriptionChange),
-		"ApplySubscriptionChange":   http.HandlerFunc(handler.applySubscriptionChange),
-		"CancelSubscription":        http.HandlerFunc(handler.cancelSubscription),
-		"PaddleWebhook":             handler.webhook,
+		"PublicPlans": withBillingCORS(
+			http.HandlerFunc(handler.plans),
+			allowedOrigins,
+		),
+		"BillingOverview": withBillingCORS(
+			http.HandlerFunc(handler.overview),
+			allowedOrigins,
+		),
+		"BillingCheckout": withBillingCORS(
+			http.HandlerFunc(handler.createCheckout),
+			allowedOrigins,
+		),
+		"BillingPortal": withBillingCORS(
+			http.HandlerFunc(handler.createPortal),
+			allowedOrigins,
+		),
+		"PreviewSubscriptionChange": withBillingCORS(
+			http.HandlerFunc(handler.previewSubscriptionChange),
+			allowedOrigins,
+		),
+		"ApplySubscriptionChange": withBillingCORS(
+			http.HandlerFunc(handler.applySubscriptionChange),
+			allowedOrigins,
+		),
+		"CancelSubscription": withBillingCORS(
+			http.HandlerFunc(handler.cancelSubscription),
+			allowedOrigins,
+		),
+		"BillingPreflight": withBillingCORS(
+			http.HandlerFunc(billingPreflight),
+			allowedOrigins,
+		),
+		"PaddleWebhook": handler.webhook,
 	}
+}
+
+func billingPreflight(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set(
+		"Access-Control-Allow-Methods",
+		"GET, POST, PATCH, OPTIONS",
+	)
+	writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	writer.Header().Set("Access-Control-Max-Age", "600")
+	writer.WriteHeader(http.StatusNoContent)
+}
+
+func withBillingCORS(
+	next http.Handler,
+	allowedOrigins []string,
+) http.Handler {
+	return http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		origin := request.Header.Get("Origin")
+		if origin == "" {
+			next.ServeHTTP(writer, request)
+			return
+		}
+		normalized, err := normalizeBillingOrigin(origin)
+		if err != nil || !slices.Contains(allowedOrigins, normalized) {
+			writeEntitlementError(
+				writer,
+				http.StatusForbidden,
+				"origin_forbidden",
+			)
+			return
+		}
+		writer.Header().Set("Access-Control-Allow-Origin", normalized)
+		writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		writer.Header().Add("Vary", "Origin")
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func normalizeBillingOrigins(raw string) ([]string, error) {
+	var origins []string
+	for _, value := range strings.Split(raw, ",") {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		origin, err := normalizeBillingOrigin(value)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(origins, origin) {
+			origins = append(origins, origin)
+		}
+	}
+	slices.Sort(origins)
+	return origins, nil
+}
+
+func normalizeBillingOrigin(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil ||
+		(parsed.Scheme != "https" && parsed.Scheme != "http") ||
+		parsed.Host == "" ||
+		parsed.User != nil ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" ||
+		(parsed.Path != "" && parsed.Path != "/") {
+		return "", errors.New("billing allowed origin must be an HTTP(S) origin")
+	}
+	return parsed.Scheme + "://" + parsed.Host, nil
 }
 
 func billingCheckoutURL(domain string) (string, error) {
