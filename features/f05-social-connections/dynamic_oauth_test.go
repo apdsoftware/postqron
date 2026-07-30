@@ -32,6 +32,7 @@ type fakeDynamicAdapter struct {
 	requestResult  DynamicAuthenticatedResult
 	requestErr     error
 	requestCalls   int
+	requestPaths   []string
 	requestStates  [][]byte
 	requestEntered chan struct{}
 	requestRelease chan struct{}
@@ -88,10 +89,11 @@ func (adapter *fakeDynamicAdapter) RefreshDynamic(
 func (adapter *fakeDynamicAdapter) DoAuthenticated(
 	_ context.Context,
 	session DynamicSession,
-	_ AuthenticatedRequest,
+	request AuthenticatedRequest,
 ) (DynamicAuthenticatedResult, error) {
 	adapter.mu.Lock()
 	adapter.requestCalls++
+	adapter.requestPaths = append(adapter.requestPaths, request.Path)
 	adapter.requestStates = append(
 		adapter.requestStates,
 		append([]byte(nil), session.ProviderState...),
