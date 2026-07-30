@@ -36,7 +36,7 @@ const { pending, refresh } = useAsyncData('postqron-account-plan', async () => {
     pageState.value = appStateKindFromError(error)
     return undefined
   }
-})
+}, { server: false })
 
 const workspacePlan = computed(() =>
   accountArea.value?.workspaces.find(item =>

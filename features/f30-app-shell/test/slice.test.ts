@@ -115,6 +115,31 @@ test('shell exposes accessible states and declarative slots', async () => {
   assert.match(layout, /<summary[\s\S]*:aria-label="`\$\{t\('shell\.profile'\)\}/u)
   assert.match(home, /data-postqron-slot="home-primary"/u)
   assert.match(feature, /data-postqron-slot="feature-content"/u)
+  assert.doesNotMatch(layout, /<a[\s\S]*:href="(?:link\.href|appRoute\(locale, '(?:home|profile)'\))"/u)
+  assert.match(layout, /<NuxtLink[\s\S]*:to="link\.href"/u)
+})
+
+test('protected navigation validates the API-owned session in the browser', async () => {
+  const [middleware, ...pages] = await Promise.all([
+    readFile(new URL('../middleware/app-session.ts', import.meta.url), 'utf8'),
+    ...[
+      'home',
+      'onboarding',
+      'plan',
+      'privacy',
+      'profile',
+      'providers',
+      'security',
+      'workspace',
+    ].map(page => readFile(new URL(`../pages/${page}.vue`, import.meta.url), 'utf8')),
+  ])
+
+  assert.match(middleware, /if \(import\.meta\.server\) \{\s+return\s+\}/u)
+  assert.doesNotMatch(middleware, /useRequestHeaders/u)
+  assert.match(middleware, /failure\.kind === 'session'[\s\S]*sessionState\.value = undefined/u)
+  for (const page of pages) {
+    assert.match(page, /useAsyncData\([\s\S]*\}, \{ server: false \}\)/u)
+  }
 })
 
 test('privacy flow requires explicit confirmation before deletion requests', async () => {

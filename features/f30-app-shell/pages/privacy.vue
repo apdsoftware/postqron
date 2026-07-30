@@ -54,7 +54,7 @@ const { pending, refresh } = useAsyncData('postqron-account-privacy', async () =
     pageState.value = appStateKindFromError(error)
     return undefined
   }
-})
+}, { server: false })
 
 const ownerWorkspace = computed(() =>
   accountArea.value?.workspaces.find(item => item.workspace.role === 'owner'))

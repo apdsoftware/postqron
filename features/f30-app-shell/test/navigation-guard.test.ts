@@ -119,6 +119,28 @@ test('offline and denied guards expose only stable application state', () => {
   )
 })
 
+test('a retryable network failure preserves a previously validated session', () => {
+  assert.deepEqual(
+    routeGuardDecision({
+      destination: '/it/app/profile',
+      failure: 'offline',
+      session,
+    }),
+    { action: 'allow' },
+  )
+  assert.deepEqual(
+    routeGuardDecision({
+      destination: '/it/app/profile',
+      failure: 'session',
+      session,
+    }),
+    {
+      action: 'redirect',
+      location: '/it/app?return_to=%2Fit%2Fapp%2Fprofile',
+    },
+  )
+})
+
 for (const target of [
   'https://evil.example/app',
   '//evil.example/app',

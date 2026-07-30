@@ -50,7 +50,7 @@ const { pending, refresh } = useAsyncData('postqron-account-providers', async ()
     pageState.value = appStateKindFromError(error)
     return undefined
   }
-})
+}, { server: false })
 
 const linkedProviderNames = computed(() =>
   new Set((accountArea.value?.providers ?? []).map(provider => provider.name)))

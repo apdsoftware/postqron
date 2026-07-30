@@ -73,15 +73,15 @@ async function logout() {
       :data-open="menuOpen"
     >
       <div class="product-sidebar__brand">
-        <a
-          :href="appRoute(locale, 'home')"
+        <NuxtLink
+          :to="appRoute(locale, 'home')"
           aria-label="Postqron"
         >
           <img
             src="/brand/logo-reversed.svg"
             alt="Postqron"
           >
-        </a>
+        </NuxtLink>
         <button
           class="product-sidebar__close"
           type="button"
@@ -93,15 +93,15 @@ async function logout() {
       </div>
 
       <nav :aria-label="t('shell.navigation')">
-        <a
+        <NuxtLink
           v-for="link in links"
           :key="link.key"
-          :href="link.href"
+          :to="link.href"
           :aria-current="route.path === link.href ? 'page' : undefined"
           @click="menuOpen = false"
         >
           {{ t(`shell.nav.${link.key}`) }}
-        </a>
+        </NuxtLink>
         <div data-postqron-slot="primary-navigation" />
       </nav>
     </aside>
@@ -166,7 +166,7 @@ async function logout() {
           <div class="profile-menu__panel">
             <strong>{{ session?.account.display_name }}</strong>
             <small>{{ session?.account.email }}</small>
-            <a :href="appRoute(locale, 'profile')">{{ t('shell.profile') }}</a>
+            <NuxtLink :to="appRoute(locale, 'profile')">{{ t('shell.profile') }}</NuxtLink>
             <button
               type="button"
               @click="logout"

@@ -129,7 +129,7 @@ func NewModuleWithAccountAccess(
 	}
 	return &Module{
 		database: database,
-		handler:  handler,
+		handler:  credentialedCORS(handler, allowedOrigins),
 		artifact: artifactDownloadHandler{database: database, store: artifactStore, now: clock},
 		cancel: cancelCapabilityHandler{
 			store:          sqlCancelCapabilityStore{database: database},

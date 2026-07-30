@@ -55,7 +55,7 @@ const { pending, refresh } = useAsyncData('postqron-onboarding-bootstrap', async
     pageState.value = appStateKindFromError(loadError)
     return undefined
   }
-})
+}, { server: false })
 
 const returnTo = computed(() => safeAppDestination(
   typeof route.query.return_to === 'string'

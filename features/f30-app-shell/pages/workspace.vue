@@ -36,7 +36,7 @@ const { pending, refresh } = useAsyncData('postqron-workspace-members', async ()
     pageState.value = appStateKindFromError(error)
     return []
   }
-})
+}, { server: false })
 
 async function retry() {
   await refresh()
