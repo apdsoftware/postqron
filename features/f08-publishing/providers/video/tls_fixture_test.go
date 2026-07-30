@@ -15,7 +15,7 @@ import (
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 )
 
-func TestTikTokOfflineTLSFixtureThroughAuthenticatedExecutor(t *testing.T) {
+func TestTikTokOfflineTLSFixtureFailsClosedUntilF5Issue342(t *testing.T) {
 	var calls atomic.Int32
 	var sawBearer atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(
@@ -68,9 +68,11 @@ func TestTikTokOfflineTLSFixtureThroughAuthenticatedExecutor(t *testing.T) {
 		WorkspaceID: "workspace-1", ConnectionID: connection.ID,
 		Payload: mustJSON(t, tikTokPayload{
 			Video: media{
-				StorageKey: "video", SourceURL: "https://media.example/video.mp4",
+				StorageKey:  "video.mp4",
+				SourceURL:   "https://media.example/tiktok/" + strings.Repeat("a", 64) + "/10/video.mp4",
 				ContentType: "video/mp4", SizeBytes: 10,
-				SHA256: strings.Repeat("a", 64), DurationSeconds: 10,
+				SHA256: strings.Repeat("a", 64), Width: 1080, Height: 1920,
+				DurationSeconds: 10,
 			},
 			Metadata: tikTokMetadata{
 				Title: "TLS fixture", PrivacyLevel: "SELF_ONLY",
@@ -82,21 +84,18 @@ func TestTikTokOfflineTLSFixtureThroughAuthenticatedExecutor(t *testing.T) {
 			Consent: true,
 		}),
 	}
-	for step := 0; step < 3; step++ {
-		result, publishErr := adapter.Publish(context.Background(), request)
-		if publishErr != nil {
-			t.Fatalf("step %d: %v (executor=%v)", step, publishErr, recording.err)
-		}
-		request.Checkpoint = result.Checkpoint
+	pending, err := adapter.Publish(context.Background(), request)
+	if err != nil || len(pending.Checkpoint) == 0 {
+		t.Fatalf("pending=%#v error=%v", pending, err)
 	}
-	result, err := adapter.Publish(context.Background(), request)
-	if err != nil || !result.Complete || result.RemoteID != "12345" {
-		t.Fatalf("result=%#v error=%v", result, err)
+	request.Checkpoint = pending.Checkpoint
+	if _, err = adapter.Publish(context.Background(), request); err == nil {
+		t.Fatal("F5 accepted a trailing-slash provider path before issue #342")
 	}
-	if calls.Load() != 3 || !sawBearer.Load() {
+	if calls.Load() != 0 || sawBearer.Load() {
 		t.Fatalf("TLS calls=%d bearer=%v", calls.Load(), sawBearer.Load())
 	}
-	if transport.PinnedOrigin() != "https://open.tiktokapis.com" {
+	if transport.PinnedOrigin() != "" {
 		t.Fatalf("pinned origin=%q", transport.PinnedOrigin())
 	}
 }

@@ -9,7 +9,7 @@ import (
 
 // AdapterRegistry is populated by worker adapter discovery. Registration is
 // explicit and fail-closed: duplicate providers, invalid modes, and adapters
-// without a safe replay capability are rejected before the worker starts.
+// without safe ambiguity handling are rejected before the worker starts.
 type AdapterRegistry struct {
 	mu            sync.RWMutex
 	publishers    map[string]Publisher
@@ -34,7 +34,8 @@ func (registry *AdapterRegistry) RegisterPublisher(
 	capabilities := publisher.Capabilities()
 	if capabilities.Mode != PublishingModeAuto ||
 		strings.TrimSpace(capabilities.Version) == "" ||
-		(!capabilities.NativeIdempotency && !capabilities.Reconciliation) {
+		(!capabilities.NativeIdempotency && !capabilities.Reconciliation &&
+			!capabilities.AmbiguousFailClosed) {
 		return ErrUnsafeAdapter
 	}
 	registry.mu.Lock()

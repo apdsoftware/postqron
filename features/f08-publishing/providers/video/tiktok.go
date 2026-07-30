@@ -3,8 +3,12 @@ package video
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
@@ -12,27 +16,46 @@ import (
 )
 
 const (
-	tikTokCreatorPath = "/v2/post/publish/creator_info/query"
-	tikTokInitPath    = "/v2/post/publish/video/init"
-	tikTokStatusPath  = "/v2/post/publish/status/fetch"
+	tikTokCreatorPath = "/v2/post/publish/creator_info/query/"
+	tikTokInitPath    = "/v2/post/publish/video/init/"
+	tikTokStatusPath  = "/v2/post/publish/status/fetch/"
 )
 
 type TikTok struct {
-	executor authenticatedExecutor
+	executor   authenticatedExecutor
+	pullPrefix string
 }
 
-func NewTikTok(executor *socialconnections.AuthenticatedExecutor) (*TikTok, error) {
+type TikTokConfig struct {
+	// VerifiedPullURLPrefix is an HTTPS URL-prefix property whose ownership
+	// has been verified for the configured TikTok application.
+	VerifiedPullURLPrefix string
+}
+
+func NewTikTok(
+	executor *socialconnections.AuthenticatedExecutor,
+	config TikTokConfig,
+) (*TikTok, error) {
 	if executor == nil {
 		return nil, publishing.ErrInvalidArgument
 	}
-	return &TikTok{executor: executor}, nil
+	prefix, err := verifiedTikTokPullPrefix(config.VerifiedPullURLPrefix)
+	if err != nil {
+		return nil, publishing.ErrInvalidArgument
+	}
+	return &TikTok{executor: executor, pullPrefix: prefix}, nil
 }
 
-func newTikTokForTest(executor authenticatedExecutor) *TikTok {
-	return &TikTok{executor: executor}
+func newTikTokForTest(executor authenticatedExecutor, prefix ...string) *TikTok {
+	configured := "https://media.example/tiktok/"
+	if len(prefix) == 1 {
+		configured = prefix[0]
+	}
+	verified, _ := verifiedTikTokPullPrefix(configured)
+	return &TikTok{executor: executor, pullPrefix: verified}
 }
 
-func (*TikTok) Capabilities() publishing.AdapterCapabilities { return capabilities() }
+func (*TikTok) Capabilities() publishing.AdapterCapabilities { return capabilities(true) }
 
 type tikTokPayload struct {
 	Video    media          `json:"video"`
@@ -129,6 +152,10 @@ func (adapter *TikTok) Publish(
 		if err := validateTikTokCapabilities(payload, state); err != nil {
 			return publishing.PublishResult{}, err
 		}
+		pullURL, err := adapter.pullURL(payload.Video)
+		if err != nil {
+			return publishing.PublishResult{}, err
+		}
 		body, _ := jsonBody(map[string]any{
 			"post_info": map[string]any{
 				"title":                payload.Metadata.Title,
@@ -142,7 +169,7 @@ func (adapter *TikTok) Publish(
 			},
 			"source_info": map[string]any{
 				"source":    "PULL_FROM_URL",
-				"video_url": payload.Video.SourceURL,
+				"video_url": pullURL,
 			},
 		})
 		response, callErr := execute(
@@ -157,8 +184,9 @@ func (adapter *TikTok) Publish(
 		var envelope tikTokEnvelope
 		if json.Unmarshal(response.Body, &envelope) != nil ||
 			envelope.Error.Code != "ok" || envelope.Data.PublishID == "" {
-			return publishing.PublishResult{}, permanent(
-				"invalid_publish_init", "TikTok did not return a publish id.",
+			return publishing.PublishResult{}, ambiguous(
+				"tiktok_init_outcome_ambiguous",
+				"TikTok accepted the initialization without a publish id.",
 			)
 		}
 		state.Step = "processing"
@@ -281,7 +309,7 @@ func (adapter *TikTok) input(
 	if err := decodeCheckpoint(request.Checkpoint, &state); err != nil {
 		return payload, state, err
 	}
-	if !validMedia(payload.Video) || !validHTTPSMediaURL(payload.Video.SourceURL) ||
+	if !validMedia(payload.Video) ||
 		!payload.Consent || payload.Metadata.PrivacyLevel == "" ||
 		len([]rune(payload.Metadata.Title)) > 2200 ||
 		payload.Metadata.DisableDuet == nil ||
@@ -295,6 +323,52 @@ func (adapter *TikTok) input(
 		)
 	}
 	return payload, state, nil
+}
+
+func verifiedTikTokPullPrefix(raw string) (string, error) {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
+	canonicalPath := ""
+	if err == nil {
+		canonicalPath = path.Clean(parsed.Path)
+		if canonicalPath != "/" {
+			canonicalPath += "/"
+		}
+	}
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		parsed.Port() != "" || net.ParseIP(parsed.Hostname()) != nil ||
+		!strings.HasSuffix(parsed.Path, "/") ||
+		canonicalPath != parsed.Path {
+		return "", publishing.ErrInvalidArgument
+	}
+	parsed.Host = strings.ToLower(parsed.Host)
+	return parsed.String(), nil
+}
+
+func (adapter *TikTok) pullURL(value media) (string, error) {
+	if adapter.pullPrefix == "" {
+		return "", permanent(
+			"tiktok_pull_source_unverified",
+			"TikTok media delivery is not bound to a verified URL prefix.",
+		)
+	}
+	name := path.Base(strings.TrimSpace(value.StorageKey))
+	if name == "." || name == ".." || name == "/" || name == "" {
+		return "", permanent(
+			"tiktok_pull_source_invalid",
+			"TikTok media delivery cannot identify the immutable object.",
+		)
+	}
+	expected := adapter.pullPrefix + value.SHA256 + "/" +
+		strconv.FormatInt(value.SizeBytes, 10) + "/" + url.PathEscape(name)
+	if strings.TrimSpace(value.SourceURL) != expected ||
+		!validHTTPSMediaURL(value.SourceURL) {
+		return "", permanent(
+			"tiktok_pull_source_unverified",
+			"TikTok media URL does not match the verified immutable object prefix.",
+		)
+	}
+	return expected, nil
 }
 
 func validateTikTokCapabilities(

@@ -32,10 +32,12 @@ func (gate ProviderGate) ready() bool {
 }
 
 type VideoAdapterDependencies struct {
-	Executor *socialconnections.AuthenticatedExecutor
-	Media    videopublishing.MediaSource
-	TikTok   ProviderGate
-	YouTube  ProviderGate
+	Executor                 *socialconnections.AuthenticatedExecutor
+	Media                    videopublishing.MediaSource
+	TikTokVerifiedPullPrefix string
+	F5TrailingSlashPaths     bool
+	TikTok                   ProviderGate
+	YouTube                  ProviderGate
 }
 
 func New(
@@ -60,7 +62,7 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	registry, err := newRuntimeAdapterRegistry(videoDependencies...)
+	registry, err := NewVideoAdapterRegistry(videoDependencies...)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -86,7 +88,7 @@ func New(
 	return &Service{engine: engine, pool: pool}, nil
 }
 
-func newRuntimeAdapterRegistry(
+func NewVideoAdapterRegistry(
 	dependencies ...VideoAdapterDependencies,
 ) (*publishing.AdapterRegistry, error) {
 	registry := publishing.NewAdapterRegistry()
@@ -98,7 +100,17 @@ func newRuntimeAdapterRegistry(
 	}
 	config := dependencies[0]
 	if config.TikTok.ready() {
-		adapter, err := videopublishing.NewTikTok(config.Executor)
+		if !config.F5TrailingSlashPaths {
+			return nil, errors.New(
+				"TikTok publisher requires F5 trailing-slash path support (issue #342)",
+			)
+		}
+		adapter, err := videopublishing.NewTikTok(
+			config.Executor,
+			videopublishing.TikTokConfig{
+				VerifiedPullURLPrefix: config.TikTokVerifiedPullPrefix,
+			},
+		)
 		if err != nil {
 			return nil, fmt.Errorf("configure TikTok publisher: %w", err)
 		}

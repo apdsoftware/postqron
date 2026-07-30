@@ -5,6 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -116,7 +119,8 @@ func TestYouTubeReconcilesProcessingVideo(t *testing.T) {
 		Payload: mustJSON(t, youTubePayload{
 			Video: media{
 				StorageKey: "video", ContentType: "video/mp4", SizeBytes: 1,
-				SHA256: strings.Repeat("a", 64), DurationSeconds: 1,
+				SHA256: strings.Repeat("a", 64), Width: 1080, Height: 1920,
+				DurationSeconds: 1,
 			},
 			Metadata: youTubeMetadata{
 				ChannelID: "channel-1", Title: "Short", CategoryID: "22",
@@ -135,8 +139,10 @@ func TestYouTubeReconcilesProcessingVideo(t *testing.T) {
 }
 
 type fixtureMediaSource struct {
-	data  []byte
-	opens int
+	data   []byte
+	err    error
+	reader io.ReadCloser
+	opens  int
 }
 
 func (source *fixtureMediaSource) Open(
@@ -144,6 +150,12 @@ func (source *fixtureMediaSource) Open(
 	_ string,
 ) (io.ReadCloser, error) {
 	source.opens++
+	if source.err != nil {
+		return nil, source.err
+	}
+	if source.reader != nil {
+		return source.reader, nil
+	}
 	return io.NopCloser(bytes.NewReader(append([]byte(nil), source.data...))), nil
 }
 
@@ -161,7 +173,8 @@ func youtubeRequest(
 			Video: media{
 				StorageKey: "videos/short.mp4", ContentType: "video/mp4",
 				SizeBytes: int64(len(videoBytes)),
-				SHA256:    hex.EncodeToString(digest[:]), DurationSeconds: 42,
+				SHA256:    hex.EncodeToString(digest[:]),
+				Width:     1080, Height: 1920, DurationSeconds: 42,
 			},
 			Metadata: youTubeMetadata{
 				ChannelID: "channel-1", Title: "Offline short",
@@ -174,20 +187,159 @@ func youtubeRequest(
 }
 
 func TestVideoAdaptersExposeSafeCapabilities(t *testing.T) {
-	for name, adapter := range map[string]publishing.Publisher{
-		"tiktok":  newTikTokForTest(&fixtureExecutor{}),
-		"youtube": newYouTubeForTest(&fixtureExecutor{}, &fixtureMediaSource{}),
+	for name, test := range map[string]struct {
+		adapter        publishing.Publisher
+		reconciliation bool
+	}{
+		"tiktok": {
+			adapter: newTikTokForTest(&fixtureExecutor{}), reconciliation: true,
+		},
+		"youtube": {
+			adapter:        newYouTubeForTest(&fixtureExecutor{}, &fixtureMediaSource{}),
+			reconciliation: false,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := adapter.Capabilities()
+			got := test.adapter.Capabilities()
 			if got.Version != capabilityVersion ||
 				got.Mode != publishing.PublishingModeAuto ||
-				got.NativeIdempotency || !got.Reconciliation ||
+				got.NativeIdempotency ||
+				got.Reconciliation != test.reconciliation ||
+				!got.AmbiguousFailClosed ||
 				!got.MultiStep || !got.RemotePermalink {
 				t.Fatalf("capabilities=%#v", got)
 			}
 		})
 	}
 }
+
+func TestYouTubeSuccessfulUploadWithoutVideoIDIsAmbiguous(t *testing.T) {
+	videoBytes := []byte("ambiguous-video")
+	digest := sha256.Sum256(videoBytes)
+	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
+		jsonResponse(`{}`),
+	}}
+	adapter := newYouTubeForTest(executor, &fixtureMediaSource{data: videoBytes})
+	request := youtubeRequest(t, videoBytes, digest)
+	request.Checkpoint = mustJSON(t, youTubeCheckpoint{
+		Step: "creator_ready", ChannelID: "channel-1",
+	})
+
+	_, err := adapter.Publish(context.Background(), request)
+	var failure *publishing.ProviderError
+	if !errors.As(err, &failure) || !failure.Ambiguous || !failure.Retryable {
+		t.Fatalf("publish error=%#v", err)
+	}
+	reconciled, err := adapter.Reconcile(context.Background(), publishing.ReconcileRequest{
+		Payload: request.Payload, Checkpoint: request.Checkpoint,
+	})
+	if err != nil || reconciled.State != publishing.ReconciliationUnknown {
+		t.Fatalf("reconcile=%#v error=%v", reconciled, err)
+	}
+	if calls := executor.Calls(); len(calls) != 1 {
+		t.Fatalf("upload calls=%d, want exactly one", len(calls))
+	}
+}
+
+func TestYouTubeShortsRejectsLandscapeAndMissingDimensions(t *testing.T) {
+	videoBytes := []byte("dimension-video")
+	digest := sha256.Sum256(videoBytes)
+	for _, dimensions := range [][2]int{{1920, 1080}, {0, 1920}, {1080, 0}} {
+		t.Run(
+			fmt.Sprintf("%dx%d", dimensions[0], dimensions[1]),
+			func(t *testing.T) {
+				request := youtubeRequest(t, videoBytes, digest)
+				var payload youTubePayload
+				if err := json.Unmarshal(request.Payload, &payload); err != nil {
+					t.Fatal(err)
+				}
+				payload.Video.Width = dimensions[0]
+				payload.Video.Height = dimensions[1]
+				request.Payload = mustJSON(t, payload)
+				adapter := newYouTubeForTest(
+					&fixtureExecutor{}, &fixtureMediaSource{data: videoBytes},
+				)
+				if _, err := adapter.Publish(context.Background(), request); err == nil {
+					t.Fatal("invalid Shorts dimensions were accepted")
+				}
+			},
+		)
+	}
+}
+
+func TestYouTubeShortsAcceptsSquareSnapshot(t *testing.T) {
+	videoBytes := []byte("square-video")
+	digest := sha256.Sum256(videoBytes)
+	request := youtubeRequest(t, videoBytes, digest)
+	var payload youTubePayload
+	if err := json.Unmarshal(request.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.Video.Width = 1080
+	payload.Video.Height = 1080
+	request.Payload = mustJSON(t, payload)
+	adapter := newYouTubeForTest(
+		&fixtureExecutor{}, &fixtureMediaSource{data: videoBytes},
+	)
+	if _, _, err := adapter.input(request); err != nil {
+		t.Fatalf("square Shorts snapshot rejected: %v", err)
+	}
+}
+
+func TestYouTubeTemporaryMediaSourceFailureRemainsRetryable(t *testing.T) {
+	videoBytes := []byte("retryable-video")
+	digest := sha256.Sum256(videoBytes)
+	adapter := newYouTubeForTest(
+		&fixtureExecutor{},
+		&fixtureMediaSource{err: context.DeadlineExceeded},
+	)
+	request := youtubeRequest(t, videoBytes, digest)
+	request.Checkpoint = mustJSON(t, youTubeCheckpoint{
+		Step: "creator_ready", ChannelID: "channel-1",
+	})
+
+	_, err := adapter.Publish(context.Background(), request)
+	var failure *publishing.ProviderError
+	if !errors.As(err, &failure) || !failure.Retryable || failure.Ambiguous {
+		t.Fatalf("media source error=%#v", err)
+	}
+}
+
+func TestYouTubeTemporaryMediaReadFailureRemainsRetryable(t *testing.T) {
+	videoBytes := []byte("retryable-read-video")
+	digest := sha256.Sum256(videoBytes)
+	adapter := newYouTubeForTest(
+		&fixtureExecutor{},
+		&fixtureMediaSource{reader: &failingMediaReader{
+			data: videoBytes[:4], err: context.DeadlineExceeded,
+		}},
+	)
+	request := youtubeRequest(t, videoBytes, digest)
+	request.Checkpoint = mustJSON(t, youTubeCheckpoint{
+		Step: "creator_ready", ChannelID: "channel-1",
+	})
+
+	_, err := adapter.Publish(context.Background(), request)
+	var failure *publishing.ProviderError
+	if !errors.As(err, &failure) || !failure.Retryable || failure.Ambiguous {
+		t.Fatalf("media read error=%#v", err)
+	}
+}
+
+type failingMediaReader struct {
+	data []byte
+	err  error
+	read bool
+}
+
+func (reader *failingMediaReader) Read(destination []byte) (int, error) {
+	if reader.read {
+		return 0, reader.err
+	}
+	reader.read = true
+	return copy(destination, reader.data), nil
+}
+
+func (*failingMediaReader) Close() error { return nil }
 
 var _ MediaSource = (*fixtureMediaSource)(nil)

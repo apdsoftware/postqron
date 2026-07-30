@@ -3,6 +3,7 @@ package video
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -54,10 +55,12 @@ func TestTikTokCheckpointMachineUsesAuthenticatedExecutor(t *testing.T) {
 		Payload: mustJSON(t, tikTokPayload{
 			Video: media{
 				StorageKey:      "video/object.mp4",
-				SourceURL:       "https://media.example/video/object.mp4",
+				SourceURL:       "https://media.example/tiktok/" + strings.Repeat("a", 64) + "/1024/object.mp4",
 				ContentType:     "video/mp4",
 				SizeBytes:       1024,
 				SHA256:          strings.Repeat("a", 64),
+				Width:           1080,
+				Height:          1920,
 				DurationSeconds: 30,
 			},
 			Metadata: tikTokMetadata{
@@ -117,6 +120,34 @@ func TestTikTokCheckpointMachineUsesAuthenticatedExecutor(t *testing.T) {
 			t.Fatalf("call %d leaked authorization", index)
 		}
 	}
+	var initBody struct {
+		SourceInfo struct {
+			Source   string `json:"source"`
+			VideoURL string `json:"video_url"`
+		} `json:"source_info"`
+	}
+	if err := json.Unmarshal(calls[1].Body, &initBody); err != nil {
+		t.Fatal(err)
+	}
+	if initBody.SourceInfo.Source != "PULL_FROM_URL" ||
+		initBody.SourceInfo.VideoURL !=
+			"https://media.example/tiktok/"+strings.Repeat("a", 64)+"/1024/object.mp4" {
+		t.Fatalf("source_info=%#v", initBody.SourceInfo)
+	}
+}
+
+func TestTikTokOfficialPathsIncludeTrailingSlash(t *testing.T) {
+	got := []string{tikTokCreatorPath, tikTokInitPath, tikTokStatusPath}
+	want := []string{
+		"/v2/post/publish/creator_info/query/",
+		"/v2/post/publish/video/init/",
+		"/v2/post/publish/status/fetch/",
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("path %d=%q, want %q", index, got[index], want[index])
+		}
+	}
 }
 
 func TestTikTokCrashAfterInitReconcilesWithoutDuplicate(t *testing.T) {
@@ -156,6 +187,89 @@ func TestTikTokAmbiguousInitWithoutPublishIDFailsClosed(t *testing.T) {
 	}
 	if len(executor.Calls()) != 0 {
 		t.Fatal("ambiguous TikTok init was repeated")
+	}
+}
+
+func TestTikTokSuccessfulInitWithoutPublishIDIsAmbiguousAndNeverReplayed(t *testing.T) {
+	executor := &fixtureExecutor{responses: []socialconnections.PublishingResponse{
+		jsonResponse(`{"data":{},"error":{"code":"ok"}}`),
+	}}
+	adapter := newTikTokForTest(executor)
+	request := tikTokReadyRequest(t)
+
+	_, err := adapter.Publish(context.Background(), request)
+	var failure *publishing.ProviderError
+	if !errors.As(err, &failure) || !failure.Ambiguous || !failure.Retryable {
+		t.Fatalf("publish error=%#v", err)
+	}
+	reconciled, err := adapter.Reconcile(context.Background(), publishing.ReconcileRequest{
+		Payload: request.Payload, Checkpoint: request.Checkpoint,
+	})
+	if err != nil || reconciled.State != publishing.ReconciliationUnknown {
+		t.Fatalf("reconcile=%#v error=%v", reconciled, err)
+	}
+	if calls := executor.Calls(); len(calls) != 1 {
+		t.Fatalf("mutative calls=%d, want exactly one", len(calls))
+	}
+}
+
+func TestTikTokPullURLMustMatchVerifiedImmutableSnapshot(t *testing.T) {
+	request := tikTokReadyRequest(t)
+	var payload tikTokPayload
+	if err := json.Unmarshal(request.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.Video.SourceURL = "https://unverified.example/" + payload.Video.SHA256
+	request.Payload = mustJSON(t, payload)
+	adapter := newTikTokForTest(&fixtureExecutor{})
+
+	if _, err := adapter.Publish(context.Background(), request); err == nil {
+		t.Fatal("unverified pull URL was accepted")
+	}
+}
+
+func TestTikTokVerifiedPullPrefixRejectsAmbiguousConfiguration(t *testing.T) {
+	executor := &socialconnections.AuthenticatedExecutor{}
+	for _, prefix := range []string{
+		"",
+		"http://media.example/tiktok/",
+		"https://127.0.0.1/tiktok/",
+		"https://media.example/tiktok",
+		"https://media.example/a/../tiktok/",
+		"https://media.example/tiktok/?signature=unsafe",
+	} {
+		if _, err := NewTikTok(executor, TikTokConfig{
+			VerifiedPullURLPrefix: prefix,
+		}); err == nil {
+			t.Fatalf("prefix %q was accepted", prefix)
+		}
+	}
+}
+
+func tikTokReadyRequest(t *testing.T) publishing.PublishRequest {
+	t.Helper()
+	sha := strings.Repeat("a", 64)
+	return publishing.PublishRequest{
+		WorkspaceID: "workspace-1", ConnectionID: "connection-1",
+		Payload: mustJSON(t, tikTokPayload{
+			Video: media{
+				StorageKey:  "video/object.mp4",
+				SourceURL:   "https://media.example/tiktok/" + sha + "/1024/object.mp4",
+				ContentType: "video/mp4", SizeBytes: 1024, SHA256: sha,
+				Width: 1080, Height: 1920, DurationSeconds: 30,
+			},
+			Metadata: tikTokMetadata{
+				Title: "A short video", PrivacyLevel: "SELF_ONLY",
+				DisableDuet: boolPointer(false), DisableStitch: boolPointer(false),
+				DisableComment: boolPointer(false), BrandContent: boolPointer(false),
+				BrandOrganic: boolPointer(false), AIGenerated: boolPointer(false),
+			},
+			Consent: true,
+		}),
+		Checkpoint: mustJSON(t, tikTokCheckpoint{
+			Step: "creator_ready", CreatorUsername: "creator",
+			PrivacyLevels: []string{"SELF_ONLY"}, MaxDurationSeconds: 180,
+		}),
 	}
 }
 

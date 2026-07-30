@@ -44,7 +44,7 @@ func newYouTubeForTest(
 	return &YouTube{executor: executor, media: source}
 }
 
-func (*YouTube) Capabilities() publishing.AdapterCapabilities { return capabilities() }
+func (*YouTube) Capabilities() publishing.AdapterCapabilities { return capabilities(false) }
 
 type youTubePayload struct {
 	Video    media           `json:"video"`
@@ -193,8 +193,9 @@ func (adapter *YouTube) uploadComplete(
 	var envelope youTubeVideoEnvelope
 	if json.Unmarshal(response.Body, &envelope) != nil ||
 		!remoteIDPattern.MatchString(envelope.ID) {
-		return publishing.PublishResult{}, permanent(
-			"youtube_upload_result_invalid", "YouTube did not return the uploaded video id.",
+		return publishing.PublishResult{}, ambiguous(
+			"youtube_upload_outcome_ambiguous",
+			"YouTube accepted the upload without returning a video id.",
 		)
 	}
 	state.Step = "processing"
@@ -270,6 +271,7 @@ func (adapter *YouTube) input(
 	}
 	privacy := payload.Metadata.PrivacyStatus
 	if !validMedia(payload.Video) || payload.Video.DurationSeconds > 180 ||
+		payload.Video.Width > payload.Video.Height ||
 		payload.Metadata.ChannelID == "" ||
 		strings.TrimSpace(payload.Metadata.Title) == "" ||
 		len([]rune(payload.Metadata.Title)) > 100 ||
@@ -291,7 +293,10 @@ func (adapter *YouTube) multipartUpload(
 	metadata []byte,
 ) (*socialconnections.PublishingMedia, string, error) {
 	source, err := adapter.media.Open(ctx, video.StorageKey)
-	if err != nil || source == nil {
+	if err != nil {
+		return nil, "", mediaSourceError(err)
+	}
+	if source == nil {
 		return nil, "", permanent(
 			"video_media_unavailable", "The immutable video media is unavailable.",
 		)
@@ -313,26 +318,46 @@ func (adapter *YouTube) multipartUpload(
 	metadataHeader := make(textproto.MIMEHeader)
 	metadataHeader.Set("Content-Type", "application/json; charset=UTF-8")
 	metadataPart, err := writer.CreatePart(metadataHeader)
-	if err == nil {
-		_, err = metadataPart.Write(metadata)
+	if err != nil {
+		cleanup()
+		return nil, "", retryable(
+			"video_upload_preparation_failed",
+			"The video upload could not be prepared.",
+		)
+	}
+	if _, err = metadataPart.Write(metadata); err != nil {
+		cleanup()
+		return nil, "", retryable(
+			"video_upload_preparation_failed",
+			"The video upload could not be prepared.",
+		)
 	}
 	videoHeader := make(textproto.MIMEHeader)
 	videoHeader.Set("Content-Type", video.ContentType)
-	var videoPart io.Writer
-	if err == nil {
-		videoPart, err = writer.CreatePart(videoHeader)
-	}
-	var copied int64
-	if err == nil {
-		copied, err = io.Copy(
-			io.MultiWriter(videoPart, sourceHash),
-			io.LimitReader(source, video.SizeBytes+1),
+	videoPart, err := writer.CreatePart(videoHeader)
+	if err != nil {
+		cleanup()
+		return nil, "", retryable(
+			"video_upload_preparation_failed",
+			"The video upload could not be prepared.",
 		)
 	}
-	if closeErr := writer.Close(); err == nil {
-		err = closeErr
+	copied, copyErr := io.Copy(
+		io.MultiWriter(videoPart, sourceHash),
+		io.LimitReader(source, video.SizeBytes+1),
+	)
+	if copyErr != nil {
+		cleanup()
+		return nil, "", mediaSourceError(copyErr)
 	}
-	if err != nil || copied != video.SizeBytes ||
+	if err = writer.Close(); err != nil {
+		cleanup()
+		return nil, "", retryable(
+			"video_upload_preparation_failed",
+			"The video upload could not be prepared.",
+		)
+	}
+	if copied != video.SizeBytes ||
 		fmt.Sprintf("%x", sourceHash.Sum(nil)) != video.SHA256 {
 		cleanup()
 		return nil, "", permanent(

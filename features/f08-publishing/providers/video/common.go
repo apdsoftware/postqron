@@ -17,7 +17,7 @@ import (
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 )
 
-const capabilityVersion = "2026-07-30"
+const capabilityVersion = "2026-07-30-review-1"
 
 var (
 	remoteIDPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -44,17 +44,20 @@ type media struct {
 	ContentType     string  `json:"content_type"`
 	SizeBytes       int64   `json:"size_bytes"`
 	SHA256          string  `json:"sha256"`
+	Width           int     `json:"width"`
+	Height          int     `json:"height"`
 	DurationSeconds float64 `json:"duration_seconds"`
 }
 
-func capabilities() publishing.AdapterCapabilities {
+func capabilities(reconciliation bool) publishing.AdapterCapabilities {
 	return publishing.AdapterCapabilities{
-		Version:           capabilityVersion,
-		Mode:              publishing.PublishingModeAuto,
-		Reconciliation:    true,
-		MultiStep:         true,
-		RemotePermalink:   true,
-		NativeIdempotency: false,
+		Version:             capabilityVersion,
+		Mode:                publishing.PublishingModeAuto,
+		Reconciliation:      reconciliation,
+		AmbiguousFailClosed: true,
+		MultiStep:           true,
+		RemotePermalink:     true,
+		NativeIdempotency:   false,
 	}
 }
 
@@ -156,6 +159,30 @@ func permanent(code, detail string) error {
 	return &publishing.ProviderError{Code: code, Detail: detail}
 }
 
+func ambiguous(code, detail string) error {
+	return &publishing.ProviderError{
+		Code: code, Detail: detail, Retryable: true, Ambiguous: true,
+	}
+}
+
+func retryable(code, detail string) error {
+	return &publishing.ProviderError{
+		Code: code, Detail: detail, Retryable: true,
+	}
+}
+
+func mediaSourceError(err error) error {
+	var providerError *publishing.ProviderError
+	if errors.As(err, &providerError) {
+		return err
+	}
+	return &publishing.ProviderError{
+		Code:      "video_media_unavailable",
+		Detail:    "The immutable video media is temporarily unavailable.",
+		Retryable: true,
+	}
+}
+
 func validHTTPSMediaURL(raw string) bool {
 	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
 	return err == nil && parsed.Scheme == "https" && parsed.Host != "" &&
@@ -173,6 +200,8 @@ func validMedia(value media) bool {
 		value.SHA256 == strings.ToLower(value.SHA256) &&
 		strings.TrimSpace(value.StorageKey) != "" &&
 		value.SizeBytes > 0 &&
+		value.Width > 0 &&
+		value.Height > 0 &&
 		value.DurationSeconds > 0
 }
 
