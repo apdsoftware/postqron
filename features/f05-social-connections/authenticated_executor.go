@@ -255,6 +255,7 @@ func (executor *AuthenticatedExecutor) Execute(
 		if _, err = executor.service.availableDynamicAdapter(stored.Provider); err != nil {
 			return PublishingResponse{}, redactExecutorError(err, request.Method, 0)
 		}
+		var perform func(DynamicSession) (DynamicAuthenticatedResult, error)
 		if request.Media != nil {
 			streaming, ok := dynamic.(dynamicStreamingAdapter)
 			if !ok {
@@ -264,34 +265,31 @@ func (executor *AuthenticatedExecutor) Execute(
 					0,
 				)
 			}
-			response, streamErr := executor.executeDynamicStream(
-				ctx,
-				stored,
-				streaming,
-				request,
-				body,
-				verifier,
-			)
-			if streamErr != nil {
-				return PublishingResponse{}, redactExecutorError(
-					streamErr,
-					request.Method,
-					0,
+			perform = func(session DynamicSession) (DynamicAuthenticatedResult, error) {
+				return streaming.doAuthenticatedStream(
+					ctx,
+					session,
+					streamingAuthenticatedRequest{
+						Method: request.Method,
+						Path:   request.Path,
+						Header: request.Header.Clone(),
+						Body:   body,
+						Size:   request.Media.Size,
+						SHA256: request.Media.SHA256,
+					},
 				)
 			}
-			return executor.finishDynamicResponse(
-				ctx,
-				request.WorkspaceID,
-				request.ConnectionID,
-				request.Method,
-				response,
-			)
+		} else {
+			perform = func(session DynamicSession) (DynamicAuthenticatedResult, error) {
+				return dynamic.DoAuthenticated(ctx, session, authenticated)
+			}
 		}
-		response, dynamicErr := executor.service.AuthenticatedRequest(
+		response, secretCandidates, dynamicErr := executor.executeDynamicRequest(
 			ctx,
-			request.WorkspaceID,
-			request.ConnectionID,
-			authenticated,
+			stored,
+			request,
+			verifier,
+			perform,
 		)
 		if dynamicErr != nil {
 			return PublishingResponse{}, redactExecutorError(dynamicErr, request.Method, 0)
@@ -302,6 +300,7 @@ func (executor *AuthenticatedExecutor) Execute(
 			request.ConnectionID,
 			request.Method,
 			response,
+			secretCandidates,
 		)
 	}
 
@@ -407,14 +406,13 @@ func snapshotPublishingRequest(
 	return snapshot, nil
 }
 
-func (executor *AuthenticatedExecutor) executeDynamicStream(
+func (executor *AuthenticatedExecutor) executeDynamicRequest(
 	ctx context.Context,
 	beforeClaim StoredCredential,
-	adapter dynamicStreamingAdapter,
 	request PublishingRequest,
-	body io.Reader,
 	verifier *verifiedMediaReader,
-) (AuthenticatedResponse, error) {
+	perform func(DynamicSession) (DynamicAuthenticatedResult, error),
+) (AuthenticatedResponse, []string, error) {
 	dynamic := executor.service.dynamicAdapters[beforeClaim.Provider]
 	config := dynamic.DynamicConfig()
 	now := executor.service.now().UTC()
@@ -427,12 +425,12 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 		executor.service.refreshLockTTL,
 	)
 	if errors.Is(err, ErrRefreshOutcomeUnknown) {
-		return AuthenticatedResponse{}, executor.service.markReconnect(
+		return AuthenticatedResponse{}, nil, executor.service.markReconnect(
 			ctx, stored, "refresh_outcome_unknown", now,
 		)
 	}
 	if err != nil {
-		return AuthenticatedResponse{}, err
+		return AuthenticatedResponse{}, nil, err
 	}
 	release := func() {
 		_ = executor.service.repository.ReleaseSession(
@@ -442,24 +440,24 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 	if stored.Provider != beforeClaim.Provider ||
 		stored.Binding != beforeClaim.Binding {
 		release()
-		return AuthenticatedResponse{}, ErrInvalidState
+		return AuthenticatedResponse{}, nil, ErrInvalidState
 	}
 	session, err := executor.service.openDynamicSession(stored)
 	if err != nil {
 		release()
-		return AuthenticatedResponse{}, err
+		return AuthenticatedResponse{}, nil, err
 	}
 	if needsRefresh {
 		previousRefresh := session.Credential.RefreshToken
 		refreshed, refreshErr := dynamic.RefreshDynamic(ctx, session)
 		if refreshErr != nil {
 			if stored.RefreshTokenMode == RefreshTokenSingleUse {
-				return AuthenticatedResponse{}, executor.service.markReconnect(
+				return AuthenticatedResponse{}, nil, executor.service.markReconnect(
 					ctx, stored, "refresh_outcome_unknown", now,
 				)
 			}
 			release()
-			return AuthenticatedResponse{}, refreshErr
+			return AuthenticatedResponse{}, nil, refreshErr
 		}
 		if validateDynamicSession(config, stored.Binding, refreshed.Session) != nil ||
 			(stored.RefreshTokenMode == RefreshTokenSingleUse &&
@@ -468,7 +466,7 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 			!refreshed.Session.Credential.ExpiresAt.After(
 				now.Add(executor.service.refreshBefore),
 			) {
-			return AuthenticatedResponse{}, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
 				ctx, stored, "invalid_refresh_rotation", now,
 			)
 		}
@@ -482,7 +480,7 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 			"",
 		)
 		if eventErr != nil {
-			return AuthenticatedResponse{}, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
 				ctx, stored, "refresh_outcome_unknown", now,
 			)
 		}
@@ -490,7 +488,7 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 			stored, refreshed.Session, true, now, &event,
 		)
 		if commandErr != nil {
-			return AuthenticatedResponse{}, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
 				ctx, stored, "refresh_outcome_unknown", now,
 			)
 		}
@@ -498,13 +496,14 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 			ctx,
 			command,
 		); commandErr != nil {
-			_ = executor.service.markReconnect(
-				ctx,
-				stored,
-				"refresh_outcome_unknown",
-				now,
+			return AuthenticatedResponse{}, nil, executor.persistReconnectOrFail(
+				ctx, stored, "refresh_outcome_unknown", now,
+				&ExecutorFailure{
+					Kind:      ExecutorFailureReconnect,
+					Code:      "reconnect_required",
+					Reconnect: true,
+				},
 			)
-			return AuthenticatedResponse{}, ErrReconnectRequired
 		}
 		stored, needsRefresh, err = executor.service.repository.ClaimSession(
 			ctx,
@@ -515,30 +514,20 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 			executor.service.refreshLockTTL,
 		)
 		if err != nil {
-			return AuthenticatedResponse{}, err
+			return AuthenticatedResponse{}, nil, err
 		}
 		if needsRefresh {
 			release()
-			return AuthenticatedResponse{}, ErrReconnectRequired
+			return AuthenticatedResponse{}, nil, ErrReconnectRequired
 		}
 		session, err = executor.service.openDynamicSession(stored)
 		if err != nil {
 			release()
-			return AuthenticatedResponse{}, err
+			return AuthenticatedResponse{}, nil, err
 		}
 	}
-	result, requestErr := adapter.doAuthenticatedStream(
-		ctx,
-		session,
-		streamingAuthenticatedRequest{
-			Method: request.Method,
-			Path:   request.Path,
-			Header: request.Header.Clone(),
-			Body:   body,
-			Size:   request.Media.Size,
-			SHA256: request.Media.SHA256,
-		},
-	)
+	secretCandidates := dynamicSessionSecretCandidates(session)
+	result, requestErr := perform(session)
 	if finalizeMedia(verifier) != nil {
 		requestErr = ErrProviderRequestFailed
 	}
@@ -551,20 +540,24 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 	if result.Session.Credential.AccessToken == "" {
 		result.Session.Credential = session.Credential
 	}
+	secretCandidates = append(
+		secretCandidates,
+		dynamicSessionSecretCandidates(result.Session)...,
+	)
 	if err = validateDynamicSession(config, stored.Binding, result.Session); err != nil {
-		return AuthenticatedResponse{}, executor.failClosedDynamicOutcome(
+		return AuthenticatedResponse{}, nil, executor.failClosedDynamicOutcome(
 			ctx, stored, request.Method, now, "dynamic_session_invalid",
 		)
 	}
 	responsePresent := authenticatedResponsePresent(result.Response)
 	if requestErr == nil && !responsePresent {
-		return AuthenticatedResponse{}, executor.failClosedDynamicOutcome(
+		return AuthenticatedResponse{}, nil, executor.failClosedDynamicOutcome(
 			ctx, stored, request.Method, now, "provider_response_missing",
 		)
 	}
 	if responsePresent {
 		if err = validateAuthenticatedResponse(config, result.Response); err != nil {
-			return AuthenticatedResponse{}, executor.failClosedDynamicOutcome(
+			return AuthenticatedResponse{}, nil, executor.failClosedDynamicOutcome(
 				ctx, stored, request.Method, now, "provider_response_invalid",
 			)
 		}
@@ -577,12 +570,12 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 		nil,
 	)
 	if err != nil {
-		return AuthenticatedResponse{}, executor.failClosedDynamicOutcome(
+		return AuthenticatedResponse{}, nil, executor.failClosedDynamicOutcome(
 			ctx, stored, request.Method, now, "dynamic_session_persistence_failed",
 		)
 	}
 	if _, err = executor.service.repository.CompleteSession(ctx, command); err != nil {
-		return AuthenticatedResponse{}, executor.failClosedDynamicOutcome(
+		return AuthenticatedResponse{}, nil, executor.failClosedDynamicOutcome(
 			ctx, stored, request.Method, now, "dynamic_session_persistence_failed",
 		)
 	}
@@ -590,13 +583,13 @@ func (executor *AuthenticatedExecutor) executeDynamicStream(
 		var providerFailure *ProviderFailure
 		if errors.As(requestErr, &providerFailure) &&
 			isReconnectFailure(providerFailure.Kind) {
-			return AuthenticatedResponse{}, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
 				ctx, stored, string(providerFailure.Kind), now,
 			)
 		}
-		return AuthenticatedResponse{}, ErrProviderRequestFailed
+		return AuthenticatedResponse{}, nil, ErrProviderRequestFailed
 	}
-	return sanitizeAuthenticatedResponse(result.Response), nil
+	return sanitizeAuthenticatedResponse(result.Response), secretCandidates, nil
 }
 
 func (executor *AuthenticatedExecutor) failClosedDynamicOutcome(
@@ -615,12 +608,52 @@ func (executor *AuthenticatedExecutor) failClosedDynamicOutcome(
 		)
 		return ErrProviderRequestFailed
 	}
-	_ = executor.service.markReconnect(ctx, stored, reason, now)
-	return &ExecutorFailure{
-		Kind:      ExecutorFailureAmbiguous,
-		Code:      "provider_outcome_ambiguous",
-		Reconnect: true,
+	return executor.persistReconnectOrFail(
+		ctx,
+		stored,
+		reason,
+		now,
+		&ExecutorFailure{
+			Kind:      ExecutorFailureAmbiguous,
+			Code:      "provider_outcome_ambiguous",
+			Reconnect: true,
+		},
+	)
+}
+
+func (executor *AuthenticatedExecutor) persistReconnectOrFail(
+	ctx context.Context,
+	stored StoredCredential,
+	reason string,
+	now time.Time,
+	outcome error,
+) error {
+	if err := executor.service.markReconnect(
+		ctx,
+		stored,
+		reason,
+		now,
+	); err != nil && !errors.Is(err, ErrReconnectRequired) {
+		// Do not release the session lease: stale DPoP state must remain
+		// unavailable even when reconnect persistence/audit failed.
+		return &ExecutorFailure{
+			Kind:      ExecutorFailurePermanent,
+			Code:      "reconnect_persistence_failed",
+			Reconnect: true,
+		}
 	}
+	return outcome
+}
+
+func dynamicSessionSecretCandidates(session DynamicSession) []string {
+	candidates := []string{
+		session.Credential.AccessToken,
+		session.Credential.RefreshToken,
+	}
+	return append(
+		candidates,
+		dynamicSecretCandidates(session.ProviderState)...,
+	)
 }
 
 func (executor *AuthenticatedExecutor) prepareRequest(
@@ -794,6 +827,17 @@ func (executor *AuthenticatedExecutor) finishResponse(
 		)
 	}
 	retryAfter := parseRetryAfter(response.Header.Get("Retry-After"), executor.service.now())
+	if response.StatusCode >= 500 &&
+		method != http.MethodGet &&
+		method != http.MethodHead {
+		// A provider classifier may refine safe reads, but can never downgrade
+		// the duplicate-risk floor after a mutative request was sent.
+		return PublishingResponse{}, executorFailure(
+			ExecutorFailureAmbiguous,
+			"provider_outcome_ambiguous",
+			retryAfter,
+		)
+	}
 	if response.StatusCode >= 400 {
 		if classifier := executor.classifiers[stored.Provider]; classifier != nil {
 			classification, classified := classifier.ClassifyProviderResponse(
@@ -833,13 +877,6 @@ func (executor *AuthenticatedExecutor) finishResponse(
 		)
 	}
 	if response.StatusCode >= 500 {
-		if method != http.MethodGet && method != http.MethodHead {
-			return PublishingResponse{}, executorFailure(
-				ExecutorFailureAmbiguous,
-				"provider_outcome_ambiguous",
-				retryAfter,
-			)
-		}
 		return PublishingResponse{}, executorFailure(
 			ExecutorFailureTemporary,
 			"provider_temporary_failure",
@@ -872,6 +909,7 @@ func (executor *AuthenticatedExecutor) finishDynamicResponse(
 	workspaceID, connectionID string,
 	method string,
 	response AuthenticatedResponse,
+	requestSecrets []string,
 ) (PublishingResponse, error) {
 	stored, err := executor.service.repository.GetCredential(
 		ctx,
@@ -894,6 +932,7 @@ func (executor *AuthenticatedExecutor) finishDynamicResponse(
 		credential.RefreshToken,
 	}
 	secrets = append(secrets, dynamicSecretCandidates(session.ProviderState)...)
+	secrets = append(secrets, requestSecrets...)
 	return executor.finishResponse(
 		ctx,
 		stored,
@@ -922,13 +961,13 @@ func (executor *AuthenticatedExecutor) persistResponseFailure(
 	if stored.ID == "" {
 		return failure
 	}
-	_ = executor.service.markReconnect(
+	return executor.persistReconnectOrFail(
 		ctx,
 		stored,
 		string(failure.Kind),
 		executor.service.now().UTC(),
+		failure,
 	)
-	return failure
 }
 
 func responseContainsSecret(

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -11,12 +12,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"gopkg.in/yaml.v3"
 )
 
@@ -85,6 +88,21 @@ func (classifier fixedResponseClassifier) ClassifyProviderResponse(
 type failingCompleteSessionRepository struct {
 	Repository
 	fail atomic.Bool
+}
+
+type failingMarkReconnectRepository struct {
+	Repository
+}
+
+func (repository *failingMarkReconnectRepository) MarkReconnectRequired(
+	context.Context,
+	string,
+	string,
+	string,
+	time.Time,
+	Event,
+) (Connection, bool, error) {
+	return Connection{}, false, errors.New("injected MarkReconnectRequired failure")
 }
 
 func (repository *failingCompleteSessionRepository) CompleteSession(
@@ -469,6 +487,55 @@ func TestAuthenticatedExecutorClassifiesResponsesByMethodAndF5Classifier(
 				test.kind,
 			)
 		}
+	}
+}
+
+func TestAuthenticatedExecutorMutative5xxCannotBeDowngradedByClassifier(
+	t *testing.T,
+) {
+	fixture := newServiceFixture(t)
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderFacebookPages,
+		"page-1",
+	)
+	stored, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	classifier := &capturingResponseClassifier{}
+	executor, err := NewAuthenticatedExecutor(AuthenticatedExecutorConfig{
+		Service: fixture.service,
+		Classifiers: map[Provider]ProviderResponseClassifier{
+			ProviderFacebookPages: classifier,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.finishResponse(
+		context.Background(),
+		stored,
+		http.MethodPost,
+		AuthenticatedResponse{
+			StatusCode: http.StatusServiceUnavailable,
+			Header:     http.Header{"Retry-After": {"3"}},
+			Body:       []byte(`{"safe_code":"temporary"}`),
+		},
+	)
+	var failure *ExecutorFailure
+	if !errors.As(err, &failure) ||
+		failure.Kind != ExecutorFailureAmbiguous ||
+		failure.RetryAfter != 3*time.Second {
+		t.Fatalf("POST 503 floor failure = %#v", err)
+	}
+	if classifier.evidence.StatusCode != 0 {
+		t.Fatalf("classifier ran before mutative 5xx floor: %#v", classifier.evidence)
 	}
 }
 
@@ -864,6 +931,141 @@ func TestAuthenticatedExecutorDynamicPostTransportFailuresAreAmbiguousAndFailClo
 	}
 }
 
+func TestAuthenticatedExecutorDynamicJSONCompleteFailureIsAmbiguousAndFailClosed(
+	t *testing.T,
+) {
+	fixture := newDynamicServiceFixture(t)
+	repository := &failingCompleteSessionRepository{
+		Repository: fixture.repository,
+	}
+	repository.fail.Store(true)
+	fixture.service.repository = repository
+	executor, err := NewAuthenticatedExecutor(
+		AuthenticatedExecutorConfig{Service: fixture.service},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.Execute(context.Background(), PublishingRequest{
+		WorkspaceID:      "workspace-1",
+		ConnectionID:     fixture.connectionID,
+		ExpectedProvider: ProviderBluesky,
+		Method:           http.MethodPost,
+		Path:             "/xrpc/json.complete-failure",
+		Header:           http.Header{"Content-Type": {"application/json"}},
+		Body:             []byte(`{"text":"hello"}`),
+	})
+	var failure *ExecutorFailure
+	if !errors.As(err, &failure) ||
+		failure.Kind != ExecutorFailureAmbiguous ||
+		!failure.Reconnect {
+		t.Fatalf("dynamic JSON failure = %#v", err)
+	}
+	stored, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != StatusReconnectRequired {
+		t.Fatalf("dynamic JSON failure was not failed closed: %#v", stored)
+	}
+	_, calls := fixture.adapter.counts()
+	if calls != 1 {
+		t.Fatalf("dynamic JSON provider calls = %d, want 1", calls)
+	}
+}
+
+func TestAuthenticatedExecutorMarkReconnectFailureRetainsDynamicLease(
+	t *testing.T,
+) {
+	fixture := newDynamicServiceFixture(t)
+	completeFailure := &failingCompleteSessionRepository{
+		Repository: fixture.repository,
+	}
+	completeFailure.fail.Store(true)
+	fixture.service.repository = &failingMarkReconnectRepository{
+		Repository: completeFailure,
+	}
+	executor, err := NewAuthenticatedExecutor(
+		AuthenticatedExecutorConfig{Service: fixture.service},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := PublishingRequest{
+		WorkspaceID:      "workspace-1",
+		ConnectionID:     fixture.connectionID,
+		ExpectedProvider: ProviderBluesky,
+		Method:           http.MethodPost,
+		Path:             "/xrpc/json.mark-failure",
+		Header:           http.Header{"Content-Type": {"application/json"}},
+		Body:             []byte(`{"text":"hello"}`),
+	}
+	_, err = executor.Execute(context.Background(), request)
+	var failure *ExecutorFailure
+	if !errors.As(err, &failure) ||
+		failure.Kind != ExecutorFailurePermanent ||
+		failure.Code != "reconnect_persistence_failed" ||
+		!failure.Reconnect {
+		t.Fatalf("mark reconnect failure = %#v", err)
+	}
+	stored, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != StatusConnected ||
+		stored.SessionLeaseID == "" ||
+		stored.SessionLockedUntil == nil {
+		t.Fatalf("failed reconnect did not retain lease: %#v", stored)
+	}
+	_, err = executor.Execute(context.Background(), request)
+	if !errors.As(err, &failure) ||
+		failure.Kind != ExecutorFailureTemporary {
+		t.Fatalf("second fail-closed request = %#v", err)
+	}
+	_, calls := fixture.adapter.counts()
+	if calls != 1 {
+		t.Fatalf("provider replayed after MarkReconnect failure: %d calls", calls)
+	}
+}
+
+func TestAuthenticatedExecutorDynamicRedactionIncludesPreRotationState(
+	t *testing.T,
+) {
+	fixture := newDynamicServiceFixture(t)
+	fixture.adapter.requestResult.Session.ProviderState = []byte(
+		"nonce-as-1|nonce-rs-2|dpop-key-rotated",
+	)
+	fixture.adapter.requestResult.Response.Body = []byte(
+		`{"echo":"nonce-rs-1"}`,
+	)
+	executor, err := NewAuthenticatedExecutor(
+		AuthenticatedExecutorConfig{Service: fixture.service},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.Execute(context.Background(), PublishingRequest{
+		WorkspaceID:      "workspace-1",
+		ConnectionID:     fixture.connectionID,
+		ExpectedProvider: ProviderBluesky,
+		Method:           http.MethodGet,
+		Path:             "/xrpc/state.rotate",
+	})
+	var failure *ExecutorFailure
+	if !errors.As(err, &failure) ||
+		failure.Code != "provider_response_redacted" {
+		t.Fatalf("pre-rotation state echo failure = %#v", err)
+	}
+}
+
 func TestAuthenticatedExecutorDynamicStreamDelegatesAndPersistsNonceState(
 	t *testing.T,
 ) {
@@ -1137,20 +1339,170 @@ func TestAuthenticatedExecutorIsNotExposedOverHTTP(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedExecutorPostgresLeaseCoverageRemainsGated(t *testing.T) {
-	source, err := os.ReadFile("postgres_integration_test.go")
+func TestAuthenticatedExecutorPostgresCrashReconnectBoundary(t *testing.T) {
+	databaseURL := os.Getenv("F05_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("F05_DATABASE_URL is not set")
+	}
+	database, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{
-		"TestPostgresRepositoryDynamicSessionLeaseAndCrashSafety",
-		`os.Getenv("F05_DATABASE_URL")`,
-		"ClaimSession(",
-		"CompleteSession(",
-		"ErrRefreshOutcomeUnknown",
-	} {
-		if !bytes.Contains(source, []byte(required)) {
-			t.Fatalf("PostgreSQL lease coverage lost %q", required)
-		}
+	defer database.Close()
+	if err = database.PingContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	workspaceID := "executor-pg-workspace-" + suffix
+	connectionID := "executor-pg-connection-" + suffix
+	selectionID := "executor-pg-selection-" + suffix
+	remoteID := dynamicTestDID + "-" + suffix
+	repository, err := NewPostgresRepository(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := NewAESGCMCipher(
+		"executor-pg-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := serviceTestNow
+	expiresAt := now.Add(time.Hour)
+	binding := OAuthBinding{
+		Issuer:         "https://auth.example.com",
+		ResourceServer: "https://pds.example.com",
+		Subject:        dynamicTestDID,
+	}
+	credentialAAD := credentialAdditionalData(
+		workspaceID,
+		ProviderBluesky,
+		remoteID,
+	)
+	access, err := cipher.Seal([]byte("executor-pg-access"), credentialAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh, err := cipher.Seal([]byte("executor-pg-refresh"), credentialAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := cipher.Seal(
+		[]byte("executor-pg-as|executor-pg-rs|executor-pg-dpop-key"),
+		dynamicSessionAdditionalData(
+			workspaceID,
+			ProviderBluesky,
+			remoteID,
+			binding,
+		),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = repository.SaveSelection(context.Background(), StoredSelection{
+		ID: selectionID, WorkspaceID: workspaceID, ActorID: "owner-1",
+		Provider: ProviderBluesky,
+		Resources: []StoredResource{{
+			Candidate: Candidate{
+				RemoteID: remoteID, ResourceType: ResourceBlueskyAccount,
+				AccountType: AccountTypeProfile, DisplayName: "Executor PostgreSQL",
+				Scopes: []string{"atproto"},
+			},
+			AccessTokenCiphertext: access, RefreshTokenCiphertext: refresh,
+			OAuthSessionCiphertext: session, Binding: binding,
+			RefreshTokenMode: RefreshTokenSingleUse, TokenExpiresAt: &expiresAt,
+		}},
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = repository.Connect(context.Background(), ConnectCommand{
+		NewConnectionID: connectionID, WorkspaceID: workspaceID,
+		ActorID: "owner-1", SelectionID: selectionID, RemoteID: remoteID,
+		Now: now,
+		Event: Event{
+			ID: "executor-pg-connect-" + suffix, Type: EventConnected, Version: 1,
+			WorkspaceID: workspaceID, ConnectionID: connectionID,
+			Provider: ProviderBluesky, RemoteID: remoteID,
+			CorrelationID: "executor-pg-correlation-" + suffix, OccurredAt: now,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &fakeDynamicAdapter{
+		config: DynamicOAuthConfig{
+			RedirectURL: "https://app.example.test/social/callback",
+			Scopes:      []string{"atproto"}, RequiresPAR: true, RequiresDPoP: true,
+			RequiresATH: true, RequiresIssuer: true, RequiresSubject: true,
+			RefreshTokenMode: RefreshTokenSingleUse,
+			RevocationPolicy: RevocationBestEffort,
+			NetworkPolicy: DynamicNetworkPolicy{
+				RejectRedirects: true, ValidateAndPinDNS: true,
+				MaxResponseBytes: maximumAuthenticatedBody,
+			},
+		},
+		requestResult: DynamicAuthenticatedResult{
+			Response: AuthenticatedResponse{
+				StatusCode: http.StatusOK, Header: make(http.Header),
+				Body: []byte(`{"ok":true}`),
+			},
+		},
+	}
+	service, err := NewService(Config{
+		Repository: repository,
+		Authorizer: &fakeAuthorizer{permissions: map[Permission]bool{
+			PermissionViewWorkspace: true, PermissionManageChannels: true,
+		}},
+		Cipher: cipher, Quota: newFakeChannelQuota(),
+		DynamicAdapters: map[Provider]DynamicAdapter{ProviderBluesky: adapter},
+		Now:             func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing := &failingCompleteSessionRepository{Repository: repository}
+	failing.fail.Store(true)
+	service.repository = failing
+	executor, err := NewAuthenticatedExecutor(
+		AuthenticatedExecutorConfig{Service: service},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := PublishingRequest{
+		WorkspaceID: workspaceID, ConnectionID: connectionID,
+		ExpectedProvider: ProviderBluesky, Method: http.MethodPost,
+		Path: "/xrpc/post", Header: http.Header{"Content-Type": {"application/json"}},
+		Body: []byte(`{"text":"postgres"}`),
+	}
+	_, err = executor.Execute(context.Background(), request)
+	var failure *ExecutorFailure
+	if !errors.As(err, &failure) ||
+		failure.Kind != ExecutorFailureAmbiguous ||
+		!failure.Reconnect {
+		t.Fatalf("PostgreSQL crash failure = %#v", err)
+	}
+	persisted, err := repository.GetCredential(
+		context.Background(),
+		workspaceID,
+		connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusReconnectRequired {
+		t.Fatalf("PostgreSQL reconnect state = %#v", persisted)
+	}
+	_, err = executor.Execute(context.Background(), request)
+	if !errors.As(err, &failure) ||
+		failure.Kind != ExecutorFailureReconnect {
+		t.Fatalf("PostgreSQL second boundary failure = %#v", err)
+	}
+	_, requestCalls := adapter.counts()
+	if requestCalls != 1 {
+		t.Fatalf("PostgreSQL provider replay calls = %d", requestCalls)
 	}
 }
