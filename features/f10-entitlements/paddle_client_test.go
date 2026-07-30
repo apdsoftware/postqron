@@ -3,6 +3,7 @@ package entitlements
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -127,6 +128,7 @@ func TestPaddleClientUsesVersionedServerAPIAndComposedItems(t *testing.T) {
 type changeProviderStub struct {
 	change   ProviderSubscriptionChange
 	canceled string
+	updates  int
 }
 
 func (stub *changeProviderStub) PreviewSubscriptionChange(
@@ -141,6 +143,7 @@ func (stub *changeProviderStub) UpdateSubscription(
 	_ context.Context,
 	change ProviderSubscriptionChange,
 ) error {
+	stub.updates++
 	stub.change = change
 	return nil
 }
@@ -154,9 +157,69 @@ func (stub *changeProviderStub) CancelSubscription(
 	return nil
 }
 
+type changeStoreStub struct {
+	binding      BillingBinding
+	usage        []Usage
+	registration SubscriptionChangeRegistration
+	begin        SubscriptionChangeBeginResult
+	pending      ChangeStatus
+	failed       bool
+	existing     SubscriptionChangeResult
+	found        bool
+}
+
+func (stub *changeStoreStub) SubscriptionChange(
+	context.Context,
+	string,
+	string,
+) (SubscriptionChangeResult, bool, error) {
+	return stub.existing, stub.found, nil
+}
+
+func (stub *changeStoreStub) PlanChangeSnapshot(
+	context.Context,
+	string,
+) (BillingBinding, []Usage, error) {
+	return stub.binding, stub.usage, nil
+}
+
+func (stub *changeStoreStub) BeginSubscriptionChange(
+	_ context.Context,
+	registration SubscriptionChangeRegistration,
+) (SubscriptionChangeBeginResult, error) {
+	stub.registration = registration
+	if stub.begin.Status == "" {
+		return SubscriptionChangeBeginResult{
+			Dispatch: true,
+			Status:   ChangeDispatching,
+		}, nil
+	}
+	return stub.begin, nil
+}
+
+func (stub *changeStoreStub) MarkSubscriptionChangePending(
+	context.Context,
+	string,
+	string,
+) (ChangeStatus, error) {
+	if stub.pending == "" {
+		stub.pending = ChangePending
+	}
+	return stub.pending, nil
+}
+
+func (stub *changeStoreStub) MarkSubscriptionChangeFailed(
+	context.Context,
+	string,
+	string,
+) error {
+	stub.failed = true
+	return nil
+}
+
 func TestSubscriptionChangesApplyD09ProrationAndCancellation(t *testing.T) {
 	provider := &changeProviderStub{}
-	store := portalStoreStub{binding: BillingBinding{
+	store := &changeStoreStub{binding: BillingBinding{
 		Plan: PlanPro, Interval: IntervalMonthly, Channels: limit(6),
 		SubscriptionID: "sub_server",
 	}}
@@ -183,18 +246,19 @@ func TestSubscriptionChangesApplyD09ProrationAndCancellation(t *testing.T) {
 		Plan: PlanTeam, Interval: IntervalAnnual, Channels: limit(9),
 		SubscriptionID: "sub_server",
 	}
-	service.store = store
 	downgrade := SubscriptionChangeRequest{
 		WorkspaceID: "workspace", AccountID: "owner", Plan: PlanPro,
 		Interval: IntervalAnnual, Channels: limit(6), IdempotencyKey: "downgrade",
 	}
-	if err := service.Apply(context.Background(), downgrade); err != nil {
+	result, err := service.Apply(context.Background(), downgrade)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if provider.change.ProrationMode != "do_not_bill" {
+	if result.Status != ChangePending ||
+		provider.change.ProrationMode != "do_not_bill" {
 		t.Fatalf("downgrade change = %#v", provider.change)
 	}
-	if err := service.Cancel(
+	if _, err := service.Cancel(
 		context.Background(), "workspace", "owner", "cancel",
 	); err != nil {
 		t.Fatal(err)
@@ -207,17 +271,72 @@ func TestSubscriptionChangesApplyD09ProrationAndCancellation(t *testing.T) {
 		Plan: PlanTeam, Interval: IntervalMonthly, Channels: limit(9),
 		SubscriptionID: "sub_server",
 	}
-	service.store = store
 	toUnlimited := SubscriptionChangeRequest{
 		WorkspaceID: "workspace", AccountID: "owner", Plan: PlanUnlimited,
 		Interval: IntervalMonthly, Channels: nil, IdempotencyKey: "to-unlimited",
 	}
-	if err := service.Apply(context.Background(), toUnlimited); err != nil {
+	if _, err := service.Apply(context.Background(), toUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	if provider.change.ProrationMode != "prorated_immediately" ||
 		len(provider.change.Items) != 1 ||
 		provider.change.Items[0].Quantity != 1 {
 		t.Fatalf("Unlimited upgrade change = %#v", provider.change)
+	}
+}
+
+func TestDowngradeGuardReportsEveryOverageWithoutCallingPaddle(t *testing.T) {
+	provider := &changeProviderStub{}
+	store := &changeStoreStub{
+		binding: BillingBinding{
+			Plan: PlanUnlimited, Interval: IntervalMonthly,
+			SubscriptionID: "sub_server",
+		},
+		usage: []Usage{
+			{Resource: ResourceMembers, Used: 5},
+			{Resource: ResourceChannels, Used: 7},
+			{Resource: ResourceScheduledPublications, Used: 251},
+		},
+	}
+	service, err := NewSubscriptionChangeService(
+		ownerStub{owner: true},
+		provider,
+		store,
+		testPaddleCatalog(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Apply(context.Background(), SubscriptionChangeRequest{
+		WorkspaceID:    "workspace",
+		AccountID:      "owner",
+		Plan:           PlanPro,
+		Interval:       IntervalMonthly,
+		Channels:       limit(6),
+		IdempotencyKey: "blocked",
+	})
+	var blocked *DowngradeBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("error = %v", err)
+	}
+	if len(blocked.Overages) != 3 ||
+		blocked.Overages[0] != (DowngradeOverage{
+			Resource: ResourceMembers, Used: 5, Limit: 3, Excess: 2,
+		}) ||
+		blocked.Overages[1] != (DowngradeOverage{
+			Resource: ResourceChannels, Used: 7, Limit: 6, Excess: 1,
+		}) ||
+		blocked.Overages[2] != (DowngradeOverage{
+			Resource: ResourceScheduledPublications,
+			Used:     251, Limit: 250, Excess: 1,
+		}) {
+		t.Fatalf("overages = %#v", blocked.Overages)
+	}
+	if provider.updates != 0 || store.registration.WorkspaceID != "" {
+		t.Fatalf(
+			"blocked downgrade reached provider/store: updates=%d registration=%#v",
+			provider.updates,
+			store.registration,
+		)
 	}
 }

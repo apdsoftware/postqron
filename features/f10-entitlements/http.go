@@ -97,11 +97,12 @@ func (handler *HTTPHandler) applySubscriptionChange(
 	if !ok {
 		return
 	}
-	if err := handler.changes.Apply(request.Context(), change); err != nil {
+	result, err := handler.changes.Apply(request.Context(), change)
+	if err != nil {
 		handler.writeSubscriptionChangeError(writer, err)
 		return
 	}
-	writer.WriteHeader(http.StatusNoContent)
+	writeEntitlementJSON(writer, http.StatusAccepted, result)
 }
 
 func (handler *HTTPHandler) cancelSubscription(
@@ -119,7 +120,7 @@ func (handler *HTTPHandler) cancelSubscription(
 	if !decodeEntitlementRequest(writer, request, &payload) {
 		return
 	}
-	err := handler.changes.Cancel(
+	result, err := handler.changes.Cancel(
 		request.Context(),
 		request.PathValue("workspace_id"),
 		accountID,
@@ -129,7 +130,7 @@ func (handler *HTTPHandler) cancelSubscription(
 		handler.writeSubscriptionChangeError(writer, err)
 		return
 	}
-	writer.WriteHeader(http.StatusNoContent)
+	writeEntitlementJSON(writer, http.StatusAccepted, result)
 }
 
 func (handler *HTTPHandler) subscriptionChangeRequest(
@@ -164,9 +165,43 @@ func (handler *HTTPHandler) writeSubscriptionChangeError(
 	writer http.ResponseWriter,
 	err error,
 ) {
+	var downgrade *DowngradeBlockedError
+	if errors.As(err, &downgrade) {
+		writeEntitlementJSON(writer, http.StatusConflict, map[string]any{
+			"error":     "downgrade_limit_exceeded",
+			"retryable": false,
+			"overages":  downgrade.Overages,
+		})
+		return
+	}
 	switch {
 	case errors.Is(err, ErrOwnerRequired):
 		writeEntitlementError(writer, http.StatusForbidden, "owner_required")
+	case errors.Is(err, ErrCheckoutRequired):
+		writeEntitlementJSON(writer, http.StatusConflict, map[string]any{
+			"error":     "checkout_required",
+			"retryable": false,
+		})
+	case errors.Is(err, ErrChangeInProgress):
+		writeEntitlementJSON(writer, http.StatusConflict, map[string]any{
+			"error":     "plan_change_in_progress",
+			"retryable": false,
+		})
+	case errors.Is(err, ErrIdempotencyConflict):
+		writeEntitlementJSON(writer, http.StatusConflict, map[string]any{
+			"error":     "idempotency_conflict",
+			"retryable": false,
+		})
+	case errors.Is(err, ErrChangeConflict):
+		writeEntitlementJSON(writer, http.StatusConflict, map[string]any{
+			"error":     "plan_change_conflict",
+			"retryable": false,
+		})
+	case errors.Is(err, ErrNoSubscriptionChange):
+		writeEntitlementJSON(writer, http.StatusConflict, map[string]any{
+			"error":     "plan_already_active",
+			"retryable": false,
+		})
 	case errors.Is(err, ErrUnknownPlan),
 		errors.Is(err, ErrInvalidInterval),
 		errors.Is(err, ErrInvalidChannels),
