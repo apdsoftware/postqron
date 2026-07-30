@@ -12,12 +12,12 @@ require (
 )
 
 require (
+	github.com/apdsoftware/postqron/features/f05-social-connections v0.0.0 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/oauth2 v0.31.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
@@ -31,6 +31,8 @@ replace github.com/apdsoftware/postqron/packages/runtime => ../../packages/runti
 replace github.com/apdsoftware/postqron/features/f03-auth => ../../features/f03-auth
 
 replace github.com/apdsoftware/postqron/features/f04-workspaces => ../../features/f04-workspaces
+
+replace github.com/apdsoftware/postqron/features/f05-social-connections => ../../features/f05-social-connections
 
 replace github.com/apdsoftware/postqron/features/f08-publishing => ../../features/f08-publishing
 

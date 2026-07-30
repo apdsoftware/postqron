@@ -44,11 +44,23 @@ injects implementations of:
 
 The immutable destination payload is prepared from a validated F6 revision.
 
-The default runtime registry is deliberately empty and fail-closed. Issue
-[#329](https://github.com/apdsoftware/postqron/issues/329) owns the F5→F8
-credential boundary and official publishing adapters for the D2 matrix. Until
-that dependency lands, F8 provides the durable engine and adapter contract but
-does not claim that any social provider is runtime-publishable.
+The default runtime registry is deliberately empty and fail-closed. The Meta
+registration accepts only an already configured F5 `AuthenticatedExecutor`;
+F8 never constructs the F5 service and never receives a token, refresh token,
+DPoP key, client secret, or provider origin. Every request supplies the exact
+`ExpectedProvider` confused-deputy guard.
+
+The Meta slice registers Facebook Pages, Instagram Professional, and Threads
+auto-publishing only through that injected boundary. Facebook Groups and
+Instagram Personal use a distinct idempotent notification outbox and never
+call a social publishing endpoint. Registration is rejected when the executor
+or explicit Graph versions are incomplete; F5 remains authoritative for
+configuration, App Review, runtime audit, connection status, and reconnect
+gates.
+
+Media containers, carousel children, final publish IDs, and permalink reads are
+separate durable steps. An ambiguous result without a provider-visible ID
+reconciles to `unknown`, so F8 cannot issue a blind duplicate.
 
 ## Verification
 

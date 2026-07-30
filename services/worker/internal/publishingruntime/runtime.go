@@ -9,15 +9,28 @@ import (
 	"time"
 
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Service is intentionally only F8 wiring. Issue #329 owns the F5 credential
-// boundary and official publishing adapters; until it lands, registry remains
-// empty and every provider resolution fails closed.
+// Service is intentionally only F8 wiring. Meta adapters can be registered
+// only by injecting an already configured F5 AuthenticatedExecutor. The
+// default worker registry remains empty and fails closed.
 type Service struct {
 	engine *publishing.Engine
 	pool   *pgxpool.Pool
+}
+
+type runtimeConfig struct {
+	meta metapublishing.RegistrationConfig
+}
+
+type Option func(*runtimeConfig)
+
+func WithMetaAdapters(config metapublishing.RegistrationConfig) Option {
+	return func(runtime *runtimeConfig) {
+		runtime.meta = config
+	}
 }
 
 func New(
@@ -25,6 +38,7 @@ func New(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
+	options ...Option,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -41,7 +55,17 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	registry := newRuntimeAdapterRegistry()
+	var config runtimeConfig
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
+	}
+	registry, err := newRuntimeAdapterRegistry(config.meta)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	engine, err := publishing.NewEngine(
 		store,
 		postgresCommandGate{database: database},
@@ -63,9 +87,14 @@ func New(
 	return &Service{engine: engine, pool: pool}, nil
 }
 
-func newRuntimeAdapterRegistry() *publishing.AdapterRegistry {
-	// Deliberately empty until the credential/adapter contract in #329 lands.
-	return publishing.NewAdapterRegistry()
+func newRuntimeAdapterRegistry(
+	config metapublishing.RegistrationConfig,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	if err := metapublishing.Register(registry, config); err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
