@@ -164,10 +164,16 @@ async function logout() {
             </span>
           </summary>
           <div class="profile-menu__panel">
-            <strong>{{ session?.account.display_name }}</strong>
-            <small>{{ session?.account.email }}</small>
-            <NuxtLink :to="appRoute(locale, 'profile')">{{ t('shell.profile') }}</NuxtLink>
+            <div class="profile-menu__identity">
+              <strong>{{ session?.account.display_name }}</strong>
+              <small>{{ session?.account.email }}</small>
+            </div>
+            <NuxtLink
+              class="profile-menu__link"
+              :to="appRoute(locale, 'profile')"
+            >{{ t('shell.profile') }}</NuxtLink>
             <button
+              class="profile-menu__logout"
               type="button"
               @click="logout"
             >

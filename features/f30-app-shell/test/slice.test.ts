@@ -100,11 +100,12 @@ test('manifest discovers public entry, callback, private routes, and no central 
 })
 
 test('shell exposes accessible states and declarative slots', async () => {
-  const [state, layout, home, feature] = await Promise.all([
+  const [state, layout, home, feature, styles] = await Promise.all([
     readFile(new URL('../components/AppState.vue', import.meta.url), 'utf8'),
     readFile(new URL('../layouts/app-shell.vue', import.meta.url), 'utf8'),
     readFile(new URL('../pages/home.vue', import.meta.url), 'utf8'),
     readFile(new URL('../pages/feature-slot.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/app-shell.css', import.meta.url), 'utf8'),
   ])
   assert.match(state, /aria-live="polite"/u)
   assert.match(state, /aria-busy=/u)
@@ -113,10 +114,18 @@ test('shell exposes accessible states and declarative slots', async () => {
   assert.match(layout, /data-postqron-slot="workspace-actions"/u)
   assert.match(layout, /appRoute\(locale, 'profile'\)[\s\S]*t\('shell\.logout'\)/u)
   assert.match(layout, /<summary[\s\S]*:aria-label="`\$\{t\('shell\.profile'\)\}/u)
+  assert.match(layout, /class="profile-menu__identity"/u)
+  assert.match(layout, /class="profile-menu__link"/u)
+  assert.match(layout, /class="profile-menu__logout"/u)
   assert.match(home, /data-postqron-slot="home-primary"/u)
   assert.match(feature, /data-postqron-slot="feature-content"/u)
   assert.doesNotMatch(layout, /<a[\s\S]*:href="(?:link\.href|appRoute\(locale, '(?:home|profile)'\))"/u)
   assert.match(layout, /<NuxtLink[\s\S]*:to="link\.href"/u)
+  assert.match(styles, /\.product-topbar \{[\s\S]*grid-template-areas: "workspace actions profile"/u)
+  assert.match(styles, /\.workspace-switcher \{[\s\S]*grid-area: workspace/u)
+  assert.match(styles, /\.product-topbar__actions \{[\s\S]*grid-area: actions/u)
+  assert.match(styles, /\.profile-menu \{[\s\S]*grid-area: profile[\s\S]*justify-self: end/u)
+  assert.match(styles, /@media \(max-width: 800px\) \{[\s\S]*\.product-topbar \{[\s\S]*grid-template-areas: "menu workspace profile"/u)
 })
 
 test('protected navigation validates the API-owned session in the browser', async () => {
