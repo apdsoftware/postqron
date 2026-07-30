@@ -21,12 +21,16 @@ type fakeObject struct {
 }
 
 type fakeObjectStore struct {
-	mutex       sync.Mutex
-	objects     map[string]fakeObject
-	uploadKey   string
-	uploadType  string
-	uploadSize  int64
-	deletedKeys []string
+	mutex        sync.Mutex
+	objects      map[string]fakeObject
+	uploadKey    string
+	uploadType   string
+	uploadSize   int64
+	deletedKeys  []string
+	retainCalls  []string
+	tempCalls    []string
+	retainErr    error
+	temporaryErr error
 }
 
 func newFakeObjectStore() *fakeObjectStore {
@@ -102,11 +106,31 @@ func (store *fakeObjectStore) Open(
 func (store *fakeObjectStore) Retain(_ context.Context, key string) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
+	store.retainCalls = append(store.retainCalls, key)
+	if store.retainErr != nil {
+		return store.retainErr
+	}
 	object, found := store.objects[key]
 	if !found {
 		return ErrNotFound
 	}
 	object.retained = true
+	store.objects[key] = object
+	return nil
+}
+
+func (store *fakeObjectStore) MakeTemporary(_ context.Context, key string) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	store.tempCalls = append(store.tempCalls, key)
+	if store.temporaryErr != nil {
+		return store.temporaryErr
+	}
+	object, found := store.objects[key]
+	if !found {
+		return ErrNotFound
+	}
+	object.retained = false
 	store.objects[key] = object
 	return nil
 }

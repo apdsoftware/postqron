@@ -79,6 +79,15 @@ retagged `postqron-lifecycle=retained` and must be excluded from that expiry
 rule. The bucket CORS policy must allow the product's exact browser origins and
 the signed `PUT` headers returned by the API.
 
+Draft/media changes are consistency-safe across the external object boundary:
+new objects are retained before mutation, while the draft, immutable revision,
+and media attachment metadata commit in one PostgreSQL transaction. A failed
+transaction compensates retained objects back to temporary. Removed objects
+receive a fresh safe expiry in that same transaction, then their temporary tag
+is synchronized. Failed tag synchronization is recorded and retried by later
+media/draft operations; until retry succeeds the object remains safely retained
+and no committed draft references it.
+
 Storage is fail-closed. With no S3 configuration, draft operations remain
 available but media operations return client-safe `503` errors with
 `retryable: true`. A partial or invalid storage configuration prevents F6 from

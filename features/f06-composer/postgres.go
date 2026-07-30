@@ -11,6 +11,7 @@ import (
 
 type PostgresRepository struct {
 	database *sql.DB
+	media    *PostgresMediaStore
 }
 
 func NewPostgresRepository(database *sql.DB) (*PostgresRepository, error) {
@@ -18,6 +19,10 @@ func NewPostgresRepository(database *sql.DB) (*PostgresRepository, error) {
 		return nil, fmt.Errorf("%w: postgres database is required", ErrInvalidArgument)
 	}
 	return &PostgresRepository{database: database}, nil
+}
+
+func (repository *PostgresRepository) BindMediaStore(media *PostgresMediaStore) {
+	repository.media = media
 }
 
 func (repository *PostgresRepository) Create(
@@ -29,11 +34,36 @@ func (repository *PostgresRepository) Create(
 	if err != nil {
 		return Draft{}, fmt.Errorf("encode draft content: %w", err)
 	}
+	if repository.media != nil {
+		if err := repository.media.ReconcileLifecycle(ctx, draft.WorkspaceID); err != nil {
+			return Draft{}, err
+		}
+	}
 	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return Draft{}, fmt.Errorf("begin composer create: %w", err)
 	}
 	defer transaction.Rollback()
+	mutation := mediaLinkMutation{}
+	if repository.media != nil {
+		mutation, err = repository.media.prepareDraftMediaTx(
+			ctx,
+			transaction,
+			draft.WorkspaceID,
+			draft.ID,
+			nil,
+			draftMediaIDs(draft.Content),
+			draft.UpdatedAt,
+		)
+		if err != nil {
+			return Draft{}, repository.abortMediaMutation(
+				ctx,
+				transaction,
+				mutation,
+				err,
+			)
+		}
+	}
 	_, err = transaction.ExecContext(ctx, `
 		INSERT INTO f06_composer_drafts (
 			id, workspace_id, created_by_account_id,
@@ -48,16 +78,42 @@ func (repository *PostgresRepository) Create(
 		draft.UpdatedAt,
 	)
 	if err != nil {
+		err = repository.abortMediaMutation(ctx, transaction, mutation, err)
 		if isUniqueViolation(err) {
 			return Draft{}, ErrConflict
 		}
 		return Draft{}, fmt.Errorf("create composer draft: %w", err)
 	}
 	if err := insertRevision(ctx, transaction, draft, "", content); err != nil {
-		return Draft{}, err
+		return Draft{}, repository.abortMediaMutation(
+			ctx,
+			transaction,
+			mutation,
+			err,
+		)
+	}
+	if repository.media != nil {
+		if err := repository.media.applyDraftMediaTx(
+			ctx,
+			transaction,
+			mutation,
+		); err != nil {
+			return Draft{}, repository.abortMediaMutation(
+				ctx,
+				transaction,
+				mutation,
+				err,
+			)
+		}
 	}
 	if err := transaction.Commit(); err != nil {
-		return Draft{}, fmt.Errorf("commit composer create: %w", err)
+		return Draft{}, errors.Join(
+			fmt.Errorf("commit composer create: %w", err),
+			repository.compensateMedia(ctx, mutation),
+		)
+	}
+	if repository.media != nil {
+		repository.media.finalizeRemoved(ctx, mutation)
 	}
 	return cloneDraft(draft), nil
 }
@@ -117,6 +173,11 @@ func (repository *PostgresRepository) Update(
 	if err != nil {
 		return Draft{}, fmt.Errorf("encode draft content: %w", err)
 	}
+	if repository.media != nil {
+		if err := repository.media.ReconcileLifecycle(ctx, draft.WorkspaceID); err != nil {
+			return Draft{}, err
+		}
+	}
 	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return Draft{}, fmt.Errorf("begin composer update: %w", err)
@@ -124,6 +185,18 @@ func (repository *PostgresRepository) Update(
 	defer transaction.Rollback()
 
 	autosaveKey = strings.TrimSpace(autosaveKey)
+	current, err := scanPostgresDraft(transaction.QueryRowContext(ctx, `
+		SELECT id, workspace_id, created_by_account_id,
+		       content, revision, created_at, updated_at
+		  FROM f06_composer_drafts
+		 WHERE workspace_id = $1 AND id = $2
+		 FOR UPDATE`,
+		draft.WorkspaceID,
+		draft.ID,
+	))
+	if err != nil {
+		return Draft{}, err
+	}
 	if autosaveKey != "" {
 		replayed, found, replayErr := replayAutosave(
 			ctx,
@@ -137,6 +210,29 @@ func (repository *PostgresRepository) Update(
 		}
 		if found {
 			return replayed, nil
+		}
+	}
+	if current.Revision != expectedRevision {
+		return Draft{}, ErrConflict
+	}
+	mutation := mediaLinkMutation{}
+	if repository.media != nil {
+		mutation, err = repository.media.prepareDraftMediaTx(
+			ctx,
+			transaction,
+			draft.WorkspaceID,
+			draft.ID,
+			draftMediaIDs(current.Content),
+			draftMediaIDs(draft.Content),
+			draft.UpdatedAt,
+		)
+		if err != nil {
+			return Draft{}, repository.abortMediaMutation(
+				ctx,
+				transaction,
+				mutation,
+				err,
+			)
 		}
 	}
 
@@ -158,28 +254,46 @@ func (repository *PostgresRepository) Update(
 	)
 	updated, err := scanPostgresDraft(row)
 	if errors.Is(err, ErrNotFound) {
-		return Draft{}, classifyMissTx(ctx, transaction, draft.WorkspaceID, draft.ID)
+		err = classifyMissTx(ctx, transaction, draft.WorkspaceID, draft.ID)
 	}
 	if err != nil {
-		return Draft{}, err
+		return Draft{}, repository.abortMediaMutation(
+			ctx,
+			transaction,
+			mutation,
+			err,
+		)
 	}
 	if err := insertRevision(ctx, transaction, updated, autosaveKey, content); err != nil {
-		if isUniqueViolation(err) && autosaveKey != "" {
-			replayed, found, replayErr := replayAutosave(
+		return Draft{}, repository.abortMediaMutation(
+			ctx,
+			transaction,
+			mutation,
+			err,
+		)
+	}
+	if repository.media != nil {
+		if err := repository.media.applyDraftMediaTx(
+			ctx,
+			transaction,
+			mutation,
+		); err != nil {
+			return Draft{}, repository.abortMediaMutation(
 				ctx,
 				transaction,
-				draft.WorkspaceID,
-				draft.ID,
-				autosaveKey,
+				mutation,
+				err,
 			)
-			if replayErr == nil && found {
-				return replayed, nil
-			}
 		}
-		return Draft{}, err
 	}
 	if err := transaction.Commit(); err != nil {
-		return Draft{}, fmt.Errorf("commit composer update: %w", err)
+		return Draft{}, errors.Join(
+			fmt.Errorf("commit composer update: %w", err),
+			repository.compensateMedia(ctx, mutation),
+		)
+	}
+	if repository.media != nil {
+		repository.media.finalizeRemoved(ctx, mutation)
 	}
 	return updated, nil
 }
@@ -189,6 +303,14 @@ func (repository *PostgresRepository) Delete(
 	workspaceID, draftID string,
 	expectedRevision int64,
 ) error {
+	if repository.media != nil {
+		return repository.deleteWithMedia(
+			ctx,
+			workspaceID,
+			draftID,
+			expectedRevision,
+		)
+	}
 	tag, err := repository.database.ExecContext(ctx, `
 		DELETE FROM f06_composer_drafts
 		 WHERE workspace_id = $1 AND id = $2 AND revision = $3`,
@@ -203,6 +325,73 @@ func (repository *PostgresRepository) Delete(
 		return nil
 	}
 	return repository.classifyMiss(ctx, workspaceID, draftID)
+}
+
+func (repository *PostgresRepository) deleteWithMedia(
+	ctx context.Context,
+	workspaceID, draftID string,
+	expectedRevision int64,
+) error {
+	if err := repository.media.ReconcileLifecycle(ctx, workspaceID); err != nil {
+		return err
+	}
+	transaction, err := repository.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin composer delete: %w", err)
+	}
+	defer transaction.Rollback()
+	current, err := scanPostgresDraft(transaction.QueryRowContext(ctx, `
+		SELECT id, workspace_id, created_by_account_id,
+		       content, revision, created_at, updated_at
+		  FROM f06_composer_drafts
+		 WHERE workspace_id = $1 AND id = $2
+		 FOR UPDATE`,
+		workspaceID,
+		draftID,
+	))
+	if err != nil {
+		return err
+	}
+	if current.Revision != expectedRevision {
+		return ErrConflict
+	}
+	mutation, err := repository.media.prepareDraftMediaTx(
+		ctx,
+		transaction,
+		workspaceID,
+		draftID,
+		draftMediaIDs(current.Content),
+		nil,
+		repository.media.clock().UTC(),
+	)
+	if err != nil {
+		return repository.abortMediaMutation(ctx, transaction, mutation, err)
+	}
+	if err := repository.media.applyDraftMediaTx(
+		ctx,
+		transaction,
+		mutation,
+	); err != nil {
+		return repository.abortMediaMutation(ctx, transaction, mutation, err)
+	}
+	tag, err := transaction.ExecContext(ctx, `
+		DELETE FROM f06_composer_drafts
+		 WHERE workspace_id = $1 AND id = $2 AND revision = $3`,
+		workspaceID,
+		draftID,
+		expectedRevision,
+	)
+	if err != nil {
+		return repository.abortMediaMutation(ctx, transaction, mutation, err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return repository.abortMediaMutation(ctx, transaction, mutation, ErrConflict)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit composer delete: %w", err)
+	}
+	repository.media.finalizeRemoved(ctx, mutation)
+	return nil
 }
 
 func (repository *PostgresRepository) ListRevisions(
@@ -404,4 +593,48 @@ func scanPostgresDraft(row postgresDraftRow) (Draft, error) {
 func isUniqueViolation(err error) bool {
 	var postgresError interface{ SQLState() string }
 	return errors.As(err, &postgresError) && postgresError.SQLState() == "23505"
+}
+
+func (repository *PostgresRepository) abortMediaMutation(
+	ctx context.Context,
+	transaction *sql.Tx,
+	mutation mediaLinkMutation,
+	cause error,
+) error {
+	rollbackErr := transaction.Rollback()
+	if errors.Is(rollbackErr, sql.ErrTxDone) {
+		rollbackErr = nil
+	}
+	return errors.Join(
+		cause,
+		rollbackErr,
+		repository.compensateMedia(ctx, mutation),
+	)
+}
+
+func (repository *PostgresRepository) compensateMedia(
+	ctx context.Context,
+	mutation mediaLinkMutation,
+) error {
+	if repository.media == nil || len(mutation.retained) == 0 {
+		return nil
+	}
+	return repository.media.compensateRetained(ctx, mutation)
+}
+
+func draftMediaIDs(content DraftContent) []string {
+	ids := make([]string, 0, len(content.Media))
+	seen := make(map[string]struct{}, len(content.Media))
+	for _, media := range content.Media {
+		id := strings.TrimSpace(media.ID)
+		if id == "" {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }

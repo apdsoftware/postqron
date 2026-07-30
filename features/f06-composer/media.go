@@ -55,6 +55,7 @@ type ObjectStore interface {
 	Stat(context.Context, string) (ObjectInfo, error)
 	Open(context.Context, string) (io.ReadCloser, error)
 	Retain(context.Context, string) error
+	MakeTemporary(context.Context, string) error
 	Delete(context.Context, string) error
 }
 
@@ -91,6 +92,10 @@ func (unavailableObjectStore) Open(context.Context, string) (io.ReadCloser, erro
 }
 
 func (unavailableObjectStore) Retain(context.Context, string) error {
+	return ErrStorageUnavailable
+}
+
+func (unavailableObjectStore) MakeTemporary(context.Context, string) error {
 	return ErrStorageUnavailable
 }
 
@@ -413,43 +418,174 @@ func (store *PostgresMediaStore) Canonicalize(
 	return canonical, nil
 }
 
-func (store *PostgresMediaStore) Attach(
+type mediaLifecycleLink struct {
+	ID        string
+	ObjectKey string
+}
+
+type mediaLinkMutation struct {
+	workspaceID string
+	draftID     string
+	added       []mediaLifecycleLink
+	removed     []mediaLifecycleLink
+	retained    []mediaLifecycleLink
+	expiresAt   time.Time
+}
+
+func (store *PostgresMediaStore) ReconcileLifecycle(
 	ctx context.Context,
-	workspaceID, draftID string,
-	mediaIDs []string,
+	workspaceID string,
 ) error {
-	for _, mediaID := range mediaIDs {
-		var objectKey string
-		err := store.database.QueryRowContext(ctx, `
-			SELECT object_key
+	rows, err := store.database.QueryContext(ctx, `
+		SELECT id, object_key
+		  FROM f06_composer_media
+		 WHERE workspace_id = $1
+		   AND lifecycle_state = 'temporary'
+		   AND lifecycle_sync_pending
+		   AND attached_draft_id IS NULL
+		 ORDER BY id
+		 LIMIT 100`,
+		workspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("list composer media lifecycle retries: %w", err)
+	}
+	defer rows.Close()
+	links := make([]mediaLifecycleLink, 0)
+	for rows.Next() {
+		var link mediaLifecycleLink
+		if err := rows.Scan(&link.ID, &link.ObjectKey); err != nil {
+			return fmt.Errorf("scan composer media lifecycle retry: %w", err)
+		}
+		links = append(links, link)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate composer media lifecycle retries: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close composer media lifecycle retries: %w", err)
+	}
+	var retryErrors []error
+	for _, link := range links {
+		if err := store.makeTemporary(
+			ctx,
+			workspaceID,
+			link,
+			store.clock().UTC().Add(uploadLifetime),
+		); err != nil {
+			retryErrors = append(retryErrors, err)
+		}
+	}
+	return errors.Join(retryErrors...)
+}
+
+func (store *PostgresMediaStore) prepareDraftMediaTx(
+	ctx context.Context,
+	transaction *sql.Tx,
+	workspaceID, draftID string,
+	currentIDs, desiredIDs []string,
+	now time.Time,
+) (mediaLinkMutation, error) {
+	mutation := mediaLinkMutation{
+		workspaceID: workspaceID,
+		draftID:     draftID,
+		expiresAt:   now.UTC().Add(uploadLifetime),
+	}
+	current := stringSet(currentIDs)
+	desired := stringSet(desiredIDs)
+	for _, mediaID := range desiredIDs {
+		var link mediaLifecycleLink
+		var status string
+		var attachedDraft sql.NullString
+		var expiresAt sql.NullTime
+		link.ID = mediaID
+		err := transaction.QueryRowContext(ctx, `
+			SELECT object_key, status, attached_draft_id, expires_at
 			  FROM f06_composer_media
-			 WHERE workspace_id = $1
-			   AND id = $2
-			   AND status = 'ready'
-			   AND (attached_draft_id IS NULL OR attached_draft_id = $3)`,
+			 WHERE workspace_id = $1 AND id = $2
+			 FOR UPDATE`,
 			workspaceID,
 			mediaID,
-			draftID,
-		).Scan(&objectKey)
+		).Scan(&link.ObjectKey, &status, &attachedDraft, &expiresAt)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrConflict
+			return mutation, &FieldRuleError{
+				Field: "media", Rule: "ready_workspace_media",
+				Code:    "media_not_ready",
+				Message: "Media must belong to this workspace and remain ready.",
+			}
 		}
 		if err != nil {
-			return fmt.Errorf("read composer media attachment: %w", err)
+			return mutation, fmt.Errorf("lock composer media attachment: %w", err)
 		}
-		if err := store.objects.Retain(ctx, objectKey); err != nil {
-			return fmt.Errorf("retain composer object: %w", err)
+		if status != "ready" ||
+			(expiresAt.Valid && !expiresAt.Time.After(now) && !attachedDraft.Valid) {
+			return mutation, &FieldRuleError{
+				Field: "media", Rule: "ready_workspace_media",
+				Code:    "media_not_ready",
+				Message: "Media must belong to this workspace and remain ready.",
+			}
 		}
-		tag, err := store.database.ExecContext(ctx, `
+		if attachedDraft.Valid && attachedDraft.String != draftID {
+			return mutation, ErrConflict
+		}
+		_, wasCurrent := current[mediaID]
+		if !wasCurrent || !attachedDraft.Valid {
+			mutation.added = append(mutation.added, link)
+		}
+	}
+	for _, mediaID := range currentIDs {
+		if _, remains := desired[mediaID]; remains {
+			continue
+		}
+		var link mediaLifecycleLink
+		var attachedDraft sql.NullString
+		link.ID = mediaID
+		err := transaction.QueryRowContext(ctx, `
+			SELECT object_key, attached_draft_id
+			  FROM f06_composer_media
+			 WHERE workspace_id = $1 AND id = $2
+			 FOR UPDATE`,
+			workspaceID,
+			mediaID,
+		).Scan(&link.ObjectKey, &attachedDraft)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return mutation, fmt.Errorf("lock removed composer media: %w", err)
+		}
+		if attachedDraft.Valid && attachedDraft.String == draftID {
+			mutation.removed = append(mutation.removed, link)
+		}
+	}
+	for _, link := range mutation.added {
+		mutation.retained = append(mutation.retained, link)
+		if err := store.objects.Retain(ctx, link.ObjectKey); err != nil {
+			return mutation, fmt.Errorf("retain composer object: %w", err)
+		}
+	}
+	return mutation, nil
+}
+
+func (store *PostgresMediaStore) applyDraftMediaTx(
+	ctx context.Context,
+	transaction *sql.Tx,
+	mutation mediaLinkMutation,
+) error {
+	for _, link := range mutation.added {
+		tag, err := transaction.ExecContext(ctx, `
 			UPDATE f06_composer_media
-			   SET attached_draft_id = $3, expires_at = NULL
+			   SET attached_draft_id = $3,
+			       expires_at = NULL,
+			       lifecycle_state = 'retained',
+			       lifecycle_sync_pending = false
 			 WHERE workspace_id = $1
 			   AND id = $2
 			   AND status = 'ready'
 			   AND (attached_draft_id IS NULL OR attached_draft_id = $3)`,
-			workspaceID,
-			mediaID,
-			draftID,
+			mutation.workspaceID,
+			link.ID,
+			mutation.draftID,
 		)
 		if err != nil {
 			return fmt.Errorf("attach composer media metadata: %w", err)
@@ -458,7 +594,130 @@ func (store *PostgresMediaStore) Attach(
 			return ErrConflict
 		}
 	}
+	for _, link := range mutation.removed {
+		tag, err := transaction.ExecContext(ctx, `
+			UPDATE f06_composer_media
+			   SET attached_draft_id = NULL,
+			       expires_at = $4,
+			       lifecycle_state = 'temporary',
+			       lifecycle_sync_pending = true
+			 WHERE workspace_id = $1
+			   AND id = $2
+			   AND attached_draft_id = $3`,
+			mutation.workspaceID,
+			link.ID,
+			mutation.draftID,
+			mutation.expiresAt,
+		)
+		if err != nil {
+			return fmt.Errorf("release composer media metadata: %w", err)
+		}
+		if affected, _ := tag.RowsAffected(); affected != 1 {
+			return ErrConflict
+		}
+	}
 	return nil
+}
+
+func (store *PostgresMediaStore) compensateRetained(
+	ctx context.Context,
+	mutation mediaLinkMutation,
+) error {
+	compensationContext, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		10*time.Second,
+	)
+	defer cancel()
+	var compensationErrors []error
+	for _, link := range mutation.retained {
+		var attachedDraft sql.NullString
+		err := store.database.QueryRowContext(compensationContext, `
+			SELECT attached_draft_id
+			  FROM f06_composer_media
+			 WHERE workspace_id = $1 AND id = $2`,
+			mutation.workspaceID,
+			link.ID,
+		).Scan(&attachedDraft)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			compensationErrors = append(
+				compensationErrors,
+				fmt.Errorf("check retained composer media compensation: %w", err),
+			)
+			continue
+		}
+		if attachedDraft.Valid {
+			continue
+		}
+		if err := store.makeTemporary(
+			compensationContext,
+			mutation.workspaceID,
+			link,
+			mutation.expiresAt,
+		); err != nil {
+			compensationErrors = append(compensationErrors, err)
+		}
+	}
+	return errors.Join(compensationErrors...)
+}
+
+func (store *PostgresMediaStore) finalizeRemoved(
+	ctx context.Context,
+	mutation mediaLinkMutation,
+) {
+	finalizeContext, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		10*time.Second,
+	)
+	defer cancel()
+	for _, link := range mutation.removed {
+		_ = store.makeTemporary(
+			finalizeContext,
+			mutation.workspaceID,
+			link,
+			mutation.expiresAt,
+		)
+	}
+}
+
+func (store *PostgresMediaStore) makeTemporary(
+	ctx context.Context,
+	workspaceID string,
+	link mediaLifecycleLink,
+	expiresAt time.Time,
+) error {
+	objectErr := store.objects.MakeTemporary(ctx, link.ObjectKey)
+	pending := objectErr != nil
+	_, databaseErr := store.database.ExecContext(ctx, `
+		UPDATE f06_composer_media
+		   SET lifecycle_state = 'temporary',
+		       lifecycle_sync_pending = $3,
+		       expires_at = GREATEST(COALESCE(expires_at, $4), $4)
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL`,
+		workspaceID,
+		link.ID,
+		pending,
+		expiresAt.UTC(),
+	)
+	if databaseErr != nil {
+		databaseErr = fmt.Errorf("record composer media lifecycle retry: %w", databaseErr)
+	}
+	if objectErr != nil {
+		objectErr = fmt.Errorf("make composer object temporary: %w", objectErr)
+	}
+	return errors.Join(objectErr, databaseErr)
+}
+
+func stringSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		result[value] = struct{}{}
+	}
+	return result
 }
 
 func (store *PostgresMediaStore) rejectAndDelete(

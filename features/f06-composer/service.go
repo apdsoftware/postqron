@@ -26,7 +26,6 @@ type Repository interface {
 
 type MediaResolver interface {
 	Canonicalize(context.Context, string, string, []Media) ([]Media, error)
-	Attach(context.Context, string, string, []string) error
 }
 
 type Service struct {
@@ -85,6 +84,11 @@ func WithCapabilityCatalog(catalog CapabilityCatalog) ServiceOption {
 func WithMediaResolver(resolver MediaResolver) ServiceOption {
 	return func(service *Service) {
 		service.media = resolver
+		repository, repositoryOK := service.repository.(*PostgresRepository)
+		media, mediaOK := resolver.(*PostgresMediaStore)
+		if repositoryOK && mediaOK {
+			repository.BindMediaStore(media)
+		}
 	}
 }
 
@@ -123,9 +127,6 @@ func (service *Service) CreateDraft(
 		UpdatedAt:   now,
 	})
 	if err != nil {
-		return DraftView{}, err
-	}
-	if err := service.attachMedia(ctx, draft); err != nil {
 		return DraftView{}, err
 	}
 	return service.viewOf(draft), nil
@@ -202,9 +203,6 @@ func (service *Service) UpdateDraft(
 		strings.TrimSpace(command.AutosaveKey),
 	)
 	if err != nil {
-		return DraftView{}, err
-	}
-	if err := service.attachMedia(ctx, draft); err != nil {
 		return DraftView{}, err
 	}
 	return service.viewOf(draft), nil
@@ -421,17 +419,6 @@ func (service *Service) canonicalizeMedia(
 	}
 	content.Media = canonical
 	return content, nil
-}
-
-func (service *Service) attachMedia(ctx context.Context, draft Draft) error {
-	if service.media == nil || len(draft.Content.Media) == 0 {
-		return nil
-	}
-	ids := make([]string, len(draft.Content.Media))
-	for index, media := range draft.Content.Media {
-		ids[index] = media.ID
-	}
-	return service.media.Attach(ctx, draft.WorkspaceID, draft.ID, ids)
 }
 
 func cloneDraft(draft Draft) Draft {

@@ -242,13 +242,36 @@ func TestPostgresRuntimeIntegrationEnforcesWorkspaceRBACAndMediaInspection(
 			downloadResponse.Body.String(),
 		)
 	}
-	if err := mediaStore.Attach(
-		context.Background(),
-		workspaceID,
-		created.Draft.ID,
-		[]string{inspected.ID},
-	); err != nil {
+	module.repository.BindMediaStore(mediaStore)
+	module.service.media = mediaStore
+	updatePayload, err := json.Marshal(map[string]any{
+		"expected_revision": 1,
+		"autosave_key":      "runtime-media-attach",
+		"content": DraftContent{
+			Text:         created.Draft.Content.Text,
+			Link:         created.Draft.Content.Link,
+			Media:        []Media{{ID: inspected.ID}},
+			Thread:       created.Draft.Content.Thread,
+			Destinations: created.Draft.Content.Destinations,
+		},
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	update := authenticatedRuntimeRequest(
+		http.MethodPut,
+		"/api/v1/workspaces/"+workspaceID+"/drafts/"+created.Draft.ID,
+		string(updatePayload),
+		accountID,
+	)
+	updateResponse := httptest.NewRecorder()
+	handler.ServeHTTP(updateResponse, update)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf(
+			"atomic media draft update = %d %s",
+			updateResponse.Code,
+			updateResponse.Body.String(),
+		)
 	}
 	objects.mutex.Lock()
 	retained := objects.objects[objects.uploadKey].retained

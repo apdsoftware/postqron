@@ -46,15 +46,33 @@ CREATE TABLE f06_composer_media (
     inspected_metadata jsonb,
     attached_draft_id text
         REFERENCES f06_composer_drafts(id) ON DELETE SET NULL,
+    lifecycle_state text NOT NULL DEFAULT 'temporary'
+        CHECK (lifecycle_state IN ('temporary', 'retained')),
+    lifecycle_sync_pending boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL,
     expires_at timestamptz,
     CHECK (
         (status = 'pending' AND inspected_metadata IS NULL)
         OR (status = 'ready' AND inspected_metadata IS NOT NULL)
         OR status = 'rejected'
+    ),
+    CHECK (
+        (
+            attached_draft_id IS NULL
+            AND lifecycle_state = 'temporary'
+        )
+        OR (
+            attached_draft_id IS NOT NULL
+            AND lifecycle_state = 'retained'
+            AND expires_at IS NULL
+        )
     )
 );
 
 CREATE INDEX f06_composer_media_workspace_expiry_idx
     ON f06_composer_media (workspace_id, expires_at)
     WHERE attached_draft_id IS NULL;
+
+CREATE INDEX f06_composer_media_lifecycle_retry_idx
+    ON f06_composer_media (workspace_id, id)
+    WHERE lifecycle_sync_pending;

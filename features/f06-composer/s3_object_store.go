@@ -190,16 +190,30 @@ func (store *S3ObjectStore) Retain(
 	ctx context.Context,
 	objectKey string,
 ) error {
+	return store.setLifecycleTag(ctx, objectKey, "retained")
+}
+
+func (store *S3ObjectStore) MakeTemporary(
+	ctx context.Context,
+	objectKey string,
+) error {
+	return store.setLifecycleTag(ctx, objectKey, "temporary")
+}
+
+func (store *S3ObjectStore) setLifecycleTag(
+	ctx context.Context,
+	objectKey, lifecycle string,
+) error {
 	_, err := store.client.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
 		Bucket: aws.String(store.bucket),
 		Key:    aws.String(objectKey),
 		Tagging: &types.Tagging{TagSet: []types.Tag{{
 			Key:   aws.String("postqron-lifecycle"),
-			Value: aws.String("retained"),
+			Value: aws.String(lifecycle),
 		}}},
 	})
 	if err != nil {
-		return fmt.Errorf("retain S3 object: %w", err)
+		return fmt.Errorf("set S3 object lifecycle %s: %w", lifecycle, err)
 	}
 	return nil
 }
