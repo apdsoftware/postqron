@@ -1,7 +1,7 @@
 schema_version: 1
 id: workspaces
 kind: api
-version: 0.1.0
+version: 0.2.0
 entrypoint: ./workspaces.go
 dependencies:
   - auth
@@ -30,7 +30,7 @@ server:
       visibility: "public"
     - path: /app/workspaces/current
       handler: AppRuntime
-      methods: [GET]
+      methods: [GET, PATCH]
       visibility: "public"
     - path: /app/workspaces/current
       handler: AppRuntime
@@ -41,6 +41,30 @@ server:
       methods: [GET]
       visibility: "public"
     - path: /app/workspaces/current/members
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /app/workspaces/current/invitations
+      handler: AppRuntime
+      methods: [POST]
+      visibility: "public"
+    - path: /app/workspaces/current/invitations
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /app/workspaces/current/members/{memberId}/role
+      handler: AppRuntime
+      methods: [PUT]
+      visibility: "public"
+    - path: /app/workspaces/current/members/{memberId}/role
+      handler: AppRuntime
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /app/workspaces/current/members/{memberId}
+      handler: AppRuntime
+      methods: [DELETE]
+      visibility: "public"
+    - path: /app/workspaces/current/members/{memberId}
       handler: AppRuntime
       methods: [OPTIONS]
       visibility: "public"

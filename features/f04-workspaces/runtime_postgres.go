@@ -164,10 +164,10 @@ func (repository *PostgresRepository) CurrentWorkspace(
 	return workspace, current.Role, nil
 }
 
-func (repository *PostgresRepository) CurrentMemberships(
+func (repository *PostgresRepository) CurrentMembers(
 	ctx context.Context,
 	accountID string,
-) ([]Membership, error) {
+) ([]RuntimeMember, error) {
 	workspaces, selectedID, err := repository.listAppWorkspaces(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -176,7 +176,61 @@ func (repository *PostgresRepository) CurrentMemberships(
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return repository.ListMemberships(ctx, current.ID, accountID)
+	rows, err := repository.database.QueryContext(
+		ctx,
+		`SELECT membership.account_id,
+		        COALESCE(account.normalized_email, ''),
+		        membership.role,
+		        membership.status,
+		        membership.created_at,
+		        membership.updated_at
+		 FROM f04_memberships membership
+		 LEFT JOIN auth_accounts account
+		   ON account.id = membership.account_id
+		 WHERE membership.workspace_id = $1
+		   AND membership.status = 'active'
+		   AND EXISTS (
+		       SELECT 1
+		       FROM f04_memberships actor
+		       JOIN f04_workspaces workspace
+		         ON workspace.id = actor.workspace_id
+		       WHERE actor.workspace_id = $1
+		         AND actor.account_id = $2
+		         AND actor.status = 'active'
+		         AND workspace.status = 'active'
+		   )
+		 ORDER BY membership.account_id`,
+		current.ID,
+		accountID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list current workspace members: %w", err)
+	}
+	defer rows.Close()
+
+	var members []RuntimeMember
+	for rows.Next() {
+		var member RuntimeMember
+		if err = rows.Scan(
+			&member.AccountID,
+			&member.Email,
+			&member.Role,
+			&member.Status,
+			&member.CreatedAt,
+			&member.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan current workspace member: %w", err)
+		}
+		member.ID = member.AccountID
+		members = append(members, member)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate current workspace members: %w", err)
+	}
+	if len(members) == 0 {
+		return nil, ErrForbidden
+	}
+	return members, nil
 }
 
 func (repository *PostgresRepository) ConsumeOnboardingRequired(

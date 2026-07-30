@@ -147,10 +147,10 @@ func (repository *MemoryRepository) CurrentWorkspace(
 	return workspace, current.Role, nil
 }
 
-func (repository *MemoryRepository) CurrentMemberships(
+func (repository *MemoryRepository) CurrentMembers(
 	_ context.Context,
 	accountID string,
-) ([]Membership, error) {
+) ([]RuntimeMember, error) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
 
@@ -158,13 +158,21 @@ func (repository *MemoryRepository) CurrentMemberships(
 	if err != nil {
 		return nil, err
 	}
-	var memberships []Membership
+	var memberships []RuntimeMember
 	for _, membership := range repository.memberships[current.ID] {
 		if membership.Status == MembershipActive {
-			memberships = append(memberships, membership)
+			memberships = append(memberships, RuntimeMember{
+				ID:        membership.AccountID,
+				AccountID: membership.AccountID,
+				Email:     membership.AccountID + "@example.invalid",
+				Role:      membership.Role,
+				Status:    membership.Status,
+				CreatedAt: membership.CreatedAt,
+				UpdatedAt: membership.UpdatedAt,
+			})
 		}
 	}
-	slices.SortFunc(memberships, func(left, right Membership) int {
+	slices.SortFunc(memberships, func(left, right RuntimeMember) int {
 		return compareStrings(left.AccountID, right.AccountID)
 	})
 	return memberships, nil

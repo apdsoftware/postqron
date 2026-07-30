@@ -24,24 +24,37 @@ The deferred database trigger is an additional final-Owner backstop.
 The `MemberLimitProvider` is the boundary to F10. `-1` means unlimited; a
 missing, zero, or invalid entitlement fails closed.
 
-## Runtime onboarding
+## Runtime contract
 
 `NewPostgresModule` now exports the F4 runtime handlers consumed by F30:
 
 - `POST /api/v1/app/onboarding`
 - `POST /api/v1/app/workspaces/select`
 - `GET /api/v1/app/workspaces/current`
+- `PATCH /api/v1/app/workspaces/current`
 - `GET /api/v1/app/workspaces/current/members`
+- `POST /api/v1/app/workspaces/current/invitations`
+- `PUT /api/v1/app/workspaces/current/members/{memberId}/role`
+- `DELETE /api/v1/app/workspaces/current/members/{memberId}`
 
 The runtime path authenticates the F3 `__Host-postqron_session` cookie
-server-side, never trusts client-supplied account IDs, validates the two
+server-side, never trusts a client-supplied acting account ID, validates the two
 required onboarding consent receipts against the current approved compliance
 documents, records consent evidence idempotently, and persists the selected
-workspace in `f04_workspace_selections`.
+workspace in `f04_workspace_selections`. Current-workspace mutations never
+accept a workspace identifier. They resolve the stored active membership,
+repeat the Owner check inside the locked PostgreSQL transaction, and preserve
+the final-Owner invariant under concurrent role changes and removals.
 
-This slice is intentionally self-contained for issue `#217`. Mounting the new
-module into the real API binary and generated runtime factories remains the
-responsibility of issue `#220`.
+The current members response is the F30 wire contract: snake-case identifiers,
+account email, role, active status, and timestamps. Invitation email digests
+use a domain-separated key derived from
+`POSTQRON_AUTH_ENCRYPTION_KEY_B64`; the invitation operation returns a
+retryable configuration error if that production key is unavailable. Member
+capacity is read from F10's public entitlement projection and fails closed.
+
+The module is mounted by the generated API feature factory under the paths
+declared in `feature.yaml`.
 
 ## Verification
 
@@ -49,7 +62,7 @@ Run the slice tests independently because issue #10 may only change this
 directory and therefore cannot add the module to the root `go.work`:
 
 ```sh
-GOCACHE=$(pwd)/.cache/go-build GOWORK=off go test -race ./...
+GOCACHE=/tmp/postqron-f04-go-cache GOWORK=off go test -race ./...
 GOWORK=off go vet ./...
 ```
 
@@ -62,6 +75,6 @@ POSTQRON_FEATURE_ROOTS="services/api/features:features" pnpm migrations:check
 On a disposable PostgreSQL database with the migrations already applied:
 
 ```sh
-F04_DATABASE_URL="postgres://..." GOCACHE=$(pwd)/.cache/go-build GOWORK=off \
+F04_DATABASE_URL="postgres://..." GOCACHE=/tmp/postqron-f04-go-cache GOWORK=off \
   go test -race -run 'TestPostgresRepositoryIntegration|TestPostgresRuntimeOnboardingIntegration' ./...
 ```

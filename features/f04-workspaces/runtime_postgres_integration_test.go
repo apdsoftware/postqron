@@ -32,18 +32,19 @@ func TestPostgresRuntimeOnboardingIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeService, err := NewRuntimeServiceWithClock(
+	domainService, err := NewService(
 		repository,
-		func() time.Time { return testNow },
+		postgresMemberLimits{database: database},
+		testEmailKey,
+		WithClock(func() time.Time { return testNow }),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	domainService, err := NewService(
+	runtimeService, err := NewRuntimeServiceWithManager(
 		repository,
-		fixedLimits{limit: 5, available: true},
-		testEmailKey,
-		WithClock(func() time.Time { return testNow }),
+		domainService,
+		func() time.Time { return testNow },
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +131,14 @@ func TestPostgresRuntimeOnboardingIntegration(t *testing.T) {
 			t.Fatalf("workspace id = %q, want %q", session.CurrentWorkspace.ID, workspaceID)
 		}
 	}
+	if _, err = database.ExecContext(
+		context.Background(),
+		`SELECT f10_provision_trial($1, $2)`,
+		workspaceID,
+		testNow,
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	var workspaceCount, selectionCount, consentCount int
 	if err = database.QueryRowContext(
@@ -168,14 +177,56 @@ func TestPostgresRuntimeOnboardingIntegration(t *testing.T) {
 	if consentCount != 2 {
 		t.Fatalf("consent count = %d, want 2", consentCount)
 	}
+	members, err := runtimeService.CurrentMembers(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 1 ||
+		members[0].AccountID != account.ID ||
+		members[0].Email != account.Email ||
+		members[0].Role != RoleOwner {
+		t.Fatalf("current members = %#v", members)
+	}
+	if _, err = runtimeService.RenameCurrentWorkspace(
+		context.Background(),
+		account.ID,
+		"Renamed runtime workspace",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtimeService.RemoveCurrentMember(
+		context.Background(),
+		account.ID,
+		account.ID,
+	); !errors.Is(err, ErrLastOwner) {
+		t.Fatalf("last Owner removal error = %v, want last owner", err)
+	}
 
 	otherOwner := "runtime-owner-" + suffix
+	otherAccount := AppSessionAccount{
+		ID:              otherOwner,
+		DisplayName:     "Other Owner",
+		Email:           "other-" + suffix + "@example.com",
+		Locale:          LocaleIT,
+		ContractCountry: "IT",
+	}
+	if err = seedRuntimeAuthAccount(database, otherAccount, testNow); err != nil {
+		t.Fatal(err)
+	}
 	otherWorkspace, _, err := domainService.EnsurePersonalWorkspace(
 		context.Background(),
 		otherOwner,
 		"Secondary workspace",
 	)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.ExecContext(
+		context.Background(),
+		`SELECT f10_provision_trial($1, $2)`,
+		otherWorkspace.ID,
+		testNow,
+	); err != nil {
 		t.Fatal(err)
 	}
 	invitation, err := domainService.Invite(
@@ -203,12 +254,33 @@ func TestPostgresRuntimeOnboardingIntegration(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	current, role, err := runtimeService.CurrentWorkspace(context.Background(), account.ID)
+	current, err := runtimeService.CurrentWorkspace(context.Background(), account.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.ID != otherWorkspace.ID || role != RoleMember {
-		t.Fatalf("current workspace = %#v/%s", current, role)
+	if current.ID != otherWorkspace.ID || current.Role != RoleMember {
+		t.Fatalf("current workspace = %#v", current)
+	}
+	if _, err = runtimeService.RenameCurrentWorkspace(
+		context.Background(),
+		account.ID,
+		"Forbidden member rename",
+	); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("Member RenameCurrentWorkspace() error = %v, want forbidden", err)
+	}
+	if _, err = runtimeService.InviteCurrentMember(
+		context.Background(),
+		account.ID,
+		"forbidden-"+suffix+"@example.com",
+	); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("Member InviteCurrentMember() error = %v, want forbidden", err)
+	}
+	members, err = runtimeService.CurrentMembers(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 || members[0].Email == "" || members[1].Email == "" {
+		t.Fatalf("selected workspace members = %#v", members)
 	}
 	if err = runtimeService.SelectWorkspace(
 		context.Background(),
@@ -216,6 +288,62 @@ func TestPostgresRuntimeOnboardingIntegration(t *testing.T) {
 		"workspace-denied",
 	); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("unauthorized SelectWorkspace() error = %v, want forbidden", err)
+	}
+	if err = runtimeService.SelectWorkspace(
+		context.Background(),
+		account,
+		workspaceID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	invitedAccount := AppSessionAccount{
+		ID:              "runtime-invited-" + suffix,
+		DisplayName:     "Invited Member",
+		Email:           "runtime-invited-" + suffix + "@example.com",
+		Locale:          LocaleIT,
+		ContractCountry: "IT",
+	}
+	if err = seedRuntimeAuthAccount(database, invitedAccount, testNow); err != nil {
+		t.Fatal(err)
+	}
+	runtimeInvitation, err := runtimeService.InviteCurrentMember(
+		context.Background(),
+		account.ID,
+		invitedAccount.Email,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = domainService.AcceptInvitation(
+		context.Background(),
+		runtimeInvitation.Token,
+		invitedAccount.ID,
+		invitedAccount.Email,
+		true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtimeService.ChangeCurrentMemberRole(
+		context.Background(),
+		account.ID,
+		invitedAccount.ID,
+		RoleOwner,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtimeService.RemoveCurrentMember(
+		context.Background(),
+		account.ID,
+		invitedAccount.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.Role(
+		context.Background(),
+		workspaceID,
+		invitedAccount.ID,
+	); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("removed runtime member Role() error = %v, want forbidden", err)
 	}
 }
 
