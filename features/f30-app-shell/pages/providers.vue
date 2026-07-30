@@ -28,7 +28,7 @@ const linking = ref<OAuthProvider>()
 const disconnecting = ref<string>()
 const feedback = ref<'error' | 'linked' | 'removed'>()
 const locale = computed(() => localeFromAppPath(route.fullPath))
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.providers'),

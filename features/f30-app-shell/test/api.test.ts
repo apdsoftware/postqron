@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  appServiceStateFromError,
   AppApiError,
   AppShellApi,
   normalizeAppApiError,
@@ -98,6 +99,32 @@ test('HTTP status maps to safe route-guard categories without provider detail', 
   assert.equal(
     normalizeAppApiError({ status: 503 }).kind,
     'configuration',
+  )
+  assert.equal(
+    appServiceStateFromError({ status: 404 }),
+    'unavailable',
+  )
+  assert.equal(
+    appServiceStateFromError({ status: 0 }),
+    'offline',
+  )
+  assert.equal(
+    appServiceStateFromError({ response: { status: 403 } }),
+    'access-denied',
+  )
+})
+
+test('invalid account payload fails closed as retryable configuration error', async () => {
+  const api = new AppShellApi(
+    'https://api.postqron.test',
+    async () => ({ profile: {}, providers: [], workspaces: [] }),
+  )
+  await assert.rejects(
+    () => api.accountArea(),
+    (error: unknown) =>
+      error instanceof AppApiError
+      && error.kind === 'configuration'
+      && error.code === 'APP_INVALID_ACCOUNT_PAYLOAD',
   )
 })
 

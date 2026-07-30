@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type registrationMemoryStore struct {
 type registrationAccount struct {
 	ID           string
 	Email        string
+	DisplayName  string
 	PasswordHash string
 	Verified     bool
 }
@@ -52,6 +54,7 @@ func (store *registrationMemoryStore) RegisterPasswordAccount(
 	store.accounts[command.Account.NormalizedEmail] = registrationAccount{
 		ID:           command.Account.ID,
 		Email:        command.Account.Email,
+		DisplayName:  command.Account.DisplayName,
 		PasswordHash: command.PasswordHash,
 	}
 	store.tokens[command.VerificationHash] = registrationToken{
@@ -166,6 +169,9 @@ func TestPasswordRegistrationCreatesDigestOnlyVerificationState(t *testing.T) {
 	if account.Email != "user@example.test" || account.Verified {
 		t.Fatalf("stored account = %+v", account)
 	}
+	if account.DisplayName != "user" {
+		t.Fatalf("stored display name = %q, want derived local part", account.DisplayName)
+	}
 	if _, exists := store.tokens[tokenDigest(result.Delivery.Token)]; !exists {
 		t.Fatal("verification token digest was not persisted")
 	}
@@ -179,6 +185,36 @@ func TestPasswordRegistrationCreatesDigestOnlyVerificationState(t *testing.T) {
 			store.outboxCount,
 			store.securityCount,
 		)
+	}
+}
+
+func TestPasswordRegistrationDerivesBoundedDisplayNameFromEmail(t *testing.T) {
+	store := newRegistrationMemoryStore()
+	service, err := NewPasswordRegistrationService(PasswordRegistrationConfig{
+		Store: store,
+		Now:   func() time.Time { return testNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPart := strings.Repeat("a", 140)
+	_, err = service.Register(
+		context.Background(),
+		localPart+"@example.test",
+		"correct horse battery staple",
+		"correct horse battery staple",
+		"IT",
+		validConsents(),
+	)
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	account := store.accounts[localPart+"@example.test"]
+	if len(account.DisplayName) != 100 {
+		t.Fatalf("stored display name length = %d, want 100", len(account.DisplayName))
+	}
+	if account.DisplayName != strings.Repeat("a", 100) {
+		t.Fatalf("stored display name = %q", account.DisplayName)
 	}
 }
 

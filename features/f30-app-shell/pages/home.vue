@@ -21,7 +21,7 @@ const session = useAppSessionState()
 const accountArea = useAppAccountAreaState()
 const api = useAppShellApi()
 const { t } = useAppShellI18n()
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.home'),

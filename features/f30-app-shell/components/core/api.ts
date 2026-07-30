@@ -44,6 +44,11 @@ export type AppApiErrorKind =
   | 'session'
   | 'unknown'
 
+export type AppServiceStateKind =
+  | 'access-denied'
+  | 'offline'
+  | 'unavailable'
+
 export class AppApiError extends Error {
   readonly code: string
   readonly kind: AppApiErrorKind
@@ -145,6 +150,17 @@ export function normalizeAppApiError(error: unknown): AppApiError {
     message: remote.message ?? 'The app service request failed',
     retryable: remote.retryable ?? (kind === 'offline' || kind === 'configuration'),
   })
+}
+
+export function appServiceStateFromError(error: unknown): AppServiceStateKind {
+  const kind = normalizeAppApiError(error).kind
+  if (kind === 'access-denied') {
+    return 'access-denied'
+  }
+  if (kind === 'offline') {
+    return 'offline'
+  }
+  return 'unavailable'
 }
 
 export class AppShellApi {
@@ -444,9 +460,22 @@ export class AppShellApi {
   }
 
   async accountArea(headers?: Readonly<Record<string, string>>): Promise<AccountArea> {
-    return parseAccountArea(
-      await this.#request('/api/v1/account', { headers }),
-    )
+    try {
+      return parseAccountArea(
+        await this.#request('/api/v1/account', { headers }),
+      )
+    } catch (error) {
+      if (error instanceof AppApiError) {
+        throw error
+      }
+      throw new AppApiError({
+        cause: error,
+        code: 'APP_INVALID_ACCOUNT_PAYLOAD',
+        kind: 'configuration',
+        message: 'The account area response is invalid',
+        retryable: true,
+      })
+    }
   }
 
   async updateProfile(input: {

@@ -2,7 +2,12 @@
 import { computed } from '#imports'
 import { useAppShellI18n } from './core/use-app-shell.ts'
 
-type AppStateKind = 'access-denied' | 'empty' | 'loading' | 'offline'
+type AppStateKind =
+  | 'access-denied'
+  | 'empty'
+  | 'loading'
+  | 'offline'
+  | 'unavailable'
 
 const props = withDefaults(defineProps<{
   action?: boolean
@@ -14,7 +19,7 @@ const emit = defineEmits<{
   retry: []
 }>()
 const { t } = useAppShellI18n()
-const messageKey = computed<'denied' | 'empty' | 'loading' | 'offline'>(() =>
+const messageKey = computed<'denied' | 'empty' | 'loading' | 'offline' | 'unavailable'>(() =>
   props.kind === 'access-denied'
   ? 'denied'
   : props.kind)
@@ -26,6 +31,8 @@ const icon = computed(() => {
       return '○'
     case 'offline':
       return '↻'
+    case 'unavailable':
+      return '!'
     default:
       return '…'
   }

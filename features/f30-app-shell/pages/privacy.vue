@@ -38,7 +38,7 @@ const exportDownload = ref<ExportDownload>()
 const deletionRequest = ref<DeletionRequest>()
 const working = ref<'account-delete' | 'account-export' | 'cancel-delete' | 'workspace-delete' | 'workspace-export' | 'download'>()
 const feedback = ref<'error' | 'ownership-unavailable' | 'saved'>()
-const pageState = ref<'access-denied' | 'offline'>()
+const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 
 useHead(computed(() => ({
   title: t('documentTitle.privacy'),

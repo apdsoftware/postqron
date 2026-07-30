@@ -21,6 +21,7 @@ import {
   sanitizeAppDestination,
 } from '../components/core/navigation.ts'
 import {
+  appStateKindFromError,
   useAppBootstrapState,
   useAppSessionState,
   useAppShellApi,
@@ -46,6 +47,7 @@ const submittingProvider = ref<OAuthProvider>()
 const resendingVerification = ref(false)
 const formError = ref<string>()
 const invalidIntent = ref(false)
+const pageState = ref<'offline' | 'unavailable'>()
 const locale = computed(() => localeFromAppPath(route.fullPath))
 
 useHead(computed(() => ({
@@ -73,7 +75,9 @@ try {
 
 const requestedState = computed(() => {
   const state = queryString(route.query.app_state)
-  return state === 'offline' || state === 'access-denied' ? state : undefined
+  return state === 'offline' || state === 'access-denied' || state === 'unavailable'
+    ? state
+    : undefined
 })
 
 const {
@@ -81,17 +85,25 @@ const {
   refresh,
   status,
 } = await useAsyncData('postqron-app-bootstrap', async () => {
-  const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
-  const bootstrap = await api.bootstrap(headers)
-  bootstrapState.value = bootstrap
-  if (bootstrap.session) {
-    sessionState.value = bootstrap.session
-    await navigateTo(
-      authenticatedDestination(returnTo, bootstrap.session.onboarding_required),
-      { redirectCode: 302 },
-    )
+  try {
+    const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    const bootstrap = await api.bootstrap(headers)
+    bootstrapState.value = bootstrap
+    pageState.value = undefined
+    if (bootstrap.session) {
+      sessionState.value = bootstrap.session
+      await navigateTo(
+        authenticatedDestination(returnTo, bootstrap.session.onboarding_required),
+        { redirectCode: 302 },
+      )
+    }
+    return bootstrap
+  } catch (error) {
+    pageState.value = appStateKindFromError(error) === 'offline'
+      ? 'offline'
+      : 'unavailable'
+    throw error
   }
-  return bootstrap
 })
 
 const terms = computed(() =>
@@ -244,8 +256,14 @@ async function retry() {
           kind="loading"
         />
         <AppState
-          v-else-if="requestedState === 'offline' || status === 'error'"
+          v-else-if="requestedState === 'offline' || pageState === 'offline'"
           kind="offline"
+          action
+          @retry="retry"
+        />
+        <AppState
+          v-else-if="requestedState === 'unavailable' || status === 'error' || pageState === 'unavailable'"
+          kind="unavailable"
           action
           @retry="retry"
         />
