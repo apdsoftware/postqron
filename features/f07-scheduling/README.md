@@ -4,6 +4,22 @@ This slice owns scheduled-post state, calendar queries, local-time resolution,
 and the durable command handed to F8. Runtime discovery uses `feature.yaml`; no
 central registry is required.
 
+## API runtime
+
+The API runtime mounts the F7 routes through feature discovery. Private methods
+consume the shared `__Host-postqron_session` authentication context and require
+an active Owner or Member whose selected F4 workspace matches `workspace_id`.
+Browser origins come from the exact `POSTQRON_AUTH_ALLOWED_ORIGINS` allowlist;
+credentialed CORS is applied before authentication so `401` responses and
+public `OPTIONS` preflight responses remain consumable by the web app.
+
+The current F6 runtime contract from #303 is not available yet. F7 therefore
+does not guess how multi-provider drafts are validated or duplicated:
+create/edit/duplicate fail closed with
+`503 scheduling_dependency_unavailable`. Calendar, get, reschedule and cancel
+are independent and mounted. The browser-safe response intentionally omits
+publication command ids and account ids. Draft state remains owned by F6.
+
 ## Time contract
 
 Clients submit a wall time and an explicit IANA zone:
@@ -38,6 +54,9 @@ filtered by connected channel and status. Mutations require
 `ContentGateway` is the explicit F6 boundary. It validates a draft against the
 selected channels and creates an independent draft when duplicating a post.
 `Authorizer` is the workspace authorization boundary.
+
+The versioned HTTP contract is in `contracts/scheduling.openapi.yaml`; matching
+browser types are in `client/contracts.ts`.
 
 ## Atomicity and invalidation
 

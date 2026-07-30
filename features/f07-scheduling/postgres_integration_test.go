@@ -2,12 +2,13 @@ package scheduling
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func TestPostgresRepositoryKeepsPostAndCommandAtomic(t *testing.T) {
@@ -16,12 +17,15 @@ func TestPostgresRepositoryKeepsPostAndCommandAtomic(t *testing.T) {
 		t.Skip("F07_DATABASE_URL is not configured")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
+	database, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
-	repository, err := NewPostgresRepository(pool)
+	defer database.Close()
+	if err := database.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := NewPostgresRepository(database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,12 +54,12 @@ func TestPostgresRepositoryKeepsPostAndCommandAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(
+		_, _ = database.ExecContext(
 			context.Background(),
 			"DELETE FROM f07_publication_commands WHERE post_id = $1",
 			created.ID,
 		)
-		_, _ = pool.Exec(
+		_, _ = database.ExecContext(
 			context.Background(),
 			"DELETE FROM f07_scheduled_posts WHERE id = $1",
 			created.ID,
