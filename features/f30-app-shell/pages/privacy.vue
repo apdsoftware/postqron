@@ -19,6 +19,7 @@ import {
   accountDeletionCancellationRoute,
   localeFromAppPath,
 } from '../components/core/navigation.ts'
+import { formatDateTime } from '../components/core/preferences.ts'
 import {
   buildAccountDeletionOwnershipActions,
   type DeletionRequest,
@@ -32,7 +33,7 @@ const api = useAppShellApi()
 const route = useRoute()
 const accountArea = useAppAccountAreaState()
 const accountDeletion = useAccountDeletionCancellationState()
-const { t } = useAppShellI18n()
+const { t, locale: uiLocale } = useAppShellI18n()
 const exportRequest = ref<ExportRequest>()
 const exportDownload = ref<ExportDownload>()
 const deletionRequest = ref<DeletionRequest>()
@@ -202,7 +203,10 @@ async function retry() {
 
     <div class="app-page__grid">
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('privacy.exportAccount') }}</span>
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('privacy.exportAccount') }}</span>
+          <h2>{{ t('privacy.exportAccountTitle') }}</h2>
+        </div>
         <p>{{ t('privacy.exportDescription') }}</p>
         <button
           class="pq-button"
@@ -214,8 +218,11 @@ async function retry() {
         </button>
       </article>
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('privacy.exportWorkspace') }}</span>
-        <p>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</p>
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('privacy.exportWorkspace') }}</span>
+          <h2>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</h2>
+        </div>
+        <p>{{ t('privacy.exportWorkspaceDescription') }}</p>
         <button
           class="pq-button"
           type="button"
@@ -225,13 +232,62 @@ async function retry() {
           {{ working === 'workspace-export' ? t('privacy.requesting') : t('privacy.requestExport') }}
         </button>
       </article>
-      <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('privacy.deleteAccount') }}</span>
+    </div>
+
+    <article
+      v-if="exportRequest"
+      class="app-card"
+    >
+      <div class="app-card__header">
+        <span class="app-card__eyebrow">{{ t('privacy.exportStatus') }}</span>
+      </div>
+      <dl class="app-detail-list">
+        <div class="app-inline-meta">
+          <dt>{{ t('privacy.requestStatusLabel') }}</dt>
+          <dd>
+            <span class="app-badge app-badge--info">{{ exportRequest.status }}</span>
+          </dd>
+        </div>
+        <div class="app-inline-meta">
+          <dt>{{ t('privacy.requestedAtLabel') }}</dt>
+          <dd>{{ formatDateTime(exportRequest.requested_at, uiLocale.value) }}</dd>
+        </div>
+      </dl>
+      <button
+        class="pq-button"
+        type="button"
+        :disabled="working === 'download'"
+        @click="fetchDownload"
+      >
+        {{ working === 'download' ? t('privacy.downloading') : t('privacy.download') }}
+      </button>
+      <p
+        v-if="exportDownload"
+        class="app-inline-note"
+      >
+        {{ exportDownload.url }}
+      </p>
+    </article>
+
+    <article class="app-card app-card--danger">
+      <div class="app-card__header">
+        <span class="app-card__eyebrow">{{ t('privacy.dangerZone') }}</span>
+        <h2>{{ t('privacy.dangerZoneTitle') }}</h2>
+      </div>
+      <p>{{ t('privacy.dangerZoneDescription') }}</p>
+
+      <section class="app-action-stack">
+        <div class="app-card__header">
+          <strong>{{ t('privacy.deleteAccount') }}</strong>
+        </div>
         <p>{{ t('privacy.deleteDescription') }}</p>
         <p v-if="ownerWorkspaces.length">
           {{ t('privacy.accountDeletionOwnedWorkspaces') }}
         </p>
-        <ul v-if="ownerWorkspaces.length">
+        <ul
+          v-if="ownerWorkspaces.length"
+          class="app-list"
+        >
           <li
             v-for="item in ownerWorkspaces"
             :key="item.workspace.id"
@@ -239,7 +295,10 @@ async function retry() {
             {{ item.workspace.name }}
           </li>
         </ul>
-        <p v-else>
+        <p
+          v-else
+          class="app-inline-note"
+        >
           {{ t('privacy.accountDeletionNoOwnedWorkspaces') }}
         </p>
         <button
@@ -250,9 +309,12 @@ async function retry() {
         >
           {{ working === 'account-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
         </button>
-      </article>
-      <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('privacy.deleteWorkspace') }}</span>
+      </section>
+
+      <section class="app-action-stack">
+        <div class="app-card__header">
+          <strong>{{ t('privacy.deleteWorkspace') }}</strong>
+        </div>
         <p>{{ ownerWorkspace?.workspace.name || t('privacy.workspaceUnavailable') }}</p>
         <button
           class="pq-button pq-button--secondary"
@@ -262,36 +324,28 @@ async function retry() {
         >
           {{ working === 'workspace-delete' ? t('privacy.requesting') : t('privacy.requestDelete') }}
         </button>
-      </article>
-    </div>
-
-    <article
-      v-if="exportRequest"
-      class="app-card"
-    >
-      <span class="app-card__eyebrow">{{ t('privacy.exportStatus') }}</span>
-      <strong>{{ exportRequest.status }}</strong>
-      <p>{{ exportRequest.requested_at }}</p>
-      <button
-        class="pq-button"
-        type="button"
-        :disabled="working === 'download'"
-        @click="fetchDownload"
-      >
-        {{ working === 'download' ? t('privacy.downloading') : t('privacy.download') }}
-      </button>
-      <p v-if="exportDownload">
-        {{ exportDownload.url }}
-      </p>
+      </section>
     </article>
 
     <article
       v-if="deletionRequest"
       class="app-card"
     >
-      <span class="app-card__eyebrow">{{ t('privacy.deletionStatus') }}</span>
-      <strong>{{ deletionRequest.status }}</strong>
-      <p>{{ deletionRequest.grace_ends_at }}</p>
+      <div class="app-card__header">
+        <span class="app-card__eyebrow">{{ t('privacy.deletionStatus') }}</span>
+      </div>
+      <dl class="app-detail-list">
+        <div class="app-inline-meta">
+          <dt>{{ t('privacy.requestStatusLabel') }}</dt>
+          <dd>
+            <span class="app-badge app-badge--warning">{{ deletionRequest.status }}</span>
+          </dd>
+        </div>
+        <div class="app-inline-meta">
+          <dt>{{ t('privacy.graceEndsLabel') }}</dt>
+          <dd>{{ formatDateTime(deletionRequest.grace_ends_at, uiLocale.value) }}</dd>
+        </div>
+      </dl>
       <button
         class="pq-button pq-button--secondary"
         type="button"

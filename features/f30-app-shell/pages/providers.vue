@@ -15,6 +15,7 @@ import {
   useAppShellApi,
   useAppShellI18n,
 } from '../components/core/use-app-shell.ts'
+import { formatDateTime } from '../components/core/preferences.ts'
 import type { OAuthProvider } from '../components/core/contracts.ts'
 
 definePageMeta({ layout: 'app-shell' })
@@ -23,7 +24,7 @@ const api = useAppShellApi()
 const route = useRoute()
 const bootstrap = useAppBootstrapState()
 const accountArea = useAppAccountAreaState()
-const { t } = useAppShellI18n()
+const { t, locale: uiLocale } = useAppShellI18n()
 const linking = ref<OAuthProvider>()
 const disconnecting = ref<string>()
 const feedback = ref<'error' | 'linked' | 'removed'>()
@@ -56,6 +57,8 @@ const linkedProviderNames = computed(() =>
   new Set((accountArea.value?.providers ?? []).map(provider => provider.name)))
 const availableIdentityProviders = computed(() =>
   (bootstrap.value?.providers ?? []).filter(provider => !linkedProviderNames.value.has(provider)))
+const connectedMethods = computed(() =>
+  (accountArea.value?.providers ?? []).filter(provider => provider.kind === 'identity'))
 
 async function linkProvider(provider: OAuthProvider) {
   linking.value = provider
@@ -116,10 +119,55 @@ async function retry() {
     <p class="app-page__lead">
       {{ t('providers.description') }}
     </p>
+    <p class="app-inline-note">
+      {{ t('providers.loginScopeNote') }}
+    </p>
 
-    <div class="app-page__grid">
+    <div class="app-page__stack">
       <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('providers.linkNew') }}</span>
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('providers.connected') }}</span>
+          <h2>{{ t('providers.connectedTitle') }}</h2>
+        </div>
+        <AppState
+          v-if="connectedMethods.length === 0"
+          kind="empty"
+        />
+        <ul
+          v-else
+          class="app-provider-list"
+        >
+          <li
+            v-for="provider in connectedMethods"
+            :key="provider.id"
+          >
+            <div class="app-provider-list__meta">
+              <strong>{{ provider.name }}</strong>
+              <span>{{ formatDateTime(provider.connected_at, uiLocale.value) }}</span>
+            </div>
+            <button
+              class="pq-button pq-button--secondary"
+              type="button"
+              :disabled="disconnecting === provider.id || provider.only_login_method"
+              @click="disconnectProvider(provider.id)"
+            >
+              {{
+                provider.only_login_method
+                  ? t('providers.required')
+                  : disconnecting === provider.id
+                    ? t('providers.disconnecting')
+                    : t('providers.disconnect')
+              }}
+            </button>
+          </li>
+        </ul>
+      </article>
+
+      <article class="app-card">
+        <div class="app-card__header">
+          <span class="app-card__eyebrow">{{ t('providers.linkNew') }}</span>
+          <h2>{{ t('providers.linkNewTitle') }}</h2>
+        </div>
         <div class="app-action-stack">
           <button
             v-for="provider in availableIdentityProviders"
@@ -142,47 +190,11 @@ async function retry() {
           </button>
           <p
             v-if="availableIdentityProviders.length === 0"
-            class="auth-card__muted"
+            class="app-inline-note"
           >
             {{ t('providers.noAvailable') }}
           </p>
         </div>
-      </article>
-
-      <article class="app-card">
-        <span class="app-card__eyebrow">{{ t('providers.connected') }}</span>
-        <AppState
-          v-if="(accountArea?.providers ?? []).length === 0"
-          kind="empty"
-        />
-        <ul
-          v-else
-          class="app-provider-list"
-        >
-          <li
-            v-for="provider in accountArea?.providers ?? []"
-            :key="provider.id"
-          >
-            <div>
-              <strong>{{ provider.name }}</strong>
-              <p>{{ provider.kind }} · {{ provider.connected_at }}</p>
-            </div>
-            <button
-              class="pq-button pq-button--secondary"
-              type="button"
-              :disabled="disconnecting === provider.id || provider.only_login_method"
-              @click="disconnectProvider(provider.id)"
-            >
-              {{
-                provider.only_login_method
-                  ? t('providers.required')
-                  : disconnecting === provider.id
-                    ? t('providers.disconnecting')
-                    : t('providers.disconnect')
-              }}
-            </button>
-          </li>
-        </ul>
       </article>
     </div>
 

@@ -964,3 +964,338 @@
     transition: none;
   }
 }
+
+/* Account area: page scaffold, cards, forms, meta rows and badges. These
+   classes back Home, Profile, Security, Access methods and Privacy so labels
+   and values always sit on separate lines with deliberate spacing. */
+
+.app-page {
+  display: grid;
+  gap: var(--pq-space-4);
+  align-content: start;
+}
+
+.app-page > h1 {
+  margin: 0;
+  color: var(--pq-color-text);
+  font-size: clamp(1.9rem, 4vw, var(--pq-font-size-3xl));
+  line-height: var(--pq-line-height-tight);
+  letter-spacing: var(--pq-letter-spacing-tight);
+}
+
+.app-page__lead {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-lg);
+}
+
+.app-page .app-eyebrow {
+  margin: 0;
+}
+
+.app-page__hero-grid {
+  display: grid;
+  margin-top: var(--pq-space-2);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--pq-space-4);
+}
+
+.app-page__grid {
+  display: grid;
+  margin-top: var(--pq-space-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--pq-space-4);
+}
+
+.app-page__stack {
+  display: grid;
+  margin-top: var(--pq-space-2);
+  gap: var(--pq-space-4);
+}
+
+.app-card {
+  display: grid;
+  gap: var(--pq-space-3);
+  align-content: start;
+  border: 1px solid var(--pq-color-border);
+  border-radius: var(--pq-radius-lg);
+  padding: clamp(var(--pq-space-4), 3vw, var(--pq-space-6));
+  color: var(--pq-color-text);
+  background: var(--pq-color-surface);
+  box-shadow: var(--pq-shadow-sm);
+}
+
+.app-card > * {
+  margin: 0;
+  min-width: 0;
+}
+
+.app-card > p {
+  color: var(--pq-color-text-muted);
+}
+
+.app-card > strong,
+.app-card__value {
+  font-size: var(--pq-font-size-xl);
+  font-weight: var(--pq-font-weight-bold);
+  line-height: var(--pq-line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.app-card__eyebrow {
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-xs);
+  font-weight: var(--pq-font-weight-bold);
+  letter-spacing: var(--pq-letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.app-card__header {
+  display: grid;
+  gap: var(--pq-space-1);
+}
+
+.app-card__header h2 {
+  margin: 0;
+  font-size: var(--pq-font-size-lg);
+}
+
+.app-card--accent {
+  border-color: var(--pq-color-brand);
+  background: var(--pq-color-brand-subtle);
+}
+
+.app-card--accent .app-card__eyebrow {
+  color: var(--pq-color-brand);
+}
+
+.app-card--danger {
+  border-color: var(--pq-color-danger);
+  background: var(--pq-color-danger-surface);
+}
+
+.app-card--danger .app-card__eyebrow {
+  color: var(--pq-color-danger);
+}
+
+.app-card--link {
+  text-decoration: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.app-card--link:hover {
+  border-color: var(--pq-color-brand);
+  box-shadow: var(--pq-shadow-md);
+}
+
+.app-card--link:focus-visible {
+  outline: var(--pq-border-focus) solid var(--pq-color-focus);
+  outline-offset: 3px;
+}
+
+.app-card--link strong {
+  font-size: var(--pq-font-size-lg);
+  color: var(--pq-color-text);
+}
+
+.app-card--link::after {
+  content: "→";
+  color: var(--pq-color-brand);
+  font-weight: var(--pq-font-weight-bold);
+}
+
+/* Definition-style rows: label and value are distinct grid cells and can never
+   render as one run of text. */
+.app-detail-list {
+  display: grid;
+  margin: 0;
+  gap: 0;
+  border: 1px solid var(--pq-color-border);
+  border-radius: var(--pq-radius-md);
+  background: var(--pq-color-surface);
+}
+
+.app-inline-meta {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.9fr) minmax(0, 1.4fr);
+  gap: var(--pq-space-3) var(--pq-space-4);
+  align-items: baseline;
+  padding: var(--pq-space-3) var(--pq-space-4);
+}
+
+.app-detail-list .app-inline-meta + .app-inline-meta {
+  border-top: 1px solid var(--pq-color-border);
+}
+
+.app-inline-meta > dt,
+.app-inline-meta > strong {
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-sm);
+  font-weight: var(--pq-font-weight-semibold);
+}
+
+.app-inline-meta > dd,
+.app-inline-meta > span {
+  margin: 0;
+  color: var(--pq-color-text);
+  font-weight: var(--pq-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.app-form-grid {
+  display: grid;
+  gap: var(--pq-space-4);
+  align-content: start;
+}
+
+.app-form-grid .pq-button {
+  justify-self: start;
+  margin-top: var(--pq-space-2);
+}
+
+.app-field__help {
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-sm);
+  font-weight: var(--pq-font-weight-regular);
+}
+
+.app-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pq-space-1);
+  width: fit-content;
+  border-radius: var(--pq-radius-full);
+  padding: 0.15rem var(--pq-space-3);
+  font-size: var(--pq-font-size-sm);
+  font-weight: var(--pq-font-weight-semibold);
+  background: var(--pq-color-surface-subtle);
+  color: var(--pq-color-text-muted);
+}
+
+.app-badge--success {
+  color: var(--pq-color-success);
+  background: var(--pq-color-success-surface);
+}
+
+.app-badge--warning {
+  color: var(--pq-color-warning);
+  background: var(--pq-color-warning-surface);
+}
+
+.app-badge--info {
+  color: var(--pq-color-info);
+  background: var(--pq-color-info-surface);
+}
+
+.app-badge::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--pq-radius-full);
+  background: currentcolor;
+}
+
+.app-list {
+  display: grid;
+  gap: var(--pq-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-list > li {
+  display: flex;
+  gap: var(--pq-space-2);
+  align-items: baseline;
+  color: var(--pq-color-text);
+  font-weight: var(--pq-font-weight-semibold);
+}
+
+.app-list > li::before {
+  content: "•";
+  color: var(--pq-color-brand);
+}
+
+.app-provider-list {
+  display: grid;
+  gap: var(--pq-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-provider-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pq-space-3);
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--pq-color-border);
+  border-radius: var(--pq-radius-md);
+  padding: var(--pq-space-3) var(--pq-space-4);
+  background: var(--pq-color-surface-subtle);
+}
+
+.app-provider-list__meta {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.app-provider-list__meta strong {
+  overflow-wrap: anywhere;
+  text-transform: capitalize;
+}
+
+.app-provider-list__meta span {
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-sm);
+}
+
+.app-action-stack {
+  display: grid;
+  gap: var(--pq-space-3);
+}
+
+.app-inline-note {
+  margin: 0;
+  color: var(--pq-color-text-muted);
+  font-size: var(--pq-font-size-sm);
+}
+
+.app-inline-alert[data-success="true"] {
+  border-color: var(--pq-color-success);
+  color: var(--pq-color-success);
+  background: var(--pq-color-success-surface);
+}
+
+/* Home declarative slots stay in the DOM for feature slices but never render
+   placeholder chrome while empty. */
+.app-home__mounts {
+  display: grid;
+  gap: var(--pq-space-4);
+}
+
+.app-home__mounts:empty,
+.app-home__mount:empty {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .app-inline-meta {
+    grid-template-columns: 1fr;
+    gap: var(--pq-space-1);
+  }
+
+  .app-provider-list > li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app-form-grid .pq-button {
+    justify-self: stretch;
+    text-align: center;
+    justify-content: center;
+  }
+}
