@@ -187,14 +187,24 @@ const (
 	OAuthScopeSeparatorSpace OAuthScopeSeparator = " "
 )
 
+type OAuthClientParameterName string
+
+const (
+	// OAuthClientParameterClientID preserves the OAuth-compatible zero-value
+	// serialization used by every existing adapter.
+	OAuthClientParameterClientID  OAuthClientParameterName = "client_id"
+	OAuthClientParameterClientKey OAuthClientParameterName = "client_key"
+)
+
 type OAuthConfig struct {
-	ClientID         string
-	AuthorizationURL string
-	RedirectURL      string
-	Scopes           []string
-	ScopeSeparator   OAuthScopeSeparator
-	SupportsPKCE     bool
-	ExtraParameters  map[string]string
+	ClientID            string
+	ClientParameterName OAuthClientParameterName
+	AuthorizationURL    string
+	RedirectURL         string
+	Scopes              []string
+	ScopeSeparator      OAuthScopeSeparator
+	SupportsPKCE        bool
+	ExtraParameters     map[string]string
 }
 
 type ExchangeRequest struct {

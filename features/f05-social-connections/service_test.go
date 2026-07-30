@@ -202,6 +202,250 @@ func TestOAuthScopeConfigurationRejectsCompositeEntriesAndUnknownSeparators(
 	}
 }
 
+func TestOAuthClientParameterUsesExactProviderURLs(t *testing.T) {
+	const redirectURL = "https://app.example.test/social/callback"
+	tests := []struct {
+		name     string
+		provider Provider
+		config   OAuthConfig
+		wantURL  string
+	}{
+		{
+			name:     "Meta keeps default client_id",
+			provider: ProviderFacebookPages,
+			config: OAuthConfig{
+				ClientID:         "meta-client",
+				AuthorizationURL: "https://www.facebook.com/v25.0/dialog/oauth",
+				RedirectURL:      redirectURL,
+				Scopes: append(
+					[]string(nil),
+					requiredScopes[ProviderFacebookPages]...,
+				),
+			},
+			wantURL: "https://www.facebook.com/v25.0/dialog/oauth?" +
+				"client_id=meta-client&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=pages_show_list%2Cpages_read_engagement%2Cpages_manage_posts&" +
+				"state=fixture-state",
+		},
+		{
+			name:     "X keeps default client_id",
+			provider: ProviderX,
+			config: OAuthConfig{
+				ClientID:         "x-client",
+				AuthorizationURL: "https://x.com/i/oauth2/authorize",
+				RedirectURL:      redirectURL,
+				Scopes:           []string{"tweet.read", "tweet.write"},
+				ScopeSeparator:   OAuthScopeSeparatorSpace,
+			},
+			wantURL: "https://x.com/i/oauth2/authorize?" +
+				"client_id=x-client&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=tweet.read+tweet.write&" +
+				"state=fixture-state",
+		},
+		{
+			name:     "LinkedIn keeps default client_id",
+			provider: ProviderLinkedIn,
+			config: OAuthConfig{
+				ClientID:         "linkedin-client",
+				AuthorizationURL: "https://www.linkedin.com/oauth/v2/authorization",
+				RedirectURL:      redirectURL,
+				Scopes:           []string{"openid", "w_member_social"},
+				ScopeSeparator:   OAuthScopeSeparatorSpace,
+			},
+			wantURL: "https://www.linkedin.com/oauth/v2/authorization?" +
+				"client_id=linkedin-client&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=openid+w_member_social&" +
+				"state=fixture-state",
+		},
+		{
+			name:     "Google keeps default client_id",
+			provider: ProviderGoogleBusinessProfile,
+			config: OAuthConfig{
+				ClientID:         "google-client",
+				AuthorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+				RedirectURL:      redirectURL,
+				Scopes: []string{
+					"https://www.googleapis.com/auth/business.manage",
+				},
+				ScopeSeparator: OAuthScopeSeparatorSpace,
+				ExtraParameters: map[string]string{
+					"access_type": "offline",
+					"prompt":      "consent",
+				},
+			},
+			wantURL: "https://accounts.google.com/o/oauth2/v2/auth?" +
+				"access_type=offline&" +
+				"client_id=google-client&" +
+				"prompt=consent&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fbusiness.manage&" +
+				"state=fixture-state",
+		},
+		{
+			name:     "Pinterest keeps default client_id",
+			provider: ProviderPinterest,
+			config: OAuthConfig{
+				ClientID:         "pinterest-client",
+				AuthorizationURL: "https://www.pinterest.com/oauth/",
+				RedirectURL:      redirectURL,
+				Scopes:           []string{"boards:read", "pins:write"},
+				ScopeSeparator:   OAuthScopeSeparatorSpace,
+			},
+			wantURL: "https://www.pinterest.com/oauth/?" +
+				"client_id=pinterest-client&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=boards%3Aread+pins%3Awrite&" +
+				"state=fixture-state",
+		},
+		{
+			name:     "TikTok uses only client_key",
+			provider: ProviderTikTok,
+			config: OAuthConfig{
+				ClientID:            "tiktok-client-key",
+				ClientParameterName: OAuthClientParameterClientKey,
+				AuthorizationURL:    "https://www.tiktok.com/v2/auth/authorize/",
+				RedirectURL:         redirectURL,
+				Scopes:              []string{"video.publish"},
+			},
+			wantURL: "https://www.tiktok.com/v2/auth/authorize/?" +
+				"client_key=tiktok-client-key&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=video.publish&" +
+				"state=fixture-state",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateOAuthConfig(test.provider, test.config); err != nil {
+				t.Fatal(err)
+			}
+			authorizationURL, err := buildAuthorizationURL(
+				test.config,
+				"fixture-state",
+				"",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authorizationURL != test.wantURL {
+				t.Fatalf(
+					"authorization URL = %q, want %q",
+					authorizationURL,
+					test.wantURL,
+				)
+			}
+			query, err := url.ParseQuery(
+				strings.SplitN(authorizationURL, "?", 2)[1],
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.provider == ProviderTikTok {
+				if query.Has("client_id") || query.Get("client_key") == "" {
+					t.Fatalf("TikTok client parameters = %v", query)
+				}
+			} else if query.Has("client_key") || query.Get("client_id") == "" {
+				t.Fatalf("%s client parameters = %v", test.provider, query)
+			}
+			if strings.Contains(authorizationURL, "client-secret") {
+				t.Fatalf("authorization URL exposed a client secret: %s", authorizationURL)
+			}
+		})
+	}
+}
+
+func TestOAuthClientParameterRejectsUnknownNamesAndReservedOverrides(
+	t *testing.T,
+) {
+	base := OAuthConfig{
+		ClientID:         "fixture-client",
+		AuthorizationURL: "https://provider.example.test/oauth/authorize",
+		RedirectURL:      "https://app.example.test/social/callback",
+		Scopes:           []string{"publish"},
+	}
+	tests := []struct {
+		name   string
+		mutate func(*OAuthConfig)
+	}{
+		{
+			name: "unknown client parameter name",
+			mutate: func(config *OAuthConfig) {
+				config.ClientParameterName = OAuthClientParameterName("app_id")
+			},
+		},
+		{
+			name: "client_id extra parameter",
+			mutate: func(config *OAuthConfig) {
+				config.ExtraParameters = map[string]string{
+					"client_id": "override",
+				}
+			},
+		},
+		{
+			name: "client_key extra parameter",
+			mutate: func(config *OAuthConfig) {
+				config.ExtraParameters = map[string]string{
+					"client_key": "override",
+				}
+			},
+		},
+		{
+			name: "client_secret extra parameter",
+			mutate: func(config *OAuthConfig) {
+				config.ExtraParameters = map[string]string{
+					"client_secret": "must-stay-server-side",
+				}
+			},
+		},
+		{
+			name: "client_id authorization query",
+			mutate: func(config *OAuthConfig) {
+				config.AuthorizationURL += "?client_id=override"
+			},
+		},
+		{
+			name: "client_secret authorization query",
+			mutate: func(config *OAuthConfig) {
+				config.AuthorizationURL += "?client_secret=must-stay-server-side"
+			},
+		},
+		{
+			name: "duplicated client_key authorization query",
+			mutate: func(config *OAuthConfig) {
+				config.ClientParameterName = OAuthClientParameterClientKey
+				config.AuthorizationURL += "?client_key=first&client_key=second"
+			},
+		},
+		{
+			name: "state authorization query",
+			mutate: func(config *OAuthConfig) {
+				config.AuthorizationURL += "?state=override"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := base
+			test.mutate(&config)
+			if err := validateOAuthConfig(ProviderTikTok, config); !errors.Is(
+				err,
+				ErrInvalidArgument,
+			) {
+				t.Fatalf("error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+}
+
 func (adapter *fakeAdapter) Exchange(
 	_ context.Context,
 	request ExchangeRequest,
