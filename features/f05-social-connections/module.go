@@ -17,6 +17,7 @@ const (
 	socialRuntimeHandlerName = "SocialRuntime"
 
 	configEnabled           = "social.meta.enabled"
+	configAllowedOrigins    = "social.allowed_origins"
 	configGraphVersion      = "social.meta.graph_version"
 	configCipherKeyID       = "social.meta.cipher_key_id"
 	configCipherKey         = "social.meta.cipher_key_base64"
@@ -33,6 +34,7 @@ const (
 
 var runtimeEnvironmentKeys = map[string]string{
 	configEnabled:           "POSTQRON_F05_META_ENABLED",
+	configAllowedOrigins:    "POSTQRON_AUTH_ALLOWED_ORIGINS",
 	configGraphVersion:      "POSTQRON_F05_META_GRAPH_VERSION",
 	configCipherKeyID:       "POSTQRON_F05_CIPHER_KEY_ID",
 	configCipherKey:         "POSTQRON_F05_CIPHER_KEY_BASE64",
@@ -55,6 +57,7 @@ type Module struct {
 	quota      ChannelQuota
 	service    *Service
 	handler    http.Handler
+	origins    map[string]struct{}
 }
 
 func NewPostgresModule(
@@ -90,13 +93,21 @@ func (module *Module) Configure(values map[string]string) error {
 		return errors.New("social connections module is not configured")
 	}
 	configured := runtimeValues(values)
+	origins, err := parseSocialAllowedOrigins(configured[configAllowedOrigins])
+	if err != nil {
+		return err
+	}
+	originPolicy, err := newSocialOriginPolicy(origins)
+	if err != nil {
+		return err
+	}
 	adapters := make(map[Provider]Adapter)
 	availability := make(map[Provider]ProviderAvailability)
 	for _, provider := range SupportedProviders {
 		availability[provider] = ProviderAvailability{
 			Provider:  provider,
 			Status:    ProviderUnavailable,
-			Retryable: true,
+			Retryable: false,
 		}
 	}
 
@@ -127,12 +138,17 @@ func (module *Module) Configure(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	handler, err := NewHTTPHandler(service, runtimeRequestAuthenticator{})
+	handler, err := NewHTTPHandler(
+		service,
+		runtimeRequestAuthenticator{},
+		origins...,
+	)
 	if err != nil {
 		return err
 	}
 	module.service = service
 	module.handler = handler
+	module.origins = originPolicy
 	return nil
 }
 
@@ -228,6 +244,16 @@ func (module *Module) Handler(name string) (http.Handler, bool) {
 		return nil, false
 	}
 	return module.handler, true
+}
+
+func (module *Module) WrapAuthenticatedRoute(
+	handlerName string,
+	next http.Handler,
+) http.Handler {
+	if module == nil || handlerName != socialRuntimeHandlerName {
+		return next
+	}
+	return credentialedSocialCORS(next, module.origins)
 }
 
 type runtimeRequestAuthenticator struct{}

@@ -66,6 +66,20 @@ test('the social channels page follows the accessible retryable page contract', 
   assert.match(page, /:role="notice\.tone === 'success' \? 'status' : 'alert'"/u)
 })
 
+test('the page distinguishes configuration, access denial, and temporary Meta errors', async () => {
+  const [page, api] = await Promise.all([
+    source('../pages/social-channels.vue'),
+    source('../components/core/social-api.ts'),
+  ])
+  assert.match(page, /case 'provider-unavailable':[\s\S]*'social\.errorProviderUnavailable'/u)
+  assert.match(page, /case 'provider-access-denied':[\s\S]*'social\.errorProviderAccessDenied'/u)
+  assert.match(page, /case 'provider-temporary':[\s\S]*'social\.errorProviderTemporary'/u)
+  assert.match(api, /provider_unavailable: 'provider-unavailable'/u)
+  assert.match(api, /provider_access_denied: 'provider-access-denied'/u)
+  assert.match(api, /provider_temporary: 'provider-temporary'/u)
+  assert.match(APP_SHELL_CATALOGS.it['social.providerUnavailableHint'], /non è un errore temporaneo/u)
+})
+
 test('the social channels page never touches token or browser storage', async () => {
   const [page, api, contract] = await Promise.all([
     source('../pages/social-channels.vue'),
@@ -87,6 +101,8 @@ test('every social catalog key is present, localized, and identical across local
   assert.ok(socialKeys.includes('social.errorQuota'))
   assert.ok(socialKeys.includes('social.status.reconnect_required'))
   assert.ok(socialKeys.includes('social.providerUnavailable'))
+  assert.ok(socialKeys.includes('social.errorProviderAccessDenied'))
+  assert.ok(socialKeys.includes('social.errorProviderTemporary'))
 
   const reference = new Set(Object.keys(APP_SHELL_CATALOGS.en))
   for (const key of socialKeys) {

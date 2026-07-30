@@ -38,6 +38,16 @@ All private routes read the account established by the shared API session
 middleware. The callback does not trust a browser identity: it consumes the
 single-use, expiring state created by an Owner-authorized request.
 
+Browser access is credentialed CORS with an exact, fail-closed origin
+allowlist read from `POSTQRON_AUTH_ALLOWED_ORIGINS`. Public `OPTIONS` handlers
+cover every F5 route so preflight is never intercepted by session
+authentication. Allowed-origin headers are also emitted on callback and error
+responses. Every mutation requires exactly one syntactically valid `Origin`
+whose normalized HTTP(S) origin is in the allowlist; `Sec-Fetch-Site` is not
+used as authorization evidence. Provider callback navigation without an
+`Origin` remains valid, while a browser request that supplies an absent,
+invalid, or unlisted origin never receives CORS permission.
+
 An authentication, missing-scope, or lost-resource response transitions the
 connection once to `reconnect_required`, clears stored credentials, and emits
 one event. Later automatic access attempts fail locally without calling Meta,
@@ -55,14 +65,21 @@ Provider availability is fail-closed. A provider is reported as `available`
 only when the global flag is exactly `true`, its App Review flag is exactly
 `true`, its complete Meta configuration is valid, and the external encryption
 key is a valid 32-byte key. Otherwise bootstrap reports `unavailable`, OAuth
-returns a retryable `provider_unavailable`, and listing/local revocation remain
+returns a non-retryable `provider_unavailable`, and listing/local revocation remain
 usable. No client response distinguishes a missing secret from an incomplete
 review.
+
+Provider failures use client-safe categories: `provider_access_denied` for
+authentication or permission rejection, `provider_temporary` for retryable
+transport/rate-limit/5xx failures, `provider_resource_unavailable` for a lost
+resource, and `provider_invalid_response` for malformed or unsupported
+responses. Raw Meta error codes remain server-side diagnostics.
 
 Runtime secret-store/environment keys:
 
 | Variable | Purpose |
 | --- | --- |
+| `POSTQRON_AUTH_ALLOWED_ORIGINS` | Comma-separated exact web origins allowed to make credentialed F5 requests, for example `https://postqron.com`; invalid or unlisted origins fail closed. |
 | `POSTQRON_F05_META_ENABLED` | Global fail-closed flag; only exact `true` enables adapters. |
 | `POSTQRON_F05_META_GRAPH_VERSION` | Explicit supported version such as `v25.0`. |
 | `POSTQRON_F05_CIPHER_KEY_ID` | External encryption-key identifier. |

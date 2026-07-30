@@ -68,6 +68,10 @@ function socialErrorKey(error: unknown): AppShellMessageKey {
       return 'social.errorQuotaUnavailable'
     case 'provider-unavailable':
       return 'social.errorProviderUnavailable'
+    case 'provider-temporary':
+      return 'social.errorProviderTemporary'
+    case 'provider-access-denied':
+      return 'social.errorProviderAccessDenied'
     case 'already-connected':
       return 'social.errorAlreadyConnected'
     case 'flow-expired':

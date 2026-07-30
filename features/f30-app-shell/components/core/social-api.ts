@@ -2,8 +2,9 @@
 //
 // The F5 runtime (PR #287) returns a FLAT `{code, message, retryable}` error
 // envelope — different from the account API `{error:{...}}` shape — and guards
-// mutations with a `Sec-Fetch-Site` same-origin check rather than a CSRF token.
-// Requests are credentialed (session cookie) and never carry token material.
+// mutations with its exact trusted-Origin policy rather than a CSRF token.
+// Requests use credentialed CORS (session cookie) and never carry token
+// material.
 
 import type { AppFetch } from './api.ts'
 import {
@@ -28,6 +29,8 @@ export type SocialApiErrorKind =
   | 'quota-exceeded'
   | 'quota-unavailable'
   | 'provider-unavailable'
+  | 'provider-temporary'
+  | 'provider-access-denied'
   | 'already-connected'
   | 'flow-expired'
   | 'invalid-state'
@@ -110,6 +113,9 @@ const kindByCode: Readonly<Record<string, SocialApiErrorKind>> = {
   channel_quota_exceeded: 'quota-exceeded',
   channel_quota_unavailable: 'quota-unavailable',
   provider_unavailable: 'provider-unavailable',
+  provider_temporary: 'provider-temporary',
+  provider_access_denied: 'provider-access-denied',
+  provider_resource_unavailable: 'not-found',
   resource_already_connected: 'already-connected',
   flow_expired: 'flow-expired',
   invalid_oauth_state: 'invalid-state',
@@ -137,7 +143,7 @@ export function normalizeSocialApiError(error: unknown): SocialApiError {
           : 'unavailable')
   const retryable = remote.retryable
     ?? (kind === 'offline' || kind === 'quota-unavailable'
-      || kind === 'provider-unavailable' || kind === 'flow-expired')
+      || kind === 'provider-temporary' || kind === 'flow-expired')
   return new SocialApiError({
     cause: error,
     status,
