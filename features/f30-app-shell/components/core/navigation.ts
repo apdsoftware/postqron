@@ -149,14 +149,17 @@ export function isPublicAccountDeletionCancellationDestination(
   }
 }
 
-export function isRetiredProviderManagementDestination(
+export function legacyProviderManagementRedirect(
   value: string,
-): boolean {
+): string | undefined {
   try {
     const parsed = parseLocal(value)
-    return unlocalizedAppPath(parsed.pathname) === '/app/providers'
+    if (unlocalizedAppPath(parsed.pathname) !== '/app/providers') {
+      return undefined
+    }
+    return appRoute(localeFromAppPath(value), 'security')
   } catch {
-    return false
+    return undefined
   }
 }
 

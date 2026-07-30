@@ -6,10 +6,8 @@ import {
   routeGuardDecision,
 } from '../components/core/guard.ts'
 import {
-  appRoute,
   isPublicAccountDeletionCancellationDestination,
-  isRetiredProviderManagementDestination,
-  localeFromAppPath,
+  legacyProviderManagementRedirect,
 } from '../components/core/navigation.ts'
 import {
   useAppSessionState,
@@ -20,9 +18,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (isPublicAccountDeletionCancellationDestination(to.fullPath)) {
     return
   }
-  if (isRetiredProviderManagementDestination(to.fullPath)) {
+  const legacyRedirect = legacyProviderManagementRedirect(to.fullPath)
+  if (legacyRedirect) {
     return navigateTo(
-      appRoute(localeFromAppPath(to.fullPath), 'security'),
+      legacyRedirect,
       { redirectCode: 302, replace: true },
     )
   }

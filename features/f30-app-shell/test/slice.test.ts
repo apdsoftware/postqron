@@ -114,7 +114,11 @@ test('manifest discovers public entry, callback, private routes, and no central 
   )
   assert.match(manifest, /path: \/app\n[\s\S]*visibility: public/u)
   assert.match(manifest, /path: \/app\/oauth\/callback/u)
-  assert.doesNotMatch(manifest, /name: app-providers|path: \/app\/providers|pages\/providers\.vue/u)
+  assert.match(
+    manifest,
+    /name: app-providers-legacy-redirect\n\s+path: \/app\/providers\n\s+file: \.\/pages\/providers-redirect\.vue\n\s+visibility: private\n\s+middleware: \[app-session\]/u,
+  )
+  assert.doesNotMatch(manifest, /file: \.\/pages\/providers\.vue/u)
   assert.match(manifest, /path: \/app\/home[\s\S]*visibility: private[\s\S]*middleware: \[app-session\]/u)
   assert.match(manifest, /path: \/app\/onboarding[\s\S]*visibility: private/u)
   assert.match(
@@ -178,7 +182,7 @@ test('protected navigation validates the API-owned session in the browser', asyn
   assert.match(middleware, /failure\.kind === 'session'[\s\S]*sessionState\.value = undefined/u)
   assert.match(
     middleware,
-    /isRetiredProviderManagementDestination\(to\.fullPath\)[\s\S]*appRoute\(localeFromAppPath\(to\.fullPath\), 'security'\)/u,
+    /legacyProviderManagementRedirect\(to\.fullPath\)[\s\S]*navigateTo\(\s*legacyRedirect/u,
   )
   for (const page of pages) {
     assert.match(page, /useAsyncData\([\s\S]*\}, \{ server: false \}\)/u)
@@ -311,5 +315,5 @@ test('account UI exposes no provider-management navigation, summary, or security
     /key: 'providers'|appRoute\([^)]*'providers'|home\.providerCount|home\.card\.providers|security\.(?:methods|manageMethods|onlyMethod)|identityProviders/u,
   )
   assert.doesNotMatch(navigation, /\| 'providers'|case 'providers'/u)
-  assert.doesNotMatch(manifest, /app-providers|\/app\/providers|pages\/providers\.vue/u)
+  assert.doesNotMatch(manifest, /file: \.\/pages\/providers\.vue/u)
 })
