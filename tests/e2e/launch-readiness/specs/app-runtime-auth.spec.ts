@@ -7,6 +7,7 @@ import {
   fixtureMailbox,
   fixtureReset,
   offBaseURL,
+  session,
 } from '../helpers.ts'
 
 test.beforeEach(async () => {
@@ -117,6 +118,92 @@ test('password registration, resend, verification, login, onboarding and profile
     ...diagnostics.console,
     ...diagnostics.requests,
   ])
+})
+
+test('account menu logout revokes the session, clears its cookie, and reloads the public entry', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-APP-AUTH', 'LR-SECURITY', 'LR-NEGATIVE')
+
+  const context = await browser.newContext({ locale: 'it-IT' })
+  await session(context, 'authenticated')
+  const page = await context.newPage()
+  await page.goto(`${offBaseURL}/it/app/home`)
+  await expect(page.getByRole('main')).toBeVisible()
+
+  const csrfRequest = page.waitForRequest(request =>
+    request.method() === 'GET'
+    && request.url().endsWith('/api/v1/auth/csrf'))
+  const logoutRequest = page.waitForRequest(request =>
+    request.method() === 'POST'
+    && request.url().endsWith('/api/v1/auth/logout'))
+  const logoutResponse = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && response.url().endsWith('/api/v1/auth/logout'))
+  const entryDocument = page.waitForRequest(request =>
+    request.isNavigationRequest()
+    && new URL(request.url()).pathname === '/it/app')
+
+  await page.locator('.profile-menu summary').click()
+  await page.getByRole('button', { name: /^esci$/iu }).click()
+
+  const [csrf, logout, revoked, entry] = await Promise.all([
+    csrfRequest,
+    logoutRequest,
+    logoutResponse,
+    entryDocument,
+  ])
+  expect(csrf.url()).toContain('/api/v1/auth/csrf')
+  expect(logout.url()).toContain('/api/v1/auth/logout')
+  expect(logout.headers()['x-csrf-token']).toBe('fixture-csrf')
+  expect(revoked.status()).toBe(204)
+  expect(entry.resourceType()).toBe('document')
+  await expect(page).toHaveURL(`${offBaseURL}/it/app`)
+  await expect(page.getByRole('button', { name: /accedi/iu })).toBeVisible()
+
+  const sessionResponse = await context.request.get(
+    `${offBaseURL}/api/v1/app/session`,
+  )
+  expect(sessionResponse.status()).toBe(401)
+  const cookies = await context.cookies(offBaseURL)
+  expect(cookies.some(cookie => cookie.name === 'postqron_fixture_session')).toBe(false)
+  await context.close()
+})
+
+test('account menu preserves an active session when server logout fails', async ({
+  browser,
+}, testInfo) => {
+  covers(testInfo, 'LR-APP-AUTH', 'LR-SECURITY', 'LR-NEGATIVE')
+
+  const context = await browser.newContext({ locale: 'it-IT' })
+  await session(context, 'authenticated')
+  const page = await context.newPage()
+  await page.route('**/api/v1/auth/logout', async route => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'AUTH_PASSWORD_UNAVAILABLE',
+          message: 'Logout is temporarily unavailable.',
+          retryable: true,
+        },
+      }),
+    })
+  })
+  await page.goto(`${offBaseURL}/it/app/home`)
+  await expect(page.getByRole('main')).toBeVisible()
+
+  await page.locator('.profile-menu summary').click()
+  await page.getByRole('button', { name: /^esci$/iu }).click()
+
+  await expect(page).toHaveURL(`${offBaseURL}/it/app/home`)
+  await expect(page.getByRole('alert')).toContainText(/sessione è ancora attiva/iu)
+  const sessionResponse = await context.request.get(
+    `${offBaseURL}/api/v1/app/session`,
+  )
+  expect(sessionResponse.status()).toBe(200)
+  await context.close()
 })
 
 test('mobile app navigation and provider optional flows fail closed without real credentials', async ({

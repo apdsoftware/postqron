@@ -518,6 +518,27 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 		)
 	}
 
+	forgedLogout := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/auth/logout",
+		nil,
+	)
+	forgedLogout.Header.Set("Origin", "https://postqron.com")
+	forgedLogout.Header.Set("X-CSRF-Token", "forged")
+	forgedLogout.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionToken})
+	forgedLogoutResponse := httptest.NewRecorder()
+	handler.ServeHTTP(forgedLogoutResponse, forgedLogout)
+	if forgedLogoutResponse.Code != http.StatusForbidden ||
+		store.revokedTokenHash != "" ||
+		len(forgedLogoutResponse.Result().Cookies()) != 0 {
+		t.Fatalf(
+			"forged logout changed the session: status=%d revoked=%q cookies=%v",
+			forgedLogoutResponse.Code,
+			store.revokedTokenHash,
+			forgedLogoutResponse.Result().Cookies(),
+		)
+	}
+
 	logout := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/auth/logout",
@@ -537,6 +558,11 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 	logoutCookies := loggedOut.Result().Cookies()
 	clearedSessionCookie := cookieByName(logoutCookies, SessionCookieName)
 	if clearedSessionCookie == nil ||
+		clearedSessionCookie.Value != "" ||
+		clearedSessionCookie.Path != "/" ||
+		!clearedSessionCookie.HttpOnly ||
+		!clearedSessionCookie.Secure ||
+		clearedSessionCookie.SameSite != http.SameSiteLaxMode ||
 		clearedSessionCookie.MaxAge != -1 ||
 		len(logoutCookies) != 1 ||
 		cookieByName(logoutCookies, "__Host-postqron_csrf") != nil {
@@ -545,6 +571,11 @@ func TestPasswordChangeAndLogoutHTTPContracts(t *testing.T) {
 			clearedSessionCookie,
 			logoutCookies,
 		)
+	}
+	if loggedOut.Header().Get("Access-Control-Allow-Origin") != "https://postqron.com" ||
+		loggedOut.Header().Get("Access-Control-Allow-Credentials") != "true" ||
+		!strings.Contains(loggedOut.Header().Get("Vary"), "Origin") {
+		t.Fatalf("logout CORS headers = %v", loggedOut.Header())
 	}
 }
 

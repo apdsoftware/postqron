@@ -5,11 +5,14 @@ import {
   ref,
   useRoute,
 } from '#imports'
+import { normalizeAppApiError } from '../components/core/api.ts'
 import {
   appRoute,
   localeFromAppPath,
 } from '../components/core/navigation.ts'
 import {
+  useAppAccountAreaState,
+  useAppBootstrapState,
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
@@ -17,10 +20,14 @@ import {
 
 const route = useRoute()
 const session = useAppSessionState()
+const bootstrap = useAppBootstrapState()
+const accountArea = useAppAccountAreaState()
 const api = useAppShellApi()
 const { t } = useAppShellI18n()
 const menuOpen = ref(false)
 const changingWorkspace = ref(false)
+const loggingOut = ref(false)
+const logoutError = ref(false)
 const currentWorkspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const locale = computed(() => localeFromAppPath(route.fullPath))
 
@@ -52,11 +59,30 @@ async function selectWorkspace(event: unknown) {
 }
 
 async function logout() {
+  if (loggingOut.value) {
+    return
+  }
+  loggingOut.value = true
+  logoutError.value = false
   try {
     await api.logout()
+  } catch (error) {
+    if (normalizeAppApiError(error).kind !== 'session') {
+      logoutError.value = true
+      return
+    }
   } finally {
-    session.value = undefined
-    await navigateTo(appRoute(locale.value, 'entry'))
+    loggingOut.value = false
+  }
+
+  bootstrap.value = undefined
+  accountArea.value = undefined
+  session.value = undefined
+  const entry = appRoute(locale.value, 'entry')
+  if (import.meta.client) {
+    globalThis.location.replace(entry)
+  } else {
+    await navigateTo(entry, { external: true, replace: true })
   }
 }
 </script>
@@ -171,14 +197,24 @@ async function logout() {
             <NuxtLink
               class="profile-menu__link"
               :to="appRoute(locale, 'profile')"
-            >{{ t('shell.profile') }}</NuxtLink>
+            >
+              {{ t('shell.profile') }}
+            </NuxtLink>
             <button
               class="profile-menu__logout"
               type="button"
+              :disabled="loggingOut"
               @click="logout"
             >
               {{ t('shell.logout') }}
             </button>
+            <p
+              v-if="logoutError"
+              class="profile-menu__logout-error"
+              role="alert"
+            >
+              {{ t('shell.logoutError') }}
+            </p>
           </div>
         </details>
       </header>
