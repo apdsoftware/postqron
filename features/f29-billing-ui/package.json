@@ -4,6 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "build": "pnpm --dir ../../apps/web exec nuxt build",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:e2e:fixture": "node --experimental-strip-types --test test/plan-change-fixture-e2e.test.ts",
+    "typecheck": "pnpm --dir ../../apps/web exec nuxt typecheck"
+  },
+  "peerDependencies": {
+    "nuxt": "^3.21.0",
+    "vue": "^3.5.0"
   }
 }

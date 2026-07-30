@@ -75,6 +75,45 @@ export interface BillingOverviewClient {
   overview(workspaceId: string): Promise<BillingOverview>
 }
 
+export type PlanChangeDirection = 'upgrade' | 'downgrade'
+export type PlanChangeAction = 'update_subscription' | 'cancel_subscription'
+export type PlanChangeStatus = 'dispatching' | 'pending' | 'applied'
+
+export interface PlanChangeIntent {
+  plan: PublicPlanCode
+  interval?: BillingInterval
+  channels?: number
+}
+
+export interface PlanChangeTarget {
+  plan: PublicPlanCode
+  interval: BillingInterval
+  channels: number | null
+}
+
+export interface SubscriptionChangePreview {
+  direction: PlanChangeDirection
+  action: PlanChangeAction
+  immediate: boolean
+  target: PlanChangeTarget
+  provider_preview: Record<string, unknown> | null
+}
+
+export interface SubscriptionChangeResult {
+  status: PlanChangeStatus
+  direction: PlanChangeDirection
+  action: PlanChangeAction
+  target: PlanChangeTarget
+  idempotency_key: string
+}
+
+export interface DowngradeOverage {
+  resource: BillingUsage['resource']
+  used: number
+  limit: number
+  excess: number
+}
+
 export type BillingFetch = (
   path: string,
   options?: Readonly<Record<string, unknown>>,
@@ -93,6 +132,33 @@ export class BillingApiError extends Error {
     this.name = 'BillingApiError'
     this.status = options.status
     this.retryable = options.retryable
+  }
+}
+
+export class PlanChangeApiError extends BillingApiError {
+  readonly code:
+    | 'checkout_required'
+    | 'downgrade_limit_exceeded'
+    | 'idempotency_conflict'
+    | 'plan_already_active'
+    | 'plan_change_conflict'
+    | 'plan_change_in_progress'
+    | 'unknown'
+  readonly overages: DowngradeOverage[]
+
+  constructor(
+    code: PlanChangeApiError['code'],
+    options: {
+      cause?: unknown
+      overages?: DowngradeOverage[]
+      retryable: boolean
+      status?: number
+    },
+  ) {
+    super('BILLING_PLAN_CHANGE_FAILED', options)
+    this.name = 'PlanChangeApiError'
+    this.code = code
+    this.overages = options.overages ?? []
   }
 }
 
@@ -127,6 +193,88 @@ function statusOf(error: unknown): number | undefined {
     }
   }
   return undefined
+}
+
+function errorBody(error: unknown): unknown {
+  if (!isRecord(error)) {
+    return undefined
+  }
+  if (isRecord(error.data)) {
+    return error.data
+  }
+  if (isRecord(error.response)) {
+    if (isRecord(error.response._data)) {
+      return error.response._data
+    }
+    if (isRecord(error.response.data)) {
+      return error.response.data
+    }
+  }
+  return undefined
+}
+
+function parseOverage(value: unknown): DowngradeOverage {
+  if (!isRecord(value)
+    || typeof value.resource !== 'string'
+    || !resources.has(value.resource as BillingUsage['resource'])
+    || !Number.isSafeInteger(value.used)
+    || !Number.isSafeInteger(value.limit)
+    || !Number.isSafeInteger(value.excess)
+    || Number(value.used) < 0
+    || Number(value.limit) < 1
+    || Number(value.excess) < 1) {
+    throw new Error('BILLING_INVALID_DOWNGRADE_OVERAGE')
+  }
+  return {
+    resource: value.resource as BillingUsage['resource'],
+    used: Number(value.used),
+    limit: Number(value.limit),
+    excess: Number(value.excess),
+  }
+}
+
+function planChangeError(error: unknown): PlanChangeApiError | undefined {
+  const status = statusOf(error)
+  const body = errorBody(error)
+  if (status !== 409 || !isRecord(body) || typeof body.error !== 'string') {
+    return undefined
+  }
+  if (body.error === 'downgrade_limit_exceeded') {
+    if (!Array.isArray(body.overages) || body.overages.length === 0) {
+      return new PlanChangeApiError('unknown', {
+        cause: error,
+        retryable: false,
+        status,
+      })
+    }
+    try {
+      return new PlanChangeApiError('downgrade_limit_exceeded', {
+        cause: error,
+        overages: body.overages.map(parseOverage),
+        retryable: false,
+        status,
+      })
+    } catch {
+      return new PlanChangeApiError('unknown', {
+        cause: error,
+        retryable: false,
+        status,
+      })
+    }
+  }
+  const known = new Set<PlanChangeApiError['code']>([
+    'checkout_required',
+    'idempotency_conflict',
+    'plan_already_active',
+    'plan_change_conflict',
+    'plan_change_in_progress',
+  ])
+  return new PlanChangeApiError(
+    known.has(body.error as PlanChangeApiError['code'])
+      ? body.error as PlanChangeApiError['code']
+      : 'unknown',
+    { cause: error, retryable: false, status },
+  )
 }
 
 function queryValue(value: unknown): string | undefined {
@@ -281,6 +429,40 @@ export function createIdempotencyKey(
   return `billing-ui:${randomUUID()}`
 }
 
+function planChangeBody(
+  intent: PlanChangeIntent,
+  idempotencyKey: string,
+): Record<string, unknown> {
+  if (!plans.has(intent.plan)) {
+    throw new Error('BILLING_INVALID_PLAN_CHANGE')
+  }
+  if (intent.plan === 'start') {
+    if (intent.interval !== undefined || intent.channels !== undefined) {
+      throw new Error('BILLING_INVALID_PLAN_CHANGE')
+    }
+    return { plan: 'start', idempotency_key: idempotencyKey }
+  }
+  if (!intent.interval || !intervals.has(intent.interval)) {
+    throw new Error('BILLING_INVALID_PLAN_CHANGE')
+  }
+  const body: Record<string, unknown> = {
+    plan: intent.plan,
+    interval: intent.interval,
+    idempotency_key: idempotencyKey,
+  }
+  if (intent.plan === 'unlimited') {
+    if (intent.channels !== undefined) {
+      throw new Error('BILLING_INVALID_PLAN_CHANGE')
+    }
+    return body
+  }
+  if (!Number.isSafeInteger(intent.channels) || Number(intent.channels) < 1) {
+    throw new Error('BILLING_INVALID_PLAN_CHANGE')
+  }
+  body.channels = intent.channels
+  return body
+}
+
 export function safePaddleClientToken(value: unknown): string | undefined {
   return typeof value === 'string'
     && /^(?:test|live)_[A-Za-z0-9]+$/u.test(value)
@@ -325,6 +507,65 @@ export function parsePortalSession(value: unknown): { url: string } {
     throw new Error('BILLING_INVALID_PORTAL_SESSION')
   }
   return { url: safePaddleURL(value.url)! }
+}
+
+function parsePlanChangeTarget(value: unknown): PlanChangeTarget {
+  if (!isRecord(value)
+    || typeof value.plan !== 'string'
+    || !plans.has(value.plan as PublicPlanCode)
+    || typeof value.interval !== 'string'
+    || !intervals.has(value.interval as BillingInterval)
+    || !(value.channels === null
+      || (Number.isSafeInteger(value.channels) && Number(value.channels) >= 1))) {
+    throw new Error('BILLING_INVALID_PLAN_CHANGE_RESPONSE')
+  }
+  return {
+    plan: value.plan as PublicPlanCode,
+    interval: value.interval as BillingInterval,
+    channels: value.channels === null ? null : Number(value.channels),
+  }
+}
+
+export function parseSubscriptionChangePreview(
+  value: unknown,
+): SubscriptionChangePreview {
+  if (!isRecord(value)
+    || (value.direction !== 'upgrade' && value.direction !== 'downgrade')
+    || (value.action !== 'update_subscription'
+      && value.action !== 'cancel_subscription')
+    || typeof value.immediate !== 'boolean'
+    || !(value.provider_preview === null || isRecord(value.provider_preview))) {
+    throw new Error('BILLING_INVALID_PLAN_CHANGE_RESPONSE')
+  }
+  return {
+    direction: value.direction,
+    action: value.action,
+    immediate: value.immediate,
+    target: parsePlanChangeTarget(value.target),
+    provider_preview: value.provider_preview,
+  }
+}
+
+export function parseSubscriptionChangeResult(
+  value: unknown,
+): SubscriptionChangeResult {
+  if (!isRecord(value)
+    || !['dispatching', 'pending', 'applied'].includes(String(value.status))
+    || (value.direction !== 'upgrade' && value.direction !== 'downgrade')
+    || (value.action !== 'update_subscription'
+      && value.action !== 'cancel_subscription')
+    || typeof value.idempotency_key !== 'string'
+    || value.idempotency_key.length === 0
+    || value.idempotency_key.length > 255) {
+    throw new Error('BILLING_INVALID_PLAN_CHANGE_RESPONSE')
+  }
+  return {
+    status: value.status as PlanChangeStatus,
+    direction: value.direction,
+    action: value.action,
+    target: parsePlanChangeTarget(value.target),
+    idempotency_key: value.idempotency_key,
+  }
 }
 
 function parseUsage(value: unknown): BillingUsage {
@@ -413,6 +654,10 @@ export class BillingApi {
         ...options,
       })
     } catch (error) {
+      const changeError = planChangeError(error)
+      if (changeError) {
+        throw changeError
+      }
       const status = statusOf(error)
       throw new BillingApiError('BILLING_REQUEST_FAILED', {
         cause: error,
@@ -467,6 +712,34 @@ export class BillingApi {
       {
         method: 'POST',
         body: { idempotency_key: idempotencyKey },
+      },
+    ))
+  }
+
+  async previewSubscriptionChange(
+    workspaceId: string,
+    intent: PlanChangeIntent,
+    idempotencyKey: string,
+  ): Promise<SubscriptionChangePreview> {
+    return parseSubscriptionChangePreview(await this.#request(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/billing/subscription/preview`,
+      {
+        method: 'POST',
+        body: planChangeBody(intent, idempotencyKey),
+      },
+    ))
+  }
+
+  async applySubscriptionChange(
+    workspaceId: string,
+    intent: PlanChangeIntent,
+    idempotencyKey: string,
+  ): Promise<SubscriptionChangeResult> {
+    return parseSubscriptionChangeResult(await this.#request(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/billing/subscription`,
+      {
+        method: 'PATCH',
+        body: planChangeBody(intent, idempotencyKey),
       },
     ))
   }

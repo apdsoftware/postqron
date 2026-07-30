@@ -1,7 +1,9 @@
 <script setup lang="ts">
+/* global HTMLButtonElement */
 import {
   computed,
   definePageMeta,
+  nextTick,
   onMounted,
   ref,
   useAsyncData,
@@ -9,12 +11,23 @@ import {
   useState,
   watch,
 } from '#imports'
-import { pricingCopy } from '../../f02-marketing-site/src/catalog.ts'
+import {
+  formatMoney,
+  pricingCopy,
+} from '../../f02-marketing-site/src/catalog.ts'
+import PlanChangeDialog from '../components/PlanChangeDialog.vue'
 import {
   createIdempotencyKey,
-  loadBillingOverview,
+  type BillingUsage,
 } from '../src/billing.ts'
-import { useBillingApi, useBillingI18n } from '../src/use-billing.ts'
+import {
+  currentPlanPrice,
+  usagePercentage,
+} from '../src/plan-change.ts'
+import {
+  useBillingApi,
+  useBillingPlanI18n,
+} from '../src/use-billing.ts'
 
 definePageMeta({ layout: 'app-shell' })
 
@@ -24,43 +37,99 @@ interface Session {
 
 const session = useState<Session | undefined>('postqron.app-shell.session')
 const api = useBillingApi()
-const { date, locale, number, t } = useBillingI18n()
-useHead(computed(() => ({ title: t('nav.title') })))
+const { date, locale, number, t } = useBillingPlanI18n()
 const portalOpening = ref(false)
 const portalError = ref(false)
+const changingPlan = ref(false)
+const changeButton = ref<HTMLButtonElement>()
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const isOwner = computed(() => session.value?.current_workspace?.role === 'owner')
-const { data: overview, pending, refresh, status } = useAsyncData(
-  'billing-overview',
-  () => loadBillingOverview(api, workspaceId.value),
-  {
-    immediate: false,
-    server: false,
+
+useHead(computed(() => ({ title: t('document.title') })))
+
+const {
+  data,
+  pending,
+  refresh,
+  status,
+} = useAsyncData(
+  'billing-plan-overview',
+  async () => {
+    if (!workspaceId.value) {
+      return undefined
+    }
+    const [catalog, overview] = await Promise.all([
+      api.catalog(),
+      api.overview(workspaceId.value),
+    ])
+    return { catalog, overview }
   },
+  { immediate: false, server: false },
 )
 
-async function loadOverview() {
-  if (!workspaceId.value) {
-    return
+async function loadPlan() {
+  if (workspaceId.value) {
+    await refresh()
   }
-  await refresh()
 }
 
 onMounted(() => {
-  void loadOverview()
+  void loadPlan()
 })
+
 watch(workspaceId, (current, previous) => {
   if (current && current !== previous) {
-    void loadOverview()
+    changingPlan.value = false
+    void loadPlan()
   }
 })
 
+const overview = computed(() => data.value?.overview)
+const catalog = computed(() => data.value?.catalog)
 const planName = computed(() => {
   if (overview.value?.plan.code === 'unlimited') {
     return pricingCopy(locale.value).unlimitedName
   }
-  return overview.value?.plan.name
+  return overview.value?.plan.name ?? ''
 })
+const price = computed(() =>
+  overview.value ? currentPlanPrice(overview.value) : undefined)
+const channels = computed(() =>
+  overview.value?.usage.find(usage => usage.resource === 'channels'))
+const hasManagedSubscription = computed(() =>
+  Boolean(overview.value?.plan.purchasable
+    && !['trialing', 'trial_expired', 'canceled'].includes(
+      overview.value?.state ?? '',
+    )))
+
+function periodMessage(): string {
+  if (!overview.value) {
+    return ''
+  }
+  if (overview.value.state === 'trialing') {
+    return t('overview.trialEnds', { date: date(overview.value.period.end) })
+  }
+  if (overview.value.state === 'active'
+    || overview.value.state === 'past_due') {
+    return t('overview.renews', { date: date(overview.value.period.end) })
+  }
+  return t('overview.periodEnds', { date: date(overview.value.period.end) })
+}
+
+function usageStyle(usage: BillingUsage): Record<string, string> {
+  const percentage = usagePercentage(usage)
+  return {
+    '--billing-usage': `${Math.min(100, percentage ?? 0)}%`,
+  }
+}
+
+function usageAria(usage: BillingUsage): string {
+  const resource = t(`resource.${usage.resource}`)
+  if (usage.limit === null) {
+    return `${resource}: ${t('usage.value', { used: number(usage.used) })}, ${t('usage.unlimited')}`
+  }
+  return `${resource}: ${t('usage.value', { used: number(usage.used) })}, ${t('usage.limit', { limit: number(usage.limit) })}, ${t('usage.remaining', { remaining: number(usage.remaining ?? 0) })}`
+}
 
 async function openPortal() {
   portalOpening.value = true
@@ -74,11 +143,25 @@ async function openPortal() {
     portalOpening.value = false
   }
 }
+
+function openPlanChange() {
+  changingPlan.value = true
+}
+
+async function closePlanChange() {
+  changingPlan.value = false
+  await nextTick()
+  changeButton.value?.focus()
+}
+
+async function planChanged() {
+  await refresh()
+}
 </script>
 
 <template>
-  <section class="billing-page">
-    <header>
+  <section class="billing-page billing-plan-page">
+    <header class="billing-plan-page__header">
       <p class="app-eyebrow">
         {{ t('overview.eyebrow') }}
       </p>
@@ -87,91 +170,181 @@ async function openPortal() {
         {{ t('overview.description') }}
       </p>
     </header>
+
     <div
       v-if="pending || status === 'idle'"
-      class="billing-state"
+      class="billing-state billing-state--loading"
       role="status"
+      aria-live="polite"
     >
-      {{ t('checkout.loading') }}
+      <span
+        class="billing-spinner"
+        aria-hidden="true"
+      />
+      {{ t('common.loading') }}
     </div>
+
     <div
-      v-else-if="status === 'error' || !overview"
+      v-else-if="status === 'error' || !overview || !catalog"
       class="billing-state"
       role="alert"
     >
-      <p>{{ t('checkout.error') }}</p>
+      <p>{{ t('common.error') }}</p>
       <button
         class="pq-button"
         type="button"
         :disabled="!workspaceId"
         @click="refresh"
       >
-        {{ t('checkout.retry') }}
+        {{ t('common.retry') }}
       </button>
     </div>
-    <article
-      v-else
-      class="billing-card"
-    >
-      <div class="billing-card__header">
-        <div>
-          <small>{{ t('overview.currentPlan') }}</small>
-          <h2>{{ planName }}</h2>
+
+    <template v-else>
+      <article class="billing-card billing-overview-card">
+        <div class="billing-card__header">
+          <div>
+            <small>{{ t('overview.current') }}</small>
+            <div class="billing-overview-card__title">
+              <h2>{{ planName }}</h2>
+              <span class="billing-badge">{{ t(`state.${overview.state}`) }}</span>
+            </div>
+          </div>
+          <div
+            v-if="isOwner"
+            class="billing-actions"
+          >
+            <button
+              ref="changeButton"
+              class="pq-button"
+              type="button"
+              @click="openPlanChange"
+            >
+              {{ t('overview.change') }}
+            </button>
+            <button
+              v-if="hasManagedSubscription"
+              class="pq-button pq-button--secondary"
+              type="button"
+              :disabled="portalOpening"
+              @click="openPortal"
+            >
+              {{ portalOpening ? t('overview.managing') : t('overview.manage') }}
+            </button>
+          </div>
         </div>
-        <span class="billing-badge">{{ t(`state.${overview.state}`) }}</span>
-      </div>
-      <p class="billing-summary">
-        {{ t('overview.interval') }}:
-        {{ t(`interval.${overview.interval}`) }}
-      </p>
-      <p class="billing-summary">
-        {{ t('overview.period', {
-          start: date(overview.period.start),
-          end: date(overview.period.end),
-        }) }}
-      </p>
-      <div class="billing-usage">
-        <article
-          v-for="usage in overview.usage"
-          :key="usage.resource"
+
+        <dl class="billing-overview-card__facts">
+          <div>
+            <dt>{{ t('overview.interval') }}</dt>
+            <dd>{{ t(`interval.${overview.interval}`) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('overview.channels') }}</dt>
+            <dd>
+              {{ channels?.limit === null
+                ? t('usage.unlimited')
+                : number(channels?.limit ?? overview.plan.limits.channels ?? 0) }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('overview.price') }}</dt>
+            <dd>
+              {{ overview.state === 'trialing' || price?.amount_cents === 0
+                ? t('overview.free')
+                : price
+                  ? formatMoney(price, locale)
+                  : '—' }}
+            </dd>
+          </div>
+        </dl>
+
+        <p class="billing-overview-card__period">
+          {{ periodMessage() }}
+        </p>
+        <p
+          v-if="portalError"
+          class="billing-inline-error"
+          role="alert"
         >
-          <strong>{{ t(`resource.${usage.resource}`) }}</strong>
-          <span v-if="usage.limit === null">{{ t('overview.usedUnlimited', {
-            used: number(usage.used),
-          }) }}</span>
-          <span v-else>{{ t('overview.used', {
-            used: number(usage.used),
-            limit: number(usage.limit),
-            remaining: number(usage.remaining ?? 0),
-          }) }}</span>
-        </article>
-      </div>
-      <p
-        v-if="portalError"
-        role="alert"
+          {{ t('overview.manageError') }}
+        </p>
+        <p v-if="isOwner && !hasManagedSubscription">
+          {{ t('overview.noSubscription') }}
+        </p>
+        <p
+          v-if="!isOwner"
+          class="billing-read-only"
+        >
+          {{ t('overview.readOnly') }}
+        </p>
+      </article>
+
+      <section
+        class="billing-usage-section"
+        aria-labelledby="billing-usage-title"
       >
-        {{ t('overview.portalError') }}
-      </p>
-      <div class="billing-actions">
-        <button
-          v-if="overview.plan.purchasable && isOwner"
-          class="pq-button"
-          type="button"
-          :disabled="portalOpening"
-          @click="openPortal"
-        >
-          {{ portalOpening ? t('overview.portalOpening') : t('overview.portal') }}
-        </button>
-        <span v-else-if="!overview.plan.purchasable">
-          {{ t('overview.noPortal') }}
-        </span>
-        <NuxtLink
-          class="pq-button pq-button--secondary"
-          to="/prezzi"
-        >
-          {{ t('overview.pricing') }}
-        </NuxtLink>
-      </div>
-    </article>
+        <header>
+          <h2 id="billing-usage-title">
+            {{ t('usage.title') }}
+          </h2>
+          <p>{{ t('usage.description') }}</p>
+        </header>
+        <div class="billing-usage">
+          <article
+            v-for="usage in overview.usage"
+            :key="usage.resource"
+            class="billing-usage-card"
+          >
+            <div class="billing-usage-card__header">
+              <h3>{{ t(`resource.${usage.resource}`) }}</h3>
+              <strong>
+                {{ usage.limit === null
+                  ? t('usage.unlimited')
+                  : t('usage.percent', { percent: number(usagePercentage(usage) ?? 0) }) }}
+              </strong>
+            </div>
+            <div
+              class="billing-progress"
+              :class="{ 'billing-progress--unlimited': usage.limit === null }"
+              :style="usageStyle(usage)"
+              :role="usage.limit === null ? undefined : 'progressbar'"
+              :aria-label="usageAria(usage)"
+              :aria-valuemin="usage.limit === null ? undefined : 0"
+              :aria-valuemax="usage.limit === null ? undefined : 100"
+              :aria-valuenow="usage.limit === null
+                ? undefined
+                : Math.min(100, usagePercentage(usage) ?? 0)"
+            >
+              <span />
+            </div>
+            <dl>
+              <div>
+                <dt>{{ t('usage.value', { used: number(usage.used) }) }}</dt>
+              </div>
+              <div v-if="usage.limit !== null">
+                <dt>{{ t('usage.limit', { limit: number(usage.limit) }) }}</dt>
+              </div>
+              <div>
+                <dt>
+                  {{ usage.remaining === null
+                    ? t('usage.unlimited')
+                    : t('usage.remaining', { remaining: number(usage.remaining) }) }}
+                </dt>
+              </div>
+            </dl>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <PlanChangeDialog
+      v-if="changingPlan && overview && catalog"
+      :catalog="catalog"
+      :overview="overview"
+      :workspace-id="workspaceId"
+      @changed="planChanged"
+      @close="closePlanChange"
+    />
   </section>
 </template>
