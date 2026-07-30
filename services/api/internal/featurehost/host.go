@@ -54,6 +54,13 @@ type ConfigurableModule interface {
 	Configure(map[string]string) error
 }
 
+// AuthenticatedRouteWrapper lets a feature add transport behavior outside the
+// shared authentication boundary. The wrapper must not authenticate requests;
+// private application methods remain protected by the host.
+type AuthenticatedRouteWrapper interface {
+	WrapAuthenticatedRoute(string, http.Handler) http.Handler
+}
+
 type Factory func(
 	context.Context,
 	featureruntime.Feature,
@@ -165,11 +172,17 @@ type Host struct {
 	features      []*hostedFeature
 	migrations    MigrationManager
 	privateMux    *http.ServeMux
-	privateRoutes []string
+	privateRoutes []privateRoute
 	publicMux     *http.ServeMux
 
 	mu      sync.RWMutex
 	started bool
+}
+
+type privateRoute struct {
+	handlerName string
+	module      Module
+	pattern     string
 }
 
 func New(
@@ -326,7 +339,11 @@ func (host *Host) mount(hosted *hostedFeature) error {
 			pattern := method + " " + path.Clean("/api/v1"+route.Path)
 			target.Handle(pattern, handler)
 			if route.Visibility == "private" {
-				host.privateRoutes = append(host.privateRoutes, pattern)
+				host.privateRoutes = append(host.privateRoutes, privateRoute{
+					handlerName: route.Handler,
+					module:      hosted.module,
+					pattern:     pattern,
+				})
 			}
 		}
 	}
@@ -443,10 +460,14 @@ func (host *Host) MountAuthenticatedRoutes(
 		return err
 	}
 	host.mu.RLock()
-	patterns := slices.Clone(host.privateRoutes)
+	routes := slices.Clone(host.privateRoutes)
 	host.mu.RUnlock()
-	for _, pattern := range patterns {
-		if err := mountAuthenticatedPattern(mux, pattern, handler); err != nil {
+	for _, route := range routes {
+		routeHandler := handler
+		if wrapper, ok := route.module.(AuthenticatedRouteWrapper); ok {
+			routeHandler = wrapper.WrapAuthenticatedRoute(route.handlerName, routeHandler)
+		}
+		if err := mountAuthenticatedPattern(mux, route.pattern, routeHandler); err != nil {
 			return err
 		}
 	}
