@@ -7,13 +7,13 @@ require (
 	github.com/apdsoftware/postqron/features/f04-workspaces v0.0.0
 	github.com/apdsoftware/postqron/features/f05-social-connections v0.0.0
 	github.com/apdsoftware/postqron/features/f08-publishing v0.0.0
+	github.com/apdsoftware/postqron/features/f09-status-notifications v0.0.0
 	github.com/apdsoftware/postqron/features/f14-email v0.0.0
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
 )
 
 require (
-	github.com/apdsoftware/postqron/features/f05-social-connections v0.0.0 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -36,5 +36,7 @@ replace github.com/apdsoftware/postqron/features/f04-workspaces => ../../feature
 replace github.com/apdsoftware/postqron/features/f05-social-connections => ../../features/f05-social-connections
 
 replace github.com/apdsoftware/postqron/features/f08-publishing => ../../features/f08-publishing
+
+replace github.com/apdsoftware/postqron/features/f09-status-notifications => ../../features/f09-status-notifications
 
 replace github.com/apdsoftware/postqron/features/f14-email => ../../features/f14-email

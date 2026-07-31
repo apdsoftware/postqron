@@ -13,6 +13,7 @@ import (
 	"time"
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
 	"github.com/apdsoftware/postqron/services/worker/internal/publishingruntime"
 )
@@ -106,6 +107,7 @@ func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 		_ string,
 		_ func() time.Time,
 		_ *socialconnections.AuthenticatedExecutor,
+		_ metapublishing.RegistrationConfig,
 		dependencies ...publishingruntime.VideoAdapterDependencies,
 	) (*publishingruntime.Service, error) {
 		registry, err := publishingruntime.NewVideoAdapterRegistry(dependencies...)
@@ -131,6 +133,7 @@ func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 		"postgres://bootstrap.invalid/postqron",
 		time.Now,
 		&socialconnections.AuthenticatedExecutor{},
+		metapublishing.RegistrationConfig{},
 		publishingruntime.VideoAdapterDependencies{
 			Executor:                 &socialconnections.AuthenticatedExecutor{},
 			Media:                    bootstrapMediaSource{},

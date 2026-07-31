@@ -28,9 +28,13 @@ executes one immutable F5/F6 destination snapshot at a time.
   flag. An ambiguous manual retry reconciles before any possible republish.
 - The F7 command gate is checked both when accepting and immediately before
   executing work, so invalidated generations are cancelled.
-- Notification publishing is a separate idempotent delivery boundary and ends
-  in `notified` with a durable delivery ID; it never fabricates a social remote
-  ID or calls a social provider.
+- Notification publishing is a separate idempotent delivery boundary; it never
+  fabricates a social remote ID or calls a social provider. Facebook Groups and
+  Instagram Personal enqueue a minimized command whose owner recipient, locale,
+  and target-specific F14 template are resolved server-side. F8 reaches
+  `notified` only after F14 exposes a confirmed `delivered` state. A provider
+  `queued`/F14 `accepted` receipt is not delivery confirmation and terminates
+  F8 as a fail-closed permanent failure.
 
 Opaque connection references are persisted, never provider tokens. Diagnostic
 text is redacted and length-limited before storage.
@@ -94,9 +98,15 @@ do not claim general reconciliation: an ambiguous request without durable
 provider evidence is dead-lettered without replay.
 
 Threads remains fail-closed until its verified F5 adapter dependency is
-integrated. Facebook Groups and Instagram Personal have a durable notification
-outbox implementation, but production registration remains rejected until the
-downstream notification delivery owned by #343 is available.
+integrated. Facebook Groups and Instagram Personal are registered only when
+their notification gate and the F9/F14 email boundary are both present.
+Missing or partial wiring aborts startup. The notification command stores no
+social body, media URL, email address, or credential. It keeps only
+identifiers, a one-way conflict fingerprint, server-resolved locale/template
+metadata, bounded diagnostic codes, and a link to the idempotent F14 delivery.
+Claims use `SKIP LOCKED` and a lease. Retry exhaustion and terminal F14 states
+become permanent failures. Terminal minimized audit metadata is purged after
+12 months.
 
 The same registry contains the official TikTok Direct Post and YouTube Shorts
 adapters. They call providers only through F5 `AuthenticatedExecutor`, with an

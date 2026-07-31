@@ -46,21 +46,23 @@ func ResolveLocale(value string) Locale {
 type TemplateID string
 
 const (
-	TemplateWelcome             TemplateID = "welcome"
-	TemplateAccountVerification TemplateID = "account_verification"
-	TemplateWorkspaceInvitation TemplateID = "workspace_invitation"
-	TemplateAccountSecurity     TemplateID = "account_security"
-	TemplateAccountLinked       TemplateID = "account_linked"
-	TemplateSocialReconnect     TemplateID = "social_reconnect"
-	TemplateCollaboration       TemplateID = "collaboration"
-	TemplatePublicationSuccess  TemplateID = "publication_succeeded"
-	TemplatePublicationFailed   TemplateID = "publication_failed"
-	TemplateBilling             TemplateID = "billing_update"
-	TemplateDataExportReady     TemplateID = "data_export_ready"
-	TemplateDeletion            TemplateID = "deletion_update"
-	TemplatePrivacyRequest      TemplateID = "privacy_request"
-	TemplatePrelaunchAccess     TemplateID = "prelaunch_access"
-	TemplateOperationalAlert    TemplateID = "operational_alert"
+	TemplateWelcome                 TemplateID = "welcome"
+	TemplateAccountVerification     TemplateID = "account_verification"
+	TemplateWorkspaceInvitation     TemplateID = "workspace_invitation"
+	TemplateAccountSecurity         TemplateID = "account_security"
+	TemplateAccountLinked           TemplateID = "account_linked"
+	TemplateSocialReconnect         TemplateID = "social_reconnect"
+	TemplateCollaboration           TemplateID = "collaboration"
+	TemplatePublicationSuccess      TemplateID = "publication_succeeded"
+	TemplatePublicationFailed       TemplateID = "publication_failed"
+	TemplateBilling                 TemplateID = "billing_update"
+	TemplateDataExportReady         TemplateID = "data_export_ready"
+	TemplateDeletion                TemplateID = "deletion_update"
+	TemplatePrivacyRequest          TemplateID = "privacy_request"
+	TemplatePrelaunchAccess         TemplateID = "prelaunch_access"
+	TemplateOperationalAlert        TemplateID = "operational_alert"
+	TemplateFacebookGroupManual     TemplateID = "facebook_group_manual_publish"
+	TemplateInstagramPersonalManual TemplateID = "instagram_personal_manual_publish"
 )
 
 type Recipient struct {
@@ -83,15 +85,16 @@ type TemplateData struct {
 }
 
 type Message struct {
-	ID              string
-	IdempotencyKey  string
-	Channel         Channel
-	Template        TemplateID
-	TemplateVersion string
-	Recipient       Recipient
-	Data            TemplateData
-	CreatedAt       time.Time
-	MaxAttempts     int
+	ID                string
+	IdempotencyKey    string
+	Channel           Channel
+	Template          TemplateID
+	TemplateVersion   string
+	SourceWorkspaceID string
+	Recipient         Recipient
+	Data              TemplateData
+	CreatedAt         time.Time
+	MaxAttempts       int
 }
 
 type RenderedMessage struct {
@@ -126,6 +129,9 @@ type Delivery struct {
 	NextAttemptAt     time.Time
 	ProviderMessageID string
 	LastDiagnostic    Diagnostic
+	LeaseToken        string
+	LockedUntil       time.Time
+	ProviderCallAt    time.Time
 }
 
 type Diagnostic struct {
@@ -151,10 +157,12 @@ type Sender interface {
 
 type Store interface {
 	Enqueue(context.Context, Delivery) (EnqueueResult, error)
+	ReconcileExpiredLeases(context.Context, time.Time) (int64, error)
 	ClaimDue(context.Context, time.Time) (Delivery, bool, error)
-	MarkAccepted(context.Context, string, string, time.Time) error
-	MarkRetry(context.Context, string, Diagnostic, time.Time) error
-	MarkFailed(context.Context, string, Diagnostic) error
+	MarkProviderCallStarted(context.Context, string, string, time.Time) error
+	MarkAccepted(context.Context, string, string, string, time.Time) error
+	MarkRetry(context.Context, string, string, Diagnostic, time.Time) error
+	MarkFailed(context.Context, string, string, Diagnostic) error
 }
 
 var (
@@ -171,6 +179,11 @@ func validateMessage(message Message) error {
 		len(message.IdempotencyKey) > 255 ||
 		!semverPattern.MatchString(message.TemplateVersion) ||
 		message.MaxAttempts < 1 {
+		return ErrInvalidMessage
+	}
+	isSocial := message.Template == TemplateFacebookGroupManual ||
+		message.Template == TemplateInstagramPersonalManual
+	if isSocial != (strings.TrimSpace(message.SourceWorkspaceID) != "") {
 		return ErrInvalidMessage
 	}
 	if message.Channel != ChannelTransactional {
@@ -203,7 +216,9 @@ func validateMessage(message Message) error {
 
 func templateRequiresActionURL(templateID TemplateID) bool {
 	switch templateID {
-	case TemplateAccountVerification:
+	case TemplateAccountVerification,
+		TemplateFacebookGroupManual,
+		TemplateInstagramPersonalManual:
 		return true
 	default:
 		return false

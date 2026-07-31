@@ -14,6 +14,7 @@ import (
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/apdsoftware/postqron/services/worker/internal/privacyruntime"
@@ -31,7 +32,8 @@ var newWorkspaceRuntimeService = func(
 	return workspaces.NewRuntimeServiceWithClock(repository, clock)
 }
 
-var newPublishingRuntimeService = publishingruntime.NewWithExecutor
+var newMetaRegistrationConfig = publishingruntime.NewMetaRegistrationConfig
+var newPublishingRuntimeService = publishingruntime.NewWithExecutorAndMeta
 
 type workspaceOnboardingRuntime interface {
 	ConsumeOnboardingRequired(
@@ -121,12 +123,17 @@ func NewRuntimeWithExecutor(
 	if err != nil {
 		return nil, err
 	}
+	metaConfig, err := newMetaRegistrationConfig(database, clock, emailService)
+	if err != nil {
+		return nil, err
+	}
 	publishingService, err := configurePublishingRuntime(
 		context.Background(),
 		database,
 		databaseURL,
 		clock,
 		executor,
+		metaConfig,
 		videoDependencies...,
 	)
 	if err != nil {
@@ -151,10 +158,17 @@ func configurePublishingRuntime(
 	databaseURL string,
 	clock func() time.Time,
 	executor *socialconnections.AuthenticatedExecutor,
+	metaConfig metapublishing.RegistrationConfig,
 	videoDependencies ...publishingruntime.VideoAdapterDependencies,
 ) (*publishingruntime.Service, error) {
 	return newPublishingRuntimeService(
-		ctx, database, databaseURL, clock, executor, videoDependencies...,
+		ctx,
+		database,
+		databaseURL,
+		clock,
+		executor,
+		metaConfig,
+		videoDependencies...,
 	)
 }
 

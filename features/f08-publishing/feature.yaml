@@ -4,6 +4,7 @@ kind: worker
 version: 0.3.0
 entrypoint: ./publishing.go
 dependencies:
+  - email
   - f06-composer
   - operations
   - scheduling
@@ -12,3 +13,4 @@ migrations:
   - ./migrations/000001_create_publishing.sql
   - ./migrations/000002_capability_snapshots_and_reconciliation.sql
   - ./migrations/000003_meta_notification_outbox.sql
+  - ./migrations/000004_social_notification_boundary.sql

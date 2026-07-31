@@ -19,6 +19,8 @@ import (
 	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
+	statusnotifications "github.com/apdsoftware/postqron/features/f09-status-notifications"
+	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,6 +29,8 @@ import (
 type Service struct {
 	engine                 *publishing.Engine
 	notificationDispatcher *metapublishing.NotificationDispatcher
+	notificationAuditStore *metapublishing.PostgresNotificationStore
+	clock                  func() time.Time
 	pool                   *pgxpool.Pool
 }
 
@@ -80,6 +84,26 @@ func NewWithExecutor(
 	if err != nil {
 		return nil, err
 	}
+	return NewWithExecutorAndMeta(
+		ctx,
+		database,
+		databaseURL,
+		clock,
+		executor,
+		metaConfig,
+		videoDependencies...,
+	)
+}
+
+func NewWithExecutorAndMeta(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	executor *socialconnections.AuthenticatedExecutor,
+	metaConfig metapublishing.RegistrationConfig,
+	videoDependencies ...VideoAdapterDependencies,
+) (*Service, error) {
 	var boundary staticproviders.Executor
 	if executor != nil {
 		boundary = executor
@@ -102,6 +126,7 @@ func NewWithExecutor(
 func NewMetaRegistrationConfig(
 	database *sql.DB,
 	clock func() time.Time,
+	emailServices ...*emailruntime.Service,
 ) (metapublishing.RegistrationConfig, error) {
 	config, err := productionMetaAutoConfig(database, clock)
 	if err != nil {
@@ -109,13 +134,112 @@ func NewMetaRegistrationConfig(
 	}
 	if strings.TrimSpace(
 		os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED"),
-	) == "true" {
+	) != "true" {
+		return config, nil
+	}
+	if len(emailServices) != 1 || emailServices[0] == nil {
 		return metapublishing.RegistrationConfig{}, fmt.Errorf(
-			"%w: social notification delivery requires issue 343",
+			"%w: social notification email boundary is unavailable",
 			publishing.ErrProviderUnavailable,
 		)
 	}
+	store, err := metapublishing.NewPostgresNotificationStore(database, clock)
+	if err != nil {
+		return metapublishing.RegistrationConfig{}, err
+	}
+	boundary, err := statusnotifications.NewSocialNotificationBoundary(
+		runtimeSocialEmailGateway{email: emailServices[0]},
+	)
+	if err != nil {
+		return metapublishing.RegistrationConfig{}, err
+	}
+	config.NotificationStore = store
+	config.NotificationSender = runtimeSocialNotificationSender{
+		boundary: boundary,
+	}
 	return config, nil
+}
+
+type runtimeSocialNotificationSender struct {
+	boundary *statusnotifications.SocialNotificationBoundary
+}
+
+type runtimeSocialEmailGateway struct {
+	email *emailruntime.Service
+}
+
+func (gateway runtimeSocialEmailGateway) DeliverSocialNotification(
+	ctx context.Context,
+	command statusnotifications.SocialNotificationCommand,
+) (statusnotifications.SocialDeliveryReceipt, error) {
+	emailID, state, err := gateway.email.EnqueueSocialNotification(
+		ctx,
+		emailruntime.SocialNotificationCommand{
+			WorkspaceID:    command.WorkspaceID,
+			PostID:         command.PostID,
+			ChannelID:      command.ChannelID,
+			Provider:       command.Provider,
+			RecipientID:    command.RecipientID,
+			Locale:         command.Locale,
+			TemplateID:     command.TemplateID,
+			IdempotencyKey: command.IdempotencyKey,
+		},
+	)
+	if err != nil {
+		return statusnotifications.SocialDeliveryReceipt{}, err
+	}
+	return statusnotifications.SocialDeliveryReceipt{
+		EmailDeliveryID: emailID,
+		State:           statusnotifications.SocialDeliveryState(state),
+	}, nil
+}
+
+func (sender runtimeSocialNotificationSender) DeliverMetaNotification(
+	ctx context.Context,
+	delivery metapublishing.NotificationDelivery,
+) (string, error) {
+	if sender.boundary == nil {
+		return "", &publishing.ProviderError{
+			Code:   "notification_boundary_unavailable",
+			Detail: "social notification F9 boundary is unavailable",
+		}
+	}
+	receipt, err := sender.boundary.Deliver(
+		ctx,
+		statusnotifications.SocialNotificationCommand{
+			WorkspaceID:    delivery.WorkspaceID,
+			PostID:         delivery.PostID,
+			ChannelID:      delivery.ChannelID,
+			Provider:       delivery.Provider,
+			RecipientID:    delivery.RecipientID,
+			Locale:         delivery.Locale,
+			TemplateID:     delivery.TemplateID,
+			IdempotencyKey: delivery.IdempotencyKey,
+		},
+	)
+	if err != nil {
+		return "", &publishing.ProviderError{
+			Code:      "notification_email_enqueue_failed",
+			Detail:    "social notification F9/F14 delivery failed",
+			Retryable: true,
+		}
+	}
+	switch receipt.State {
+	case statusnotifications.SocialDeliveryDelivered:
+		return receipt.EmailDeliveryID, nil
+	case statusnotifications.SocialDeliveryPermanentFailure:
+		return receipt.EmailDeliveryID, &publishing.ProviderError{
+			Code:   "notification_not_delivered",
+			Detail: "social notification delivery could not be confirmed",
+		}
+	default:
+		return receipt.EmailDeliveryID, &publishing.ProviderError{
+			Code:       "notification_email_pending",
+			Detail:     "social notification email is awaiting confirmed delivery",
+			Retryable:  true,
+			RetryAfter: 5 * time.Second,
+		}
+	}
 }
 
 func newService(
@@ -139,6 +263,12 @@ func newService(
 		return nil, fmt.Errorf("configure publishing postgres pool: %w", err)
 	}
 	store, err := publishing.NewPostgresStore(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	notificationAuditStore, err :=
+		metapublishing.NewPostgresNotificationStore(database, clock)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -192,6 +322,8 @@ func newService(
 	return &Service{
 		engine:                 engine,
 		notificationDispatcher: notificationDispatcher,
+		notificationAuditStore: notificationAuditStore,
+		clock:                  clock,
 		pool:                   pool,
 	}, nil
 }
@@ -429,6 +561,20 @@ func registerVideoAdapters(
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	if service == nil || service.engine == nil {
 		return false, errors.New("publishing runtime is not configured")
+	}
+	if service.notificationAuditStore == nil || service.clock == nil {
+		return false, errors.New(
+			"publishing notification audit cleanup is not configured",
+		)
+	}
+	if _, err := service.notificationAuditStore.PurgeExpired(
+		ctx,
+		service.clock().UTC(),
+	); err != nil {
+		return false, fmt.Errorf(
+			"purge publishing notification audit: %w",
+			err,
+		)
 	}
 	if service.notificationDispatcher != nil {
 		dispatched, err := service.notificationDispatcher.DispatchOne(ctx)
