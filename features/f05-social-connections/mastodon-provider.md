@@ -52,13 +52,20 @@ private IPs, DNS pinning and provider error classes.
 
 ## Runtime gate
 
-The runtime recognizes explicit `enabled`, `audit_verified`,
-`smoke_verified`, and `compatibility_version` attestations, but remains
-`unavailable`. The central Adapter contract cannot persist per-attempt instance
-registration/discovery data or enforce remote-revoke failure before local
-deletion. Activation is blocked by
-[issue #324](https://github.com/apdsoftware/postqron/issues/324); no flag
-combination bypasses this dependency.
+Production wiring now uses the typed dynamic-provider hook introduced by
+`feat/351-dynamic-adapter-wiring`. Mastodon becomes available only when all of
+the following are true:
+
+- `enabled=true`;
+- runtime audit and smoke attestations are both `true`;
+- `compatibility_version` exactly matches
+  `f05_dynamic_runtime_v1`;
+- client ID, client secret, and HTTPS redirect URL are configured.
+
+Any missing or mismatched input leaves the provider fail-closed. The runtime
+registers Mastodon only through the centralized dynamic registry, preserving
+per-attempt instance discovery state and requiring remote revocation before
+local deletion.
 
 No client ID, client secret, authorization code or token is sent to browser
 bootstrap data or logs.

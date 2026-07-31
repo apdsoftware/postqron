@@ -67,9 +67,19 @@ are made.
 
 ## Runtime gate
 
-Bluesky remains `unavailable` even when explicit compatibility, audit and
-smoke attestations are present. The current central boundary returns a bare
-access-token string and cannot persist encrypted DPoP/session state or sign
-each F8 request. Activation is blocked by
-[issue #324](https://github.com/apdsoftware/postqron/issues/324); weakening
-PAR, PKCE, DPoP, nonce handling or falling back to app passwords is prohibited.
+Production wiring now uses the typed dynamic-provider hook introduced by
+`feat/351-dynamic-adapter-wiring`. Bluesky becomes available only when all of
+the following are true:
+
+- `enabled=true`;
+- runtime audit and smoke attestations are both `true`;
+- `compatibility_version` exactly matches
+  `f05_dynamic_runtime_v1`;
+- HTTPS client ID and redirect URL are configured;
+- the shared F5 cipher is present so attempt/session DPoP state can be sealed
+  before persistence.
+
+Any missing or mismatched input leaves the provider fail-closed. The runtime
+registers Bluesky only through the centralized dynamic registry, preserving
+PAR, PKCE, DPoP, issuer/subject binding, nonce rotation, and per-session state
+needed for authenticated runtime requests.
