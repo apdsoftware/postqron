@@ -91,19 +91,19 @@ func NewLinkedInAdapter(config LinkedInAdapterConfig) (*LinkedInAdapter, error) 
 			},
 		}
 	}
-	authorizationURL := endpointOrDefault(
+	authorizationURL := linkedInEndpointOrDefault(
 		config.AuthorizationURL,
 		"https://www.linkedin.com/oauth/v2/authorization",
 	)
-	tokenURL := endpointOrDefault(
+	tokenURL := linkedInEndpointOrDefault(
 		config.TokenURL,
 		"https://www.linkedin.com/oauth/v2/accessToken",
 	)
-	userInfoURL := endpointOrDefault(
+	userInfoURL := linkedInEndpointOrDefault(
 		config.UserInfoURL,
 		"https://api.linkedin.com/v2/userinfo",
 	)
-	apiBaseURL := strings.TrimRight(endpointOrDefault(
+	apiBaseURL := strings.TrimRight(linkedInEndpointOrDefault(
 		config.APIBaseURL,
 		"https://api.linkedin.com",
 	), "/")
@@ -764,7 +764,7 @@ func validateHTTPSEndpoints(provider string, endpoints ...string) error {
 	return nil
 }
 
-func endpointOrDefault(value, fallback string) string {
+func linkedInEndpointOrDefault(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
 	}
