@@ -11,20 +11,26 @@ Verified against the official Mastodon documentation on 2026-07-30:
 ## Implemented provider boundary
 
 `MastodonDiscovery` accepts only an HTTPS origin. It obtains
-`/api/v2/instance` and `/.well-known/oauth-authorization-server`, requires
-Mastodon 4.x compatibility, binds OAuth endpoints to the discovered origin,
-and enables S256 PKCE for Mastodon 4.3 or newer. OAuth scopes are the
-provider-documented granular scopes needed to discover the authenticated
-account and later publish statuses/media:
+`/api/v2/instance`, requires Mastodon 4.x compatibility, canonicalizes the
+official metadata issuer with its trailing slash, and binds every OAuth
+endpoint to the discovered origin. Mastodon 4.3 or newer must publish valid
+`/.well-known/oauth-authorization-server` metadata; Mastodon 4.0-4.2 falls
+back only to the same-origin official endpoints (`/oauth/authorize`,
+`/oauth/token`, `/oauth/revoke`, `/api/v1/apps`). S256 PKCE is enabled only on
+4.3+. OAuth scopes are the provider-documented granular scopes needed to
+discover the authenticated account and later publish statuses/media:
 
 `read:accounts write:media write:statuses`
 
 `MastodonAdapter` implements Authorization Code exchange, optional refresh
-only when the instance metadata advertises `refresh_token`, account discovery
-through `/api/v1/accounts/verify_credentials`, credential verification and
-idempotent `/oauth/revoke`. Missing refresh support returns
-`ErrNotRefreshable`; revoke errors are never reported as remote success by the
-adapter.
+only when metadata advertises `refresh_token`, account discovery through
+`/api/v1/accounts/verify_credentials`, credential verification and idempotent
+`/oauth/revoke`. The runtime dynamic adapter registers a dedicated OAuth app
+per origin through `app_registration_endpoint` or the same-origin fallback
+`POST /api/v1/apps`, binds the returned client ID/secret back to that origin,
+and persists them only inside the centrally encrypted F5 attempt/session
+`ProviderState`. Missing refresh support returns `ErrNotRefreshable`; revoke
+errors are never reported as remote success by the adapter.
 
 The account URL, not the instance-local numeric account ID, is used as the
 remote identifier to avoid collisions between independent instances.
@@ -60,12 +66,12 @@ the following are true:
 - runtime audit and smoke attestations are both `true`;
 - `compatibility_version` exactly matches
   `f05_dynamic_runtime_v1`;
-- client ID, client secret, and HTTPS redirect URL are configured.
+- an HTTPS redirect URL is configured.
 
 Any missing or mismatched input leaves the provider fail-closed. The runtime
 registers Mastodon only through the centralized dynamic registry, preserving
-per-attempt instance discovery state and requiring remote revocation before
-local deletion.
+per-attempt instance discovery state, per-origin registered app credentials,
+and remote-revocation requirements before local deletion.
 
 No client ID, client secret, authorization code or token is sent to browser
 bootstrap data or logs.

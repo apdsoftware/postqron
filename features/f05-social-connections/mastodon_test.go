@@ -79,10 +79,11 @@ func TestMastodonMultiInstanceDiscoveryExchangeRefreshProfileAndRevoke(
 			})
 		case "/.well-known/oauth-authorization-server":
 			_ = json.NewEncoder(response).Encode(map[string]any{
-				"issuer":                 logical,
-				"authorization_endpoint": logical + "/oauth/authorize",
-				"token_endpoint":         logical + "/oauth/token",
-				"revocation_endpoint":    logical + "/oauth/revoke",
+				"issuer":                    logical + "/",
+				"authorization_endpoint":    logical + "/oauth/authorize",
+				"token_endpoint":            logical + "/oauth/token",
+				"revocation_endpoint":       logical + "/oauth/revoke",
+				"app_registration_endpoint": logical + "/api/v1/apps",
 				"grant_types_supported": []string{
 					"authorization_code",
 					"refresh_token",
@@ -306,7 +307,7 @@ func TestMastodonRevalidatesDNSBeforeEveryDiscoveryHop(t *testing.T) {
 		case "/.well-known/oauth-authorization-server":
 			metadataCalled = true
 			_ = json.NewEncoder(response).Encode(map[string]any{
-				"issuer":                 logical,
+				"issuer":                 logical + "/",
 				"authorization_endpoint": logical + "/oauth/authorize",
 				"token_endpoint":         logical + "/oauth/token",
 			})
@@ -331,11 +332,13 @@ func TestMastodonRevalidatesDNSBeforeEveryDiscoveryHop(t *testing.T) {
 func TestMastodonDiscoversIndependentPKCECompatibilityVersions(t *testing.T) {
 	t.Parallel()
 	for _, fixture := range []struct {
-		version  string
-		wantPKCE bool
+		version       string
+		wantPKCE      bool
+		wantTokenURL  string
+		metadataFound bool
 	}{
-		{"4.2.13", false},
-		{"4.3.0", true},
+		{"4.2.13", false, "/oauth/token", false},
+		{"4.3.0", true, "/oauth/token", true},
 	} {
 		fixture := fixture
 		t.Run(fixture.version, func(t *testing.T) {
@@ -352,8 +355,12 @@ func TestMastodonDiscoversIndependentPKCECompatibilityVersions(t *testing.T) {
 					})
 					return
 				}
+				if !fixture.metadataFound {
+					http.NotFound(response, request)
+					return
+				}
 				_ = json.NewEncoder(response).Encode(map[string]any{
-					"issuer":                 logical,
+					"issuer":                 logical + "/",
 					"authorization_endpoint": logical + "/oauth/authorize",
 					"token_endpoint":         logical + "/oauth/token",
 				})
@@ -374,7 +381,8 @@ func TestMastodonDiscoversIndependentPKCECompatibilityVersions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if instance.SupportsPKCE != fixture.wantPKCE {
+			if instance.SupportsPKCE != fixture.wantPKCE ||
+				!strings.HasSuffix(instance.TokenURL, fixture.wantTokenURL) {
 				t.Fatalf("instance = %#v", instance)
 			}
 		})

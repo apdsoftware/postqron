@@ -11,18 +11,14 @@ import (
 )
 
 const (
-	mastodonRuntimeClientIDKey     = "social.mastodon.client_id"
-	mastodonRuntimeClientSecretKey = "social.mastodon.client_secret"
-	mastodonRuntimeRedirectURLKey  = "social.mastodon.redirect_url"
-	blueskyRuntimeClientIDKey      = "social.bluesky.client_id"
-	blueskyRuntimeRedirectURLKey   = "social.bluesky.redirect_url"
-	blueskyRuntimePLCDirectoryKey  = "social.bluesky.plc_directory_origin"
-	mastodonRuntimeClientIDEnv     = "POSTQRON_F05_MASTODON_CLIENT_ID"
-	mastodonRuntimeClientSecretEnv = "POSTQRON_F05_MASTODON_CLIENT_SECRET"
-	mastodonRuntimeRedirectURLEnv  = "POSTQRON_F05_MASTODON_REDIRECT_URL"
-	blueskyRuntimeClientIDEnv      = "POSTQRON_F05_BLUESKY_CLIENT_ID"
-	blueskyRuntimeRedirectURLEnv   = "POSTQRON_F05_BLUESKY_REDIRECT_URL"
-	blueskyRuntimePLCDirectoryEnv  = "POSTQRON_F05_BLUESKY_PLC_DIRECTORY_ORIGIN"
+	mastodonRuntimeRedirectURLKey = "social.mastodon.redirect_url"
+	blueskyRuntimeClientIDKey     = "social.bluesky.client_id"
+	blueskyRuntimeRedirectURLKey  = "social.bluesky.redirect_url"
+	blueskyRuntimePLCDirectoryKey = "social.bluesky.plc_directory_origin"
+	mastodonRuntimeRedirectURLEnv = "POSTQRON_F05_MASTODON_REDIRECT_URL"
+	blueskyRuntimeClientIDEnv     = "POSTQRON_F05_BLUESKY_CLIENT_ID"
+	blueskyRuntimeRedirectURLEnv  = "POSTQRON_F05_BLUESKY_REDIRECT_URL"
+	blueskyRuntimePLCDirectoryEnv = "POSTQRON_F05_BLUESKY_PLC_DIRECTORY_ORIGIN"
 )
 
 func init() {
@@ -72,55 +68,43 @@ func configureDecentralizedDynamicProviders(
 }
 
 type mastodonRuntimeState struct {
-	Instance MastodonInstance `json:"instance"`
+	Instance MastodonInstance   `json:"instance"`
+	App      mastodonRuntimeApp `json:"app"`
 }
 
 type mastodonRuntimeAttemptState struct {
+	Version int `json:"version"`
 	mastodonRuntimeState
 	PKCEVerifier string `json:"pkce_verifier,omitempty"`
 }
 
 type mastodonRuntimeDynamicAdapter struct {
-	clientID     string
-	clientSecret string
-	redirectURL  string
-	discovery    *MastodonDiscovery
-	http         *mastodonSafeHTTP
+	redirectURL string
+	discovery   *MastodonDiscovery
+	http        *mastodonSafeHTTP
 }
 
-type blueskyRuntimeAttemptState struct {
-	State string `json:"state"`
+type mastodonRuntimeApp struct {
+	Origin       string `json:"origin"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
 }
 
 func newMastodonRuntimeDynamicAdapter(
 	values map[string]string,
 ) (DynamicAdapter, error) {
-	clientID := runtimeProviderValue(
-		values,
-		mastodonRuntimeClientIDKey,
-		mastodonRuntimeClientIDEnv,
-	)
-	clientSecret := runtimeProviderValue(
-		values,
-		mastodonRuntimeClientSecretKey,
-		mastodonRuntimeClientSecretEnv,
-	)
 	redirectURL := runtimeProviderValue(
 		values,
 		mastodonRuntimeRedirectURLKey,
 		mastodonRuntimeRedirectURLEnv,
 	)
-	if strings.TrimSpace(clientID) == "" ||
-		strings.TrimSpace(clientSecret) == "" ||
-		strings.TrimSpace(redirectURL) == "" {
+	if strings.TrimSpace(redirectURL) == "" {
 		return nil, nil
 	}
 	return &mastodonRuntimeDynamicAdapter{
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		redirectURL:  redirectURL,
-		discovery:    NewMastodonDiscovery(),
-		http:         newMastodonSafeHTTP(),
+		redirectURL: redirectURL,
+		discovery:   NewMastodonDiscovery(),
+		http:        newMastodonSafeHTTP(),
 	}, nil
 }
 
@@ -150,19 +134,27 @@ func (adapter *mastodonRuntimeDynamicAdapter) BeginDynamic(
 	if err != nil {
 		return DynamicAuthorization{}, err
 	}
+	app, err := adapter.registerApp(ctx, instance)
+	if err != nil {
+		return DynamicAuthorization{}, err
+	}
 	authorizationURL, err := url.Parse(instance.AuthorizationURL)
 	if err != nil {
 		return DynamicAuthorization{}, err
 	}
 	query := authorizationURL.Query()
 	query.Set("response_type", "code")
-	query.Set("client_id", adapter.clientID)
+	query.Set("client_id", app.ClientID)
 	query.Set("redirect_uri", adapter.redirectURL)
 	query.Set("scope", strings.Join(mastodonScopes, " "))
 	query.Set("state", request.State)
 	query.Set("force_login", "true")
 	attemptState := mastodonRuntimeAttemptState{
-		mastodonRuntimeState: mastodonRuntimeState{Instance: instance},
+		Version: 1,
+		mastodonRuntimeState: mastodonRuntimeState{
+			Instance: instance,
+			App:      app,
+		},
 	}
 	if instance.SupportsPKCE {
 		verifier, verifierErr := randomOpaqueID(64)
@@ -196,7 +188,7 @@ func (adapter *mastodonRuntimeDynamicAdapter) CompleteDynamic(
 	if err != nil {
 		return DynamicCompletion{}, err
 	}
-	staticAdapter, err := adapter.runtimeAdapter(state.Instance)
+	staticAdapter, err := adapter.runtimeAdapter(state.Instance, state.App)
 	if err != nil {
 		return DynamicCompletion{}, err
 	}
@@ -234,7 +226,7 @@ func (adapter *mastodonRuntimeDynamicAdapter) RefreshDynamic(
 	if err != nil {
 		return DynamicRefreshResult{}, err
 	}
-	staticAdapter, err := adapter.runtimeAdapter(state.Instance)
+	staticAdapter, err := adapter.runtimeAdapter(state.Instance, state.App)
 	if err != nil {
 		return DynamicRefreshResult{}, err
 	}
@@ -314,7 +306,7 @@ func (adapter *mastodonRuntimeDynamicAdapter) RevokeDynamic(
 	if err != nil {
 		return err
 	}
-	staticAdapter, err := adapter.runtimeAdapter(state.Instance)
+	staticAdapter, err := adapter.runtimeAdapter(state.Instance, state.App)
 	if err != nil {
 		return err
 	}
@@ -323,14 +315,79 @@ func (adapter *mastodonRuntimeDynamicAdapter) RevokeDynamic(
 
 func (adapter *mastodonRuntimeDynamicAdapter) runtimeAdapter(
 	instance MastodonInstance,
+	app mastodonRuntimeApp,
 ) (*MastodonAdapter, error) {
+	if app.Origin != instance.Origin ||
+		strings.TrimSpace(app.ClientID) == "" ||
+		strings.TrimSpace(app.ClientSecret) == "" {
+		return nil, ErrInvalidArgument
+	}
 	return NewMastodonAdapter(MastodonAdapterConfig{
 		Instance:     instance,
-		ClientID:     adapter.clientID,
-		ClientSecret: adapter.clientSecret,
+		ClientID:     app.ClientID,
+		ClientSecret: app.ClientSecret,
 		RedirectURL:  adapter.redirectURL,
 		HTTP:         adapter.http,
 	})
+}
+
+func (adapter *mastodonRuntimeDynamicAdapter) registerApp(
+	ctx context.Context,
+	instance MastodonInstance,
+) (mastodonRuntimeApp, error) {
+	origin, err := mastodonOrigin(instance.Origin)
+	if err != nil {
+		return mastodonRuntimeApp{}, err
+	}
+	target, err := url.Parse(instance.AppRegistrationURL)
+	if err != nil || !mastodonSameOriginEndpoint(origin, target.String()) {
+		return mastodonRuntimeApp{}, ErrInvalidArgument
+	}
+	form := url.Values{
+		"client_name":   {"Postqron"},
+		"redirect_uris": {adapter.redirectURL},
+		"scopes":        {strings.Join(mastodonScopes, " ")},
+	}
+	request, _ := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		target.String(),
+		bytes.NewBufferString(form.Encode()),
+	)
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Accept", "application/json")
+	response, err := adapter.http.do(ctx, request)
+	if err != nil {
+		return mastodonRuntimeApp{}, mastodonFailure("mastodon_app_registration", err)
+	}
+	body, readErr := mastodonReadLimited(response)
+	if readErr != nil {
+		return mastodonRuntimeApp{}, mastodonFailure("mastodon_app_registration", readErr)
+	}
+	if response.StatusCode != http.StatusOK ||
+		!mastodonJSON(response.Header.Get("Content-Type")) {
+		return mastodonRuntimeApp{}, mastodonStatusFailure(
+			"mastodon_app_registration",
+			response.StatusCode,
+		)
+	}
+	var registered struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	if json.Unmarshal(body, &registered) != nil ||
+		strings.TrimSpace(registered.ClientID) == "" ||
+		strings.TrimSpace(registered.ClientSecret) == "" {
+		return mastodonRuntimeApp{}, mastodonFailure(
+			"mastodon_app_registration_malformed",
+			fmt.Errorf("invalid app registration response"),
+		)
+	}
+	return mastodonRuntimeApp{
+		Origin:       instance.Origin,
+		ClientID:     registered.ClientID,
+		ClientSecret: registered.ClientSecret,
+	}, nil
 }
 
 type blueskyRuntimeDynamicAdapter struct {
@@ -400,93 +457,21 @@ func (adapter *blueskyRuntimeDynamicAdapter) BeginDynamic(
 	if request.PreviousBinding != (OAuthBinding{}) {
 		pdsOrigin = request.PreviousBinding.ResourceServer
 	}
-	server, err := adapter.client.DiscoverAuthorizationServer(ctx, pdsOrigin)
-	if err != nil {
-		return DynamicAuthorization{}, err
-	}
-	verifier, err := randomOpaqueID(64)
-	if err != nil {
-		return DynamicAuthorization{}, err
-	}
-	key, err := newBlueskyDPoPKey()
-	if err != nil {
-		return DynamicAuthorization{}, err
-	}
-	attempt := blueskyAttempt{
-		State:    request.State,
-		Verifier: verifier,
-		DPoPKey:  key,
-		Server:   server,
-	}
-	form := url.Values{
-		"client_id":             {adapter.client.clientID},
-		"response_type":         {"code"},
-		"redirect_uri":          {adapter.client.redirectURL},
-		"state":                 {request.State},
-		"scope":                 {strings.Join(blueskyScopes, " ")},
-		"code_challenge":        {pkceChallenge(verifier)},
-		"code_challenge_method": {"S256"},
-	}
-	target, _ := url.Parse(server.PAREndpoint)
-	response, body, nonce, err := adapter.client.dpopRequest(
+	authorization, err := adapter.client.beginWithState(
 		ctx,
-		http.MethodPost,
-		target,
-		form,
+		pdsOrigin,
 		"",
-		key,
-		"",
-		"",
+		request.State,
+		request.ExpiresAt,
 	)
 	if err != nil {
 		return DynamicAuthorization{}, err
 	}
-	if response.StatusCode != http.StatusCreated {
-		return DynamicAuthorization{}, blueskyStatusFailure("bluesky_par", response.StatusCode)
-	}
-	var pushed struct {
-		RequestURI string `json:"request_uri"`
-		ExpiresIn  int64  `json:"expires_in"`
-	}
-	if json.Unmarshal(body, &pushed) != nil ||
-		pushed.RequestURI == "" ||
-		pushed.ExpiresIn <= 0 {
-		return DynamicAuthorization{}, blueskyFailure(
-			"bluesky_par_malformed",
-			fmt.Errorf("invalid PAR response"),
-		)
-	}
-	attempt.ASNonce = nonce
-	plaintext, err := json.Marshal(attempt)
-	if err != nil {
-		return DynamicAuthorization{}, err
-	}
-	ciphertext, err := adapter.client.cipher.Seal(
-		plaintext,
-		[]byte("f05|bluesky-attempt|"+digest(request.State)),
-	)
-	if err != nil {
-		return DynamicAuthorization{}, err
-	}
-	adapter.client.mu.Lock()
-	adapter.client.attempts[digest(request.State)] = blueskyStoredAttempt{
-		Ciphertext: ciphertext,
-		ExpiresAt:  request.ExpiresAt,
-	}
-	adapter.client.mu.Unlock()
-	authorizationURL, _ := url.Parse(server.AuthorizationEndpoint)
-	query := authorizationURL.Query()
-	query.Set("client_id", adapter.client.clientID)
-	query.Set("request_uri", pushed.RequestURI)
-	authorizationURL.RawQuery = query.Encode()
 	return DynamicAuthorization{
-		URL:           authorizationURL.String(),
-		ProviderState: mustMarshalBlueskyRuntimeAttemptState(request.State),
-		PARRequestURI: pushed.RequestURI,
-		Binding: OAuthBinding{
-			Issuer:         server.Issuer,
-			ResourceServer: server.PDSOrigin,
-		},
+		URL:           authorization.URL,
+		ProviderState: authorization.ProviderState,
+		PARRequestURI: authorization.PARRequestURI,
+		Binding:       authorization.Binding,
 	}, nil
 }
 
@@ -494,13 +479,9 @@ func (adapter *blueskyRuntimeDynamicAdapter) CompleteDynamic(
 	ctx context.Context,
 	request DynamicCallbackRequest,
 ) (DynamicCompletion, error) {
-	attemptState, err := openBlueskyRuntimeAttemptState(request.ProviderState)
-	if err != nil {
-		return DynamicCompletion{}, err
-	}
-	session, err := adapter.client.Callback(
+	session, err := adapter.client.completeBoundAttempt(
 		ctx,
-		attemptState.State,
+		request.ProviderState,
 		request.Code,
 		request.Issuer,
 	)
@@ -633,7 +614,13 @@ func openMastodonRuntimeAttemptState(
 	data []byte,
 ) (mastodonRuntimeAttemptState, error) {
 	var state mastodonRuntimeAttemptState
-	if len(data) == 0 || json.Unmarshal(data, &state) != nil {
+	if len(data) == 0 ||
+		json.Unmarshal(data, &state) != nil ||
+		state.Version != 1 ||
+		strings.TrimSpace(state.Instance.Origin) == "" ||
+		strings.TrimSpace(state.App.Origin) == "" ||
+		strings.TrimSpace(state.App.ClientID) == "" ||
+		strings.TrimSpace(state.App.ClientSecret) == "" {
 		return mastodonRuntimeAttemptState{}, ErrInvalidArgument
 	}
 	return state, nil
@@ -641,7 +628,12 @@ func openMastodonRuntimeAttemptState(
 
 func openMastodonRuntimeState(data []byte) (mastodonRuntimeState, error) {
 	var state mastodonRuntimeState
-	if len(data) == 0 || json.Unmarshal(data, &state) != nil {
+	if len(data) == 0 ||
+		json.Unmarshal(data, &state) != nil ||
+		strings.TrimSpace(state.Instance.Origin) == "" ||
+		strings.TrimSpace(state.App.Origin) == "" ||
+		strings.TrimSpace(state.App.ClientID) == "" ||
+		strings.TrimSpace(state.App.ClientSecret) == "" {
 		return mastodonRuntimeState{}, ErrInvalidArgument
 	}
 	return state, nil
@@ -678,23 +670,6 @@ func marshalBlueskyRuntimeSession(session BlueskySession) ([]byte, error) {
 		DPoPKey:    session.DPoPKey,
 		TokenURL:   session.TokenURL,
 	})
-}
-
-func openBlueskyRuntimeAttemptState(data []byte) (blueskyRuntimeAttemptState, error) {
-	var state blueskyRuntimeAttemptState
-	if len(data) == 0 || json.Unmarshal(data, &state) != nil ||
-		strings.TrimSpace(state.State) == "" {
-		return blueskyRuntimeAttemptState{}, ErrInvalidArgument
-	}
-	return state, nil
-}
-
-func mustMarshalBlueskyRuntimeAttemptState(state string) []byte {
-	data, err := json.Marshal(blueskyRuntimeAttemptState{State: state})
-	if err != nil {
-		panic(err)
-	}
-	return data
 }
 
 func blueskyRuntimeRequest(

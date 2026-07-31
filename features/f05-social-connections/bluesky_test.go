@@ -174,16 +174,27 @@ func TestBlueskyOAuthPARPKCEDPoPNonceRefreshPDSAndProfileFixtures(
 		strings.Contains(authorization.URL, callbackState) {
 		t.Fatalf("authorization URL = %s", authorization.URL)
 	}
-	client.mu.Lock()
-	for _, attempt := range client.attempts {
-		if bytes.Contains(attempt.Ciphertext.Data, []byte(callbackState)) ||
-			bytes.Contains(attempt.Ciphertext.Data, []byte(`"dpop_key"`)) {
-			t.Fatal("state or DPoP key stored in plaintext")
-		}
+	if authorization.State != callbackState {
+		t.Fatalf("authorization state = %q, callback state = %q", authorization.State, callbackState)
 	}
-	client.mu.Unlock()
-	session, err := client.Callback(
+	if bytes.Contains(authorization.ProviderState, []byte(callbackState)) ||
+		bytes.Contains(authorization.ProviderState, []byte(`"dpop_key"`)) {
+		t.Fatal("state or DPoP key stored in plaintext")
+	}
+	restartedClient, err := NewBlueskyOAuthClient(BlueskyOAuthConfig{
+		ClientID:           "https://client.example.test/oauth.json",
+		RedirectURL:        "https://app.example.test/oauth/callback",
+		Cipher:             cipher,
+		HTTP:               safeHTTP,
+		PLCDirectoryOrigin: origin,
+		Now:                func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := restartedClient.Callback(
 		context.Background(),
+		authorization.ProviderState,
 		callbackState,
 		"fixture-code",
 		origin,
@@ -209,13 +220,14 @@ func TestBlueskyOAuthPARPKCEDPoPNonceRefreshPDSAndProfileFixtures(
 		openedSession.DPoPKey.D != session.DPoPKey.D {
 		t.Fatalf("opened session = %#v, error = %v", openedSession, err)
 	}
-	if _, err = client.Callback(
+	if _, err = restartedClient.Callback(
 		context.Background(),
-		callbackState,
+		authorization.ProviderState,
+		callbackState+"-wrong",
 		"fixture-code",
 		origin,
 	); !errors.Is(err, ErrInvalidState) {
-		t.Fatalf("replayed state error = %v", err)
+		t.Fatalf("state mismatch error = %v", err)
 	}
 	resource, err := client.DiscoverProfile(context.Background(), &session)
 	if err != nil {

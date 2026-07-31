@@ -23,8 +23,12 @@ Password and app-password authentication are intentionally absent.
    ES256 DPoP, and public/confidential token-auth metadata;
 4. creates a new P-256 DPoP key per attempt;
 5. performs PAR with one-time state, PKCE and DPoP nonce retry;
-6. stores state, PKCE verifier, issuer/PDS binding, DPoP key and nonce only in
-   an AEAD-encrypted one-time attempt;
+6. serializes the full callback envelope (state, expiry, PKCE verifier,
+   issuer/PDS/client binding, DPoP key and nonce) into bounded versioned
+   `ProviderState`; the standalone client seals it with AEAD and the runtime
+   persists it again through the central encrypted F5 attempt store, so
+   callback completion survives process restarts without an in-memory attempt
+   map;
 7. validates callback `state` and `iss`, exchanges the code with DPoP, and
    requires `sub`, `scope`, `refresh_token`, token type `DPoP`, and a response
    nonce;
@@ -81,5 +85,6 @@ the following are true:
 
 Any missing or mismatched input leaves the provider fail-closed. The runtime
 registers Bluesky only through the centralized dynamic registry, preserving
-PAR, PKCE, DPoP, issuer/subject binding, nonce rotation, and per-session state
-needed for authenticated runtime requests.
+PAR, PKCE, DPoP, issuer/subject binding, nonce rotation, one-time central
+attempt consumption, and per-session state needed for authenticated runtime
+requests.

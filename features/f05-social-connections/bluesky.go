@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,6 +21,11 @@ var blueskyScopes = []string{
 
 var errBlueskyRemoteRevocationUnsupported = errors.New(
 	"AT Protocol does not publish a token revocation endpoint",
+)
+
+const (
+	blueskyAttemptStateVersion     = 1
+	maximumBlueskyAttemptStateSize = 32 * 1024
 )
 
 type BlueskyAuthorizationServer struct {
@@ -49,13 +53,6 @@ type BlueskyOAuthClient struct {
 	http        *mastodonSafeHTTP
 	plcOrigin   string
 	now         func() time.Time
-	mu          sync.Mutex
-	attempts    map[string]blueskyStoredAttempt
-}
-
-type blueskyStoredAttempt struct {
-	Ciphertext Ciphertext
-	ExpiresAt  time.Time
 }
 
 type blueskyAttempt struct {
@@ -68,8 +65,12 @@ type blueskyAttempt struct {
 }
 
 type BlueskyAuthorization struct {
-	URL       string
-	ExpiresAt time.Time
+	URL           string
+	ExpiresAt     time.Time
+	State         string
+	ProviderState []byte
+	PARRequestURI string
+	Binding       OAuthBinding
 }
 
 type BlueskySession struct {
@@ -129,7 +130,6 @@ func NewBlueskyOAuthClient(
 		http:        config.HTTP,
 		plcOrigin:   config.PLCDirectoryOrigin,
 		now:         config.Now,
-		attempts:    make(map[string]blueskyStoredAttempt),
 	}, nil
 }
 
@@ -220,11 +220,19 @@ func (client *BlueskyOAuthClient) Begin(
 	ctx context.Context,
 	pdsOrigin, loginHint string,
 ) (BlueskyAuthorization, error) {
-	server, err := client.DiscoverAuthorizationServer(ctx, pdsOrigin)
+	state, err := randomOpaqueID(32)
 	if err != nil {
 		return BlueskyAuthorization{}, err
 	}
-	state, err := randomOpaqueID(32)
+	return client.beginWithState(ctx, pdsOrigin, loginHint, state, time.Time{})
+}
+
+func (client *BlueskyOAuthClient) beginWithState(
+	ctx context.Context,
+	pdsOrigin, loginHint, state string,
+	expiresAt time.Time,
+) (BlueskyAuthorization, error) {
+	server, err := client.DiscoverAuthorizationServer(ctx, pdsOrigin)
 	if err != nil {
 		return BlueskyAuthorization{}, err
 	}
@@ -286,58 +294,157 @@ func (client *BlueskyOAuthClient) Begin(
 		)
 	}
 	attempt.ASNonce = nonce
-	plaintext, _ := json.Marshal(attempt)
-	ciphertext, err := client.cipher.Seal(
-		plaintext,
-		[]byte("f05|bluesky-attempt|"+digest(state)),
-	)
+	if expiresAt.IsZero() {
+		expiresAt = client.now().UTC().Add(
+			time.Duration(pushed.ExpiresIn) * time.Second,
+		)
+	}
+	providerState, err := client.sealAttemptState(attempt, expiresAt)
 	if err != nil {
-		return BlueskyAuthorization{}, fmt.Errorf("seal Bluesky OAuth attempt: %w", err)
+		return BlueskyAuthorization{}, err
 	}
-	now := client.now().UTC()
-	expiresAt := now.Add(time.Duration(pushed.ExpiresIn) * time.Second)
-	client.mu.Lock()
-	client.attempts[digest(state)] = blueskyStoredAttempt{
-		Ciphertext: ciphertext,
-		ExpiresAt:  expiresAt,
-	}
-	client.mu.Unlock()
 	authorizationURL, _ := url.Parse(server.AuthorizationEndpoint)
 	query := authorizationURL.Query()
 	query.Set("client_id", client.clientID)
 	query.Set("request_uri", pushed.RequestURI)
 	authorizationURL.RawQuery = query.Encode()
-	return BlueskyAuthorization{URL: authorizationURL.String(), ExpiresAt: expiresAt}, nil
+	return BlueskyAuthorization{
+		URL:           authorizationURL.String(),
+		ExpiresAt:     expiresAt,
+		State:         state,
+		ProviderState: providerState,
+		PARRequestURI: pushed.RequestURI,
+		Binding: OAuthBinding{
+			Issuer:         server.Issuer,
+			ResourceServer: server.PDSOrigin,
+		},
+	}, nil
 }
 
 func (client *BlueskyOAuthClient) Callback(
 	ctx context.Context,
+	providerState []byte,
 	state, code, issuer string,
 ) (BlueskySession, error) {
-	if state == "" || code == "" || issuer == "" {
+	envelope, err := client.openAttemptState(providerState)
+	if err != nil {
 		return BlueskySession{}, ErrInvalidState
 	}
-	key := digest(state)
-	client.mu.Lock()
-	stored, found := client.attempts[key]
-	delete(client.attempts, key)
-	client.mu.Unlock()
-	if !found || !client.now().UTC().Before(stored.ExpiresAt) {
+	if envelope.Attempt.State != state {
 		return BlueskySession{}, ErrInvalidState
 	}
-	plaintext, err := client.cipher.Open(
-		stored.Ciphertext,
-		[]byte("f05|bluesky-attempt|"+key),
+	return client.completeAttempt(ctx, envelope, code, issuer)
+}
+
+func (client *BlueskyOAuthClient) completeBoundAttempt(
+	ctx context.Context,
+	providerState []byte,
+	code, issuer string,
+) (BlueskySession, error) {
+	envelope, err := client.openAttemptState(providerState)
+	if err != nil {
+		return BlueskySession{}, ErrInvalidState
+	}
+	return client.completeAttempt(ctx, envelope, code, issuer)
+}
+
+type blueskyAttemptEnvelope struct {
+	Version     int            `json:"version"`
+	Attempt     blueskyAttempt `json:"attempt"`
+	ClientID    string         `json:"client_id"`
+	RedirectURL string         `json:"redirect_url"`
+	ExpiresAt   time.Time      `json:"expires_at"`
+}
+
+type blueskyAttemptState struct {
+	Version     int        `json:"version"`
+	StateDigest string     `json:"state_digest"`
+	Ciphertext  Ciphertext `json:"ciphertext"`
+}
+
+func (client *BlueskyOAuthClient) sealAttemptState(
+	attempt blueskyAttempt,
+	expiresAt time.Time,
+) ([]byte, error) {
+	envelope := blueskyAttemptEnvelope{
+		Version:     blueskyAttemptStateVersion,
+		Attempt:     attempt,
+		ClientID:    client.clientID,
+		RedirectURL: client.redirectURL,
+		ExpiresAt:   expiresAt.UTC(),
+	}
+	plaintext, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	if len(plaintext) == 0 || len(plaintext) > maximumBlueskyAttemptStateSize {
+		return nil, fmt.Errorf("%w: Bluesky attempt state is too large", ErrInvalidArgument)
+	}
+	stateDigest := digest(attempt.State)
+	ciphertext, err := client.cipher.Seal(
+		plaintext,
+		[]byte("f05|bluesky-attempt|"+stateDigest),
 	)
 	if err != nil {
-		return BlueskySession{}, fmt.Errorf("open Bluesky OAuth attempt: %w", err)
+		return nil, fmt.Errorf("seal Bluesky OAuth attempt: %w", err)
 	}
-	var attempt blueskyAttempt
-	if json.Unmarshal(plaintext, &attempt) != nil ||
-		attempt.State != state ||
-		attempt.Server.Issuer != issuer {
+	sealed, err := json.Marshal(blueskyAttemptState{
+		Version:     blueskyAttemptStateVersion,
+		StateDigest: stateDigest,
+		Ciphertext:  ciphertext,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(sealed) == 0 || len(sealed) > maximumBlueskyAttemptStateSize {
+		return nil, fmt.Errorf("%w: Bluesky attempt state is too large", ErrInvalidArgument)
+	}
+	return sealed, nil
+}
+
+func (client *BlueskyOAuthClient) openAttemptState(
+	data []byte,
+) (blueskyAttemptEnvelope, error) {
+	var sealed blueskyAttemptState
+	if len(data) == 0 ||
+		len(data) > maximumBlueskyAttemptStateSize ||
+		json.Unmarshal(data, &sealed) != nil ||
+		sealed.Version != blueskyAttemptStateVersion ||
+		strings.TrimSpace(sealed.StateDigest) == "" ||
+		len(sealed.Ciphertext.Data) == 0 {
+		return blueskyAttemptEnvelope{}, ErrInvalidState
+	}
+	plaintext, err := client.cipher.Open(
+		sealed.Ciphertext,
+		[]byte("f05|bluesky-attempt|"+sealed.StateDigest),
+	)
+	if err != nil {
+		return blueskyAttemptEnvelope{}, ErrInvalidState
+	}
+	var envelope blueskyAttemptEnvelope
+	if len(plaintext) == 0 ||
+		len(plaintext) > maximumBlueskyAttemptStateSize ||
+		json.Unmarshal(plaintext, &envelope) != nil ||
+		envelope.Version != blueskyAttemptStateVersion ||
+		envelope.ClientID != client.clientID ||
+		envelope.RedirectURL != client.redirectURL ||
+		!client.now().UTC().Before(envelope.ExpiresAt) ||
+		envelope.Attempt.State == "" ||
+		digest(envelope.Attempt.State) != sealed.StateDigest {
+		return blueskyAttemptEnvelope{}, ErrInvalidState
+	}
+	return envelope, nil
+}
+
+func (client *BlueskyOAuthClient) completeAttempt(
+	ctx context.Context,
+	envelope blueskyAttemptEnvelope,
+	code, issuer string,
+) (BlueskySession, error) {
+	if code == "" || issuer == "" || envelope.Attempt.Server.Issuer != issuer {
 		return BlueskySession{}, ErrInvalidState
 	}
+	attempt := envelope.Attempt
 	target, _ := url.Parse(attempt.Server.TokenEndpoint)
 	form := url.Values{
 		"grant_type":    {"authorization_code"},

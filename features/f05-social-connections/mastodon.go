@@ -20,15 +20,16 @@ var mastodonScopes = []string{
 }
 
 type MastodonInstance struct {
-	Origin           string
-	Domain           string
-	Version          string
-	APIVersion       int
-	SupportsPKCE     bool
-	SupportsRefresh  bool
-	AuthorizationURL string
-	TokenURL         string
-	RevocationURL    string
+	Origin             string
+	Domain             string
+	Version            string
+	APIVersion         int
+	SupportsPKCE       bool
+	SupportsRefresh    bool
+	AuthorizationURL   string
+	TokenURL           string
+	RevocationURL      string
+	AppRegistrationURL string
 }
 
 type MastodonDiscovery struct {
@@ -90,63 +91,82 @@ func (discovery *MastodonDiscovery) Discover(
 			errors.New("Mastodon 4.0 or newer is required"),
 		)
 	}
-	metadata, metadataErr := discovery.oauthMetadata(ctx, origin)
+	metadata, metadataFound, metadataErr := discovery.oauthMetadata(ctx, origin)
 	if metadataErr != nil {
 		return MastodonInstance{}, metadataErr
 	}
+	supportsPKCE := major > 4 || major == 4 && minor >= 3
+	if !metadataFound {
+		if supportsPKCE {
+			return MastodonInstance{}, mastodonFailure(
+				"mastodon_oauth_metadata_required",
+				errors.New("Mastodon 4.3 or newer must publish OAuth metadata"),
+			)
+		}
+		metadata = mastodonFallbackMetadata(origin)
+	}
 	return MastodonInstance{
-		Origin:           origin.String(),
-		Domain:           document.Domain,
-		Version:          document.Version,
-		APIVersion:       document.APIVersions["mastodon"],
-		SupportsPKCE:     major > 4 || major == 4 && minor >= 3,
-		SupportsRefresh:  metadata.SupportsRefresh,
-		AuthorizationURL: metadata.AuthorizationURL,
-		TokenURL:         metadata.TokenURL,
-		RevocationURL:    metadata.RevocationURL,
+		Origin:             origin.String(),
+		Domain:             document.Domain,
+		Version:            document.Version,
+		APIVersion:         document.APIVersions["mastodon"],
+		SupportsPKCE:       supportsPKCE,
+		SupportsRefresh:    metadata.SupportsRefresh,
+		AuthorizationURL:   metadata.AuthorizationURL,
+		TokenURL:           metadata.TokenURL,
+		RevocationURL:      metadata.RevocationURL,
+		AppRegistrationURL: metadata.AppRegistrationURL,
 	}, nil
 }
 
 type mastodonOAuthMetadata struct {
-	AuthorizationURL string
-	TokenURL         string
-	RevocationURL    string
-	SupportsRefresh  bool
+	AuthorizationURL   string
+	TokenURL           string
+	RevocationURL      string
+	AppRegistrationURL string
+	SupportsRefresh    bool
 }
 
 func (discovery *MastodonDiscovery) oauthMetadata(
 	ctx context.Context,
 	origin *url.URL,
-) (mastodonOAuthMetadata, error) {
+) (mastodonOAuthMetadata, bool, error) {
 	target := mastodonEndpoint(origin, "/.well-known/oauth-authorization-server")
 	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	request.Header.Set("Accept", "application/json")
 	response, err := discovery.http.do(ctx, request)
 	if err != nil {
-		return mastodonOAuthMetadata{}, mastodonFailure("mastodon_oauth_metadata", err)
+		return mastodonOAuthMetadata{}, false, mastodonFailure("mastodon_oauth_metadata", err)
 	}
 	body, readErr := mastodonReadLimited(response)
 	if readErr != nil {
-		return mastodonOAuthMetadata{}, mastodonFailure("mastodon_oauth_metadata", readErr)
+		return mastodonOAuthMetadata{}, false, mastodonFailure("mastodon_oauth_metadata", readErr)
 	}
-	if response.StatusCode != http.StatusOK || !mastodonJSON(response.Header.Get("Content-Type")) {
-		return mastodonOAuthMetadata{}, mastodonStatusFailure(
+	if response.StatusCode == http.StatusNotFound {
+		return mastodonOAuthMetadata{}, false, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		return mastodonOAuthMetadata{}, false, mastodonStatusFailure(
 			"mastodon_oauth_metadata",
 			response.StatusCode,
 		)
 	}
+	if !mastodonJSON(response.Header.Get("Content-Type")) {
+		return mastodonOAuthMetadata{}, false, nil
+	}
 	var document struct {
-		Issuer                string   `json:"issuer"`
-		AuthorizationEndpoint string   `json:"authorization_endpoint"`
-		TokenEndpoint         string   `json:"token_endpoint"`
-		RevocationEndpoint    string   `json:"revocation_endpoint"`
-		GrantTypes            []string `json:"grant_types_supported"`
+		Issuer                  string   `json:"issuer"`
+		AuthorizationEndpoint   string   `json:"authorization_endpoint"`
+		TokenEndpoint           string   `json:"token_endpoint"`
+		RevocationEndpoint      string   `json:"revocation_endpoint"`
+		AppRegistrationEndpoint string   `json:"app_registration_endpoint"`
+		GrantTypes              []string `json:"grant_types_supported"`
 	}
 	if json.Unmarshal(body, &document) != nil ||
-		document.Issuer != origin.String() ||
+		!mastodonIssuerMatches(origin, document.Issuer) ||
 		!mastodonSameOriginEndpoint(origin, document.AuthorizationEndpoint) ||
 		!mastodonSameOriginEndpoint(origin, document.TokenEndpoint) {
-		return mastodonOAuthMetadata{}, mastodonFailure(
+		return mastodonOAuthMetadata{}, true, mastodonFailure(
 			"mastodon_oauth_metadata_malformed",
 			errors.New("OAuth metadata does not match instance origin"),
 		)
@@ -156,17 +176,38 @@ func (discovery *MastodonDiscovery) oauthMetadata(
 		revocation = mastodonEndpoint(origin, "/oauth/revoke").String()
 	}
 	if !mastodonSameOriginEndpoint(origin, revocation) {
-		return mastodonOAuthMetadata{}, mastodonFailure(
+		return mastodonOAuthMetadata{}, true, mastodonFailure(
 			"mastodon_oauth_metadata_malformed",
 			errors.New("revocation endpoint is unsafe"),
 		)
 	}
+	appRegistration := document.AppRegistrationEndpoint
+	if appRegistration == "" {
+		appRegistration = mastodonEndpoint(origin, "/api/v1/apps").String()
+	}
+	if !mastodonSameOriginEndpoint(origin, appRegistration) {
+		return mastodonOAuthMetadata{}, true, mastodonFailure(
+			"mastodon_oauth_metadata_malformed",
+			errors.New("application registration endpoint is unsafe"),
+		)
+	}
 	return mastodonOAuthMetadata{
-		AuthorizationURL: document.AuthorizationEndpoint,
-		TokenURL:         document.TokenEndpoint,
-		RevocationURL:    revocation,
-		SupportsRefresh:  mastodonContains(document.GrantTypes, "refresh_token"),
-	}, nil
+		AuthorizationURL:   document.AuthorizationEndpoint,
+		TokenURL:           document.TokenEndpoint,
+		RevocationURL:      revocation,
+		AppRegistrationURL: appRegistration,
+		SupportsRefresh:    mastodonContains(document.GrantTypes, "refresh_token"),
+	}, true, nil
+}
+
+func mastodonFallbackMetadata(origin *url.URL) mastodonOAuthMetadata {
+	return mastodonOAuthMetadata{
+		AuthorizationURL:   mastodonEndpoint(origin, "/oauth/authorize").String(),
+		TokenURL:           mastodonEndpoint(origin, "/oauth/token").String(),
+		RevocationURL:      mastodonEndpoint(origin, "/oauth/revoke").String(),
+		AppRegistrationURL: mastodonEndpoint(origin, "/api/v1/apps").String(),
+		SupportsRefresh:    false,
+	}
 }
 
 type MastodonAdapterConfig struct {
@@ -485,6 +526,25 @@ func mastodonSameOriginEndpoint(origin *url.URL, raw string) bool {
 		target.Host == origin.Host &&
 		target.User == nil &&
 		target.Fragment == ""
+}
+
+func mastodonIssuerMatches(origin *url.URL, raw string) bool {
+	target, err := url.Parse(raw)
+	if err != nil ||
+		target.Scheme != "https" ||
+		target.Host != origin.Host ||
+		target.User != nil ||
+		target.RawQuery != "" ||
+		target.Fragment != "" ||
+		(target.Path != "" && target.Path != "/") {
+		return false
+	}
+	target.Path = "/"
+	target.RawPath = ""
+	canonical := *origin
+	canonical.Path = "/"
+	canonical.RawPath = ""
+	return target.String() == canonical.String()
 }
 
 func mastodonContains(values []string, target string) bool {
