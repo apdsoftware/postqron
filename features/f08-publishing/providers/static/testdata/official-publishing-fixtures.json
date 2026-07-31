@@ -1,0 +1,83 @@
+[
+  {
+    "provider": "x",
+    "payload": {
+      "format": "image",
+      "text": "Hello from Postqron",
+      "media": [{
+        "ref": "image",
+        "content_type": "image/jpeg",
+        "size": 16,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }]
+    },
+    "list_response": {"data": []},
+    "create_response": {"data": {"id": "1900000000000000001"}},
+    "media_flow": {
+      "initialize": {"data": {"id": "1800000000000000001"}},
+      "append": {"data": {"expires_at": 1}},
+      "finalize": {"data": {"id": "1800000000000000001", "processing_info": {"state": "pending", "check_after_secs": 1}}},
+      "status": {"data": {"id": "1800000000000000001", "processing_info": {"state": "succeeded"}}}
+    }
+  },
+  {
+    "provider": "linkedin",
+    "payload": {
+      "format": "image",
+      "text": "Hello from Postqron",
+      "media": [{
+        "ref": "image",
+        "content_type": "image/png",
+        "size": 16,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }]
+    },
+    "list_response": {"elements": []},
+    "create_response": {},
+    "media_flow": {
+      "disabled_dependency": 345,
+      "initializeUpload": {
+        "value": {
+          "uploadUrl": "https://www.linkedin.com/dms-uploads/image/upload?sig=opaque",
+          "image": "urn:li:image:fixture"
+        }
+      }
+    },
+    "finder_response": {
+      "elements": [{
+        "id": "urn:li:share:1900000000000000001",
+        "author": "urn:li:person:123",
+        "commentary": "Hello from Postqron"
+      }]
+    }
+  },
+  {
+    "provider": "pinterest",
+    "payload": {
+      "format": "image",
+      "title": "Postqron",
+      "description": "Hello from Postqron",
+      "link": "https://example.com/post",
+      "board_id": "42",
+      "media": [{"source_url": "https://cdn.example.com/image.jpg"}]
+    },
+    "list_response": {"items": []},
+    "create_response": {"id": "99"}
+  },
+  {
+    "provider": "google_business_profile",
+    "payload": {
+      "format": "image",
+      "text": "Hello from Postqron",
+      "location": "accounts/1/locations/2",
+      "language_code": "en",
+      "topic_type": "STANDARD",
+      "media": [{"source_url": "https://cdn.example.com/image.jpg"}]
+    },
+    "list_response": {"localPosts": []},
+    "create_response": {
+      "name": "accounts/1/locations/2/localPosts/3",
+      "searchUrl": "https://business.google.com/posts/3"
+    }
+  }
+]

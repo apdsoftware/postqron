@@ -13,6 +13,7 @@ import (
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
+	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	statusnotifications "github.com/apdsoftware/postqron/features/f09-status-notifications"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -81,7 +82,11 @@ func TestProductionMetaBootstrapRegistersReviewedFacebookAndInstagram(t *testing
 			socialconnections.ProviderInstagramProfessional {
 		t.Fatalf("config=%+v", config)
 	}
-	registry, err := newRuntimeAdapterRegistry(config)
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		nil,
+		staticproviders.Config{},
+		config,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +98,7 @@ func TestProductionMetaBootstrapRegistersReviewedFacebookAndInstagram(t *testing
 		t.Fatal(err)
 	}
 	capabilities := publisher.Capabilities()
-	if capabilities.Reconciliation || !capabilities.FailClosedOnAmbiguous ||
+	if capabilities.Reconciliation || !capabilities.AmbiguousFailClosed ||
 		capabilities.MediaFormats == "" {
 		t.Fatalf("capabilities=%+v", capabilities)
 	}
@@ -204,12 +209,13 @@ func TestNotificationAuditPurgesWhenDeliveryGateIsDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(
+	service, err := NewWithExecutorAndMeta(
 		context.Background(),
 		database,
 		databaseURL,
 		clock,
-		WithMetaAdapters(config),
+		nil,
+		config,
 	)
 	if err != nil {
 		t.Fatal(err)

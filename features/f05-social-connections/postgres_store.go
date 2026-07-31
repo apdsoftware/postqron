@@ -826,6 +826,183 @@ func (repository *PostgresRepository) ReleaseSession(
 	return requireAffected(result)
 }
 
+func (repository *PostgresRepository) SaveLinkedInDMSGrant(
+	ctx context.Context,
+	grant StoredLinkedInDMSGrant,
+) error {
+	if !validStoredLinkedInDMSGrant(grant) {
+		return ErrInvalidArgument
+	}
+	result, err := repository.database.ExecContext(ctx, `
+		INSERT INTO f05_linkedin_dms_grants (
+			handle_hash, workspace_id, connection_id, provider,
+			evidence_key_id, evidence_ciphertext, state, lease_id,
+			locked_until, created_at, expires_at, uploaded_at, consumed_at
+		)
+		SELECT
+			$1, $2, connection.id, 'linkedin',
+			$4, $5, 'registered', '', NULL, $6, $7, NULL, NULL
+		FROM f05_social_connections connection
+		WHERE connection.id = $3
+		  AND connection.workspace_id = $2
+		  AND connection.provider = 'linkedin'
+		  AND connection.status = 'connected'`,
+		grant.HandleHash,
+		grant.WorkspaceID,
+		grant.ConnectionID,
+		grant.EvidenceCiphertext.KeyID,
+		grant.EvidenceCiphertext.Data,
+		grant.CreatedAt,
+		grant.ExpiresAt,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrInvalidState
+	}
+	return nil
+}
+
+func (repository *PostgresRepository) GetLinkedInDMSGrant(
+	ctx context.Context,
+	workspaceID, connectionID, handleHash string,
+	now time.Time,
+) (StoredLinkedInDMSGrant, error) {
+	grant, exists, err := selectLinkedInDMSGrant(
+		repository.database.QueryRowContext(ctx, `
+			SELECT
+				handle_hash, workspace_id, connection_id, provider,
+				evidence_key_id, evidence_ciphertext, state, lease_id,
+				locked_until, created_at, expires_at, uploaded_at, consumed_at
+			FROM f05_linkedin_dms_grants
+			WHERE handle_hash = $1
+			  AND workspace_id = $2
+			  AND connection_id = $3`,
+			handleHash,
+			workspaceID,
+			connectionID,
+		),
+	)
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	if !exists {
+		return StoredLinkedInDMSGrant{}, ErrResourceNotFound
+	}
+	if !now.Before(grant.ExpiresAt) {
+		return StoredLinkedInDMSGrant{}, ErrFlowExpired
+	}
+	return grant, nil
+}
+
+func (repository *PostgresRepository) TransitionLinkedInDMSGrant(
+	ctx context.Context,
+	command LinkedInDMSGrantTransition,
+) (StoredLinkedInDMSGrant, error) {
+	if !validLinkedInDMSGrantTransition(command) {
+		return StoredLinkedInDMSGrant{}, ErrInvalidArgument
+	}
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+	})
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	defer transaction.Rollback()
+	grant, exists, err := selectLinkedInDMSGrant(
+		transaction.QueryRowContext(ctx, `
+			SELECT
+				handle_hash, workspace_id, connection_id, provider,
+				evidence_key_id, evidence_ciphertext, state, lease_id,
+				locked_until, created_at, expires_at, uploaded_at, consumed_at
+			FROM f05_linkedin_dms_grants
+			WHERE handle_hash = $1
+			  AND workspace_id = $2
+			  AND connection_id = $3
+			FOR UPDATE`,
+			command.HandleHash,
+			command.WorkspaceID,
+			command.ConnectionID,
+		),
+	)
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	if !exists {
+		return StoredLinkedInDMSGrant{}, ErrResourceNotFound
+	}
+	if !command.Now.Before(grant.ExpiresAt) &&
+		command.ToState != LinkedInDMSGrantFailed &&
+		command.ToState != LinkedInDMSGrantConsumed {
+		return StoredLinkedInDMSGrant{}, ErrFlowExpired
+	}
+	if grant.State != command.FromState ||
+		grant.LeaseID != command.ExpectedLeaseID {
+		return StoredLinkedInDMSGrant{}, ErrInvalidState
+	}
+	if command.FromState == command.ToState {
+		if grant.LockedUntil == nil ||
+			grant.LockedUntil.After(command.Now) {
+			return StoredLinkedInDMSGrant{}, ErrAuthenticatedRequestInProgress
+		}
+	} else if command.FromState == LinkedInDMSGrantUploading ||
+		command.FromState == LinkedInDMSGrantCreating {
+		if grant.LockedUntil == nil ||
+			!command.Now.Before(*grant.LockedUntil) {
+			return StoredLinkedInDMSGrant{}, ErrAuthenticatedRequestInProgress
+		}
+	}
+	if _, err = transaction.ExecContext(ctx, `
+		UPDATE f05_linkedin_dms_grants
+		SET
+			state = $2,
+			lease_id = $3,
+			locked_until = $4,
+			uploaded_at = CASE
+				WHEN $2 = 'uploaded' THEN $5
+				ELSE uploaded_at
+			END,
+			consumed_at = CASE
+				WHEN $2 IN ('consumed', 'failed') THEN $5
+				ELSE consumed_at
+			END
+		WHERE handle_hash = $1`,
+		command.HandleHash,
+		command.ToState,
+		command.NewLeaseID,
+		command.NewLockedUntil,
+		command.Now,
+	); err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	grant, exists, err = selectLinkedInDMSGrant(
+		transaction.QueryRowContext(ctx, `
+			SELECT
+				handle_hash, workspace_id, connection_id, provider,
+				evidence_key_id, evidence_ciphertext, state, lease_id,
+				locked_until, created_at, expires_at, uploaded_at, consumed_at
+			FROM f05_linkedin_dms_grants
+			WHERE handle_hash = $1`,
+			command.HandleHash,
+		),
+	)
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	if !exists {
+		return StoredLinkedInDMSGrant{}, ErrInvalidState
+	}
+	if err = transaction.Commit(); err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	return grant, nil
+}
+
 func (repository *PostgresRepository) MarkReconnectRequired(
 	ctx context.Context,
 	workspaceID, connectionID, reason string,
@@ -948,6 +1125,44 @@ func (repository *PostgresRepository) Revoke(
 		return Connection{}, false, err
 	}
 	return connection, true, nil
+}
+
+func selectLinkedInDMSGrant(
+	scanner rowScanner,
+) (StoredLinkedInDMSGrant, bool, error) {
+	var grant StoredLinkedInDMSGrant
+	var lockedUntil, uploadedAt, consumedAt sql.NullTime
+	err := scanner.Scan(
+		&grant.HandleHash,
+		&grant.WorkspaceID,
+		&grant.ConnectionID,
+		&grant.Provider,
+		&grant.EvidenceCiphertext.KeyID,
+		&grant.EvidenceCiphertext.Data,
+		&grant.State,
+		&grant.LeaseID,
+		&lockedUntil,
+		&grant.CreatedAt,
+		&grant.ExpiresAt,
+		&uploadedAt,
+		&consumedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoredLinkedInDMSGrant{}, false, nil
+	}
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, false, err
+	}
+	if uploadedAt.Valid {
+		grant.UploadedAt = cloneTimePointer(&uploadedAt.Time)
+	}
+	if lockedUntil.Valid {
+		grant.LockedUntil = cloneTimePointer(&lockedUntil.Time)
+	}
+	if consumedAt.Valid {
+		grant.ConsumedAt = cloneTimePointer(&consumedAt.Time)
+	}
+	return grant, true, nil
 }
 
 const credentialSelect = `

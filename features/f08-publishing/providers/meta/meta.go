@@ -64,14 +64,14 @@ func newPublisher(
 
 func (publisher *Publisher) Capabilities() publishing.AdapterCapabilities {
 	return publishing.AdapterCapabilities{
-		Version:               capabilityVersion,
-		Mode:                  publishing.PublishingModeAuto,
-		Reconciliation:        false,
-		FailClosedOnAmbiguous: true,
-		MultiStep:             true,
-		RemotePermalink:       true,
-		NativeIdempotency:     false,
-		MediaFormats:          mediaFormats(publisher.provider),
+		Version:             capabilityVersion,
+		Mode:                publishing.PublishingModeAuto,
+		Reconciliation:      false,
+		AmbiguousFailClosed: true,
+		MultiStep:           true,
+		RemotePermalink:     true,
+		NativeIdempotency:   false,
+		MediaFormats:        mediaFormats(publisher.provider),
 	}
 }
 
