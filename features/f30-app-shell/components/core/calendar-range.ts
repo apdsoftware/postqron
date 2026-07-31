@@ -22,6 +22,16 @@ export function visibleMonthKey(month: Date): string {
   return `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
+export function initialVisibleMonth(
+  instant: Date,
+  timeZone: string,
+): Date {
+  const parts = Object.fromEntries(
+    formatter(timeZone).formatToParts(instant).map(part => [part.type, part.value]),
+  )
+  return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, 1))
+}
+
 export function paddedMonthRange(month: Date): {
   from: string
   until: string

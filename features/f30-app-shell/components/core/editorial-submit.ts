@@ -2,6 +2,10 @@ import type {
   ScheduleInput,
   ScheduledPost,
 } from './editorial-contracts.ts'
+import {
+  resolveLocalDateTime,
+  utcOffsetMinutesAtInstant,
+} from './timezones.ts'
 
 export interface SchedulingSubmitClient {
   reschedule(
@@ -27,7 +31,7 @@ export function immediateScheduleInput(
   const parts = new Intl.DateTimeFormat('en-CA', {
     day: '2-digit',
     hour: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
     minute: '2-digit',
     month: '2-digit',
     timeZone,
@@ -37,7 +41,30 @@ export function immediateScheduleInput(
   return {
     local_date_time: `${value.year}-${value.month}-${value.day}T${value.hour}:${value.minute}`,
     time_zone: timeZone,
+    utc_offset_minutes: utcOffsetMinutesAtInstant(target, timeZone),
   }
+}
+
+export function wallClockScheduleInput(
+  localDateTime: string,
+  timeZone: string,
+  selectedOffset?: number,
+): ScheduleInput | undefined {
+  const resolution = resolveLocalDateTime(localDateTime, timeZone)
+  const offset = resolution.kind === 'unique'
+    ? resolution.offsets[0]
+    : resolution.kind === 'ambiguous'
+      && selectedOffset !== undefined
+      && resolution.offsets.includes(selectedOffset)
+      ? selectedOffset
+      : undefined
+  return offset === undefined
+    ? undefined
+    : {
+        local_date_time: localDateTime,
+        time_zone: timeZone,
+        utc_offset_minutes: offset,
+      }
 }
 
 export async function submitScheduledDraft(

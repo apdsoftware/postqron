@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { CalendarEntry } from '../components/core/editorial-contracts.ts'
 import {
   filterEntriesForVisibleMonth,
+  initialVisibleMonth,
   localCalendarDayKey,
   paddedMonthRange,
   visibleMonthKey,
@@ -30,6 +31,23 @@ test('calendar ranges pad the visible month to survive local DST boundaries', ()
   assert.equal(range.from, '2026-02-27T00:00:00.000Z')
   assert.equal(range.until, '2026-04-03T00:00:00.000Z')
   assert.equal(visibleMonthKey(new Date(Date.UTC(2026, 2, 1))), '2026-03')
+})
+
+test('initial month follows the display timezone at UTC month boundaries', () => {
+  assert.equal(
+    visibleMonthKey(initialVisibleMonth(
+      new Date('2026-04-01T00:30:00.000Z'),
+      'America/Los_Angeles',
+    )),
+    '2026-03',
+  )
+  assert.equal(
+    visibleMonthKey(initialVisibleMonth(
+      new Date('2026-03-31T23:30:00.000Z'),
+      'Asia/Tokyo',
+    )),
+    '2026-04',
+  )
 })
 
 test('calendar filtering keeps entries whose local day remains inside the visible month', () => {

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ContentCapability } from '../components/core/editorial-contracts.ts'
-import { aggregateThreadConstraints } from '../components/core/editorial-thread.ts'
+import {
+  aggregateThreadConstraints,
+  canRemoveThreadItem,
+  threadItemsForSubmission,
+} from '../components/core/editorial-thread.ts'
 import {
   localizedValidationField,
   localizedValidationMessage,
@@ -43,6 +47,8 @@ test('thread constraints aggregate fail-closed across selected capabilities', ()
   ])
 
   assert.deepEqual(summary, {
+    allowed: true,
+    compatible: true,
     required: true,
     minimumItems: 2,
     maximumItems: 4,
@@ -64,7 +70,42 @@ test('thread constraints disappear when no selected capability allows threads', 
     thread: { allowed: false, required: false },
   }])
 
-  assert.equal(summary, undefined)
+  assert.deepEqual(summary, {
+    allowed: false,
+    compatible: true,
+    required: false,
+    minimumItems: 0,
+    maximumItems: 0,
+    maxItemCharacters: 0,
+    maxMediaPerItem: 0,
+  })
+})
+
+test('one selected destination that forbids threads makes the aggregate fail closed', () => {
+  const summary = aggregateThreadConstraints([
+    capability({ allowed: true, maximum_items: 5 }),
+    capability({ allowed: false }),
+  ])
+
+  assert.equal(summary?.allowed, false)
+  assert.deepEqual(threadItemsForSubmission([
+    { text: 'stale', media_ids: ['media-1'] },
+  ], summary), [])
+  assert.equal(canRemoveThreadItem(summary, 1), true)
+})
+
+test('an impossible min/max intersection is explicit and stale items remain removable', () => {
+  const summary = aggregateThreadConstraints([
+    capability({ minimum_items: 4, maximum_items: 8 }),
+    capability({ minimum_items: 2, maximum_items: 3 }),
+  ])
+
+  assert.equal(summary?.allowed, true)
+  assert.equal(summary?.compatible, false)
+  assert.equal(summary?.minimumItems, 4)
+  assert.equal(summary?.maximumItems, 3)
+  assert.equal(canRemoveThreadItem(summary, 1), true)
+  assert.deepEqual(threadItemsForSubmission([{ text: 'stale', media_ids: [] }], summary), [])
 })
 
 test('validation field and message mapping localize known backend codes and rules', () => {

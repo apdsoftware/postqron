@@ -12,6 +12,7 @@ import {
 import type { AppShellMessageKey } from '../components/core/catalogs.ts'
 import {
   filterEntriesForVisibleMonth,
+  initialVisibleMonth,
   localCalendarDayKey,
   paddedMonthRange,
 } from '../components/core/calendar-range.ts'
@@ -23,6 +24,7 @@ import {
   type SchedulingPostStatus,
 } from '../components/core/editorial-contracts.ts'
 import { normalizeEditorialApiError } from '../components/core/editorial-api.ts'
+import { wallClockScheduleInput } from '../components/core/editorial-submit.ts'
 import {
   appRoute,
   localeFromAppPath,
@@ -30,6 +32,7 @@ import {
 import type { SocialConnection } from '../components/core/social-connections.ts'
 import {
   detectedTimeZone,
+  resolveLocalDateTime,
   supportedTimeZones,
 } from '../components/core/timezones.ts'
 import {
@@ -63,17 +66,17 @@ const statusFilter = ref<SchedulingPostStatus | ''>('')
 const browserTimezone = detectedTimeZone()
 const timezoneOptions = supportedTimeZones(browserTimezone)
 const timezone = ref(browserTimezone)
-const visibleMonth = ref(new Date(Date.UTC(
-  new Date().getUTCFullYear(),
-  new Date().getUTCMonth(),
-  1,
-)))
+const visibleMonth = ref(initialVisibleMonth(new Date(), timezone.value))
 const notice = ref<{ key: AppShellMessageKey, tone: 'error' | 'success' }>()
 const busyPost = ref<string>()
 const rescheduling = ref<CalendarEntry>()
 const rescheduleDateTime = ref('')
 const rescheduleTimeZone = ref('')
 const rescheduleOffset = ref('')
+const rescheduleResolution = computed(() => resolveLocalDateTime(
+  rescheduleDateTime.value,
+  rescheduleTimeZone.value,
+))
 
 useHead(computed(() => ({ title: t('documentTitle.calendar') })))
 
@@ -134,6 +137,17 @@ const { pending, refresh } = useAsyncData('postqron-calendar', async () => {
 }, { server: false })
 
 watch([range, channelFilter, statusFilter, timezone, workspaceId], () => void refresh())
+watch([rescheduleDateTime, rescheduleTimeZone], () => {
+  const entry = rescheduling.value
+  if (!entry) {
+    return
+  }
+  const unchanged = rescheduleDateTime.value === entry.scheduled_local.slice(0, 16)
+    && rescheduleTimeZone.value === entry.time_zone
+  if (!unchanged) {
+    rescheduleOffset.value = ''
+  }
+})
 
 const monthLabel = computed(() => new Intl.DateTimeFormat(uiLocale.value, {
   month: 'long',
@@ -278,10 +292,10 @@ async function duplicate(entry: CalendarEntry) {
 }
 
 function openReschedule(entry: CalendarEntry) {
-  rescheduling.value = entry
   rescheduleDateTime.value = entry.scheduled_local.slice(0, 16)
   rescheduleTimeZone.value = entry.time_zone
   rescheduleOffset.value = String(entry.utc_offset_minutes)
+  rescheduling.value = entry
 }
 
 function scheduleInput(): ScheduleInput | undefined {
@@ -289,16 +303,26 @@ function scheduleInput(): ScheduleInput | undefined {
     notice.value = { tone: 'error', key: 'composer.scheduleRequired' }
     return undefined
   }
-  const offset = rescheduleOffset.value.trim()
-  if (offset && (!/^-?[0-9]+$/u.test(offset) || Math.abs(Number(offset)) > 1080)) {
-    notice.value = { tone: 'error', key: 'composer.offsetInvalid' }
+  const resolution = rescheduleResolution.value
+  if (resolution.kind === 'invalid') {
+    notice.value = { tone: 'error', key: 'composer.scheduleRequired' }
     return undefined
   }
-  return {
-    local_date_time: rescheduleDateTime.value,
-    time_zone: rescheduleTimeZone.value.trim(),
-    ...(offset ? { utc_offset_minutes: Number(offset) } : {}),
+  if (resolution.kind === 'nonexistent') {
+    notice.value = { tone: 'error', key: 'composer.localTimeNonexistent' }
+    return undefined
   }
+  const offset = rescheduleOffset.value.trim()
+  const selectedOffset = /^-?[0-9]+$/u.test(offset) ? Number(offset) : undefined
+  const input = wallClockScheduleInput(
+    rescheduleDateTime.value,
+    rescheduleTimeZone.value.trim(),
+    selectedOffset,
+  )
+  if (!input) {
+    notice.value = { tone: 'error', key: 'composer.offsetRequired' }
+  }
+  return input
 }
 
 async function confirmReschedule() {
@@ -494,15 +518,28 @@ async function cancel(entry: CalendarEntry) {
           </option>
         </select>
       </label>
-      <label>
+      <label v-if="rescheduleResolution.kind === 'ambiguous'">
         <span>{{ t('composer.offsetLabel') }}</span>
-        <input
+        <select
           v-model="rescheduleOffset"
-          type="number"
-          min="-1080"
-          max="1080"
         >
+          <option value="">{{ t('composer.chooseOffset') }}</option>
+          <option
+            v-for="offset in rescheduleResolution.offsets"
+            :key="offset"
+            :value="String(offset)"
+          >
+            UTC{{ offset >= 0 ? '+' : '' }}{{ offset / 60 }}
+          </option>
+        </select>
       </label>
+      <p
+        v-else-if="rescheduleResolution.kind === 'nonexistent'"
+        class="app-inline-alert"
+        role="alert"
+      >
+        {{ t('composer.localTimeNonexistent') }}
+      </p>
       <div class="calendar-actions">
         <button
           class="pq-button"

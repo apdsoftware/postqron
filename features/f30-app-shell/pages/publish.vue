@@ -29,10 +29,15 @@ import {
   applyDestinationCapability,
   setDestinationField,
 } from '../components/core/editorial-form.ts'
-import { aggregateThreadConstraints } from '../components/core/editorial-thread.ts'
+import {
+  aggregateThreadConstraints,
+  canRemoveThreadItem,
+  threadItemsForSubmission,
+} from '../components/core/editorial-thread.ts'
 import {
   immediateScheduleInput,
   submitScheduledDraft,
+  wallClockScheduleInput,
 } from '../components/core/editorial-submit.ts'
 import {
   localizedValidationField,
@@ -45,6 +50,7 @@ import {
 import type { SocialConnection } from '../components/core/social-connections.ts'
 import {
   detectedTimeZone,
+  resolveLocalDateTime,
   supportedTimeZones,
 } from '../components/core/timezones.ts'
 import {
@@ -105,7 +111,7 @@ function wallClock(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     day: '2-digit',
     hour: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
     minute: '2-digit',
     month: '2-digit',
     timeZone,
@@ -120,10 +126,7 @@ function contentSnapshot(): DraftContent {
     text: content.value.text,
     link: content.value.link,
     media: content.value.media.map(media => ({ ...media })),
-    thread: content.value.thread.map(item => ({
-      text: item.text,
-      media_ids: [...item.media_ids],
-    })),
+    thread: threadItemsForSubmission(content.value.thread, threadConstraints.value),
     destinations: content.value.destinations.map(destination => ({
       ...destination,
       fields: destination.fields ? { ...destination.fields } : undefined,
@@ -227,14 +230,26 @@ const threadConstraints = computed(() =>
   aggregateThreadConstraints(selectedCapabilities.value))
 
 const threadVisible = computed(() =>
-  Boolean(threadConstraints.value) || content.value.thread.length > 0)
+  Boolean(threadConstraints.value?.allowed)
+  || threadConstraints.value?.compatible === false
+  || content.value.thread.length > 0)
+
+const threadBlocked = computed(() =>
+  threadConstraints.value?.compatible === false
+  || (threadConstraints.value?.allowed === false && content.value.thread.length > 0))
 
 const threadValidationErrors = computed(() =>
   validationErrors().filter(error => error.field.startsWith('thread[')))
 
 const canAddThreadItem = computed(() =>
-  threadConstraints.value?.maximumItems === undefined
-  || content.value.thread.length < threadConstraints.value.maximumItems)
+  Boolean(threadConstraints.value?.allowed && threadConstraints.value.compatible)
+  && (threadConstraints.value?.maximumItems === undefined
+    || content.value.thread.length < threadConstraints.value.maximumItems))
+
+const scheduleResolution = computed(() => resolveLocalDateTime(
+  scheduleDateTime.value,
+  scheduleTimezone.value,
+))
 
 function capabilitiesFor(connection: SocialConnection): ContentCapability[] {
   return (capabilityCatalog.value?.capabilities ?? [])
@@ -322,8 +337,7 @@ function addThreadItem() {
 }
 
 function removeThreadItem(index: number) {
-  const minimum = threadConstraints.value?.minimumItems ?? 0
-  if (content.value.thread.length <= minimum) {
+  if (!canRemoveThreadItem(threadConstraints.value, content.value.thread.length)) {
     return
   }
   content.value.thread.splice(index, 1)
@@ -477,6 +491,15 @@ async function validateAndSave(): Promise<DraftView | undefined> {
     notice.value = { tone: 'error', key: 'composer.destinationRequired' }
     return undefined
   }
+  if (threadBlocked.value) {
+    notice.value = {
+      tone: 'error',
+      key: threadConstraints.value?.compatible === false
+        ? 'composer.threadConstraintsImpossible'
+        : 'composer.threadForbidden',
+    }
+    return undefined
+  }
   const saved = await persist(false)
   if (!saved) {
     return undefined
@@ -517,16 +540,26 @@ function scheduleInput(): ScheduleInput | undefined {
     notice.value = { tone: 'error', key: 'composer.scheduleRequired' }
     return undefined
   }
-  const offset = utcOffsetMinutes.value.trim()
-  if (offset && (!/^-?[0-9]+$/u.test(offset) || Math.abs(Number(offset)) > 1080)) {
-    notice.value = { tone: 'error', key: 'composer.offsetInvalid' }
+  const resolution = scheduleResolution.value
+  if (resolution.kind === 'invalid') {
+    notice.value = { tone: 'error', key: 'composer.scheduleRequired' }
     return undefined
   }
-  return {
-    local_date_time: scheduleDateTime.value,
-    time_zone: timezone,
-    ...(offset ? { utc_offset_minutes: Number(offset) } : {}),
+  if (resolution.kind === 'nonexistent') {
+    notice.value = { tone: 'error', key: 'composer.localTimeNonexistent' }
+    return undefined
   }
+  const offset = utcOffsetMinutes.value.trim()
+  const selectedOffset = /^-?[0-9]+$/u.test(offset) ? Number(offset) : undefined
+  const input = wallClockScheduleInput(
+    scheduleDateTime.value,
+    timezone,
+    selectedOffset,
+  )
+  if (!input) {
+    notice.value = { tone: 'error', key: 'composer.offsetRequired' }
+  }
+  return input
 }
 
 async function submitSchedule(immediate: boolean) {
@@ -718,7 +751,6 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
           <p>{{ t('composer.threadDescription') }}</p>
           <fieldset
             class="composer-thread"
-            :disabled="!threadConstraints"
           >
             <legend>{{ t('composer.threadLegend') }}</legend>
             <p class="app-inline-note">
@@ -728,6 +760,20 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
                 characters: threadConstraints?.maxItemCharacters ?? '∞',
                 media: threadConstraints?.maxMediaPerItem ?? '∞',
               }) }}
+            </p>
+            <p
+              v-if="threadConstraints?.compatible === false"
+              class="app-inline-alert"
+              role="alert"
+            >
+              {{ t('composer.threadConstraintsImpossible') }}
+            </p>
+            <p
+              v-else-if="threadConstraints?.allowed === false && content.thread.length > 0"
+              class="app-inline-alert"
+              role="alert"
+            >
+              {{ t('composer.threadForbidden') }}
             </p>
             <p
               v-if="content.thread.length === 0"
@@ -746,7 +792,7 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
                   <button
                     class="pq-button pq-button--secondary"
                     type="button"
-                    :disabled="!threadConstraints || content.thread.length <= threadConstraints.minimumItems"
+                    :disabled="!canRemoveThreadItem(threadConstraints, content.thread.length)"
                     @click="removeThreadItem(index)"
                   >
                     {{ t('composer.removeThreadItem') }}
@@ -757,6 +803,7 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
                   <textarea
                     v-model="item.text"
                     rows="4"
+                    :disabled="!threadConstraints?.allowed || !threadConstraints.compatible"
                     :maxlength="threadConstraints?.maxItemCharacters"
                     :placeholder="t('composer.threadTextPlaceholder')"
                   />
@@ -764,6 +811,7 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
                 <fieldset
                   class="composer-thread-media"
                   role="group"
+                  :disabled="!threadConstraints?.allowed || !threadConstraints.compatible"
                 >
                   <legend>{{ t('composer.threadMediaLegend') }}</legend>
                   <p
@@ -802,19 +850,20 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
               {{ t('composer.addThreadItem') }}
             </button>
           </fieldset>
-          <ul
+          <div
             v-if="threadValidationErrors.length"
-            class="composer-validation"
             role="alert"
           >
-            <li
-              v-for="error in threadValidationErrors"
-              :key="`${error.code}-${error.field}`"
-            >
-              <strong>{{ validationField(error) }}:</strong> {{ validationMessage(error) }}
-              <span v-if="error.remedy">{{ error.remedy }}</span>
-            </li>
-          </ul>
+            <ul class="composer-validation">
+              <li
+                v-for="error in threadValidationErrors"
+                :key="`${error.code}-${error.field}`"
+              >
+                <strong>{{ validationField(error) }}:</strong> {{ validationMessage(error) }}
+                <span v-if="error.remedy">{{ error.remedy }}</span>
+              </li>
+            </ul>
+          </div>
         </article>
 
         <article class="app-card">
@@ -917,19 +966,20 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
                       @input="personalize(connection.id, ($event.target as HTMLTextAreaElement).value)"
                     />
                   </label>
-                  <ul
+                  <div
                     v-if="validationErrors(selectedDestination(connection.id)?.id).length"
-                    class="composer-validation"
                     role="alert"
                   >
-                    <li
-                      v-for="error in validationErrors(selectedDestination(connection.id)?.id)"
-                      :key="`${error.code}-${error.field}`"
-                    >
-                      <strong>{{ validationField(error) }}:</strong> {{ validationMessage(error) }}
-                      <span v-if="error.remedy">{{ error.remedy }}</span>
-                    </li>
-                  </ul>
+                    <ul class="composer-validation">
+                      <li
+                        v-for="error in validationErrors(selectedDestination(connection.id)?.id)"
+                        :key="`${error.code}-${error.field}`"
+                      >
+                        <strong>{{ validationField(error) }}:</strong> {{ validationMessage(error) }}
+                        <span v-if="error.remedy">{{ error.remedy }}</span>
+                      </li>
+                    </ul>
+                  </div>
                 </div>
                 <p
                   v-else-if="capabilitiesFor(connection).length === 0"
@@ -1000,17 +1050,29 @@ function validationMessage(error: Parameters<typeof localizedValidationMessage>[
                 </option>
               </select>
             </label>
-            <label>
+            <label v-if="scheduleResolution.kind === 'ambiguous'">
               <span>{{ t('composer.offsetLabel') }}</span>
-              <input
+              <select
                 v-model="utcOffsetMinutes"
-                type="number"
-                min="-1080"
-                max="1080"
-                placeholder="+60"
               >
+                <option value="">{{ t('composer.chooseOffset') }}</option>
+                <option
+                  v-for="offset in scheduleResolution.offsets"
+                  :key="offset"
+                  :value="String(offset)"
+                >
+                  UTC{{ offset >= 0 ? '+' : '' }}{{ offset / 60 }}
+                </option>
+              </select>
               <small>{{ t('composer.offsetHelp') }}</small>
             </label>
+            <p
+              v-else-if="scheduleResolution.kind === 'nonexistent'"
+              class="app-inline-alert"
+              role="alert"
+            >
+              {{ t('composer.localTimeNonexistent') }}
+            </p>
             <button
               class="pq-button"
               type="button"
