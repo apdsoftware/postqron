@@ -78,19 +78,19 @@ func NewGoogleBusinessProfileAdapter(
 			},
 		}
 	}
-	authorizationURL := endpointOrDefault(
+	authorizationURL := linkedInEndpointOrDefault(
 		config.AuthorizationURL,
 		"https://accounts.google.com/o/oauth2/v2/auth",
 	)
-	tokenURL := endpointOrDefault(
+	tokenURL := linkedInEndpointOrDefault(
 		config.TokenURL,
 		"https://oauth2.googleapis.com/token",
 	)
-	accountAPIBaseURL := strings.TrimRight(endpointOrDefault(
+	accountAPIBaseURL := strings.TrimRight(linkedInEndpointOrDefault(
 		config.AccountAPIBaseURL,
 		"https://mybusinessaccountmanagement.googleapis.com",
 	), "/")
-	businessAPIBaseURL := strings.TrimRight(endpointOrDefault(
+	businessAPIBaseURL := strings.TrimRight(linkedInEndpointOrDefault(
 		config.BusinessAPIBaseURL,
 		"https://mybusinessbusinessinformation.googleapis.com",
 	), "/")
