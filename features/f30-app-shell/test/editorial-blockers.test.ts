@@ -156,6 +156,7 @@ test('a new post still uses the F7 schedule operation', async () => {
   await submitScheduledDraft(client, {
     channelIds: ['channel-1'],
     draftId: 'draft-1',
+    idempotencyKey: 'schedule-intent-1',
     scheduledAt: {
       local_date_time: '2026-07-30T20:00',
       time_zone: 'Europe/Rome',
@@ -232,16 +233,15 @@ test('composer renders capability fields and timezone selects, calendar localize
   assert.doesNotMatch(calendar, /aria-label="Calendar controls"/u)
 })
 
-test('Mastodon and Bluesky use delivered discovery inputs while adapters remain gated', async () => {
+test('Mastodon and Bluesky use delivered discovery inputs and authoritative availability', async () => {
   const [page, catalogs] = await Promise.all([
     source('../pages/social-channels.vue'),
     source('../components/core/editorial-catalogs.ts'),
   ])
-  assert.match(page, /provider\.provider === 'mastodon' \|\| provider\.provider === 'bluesky'/u)
   assert.match(page, /provider\.capabilities\.dynamic_discovery/u)
-  assert.match(page, /social\.configuration\.decentralized_blocked/u)
+  assert.doesNotMatch(page, /decentralized_blocked|adapter.*not integrated/iu)
   assert.doesNotMatch(page, /instance_url|app_password/iu)
-  assert.match(catalogs, /central dynamic-discovery contract is delivered/iu)
+  assert.doesNotMatch(catalogs, /adapter.*not integrated/iu)
 })
 
 test('social channels rely on the JSON callback handoff and authoritative workspace permissions', async () => {
@@ -249,8 +249,9 @@ test('social channels rely on the JSON callback handoff and authoritative worksp
   assert.match(page, /accountApi\.currentWorkspace\(\)/u)
   assert.match(page, /role === 'owner'\s*&& workspace\.value\?\.status === 'active'/u)
   assert.match(page, /parseSocialCallbackDocument/u)
-  assert.match(page, /windowHandle\.location\.pathname !== callbackURL\.pathname/u)
-  assert.match(page, /callback\.origin !== globalThis\.location\.origin/u)
+  assert.match(page, /callbackPathnames\.has\(windowHandle\.location\.pathname\)/u)
+  assert.match(page, /social\.callbackRelayURL\(globalThis\.location\.origin\)/u)
+  assert.match(page, /data-postqron-social-callback-handoff/u)
   assert.match(page, /windowHandle\.opener = null/u)
   assert.match(page, /dynamic_discovery/u)
   assert.match(page, /history\.replaceState\([\s\S]*withoutSocialOAuthCallbackParameters\(route\.query\)/u)

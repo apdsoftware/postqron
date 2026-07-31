@@ -3,6 +3,8 @@ import test from 'node:test'
 import { SocialApiError } from '../components/core/social-api.ts'
 import {
   parseSocialCallbackDocument,
+  socialCallbackHandoffDocument,
+  socialOAuthCallbackInput,
   withoutSocialOAuthCallbackParameters,
 } from '../components/core/social-callback.ts'
 
@@ -68,4 +70,43 @@ test('callback handoff maps flat F5 errors back to stable UI failure kinds', () 
       && error.code === 'provider_denied'
       && error.kind === 'provider-denied',
   )
+})
+
+test('same-origin relay forwards only one state/result/issuer tuple', () => {
+  assert.deepEqual(socialOAuthCallbackInput({
+    state: 'opaque-state',
+    code: 'authorization-code',
+    iss: 'https://issuer.example.test',
+    redirect: 'https://evil.example.test',
+  }), {
+    state: 'opaque-state',
+    code: 'authorization-code',
+    error: '',
+    iss: 'https://issuer.example.test',
+  })
+  assert.throws(
+    () => socialOAuthCallbackInput({ state: ['one', 'two'], code: 'code' }),
+    (error: unknown) => error instanceof SocialApiError
+      && error.code === 'social_invalid_callback_parameters',
+  )
+  assert.throws(
+    () => socialOAuthCallbackInput({ state: 'state', code: 'code', error: 'denied' }),
+    (error: unknown) => error instanceof SocialApiError
+      && error.code === 'social_invalid_callback_parameters',
+  )
+})
+
+test('relay handoff serializes only the client-safe F5 error envelope', () => {
+  const error = new SocialApiError({
+    code: 'invalid_oauth_state',
+    kind: 'invalid-state',
+    message: 'Conflict',
+    retryable: false,
+    status: 409,
+  })
+  assert.deepEqual(JSON.parse(socialCallbackHandoffDocument(error)), {
+    code: 'invalid_oauth_state',
+    message: 'Conflict',
+    retryable: false,
+  })
 })

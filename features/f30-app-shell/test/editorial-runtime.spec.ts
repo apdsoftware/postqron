@@ -143,6 +143,7 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
   let sessionRequests = 0
   let connections = role === 'owner' ? [] as Array<ReturnType<typeof socialConnection>> : [socialConnection('reconnect_required')]
   let beginBody: unknown
+  const callbackRequests: URL[] = []
 
   await page.route('**/api/v1/app/session', (route) => {
     sessionRequests += 1
@@ -180,9 +181,10 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
     route.fulfill({
       status: 200,
       contentType: 'text/html',
-      body: `<script>location.replace(${JSON.stringify(`${offBaseURL}/api/v1/social-authorizations/callback`)})</script>`,
+      body: `<script>location.replace(${JSON.stringify(`${offBaseURL}/app/social-oauth/callback?state=state-1&code=code-1&iss=https%3A%2F%2Fbsky.social`)})</script>`,
     }))
   await page.context().route('**/api/v1/social-authorizations/callback*', async route => {
+    callbackRequests.push(new URL(route.request().url()))
     const payload = {
       selection_id: 'selection-1',
       provider: 'bluesky',
@@ -196,17 +198,12 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
         scopes: ['atproto'],
       }],
     }
-    await route.fulfill(route.request().isNavigationRequest()
-      ? {
-          status: 200,
-          contentType: 'text/plain',
-          body: JSON.stringify(payload),
-        }
-      : json(payload))
+    await route.fulfill(json(payload))
   })
 
   return {
     beginBody: () => beginBody,
+    callbackRequests,
     sessionRequests: () => sessionRequests,
     setSessionRole(nextRole: 'owner' | 'member') {
       sessionRole = nextRole
@@ -386,9 +383,15 @@ async function routeWorkspaceSwitchPage(
   }
 }
 
-async function routeComposerPage(page: Page) {
+async function routeComposerPage(
+  page: Page,
+  options: { ambiguousFirstSchedule?: boolean, validationValid?: boolean } = {},
+) {
   let draftRevision = 0
   let scheduleRequests = 0
+  const scheduleBodies: unknown[] = []
+  const scheduleKeys: string[] = []
+  const scheduledOperations = new Map<string, { body: string, response: unknown }>()
   let draftContent = {
     text: '',
     link: '',
@@ -506,18 +509,19 @@ async function routeComposerPage(page: Page) {
       return
     }
     if (url.pathname === '/api/v1/workspaces/workspace-fixture/drafts/draft-1'
-      && request.method() === 'PATCH') {
+      && (request.method() === 'PATCH' || request.method() === 'PUT')) {
       draftRevision += 1
       draftContent = request.postDataJSON().content
       await route.fulfill(json(draftView()))
       return
     }
     if (url.pathname === '/api/v1/workspaces/workspace-fixture/drafts/draft-1/validate') {
+      const valid = options.validationValid ?? false
       await route.fulfill(json({
         validation: {
           capability_version: 'fixture-v1',
-          valid: false,
-          errors: [{
+          valid,
+          errors: valid ? [] : [{
             field: 'thread[0].text',
             rule: 'required',
             code: 'text_required',
@@ -563,7 +567,36 @@ async function routeComposerPage(page: Page) {
     if (url.pathname === '/api/v1/workspaces/workspace-fixture/scheduled-posts'
       && request.method() === 'POST') {
       scheduleRequests += 1
-      await route.fulfill(json({
+      const key = request.headers()['idempotency-key'] ?? ''
+      const body = request.postData() ?? ''
+      scheduleKeys.push(key)
+      scheduleBodies.push(request.postDataJSON())
+      if (!key) {
+        await route.fulfill({
+          ...json({
+            error: {
+              code: 'idempotency_key_invalid',
+              retryable: false,
+            },
+          }),
+          status: 400,
+        })
+        return
+      }
+      const existing = scheduledOperations.get(key)
+      if (existing && existing.body !== body) {
+        await route.fulfill({
+          ...json({
+            error: {
+              code: 'idempotency_payload_mismatch',
+              retryable: false,
+            },
+          }),
+          status: 409,
+        })
+        return
+      }
+      const response = existing?.response ?? {
         id: 'post-1',
         workspace_id: 'workspace-fixture',
         draft_id: 'draft-1',
@@ -576,7 +609,21 @@ async function routeComposerPage(page: Page) {
         revision: 1,
         created_at: '2026-07-31T12:00:00.000Z',
         updated_at: '2026-07-31T12:00:00.000Z',
-      }))
+      }
+      scheduledOperations.set(key, { body, response })
+      if (options.ambiguousFirstSchedule && scheduleRequests === 1) {
+        await route.abort('failed')
+        return
+      }
+      const responseFixture = json(response)
+      await route.fulfill({
+        ...responseFixture,
+        status: 201,
+        headers: {
+          ...responseFixture.headers,
+          ...(existing ? { 'idempotency-replayed': 'true' } : {}),
+        },
+      })
       return
     }
 
@@ -584,13 +631,22 @@ async function routeComposerPage(page: Page) {
   })
 
   return {
+    scheduleBodies,
+    scheduleKeys,
     scheduleRequests: () => scheduleRequests,
+    scheduledOperations,
   }
 }
 
-async function routeCalendarPage(page: Page) {
+async function routeCalendarPage(
+  page: Page,
+  options: { ambiguousFirstDuplicate?: boolean } = {},
+) {
   const calendarRequests: string[] = []
   const rescheduleBodies: unknown[] = []
+  const duplicateBodies: unknown[] = []
+  const duplicateKeys: string[] = []
+  const duplicateOperations = new Map<string, string>()
 
   await page.route('**/*', async route => {
     const request = route.request()
@@ -787,12 +843,66 @@ async function routeCalendarPage(page: Page) {
       }))
       return
     }
+    if (url.pathname === '/api/v1/workspaces/workspace-fixture/scheduled-posts/scheduled-1/duplicate'
+      && request.method() === 'POST') {
+      const key = request.headers()['idempotency-key'] ?? ''
+      const body = request.postData() ?? ''
+      duplicateKeys.push(key)
+      duplicateBodies.push(request.postDataJSON())
+      if (!key) {
+        await route.fulfill({
+          ...json({ error: { code: 'idempotency_key_invalid', retryable: false } }),
+          status: 400,
+        })
+        return
+      }
+      const existing = duplicateOperations.get(key)
+      if (existing !== undefined && existing !== body) {
+        await route.fulfill({
+          ...json({ error: { code: 'idempotency_payload_mismatch', retryable: false } }),
+          status: 409,
+        })
+        return
+      }
+      duplicateOperations.set(key, body)
+      if (options.ambiguousFirstDuplicate && duplicateKeys.length === 1) {
+        await route.abort('failed')
+        return
+      }
+      const responseFixture = json({
+        id: 'duplicate-1',
+        workspace_id: 'workspace-fixture',
+        draft_id: 'draft-duplicate-1',
+        channel_ids: ['channel-1'],
+        status: 'scheduled',
+        scheduled_for_utc: '2026-03-10T09:00:00.000Z',
+        scheduled_local: '2026-03-10T10:00:00',
+        time_zone: 'Europe/Rome',
+        utc_offset_minutes: 60,
+        revision: 1,
+        duplicated_from_post_id: 'scheduled-1',
+        created_at: '2026-03-01T08:00:00.000Z',
+        updated_at: '2026-03-01T08:00:00.000Z',
+      })
+      await route.fulfill({
+        ...responseFixture,
+        status: 201,
+        headers: {
+          ...responseFixture.headers,
+          ...(existing !== undefined ? { 'idempotency-replayed': 'true' } : {}),
+        },
+      })
+      return
+    }
 
     await route.continue()
   })
 
   return {
     calendarRequests,
+    duplicateBodies,
+    duplicateKeys,
+    duplicateOperations,
     rescheduleBodies,
   }
 }
@@ -823,10 +933,13 @@ test('owner social flow captures typed discovery, completes callback selection, 
       value: 'did:plc:alice',
     },
   })
-  await popup.waitForURL(`${offBaseURL}/api/v1/social-authorizations/callback`)
-  await expect(popup.locator('body')).toContainText('selection_id')
+  await popup.waitForURL(`${offBaseURL}/en/app/social-oauth/callback`)
+  await expect(popup.locator('[data-postqron-social-callback-handoff]')).toBeAttached()
 
   await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toBeVisible()
+  expect(social.callbackRequests).toHaveLength(1)
+  expect(social.callbackRequests[0]?.searchParams.get('state')).toBe('state-1')
+  expect(social.callbackRequests[0]?.searchParams.get('iss')).toBe('https://bsky.social')
   await page.getByRole('button', { name: 'Connect this resource' }).click()
 
   await expect(page.locator('.app-provider-list')).toContainText('Alice')
@@ -1346,9 +1459,9 @@ test('an account configuration error without status is unavailable rather than o
   await expect(page.getByText('Loading your workspace')).toHaveCount(0)
 })
 
-test('cross-origin F5 callbacks fail closed before OAuth starts', async ({ page }) => {
+test('separate APP and API domains complete OAuth through the fixed same-origin relay', async ({ page }) => {
   const social = await routeSocialPage(page, 'owner')
-  await page.route('**/en/app/social-channels', async route => {
+  await page.context().route(/\/en\/app\/(?:social-channels|social-oauth\/callback)(?:\?|$)/u, async route => {
     const response = await route.fetch()
     const original = await response.text()
     const body = original.replace(
@@ -1364,19 +1477,19 @@ test('cross-origin F5 callbacks fail closed before OAuth starts', async ({ page 
     await route.fulfill({ response, body, headers })
   })
 
-  let popupCount = 0
-  page.on('popup', () => { popupCount += 1 })
   await page.goto(`${offBaseURL}/en/app/social-channels`)
   const provider = page.locator('.app-provider-catalog li').filter({ hasText: 'Bluesky' })
   await provider.getByLabel('Discovery type').selectOption('did')
   await provider.getByLabel('Discovery value').fill('did:plc:alice')
+  const popupPromise = page.waitForEvent('popup')
   await provider.getByRole('button', { name: 'Connect' }).click()
+  const popup = await popupPromise
 
-  await expect(page.getByText(
-    'Social OAuth requires the API callback to be exposed through the same origin as the app. No authorization was started.',
-  )).toBeVisible()
-  expect(popupCount).toBe(0)
-  expect(social.beginBody()).toBeUndefined()
+  await popup.waitForURL(`${offBaseURL}/en/app/social-oauth/callback`)
+  await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toBeVisible()
+  expect(social.beginBody()).toBeDefined()
+  expect(social.callbackRequests).toHaveLength(1)
+  expect(social.callbackRequests[0]?.origin).toBe('http://127.0.0.1:41796')
 })
 
 test('composer uploads media, enables thread controls from capabilities, and localizes validation errors', async ({
@@ -1412,6 +1525,64 @@ test('composer uploads media, enables thread controls from capabilities, and loc
     document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
   const results = await new AxeBuilder({ page }).include('main').analyze()
   expect(results.violations).toEqual([])
+})
+
+test('publish-now real clicks reuse one Idempotency-Key after an ambiguous response', async ({
+  page,
+}) => {
+  const composer = await routeComposerPage(page, {
+    ambiguousFirstSchedule: true,
+    validationValid: true,
+  })
+
+  await page.goto(`${offBaseURL}/en/app/publish`)
+  await page.getByRole('checkbox', { name: /Launch Thread/u }).check()
+  await page.getByRole('button', { name: 'Add thread item' }).click()
+  await page.getByLabel('Item text').fill('Idempotent launch')
+  await page.getByRole('button', { name: 'Publish now' }).click()
+
+  await expect(page.getByText(
+    'Postqron is unreachable. Check your connection and retry; your local edits remain on screen.',
+  )).toBeVisible()
+  expect(composer.scheduleRequests()).toBe(1)
+  expect(composer.scheduleKeys[0]).toMatch(/^[!-~]{1,200}$/u)
+
+  await page.getByRole('button', { name: 'Publish now' }).click()
+  await expect(page).toHaveURL(`${offBaseURL}/en/app/calendar`)
+  expect(composer.scheduleRequests()).toBe(2)
+  expect(composer.scheduleKeys[1]).toBe(composer.scheduleKeys[0])
+  expect(composer.scheduleBodies[1]).toEqual(composer.scheduleBodies[0])
+  expect(composer.scheduledOperations.size).toBe(1)
+
+  const mismatchStatus = await page.evaluate(async ({ key, original }) => {
+    const body = original as {
+      scheduled_at: { local_date_time: string }
+    }
+    const response = await fetch(
+      '/api/v1/workspaces/workspace-fixture/scheduled-posts',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': key,
+        },
+        body: JSON.stringify({
+          ...body,
+          scheduled_at: {
+            ...body.scheduled_at,
+            local_date_time: '2030-01-01T10:00',
+          },
+        }),
+      },
+    )
+    return response.status
+  }, {
+    key: composer.scheduleKeys[0] ?? '',
+    original: composer.scheduleBodies[0],
+  })
+  expect(mismatchStatus).toBe(409)
+  expect(composer.scheduledOperations.size).toBe(1)
 })
 
 test('calendar refetches on timezone changes, keeps local DST boundaries visible, and locks non-scheduled posts', async ({
@@ -1471,4 +1642,29 @@ test('calendar refetches on timezone changes, keeps local DST boundaries visible
 
   const results = await new AxeBuilder({ page }).include('main').analyze()
   expect(results.violations).toEqual([])
+})
+
+test('duplicate real clicks replay one F7 operation after an ambiguous response', async ({
+  page,
+}) => {
+  const calendar = await routeCalendarPage(page, { ambiguousFirstDuplicate: true })
+  await page.goto(`${offBaseURL}/en/app/calendar`)
+  for (let index = 0; index < 4; index += 1) {
+    await page.getByRole('button', { name: 'Previous month' }).click()
+  }
+  await page.getByRole('button', { name: 'List view' }).click()
+  const scheduledCard = page.locator('li.app-card').filter({ hasText: 'March launch' })
+
+  await scheduledCard.getByRole('button', { name: 'Duplicate' }).click()
+  await expect(page.getByText(
+    'Postqron is unreachable. Check your connection and retry; your local edits remain on screen.',
+  )).toBeVisible()
+  await scheduledCard.getByRole('button', { name: 'Duplicate' }).click()
+
+  await expect(page.getByText('Post duplicated.')).toBeVisible()
+  expect(calendar.duplicateKeys).toHaveLength(2)
+  expect(calendar.duplicateKeys[0]).toMatch(/^[!-~]{1,200}$/u)
+  expect(calendar.duplicateKeys[1]).toBe(calendar.duplicateKeys[0])
+  expect(calendar.duplicateBodies[1]).toEqual(calendar.duplicateBodies[0])
+  expect(calendar.duplicateOperations.size).toBe(1)
 })

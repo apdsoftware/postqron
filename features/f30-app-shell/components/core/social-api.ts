@@ -191,6 +191,10 @@ export class SocialConnectionsApi {
     return new URL('/api/v1/social-authorizations/callback', base.origin)
   }
 
+  callbackRelayURL(browserOrigin: string): URL {
+    return new URL('/app/social-oauth/callback', browserOrigin)
+  }
+
   async #request(
     path: string,
     options: Readonly<Record<string, unknown>> = {},

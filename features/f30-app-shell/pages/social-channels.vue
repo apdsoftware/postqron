@@ -102,9 +102,7 @@ type CallbackPopupHandle = {
     pathname: string
   }
   document: {
-    body: {
-      textContent: string | null
-    } | null
+    querySelector(selector: string): { textContent: string | null } | null
   }
   opener: unknown
 }
@@ -448,10 +446,6 @@ function connectionPublishingModes(connection: SocialConnection): string {
 }
 
 function configurationMessage(provider: SocialProviderCatalogEntry): string {
-  if ((provider.provider === 'mastodon' || provider.provider === 'bluesky')
-    && catalogState(provider) !== 'available') {
-    return t('social.configuration.decentralized_blocked')
-  }
   return t(`social.configuration.${provider.configuration_state}`)
 }
 
@@ -477,12 +471,7 @@ function secureCallbackURL() {
   if (!import.meta.client) {
     return undefined
   }
-  const callback = social.callbackURL(globalThis.location.origin)
-  if (callback.origin !== globalThis.location.origin) {
-    notice.value = { tone: 'error', key: 'social.errorCallbackSameOrigin' }
-    return undefined
-  }
-  return callback
+  return social.callbackRelayURL(globalThis.location.origin)
 }
 
 function isolatePopup(windowHandle: CallbackPopupHandle): boolean {
@@ -532,6 +521,10 @@ async function waitForSelection(
       },
     })
   }
+  const callbackPathnames = new Set([
+    callbackURL.pathname,
+    `/${locale.value}${callbackURL.pathname}`,
+  ])
   return await new Promise((resolve, reject) => {
     const deadline = Date.now() + 120_000
     const timer = globalThis.setInterval(() => {
@@ -566,11 +559,16 @@ async function waitForSelection(
       }
       try {
         if (windowHandle.location.origin !== callbackURL.origin
-          || windowHandle.location.pathname !== callbackURL.pathname) {
+          || !callbackPathnames.has(windowHandle.location.pathname)) {
           return
         }
-        const selectionDocument = windowHandle.document.body?.textContent ?? ''
-        const parsed = parseSocialCallbackDocument(selectionDocument)
+        const handoff = windowHandle.document.querySelector(
+          '[data-postqron-social-callback-handoff]',
+        )
+        if (!handoff) {
+          return
+        }
+        const parsed = parseSocialCallbackDocument(handoff.textContent ?? '')
         globalThis.clearInterval(timer)
         windowHandle.close()
         resolve(parsed)

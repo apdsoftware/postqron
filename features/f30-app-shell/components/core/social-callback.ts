@@ -16,6 +16,54 @@ export const SOCIAL_OAUTH_CALLBACK_PARAMETERS = [
 
 type QueryValue = string | readonly (string | null)[] | null | undefined
 
+export interface SocialOAuthCallbackInput {
+  code: string
+  error: string
+  iss?: string
+  state: string
+}
+
+function singleQueryValue(value: QueryValue, name: string): string {
+  if (Array.isArray(value)) {
+    throw new SocialApiError({
+      code: 'social_invalid_callback_parameters',
+      kind: 'invalid',
+      message: `OAuth callback parameter ${name} must occur once`,
+      retryable: false,
+    })
+  }
+  return typeof value === 'string' ? value : ''
+}
+
+export function socialOAuthCallbackInput(
+  query: Readonly<Record<string, QueryValue>>,
+): SocialOAuthCallbackInput {
+  const state = singleQueryValue(query.state, 'state')
+  const code = singleQueryValue(query.code, 'code')
+  const error = singleQueryValue(query.error, 'error')
+  const iss = singleQueryValue(query.iss, 'iss')
+  if (!state || (!code && !error) || (code && error)) {
+    throw new SocialApiError({
+      code: 'social_invalid_callback_parameters',
+      kind: 'invalid',
+      message: 'OAuth callback requires state and exactly one result',
+      retryable: false,
+    })
+  }
+  return { state, code, error, ...(iss ? { iss } : {}) }
+}
+
+export function socialCallbackHandoffDocument(value: unknown): string {
+  if (value instanceof SocialApiError) {
+    return JSON.stringify({
+      code: value.code,
+      message: value.message,
+      retryable: value.retryable,
+    })
+  }
+  return JSON.stringify(value)
+}
+
 export function withoutSocialOAuthCallbackParameters(
   query: Readonly<Record<string, QueryValue>>,
 ): Record<string, QueryValue> {

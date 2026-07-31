@@ -116,6 +116,10 @@ test('manifest discovers public entry, callback, private routes, and no central 
   assert.match(manifest, /path: \/app\/oauth\/callback/u)
   assert.match(
     manifest,
+    /path: \/app\/social-oauth\/callback[\s\S]*visibility: public[\s\S]*middleware: \[\]/u,
+  )
+  assert.match(
+    manifest,
     /name: app-providers-legacy-redirect\n\s+path: \/app\/providers\n\s+file: \.\/pages\/providers-redirect\.vue\n\s+visibility: private\n\s+middleware: \[app-session\]/u,
   )
   assert.doesNotMatch(manifest, /file: \.\/pages\/providers\.vue/u)
@@ -127,6 +131,31 @@ test('manifest discovers public entry, callback, private routes, and no central 
   )
   for (const dependency of ['auth', 'account-privacy', 'workspaces', 'email', 'i18n']) {
     assert.match(manifest, new RegExp(`  - ${dependency}\\n`, 'u'))
+  }
+})
+
+test('OAuth relay documentation pins the canonical callback and every F5 redirect key', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+  assert.match(readme, /https:\/\/APP_DOMAIN\/app\/social-oauth\/callback/u)
+  assert.match(readme, /https:\/\/postqron\.com\/app\/social-oauth\/callback/u)
+  assert.match(
+    readme,
+    /explicit merge\/deploy\n {2}prerequisite/u,
+  )
+  for (const provider of [
+    'FACEBOOK',
+    'INSTAGRAM',
+    'X',
+    'LINKEDIN',
+    'PINTEREST',
+    'TIKTOK',
+    'YOUTUBE',
+    'GOOGLE_BUSINESS_PROFILE',
+    'THREADS',
+    'MASTODON',
+    'BLUESKY',
+  ]) {
+    assert.match(readme, new RegExp(`POSTQRON_F05_${provider}_REDIRECT_URL`, 'u'))
   }
 })
 

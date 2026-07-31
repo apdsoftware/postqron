@@ -28,6 +28,7 @@ run(process.execPath, [
     'editorial-fixture-e2e',
     'editorial-navigation',
     'editorial-thread',
+    'idempotency',
     'navigation-guard',
     'preferences',
     'slice',

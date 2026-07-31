@@ -48,23 +48,61 @@ not own pricing, checkout, admin, or any vertical feature.
   serves credentialed CORS and public preflight handlers, so no CSRF token is
   exchanged.
   Provider bootstrap `unavailable` is explicit and never treated as offline.
-  #324 is CLOSED and delivered the authoritative dynamic-discovery/PAR/DPoP
-  contract needed by #314. F30 exposes only `instance_origin` for Mastodon and
+  F30 exposes only `instance_origin` for Mastodon and
   only `handle`, `did`, or `pds_origin` for Bluesky, and rejects every
-  provider-incompatible input. The providers remain visible but unavailable
-  until the still-unintegrated #353 and #328 adapter work is present; F30 never
-  accepts passwords/app-passwords or models nonce/DPoP secrets.
-  F5 returns the selection JSON directly from
-  `/api/v1/social-authorizations/callback`. Popup polling is therefore allowed
-  only when that API callback is exposed through the app origin (normally by a
-  trusted reverse proxy). Before external navigation F30 sets the popup's
+  provider-incompatible input. Availability is rendered exclusively from the
+  authoritative F5 bootstrap; F30 never accepts passwords/app-passwords or
+  models nonce/DPoP secrets.
+  For deployments with separate app and API origins, providers redirect to the
+  public `/app/social-oauth/callback` relay registered by this feature. The
+  relay strips OAuth response parameters from browser history and forwards only
+  `state`, `code`, `error`, and optional `iss` to the fixed authoritative F5
+  callback via credentialed CORS. F5 remains responsible for one-time state,
+  issuer, PKCE, and provider validation. Only the client-safe resource
+  selection/error envelope is handed to the parent; token material is never
+  placed in the DOM, browser storage, or URL. Before external navigation F30 sets the popup's
   `opener` to `null`, preventing the provider from navigating the app while the
-  parent retains its polling handle. If `APP_DOMAIN` and `API_DOMAIN` expose
-  different browser origins, F30 fails closed before starting OAuth: F5 has no
-  authoritative app redirect, relay token, or `postMessage` handoff contract,
-  and inventing one in this slice would be unsafe. A cross-origin relay must be
-  formalized separately in F5 before that deployment topology can connect a
-  channel.
+  parent retains its polling handle. The relay has no configurable upstream and
+  cannot operate as an open proxy.
+
+  OAuth start does not accept or send a client-selected `redirect_uri`. The
+  provider authorization URL and the subsequent code exchange use the exact
+  redirect configured by the authoritative F5 adapter through `RUNTIME_ENV`.
+  Consequently, every enabled adapter must use this canonical, unlocalized
+  callback:
+
+  ```text
+  https://APP_DOMAIN/app/social-oauth/callback
+  ```
+
+  The same exact URI (scheme, host, path, and trailing-slash behavior) must be
+  registered in each provider developer console. For the current production
+  topology, where `APP_DOMAIN=postqron.com` and
+  `API_DOMAIN=api.postqron.com`, the concrete registered callback must be
+  `https://postqron.com/app/social-oauth/callback`. Every configured value
+  below must equal it:
+
+  - `POSTQRON_F05_FACEBOOK_REDIRECT_URL`
+  - `POSTQRON_F05_INSTAGRAM_REDIRECT_URL`
+  - `POSTQRON_F05_X_REDIRECT_URL`
+  - `POSTQRON_F05_LINKEDIN_REDIRECT_URL`
+  - `POSTQRON_F05_PINTEREST_REDIRECT_URL`
+  - `POSTQRON_F05_TIKTOK_REDIRECT_URL`
+  - `POSTQRON_F05_YOUTUBE_REDIRECT_URL`
+  - `POSTQRON_F05_GOOGLE_BUSINESS_PROFILE_REDIRECT_URL`
+  - `POSTQRON_F05_THREADS_REDIRECT_URL`
+  - `POSTQRON_F05_MASTODON_REDIRECT_URL`
+  - `POSTQRON_F05_BLUESKY_REDIRECT_URL`
+
+  The versioned deploy workflow copies the opaque GitHub Environment secret
+  `RUNTIME_ENV` into production without deriving or validating these values.
+  Repository and GitHub metadata prove that the two production domains are
+  separate and that the secret exists, but cannot prove its contents or the
+  external provider registrations. Until an authorized operator verifies both
+  the production `RUNTIME_ENV` values and every corresponding provider-console
+  registration against the canonical callback above, OAuth is not demonstrated
+  operational in production. That verification is an explicit merge/deploy
+  prerequisite; F30 must not claim the OAuth P1 resolved from fixtures alone.
 - **Publish** (`/app/publish`) consumes only F6 0.2.0 (#303 / PR #317) for the
   capability catalog, drafts, optimistic autosave, validation, and secure media
   upload. Destination formats and provider metadata fields are rendered from
@@ -84,18 +122,14 @@ not own pricing, checkout, admin, or any vertical feature.
   wall times are rejected. The initial calendar month follows the display
   timezone rather than the UTC month.
 
-The F30 UI remains blocked on the still-unintegrated #308 and #317 scheduling
-and composer dependencies. #353 and #328 remain explicit dependencies for the
-dynamic-provider adapters; #324 is no longer a blocker because it is CLOSED
-and delivered.
-
 The current F7 contract exposes an aggregate post status and channel IDs, not a
 provider-specific per-destination publishing result or stored failure cause.
 F30 renders the authoritative aggregate state for every destination and uses a
 real F5 reconnect reason when one exists; it does not fabricate F8 diagnostics.
-Create/edit/duplicate may return `scheduling_dependency_unavailable` until the
-F5/F6 validation and immutable-revision boundary documented by PR #308 is fully
-integrated.
+Create and duplicate attach a fresh browser-safe `Idempotency-Key` for each
+user intent. Ambiguous retries reuse the same key and exact payload so F7 can
+replay its immutable response; completed, rejected, and changed-payload intents
+receive a new key.
 
 The F30 façade is deliberately a backend-for-frontend contract. Until its
 server adapter is configured, `/app` still renders a retryable configuration

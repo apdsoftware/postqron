@@ -340,6 +340,7 @@ export class SchedulingApi extends EditorialApi {
     input: {
       channelIds: string[]
       draftId: string
+      idempotencyKey: string
       scheduledAt: ScheduleInput
     },
   ): Promise<ScheduledPost> {
@@ -347,6 +348,7 @@ export class SchedulingApi extends EditorialApi {
     return this.parse(
       await this.request(`/api/v1/workspaces/${workspace}/scheduled-posts`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': requireIdempotencyKey(input.idempotencyKey) },
         body: {
           draft_id: input.draftId,
           channel_ids: input.channelIds,
@@ -396,12 +398,16 @@ export class SchedulingApi extends EditorialApi {
   async duplicate(
     workspaceId: string,
     postId: string,
-    input: { expectedRevision: number, scheduledAt?: ScheduleInput },
+    input: {
+      expectedRevision: number
+      idempotencyKey: string
+      scheduledAt?: ScheduleInput
+    },
   ): Promise<ScheduledPost> {
     return this.postMutation(workspaceId, postId, '/duplicate', 'POST', {
       expected_revision: input.expectedRevision,
       ...(input.scheduledAt ? { scheduled_at: input.scheduledAt } : {}),
-    })
+    }, input.idempotencyKey)
   }
 
   async cancel(
@@ -420,15 +426,38 @@ export class SchedulingApi extends EditorialApi {
     suffix: string,
     method: 'POST' | 'PUT',
     body: Readonly<Record<string, unknown>>,
+    idempotencyKey?: string,
   ): Promise<ScheduledPost> {
     const workspace = encodeIdentifier(workspaceId, 'workspace')
     const post = encodeIdentifier(postId, 'post')
     return this.parse(
       await this.request(
         `/api/v1/workspaces/${workspace}/scheduled-posts/${post}${suffix}`,
-        { method, body },
+        {
+          method,
+          body,
+          ...(idempotencyKey
+            ? { headers: { 'Idempotency-Key': requireIdempotencyKey(idempotencyKey) } }
+            : {}),
+        },
       ),
       parseScheduledPost,
     )
   }
+}
+
+function requireIdempotencyKey(value: string): string {
+  if (typeof value !== 'string'
+    || value.length < 1
+    || value.length > 200
+    || !/^[!-~]+$/u.test(value)) {
+    throw new EditorialApiError({
+      code: 'idempotency_key_invalid',
+      field: 'Idempotency-Key',
+      kind: 'invalid',
+      message: 'A browser-safe Idempotency-Key is required',
+      retryable: false,
+    })
+  }
+  return value
 }

@@ -91,6 +91,10 @@ test('begin, select, reconnect, and revoke use the exact contract paths and bodi
     'DELETE /api/v1/workspaces/workspace-1/social-connections/conn-1',
   ])
   assert.deepEqual(calls[0]?.options?.body, { provider: 'facebook_pages' })
+  assert.equal(
+    'redirect_uri' in (calls[0]?.options?.body as Record<string, unknown>),
+    false,
+  )
   assert.deepEqual(calls[1]?.options?.body, {
     provider: 'bluesky',
     discovery: {
@@ -137,11 +141,15 @@ test('callback exchange forwards state, code, error, and iss to the shared endpo
   )
 })
 
-test('callback URL preserves the authoritative API origin', () => {
+test('callback endpoint preserves API origin while relay remains on the app origin', () => {
   const crossOrigin = new SocialConnectionsApi('https://api.postqron.test', async () => ({}))
   assert.equal(
     crossOrigin.callbackURL('https://app.postqron.test').href,
     'https://api.postqron.test/api/v1/social-authorizations/callback',
+  )
+  assert.equal(
+    crossOrigin.callbackRelayURL('https://app.postqron.test').href,
+    'https://app.postqron.test/app/social-oauth/callback',
   )
   const proxied = new SocialConnectionsApi('/api', async () => ({}))
   assert.equal(

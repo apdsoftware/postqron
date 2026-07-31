@@ -26,6 +26,11 @@ import {
   normalizeEditorialApiError,
 } from '../components/core/editorial-api.ts'
 import {
+  mutationFingerprint,
+  mutationIntent,
+  type MutationIntent,
+} from '../components/core/idempotency.ts'
+import {
   applyDestinationCapability,
   setDestinationField,
 } from '../components/core/editorial-form.ts'
@@ -92,6 +97,16 @@ const scheduleOpen = ref(false)
 const hydrated = ref(false)
 let autosaveTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 let saveChain: Promise<unknown> = Promise.resolve()
+type ScheduleMutationPayload = Readonly<{
+  channelIds: string[]
+  draftId: string
+  scheduledAt: ScheduleInput
+  workspaceId: string
+}>
+let scheduleIntent: Readonly<{
+  signature: string
+  mutation: MutationIntent<ScheduleMutationPayload>
+}> | undefined
 
 const detectedTimezone = detectedTimeZone()
 const timezoneOptions = supportedTimeZones(detectedTimezone)
@@ -569,23 +584,57 @@ async function submitSchedule(immediate: boolean) {
     if (!saved) {
       return
     }
-    const input = immediate
-      ? immediateScheduleInput(new Date(), scheduleTimezone.value)
-      : scheduleInput()
+    const scheduledInput = immediate ? undefined : scheduleInput()
+    const channelIds = saved.draft.content.destinations.map(
+      destination => destination.channel_id,
+    )
+    const signature = mutationFingerprint({
+      action: immediate ? 'publish-now' : 'schedule',
+      channelIds,
+      content: saved.draft.content,
+      draftId: saved.draft.id,
+      scheduledAt: scheduledInput,
+      workspaceId: workspaceId.value,
+    })
+    const input = scheduleIntent?.signature === signature
+      ? scheduleIntent.mutation.payload.scheduledAt
+      : immediate
+        ? immediateScheduleInput(new Date(), scheduleTimezone.value)
+        : scheduledInput
     if (!input) {
       return
     }
+    if (!editingPost.value) {
+      const payload = {
+        channelIds,
+        draftId: saved.draft.id,
+        scheduledAt: input,
+        workspaceId: workspaceId.value,
+      }
+      scheduleIntent = {
+        signature,
+        mutation: mutationIntent(
+          scheduleIntent?.signature === signature
+            ? scheduleIntent.mutation
+            : undefined,
+          payload,
+        ),
+      }
+    }
     editingPost.value = await submitScheduledDraft(schedulingApi, {
-      channelIds: saved.draft.content.destinations.map(
-        destination => destination.channel_id,
-      ),
+      channelIds,
       draftId: saved.draft.id,
       existingPost: editingPost.value,
+      idempotencyKey: scheduleIntent?.mutation.key,
       scheduledAt: input,
       workspaceId: workspaceId.value,
     })
+    scheduleIntent = undefined
     await navigateTo(appRoute(locale.value, 'calendar'))
   } catch (error) {
+    if (!normalizeEditorialApiError(error).retryable) {
+      scheduleIntent = undefined
+    }
     notice.value = { tone: 'error', key: editorialErrorKey(error) }
   } finally {
     action.value = undefined

@@ -26,6 +26,10 @@ import {
 import { normalizeEditorialApiError } from '../components/core/editorial-api.ts'
 import { wallClockScheduleInput } from '../components/core/editorial-submit.ts'
 import {
+  mutationIntent,
+  type MutationIntent,
+} from '../components/core/idempotency.ts'
+import {
   appRoute,
   localeFromAppPath,
 } from '../components/core/navigation.ts'
@@ -77,6 +81,12 @@ const rescheduleResolution = computed(() => resolveLocalDateTime(
   rescheduleDateTime.value,
   rescheduleTimeZone.value,
 ))
+type DuplicateMutationPayload = Readonly<{
+  expectedRevision: number
+  postId: string
+  workspaceId: string
+}>
+let duplicateIntent: MutationIntent<DuplicateMutationPayload> | undefined
 
 useHead(computed(() => ({ title: t('documentTitle.calendar') })))
 
@@ -279,12 +289,23 @@ async function duplicate(entry: CalendarEntry) {
   busyPost.value = entry.post_id
   notice.value = undefined
   try {
+    const payload = {
+      expectedRevision: entry.revision,
+      postId: entry.post_id,
+      workspaceId: workspaceId.value,
+    }
+    duplicateIntent = mutationIntent(duplicateIntent, payload)
     await schedulingApi.duplicate(workspaceId.value, entry.post_id, {
       expectedRevision: entry.revision,
+      idempotencyKey: duplicateIntent.key,
     })
+    duplicateIntent = undefined
     notice.value = { tone: 'success', key: 'calendar.duplicated' }
     await refresh()
   } catch (error) {
+    if (!normalizeEditorialApiError(error).retryable) {
+      duplicateIntent = undefined
+    }
     notice.value = { tone: 'error', key: errorKey(error) }
   } finally {
     busyPost.value = undefined

@@ -89,6 +89,8 @@ test('fixture flow saves, validates, schedules, filters, reschedules, duplicates
     options?: Readonly<Record<string, unknown>>
     path: string
   }> = []
+  const scheduleKey = ['fixture', 'schedule', '1'].join('-')
+  const duplicateKey = ['fixture', 'duplicate', '1'].join('-')
   let revision = 1
   const fetch: AppFetch = async (path, options) => {
     calls.push({ path, options })
@@ -171,6 +173,7 @@ test('fixture flow saves, validates, schedules, filters, reschedules, duplicates
   const post = await scheduling.schedule('workspace-1', {
     channelIds: ['channel-youtube'],
     draftId: draft.draft.id,
+    idempotencyKey: scheduleKey,
     scheduledAt: {
       local_date_time: '2026-07-31T10:00',
       time_zone: 'America/Santo_Domingo',
@@ -191,6 +194,7 @@ test('fixture flow saves, validates, schedules, filters, reschedules, duplicates
   })
   const duplicate = await scheduling.duplicate('workspace-1', post.id, {
     expectedRevision: post.revision,
+    idempotencyKey: duplicateKey,
   })
   const cancelled = await scheduling.cancel(
     'workspace-1',
@@ -217,6 +221,14 @@ test('fixture flow saves, validates, schedules, filters, reschedules, duplicates
     autosave_key: 'autosave-fixture-1',
     content,
   })
+  assert.deepEqual(
+    calls.find(call => call.path.endsWith('/scheduled-posts'))?.options?.headers,
+    { 'Idempotency-Key': scheduleKey },
+  )
+  assert.deepEqual(
+    calls.find(call => call.path.endsWith('/duplicate'))?.options?.headers,
+    { 'Idempotency-Key': duplicateKey },
+  )
 })
 
 test('dependency and offline errors remain distinct and retryable', () => {

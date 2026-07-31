@@ -53,6 +53,11 @@ web:
       file: ./pages/oauth-callback.vue
       visibility: public
       middleware: []
+    - name: app-social-oauth-callback
+      path: /app/social-oauth/callback
+      file: ./pages/social-oauth-callback.vue
+      visibility: public
+      middleware: []
     - name: app-onboarding
       path: /app/onboarding
       file: ./pages/onboarding.vue

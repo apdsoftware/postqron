@@ -18,6 +18,7 @@ export interface SchedulingSubmitClient {
     input: {
       channelIds: string[]
       draftId: string
+      idempotencyKey: string
       scheduledAt: ScheduleInput
     },
   ): Promise<ScheduledPost>
@@ -73,6 +74,7 @@ export async function submitScheduledDraft(
     channelIds: string[]
     draftId: string
     existingPost?: Pick<ScheduledPost, 'id' | 'revision'>
+    idempotencyKey?: string
     scheduledAt: ScheduleInput
     workspaceId: string
   },
@@ -87,9 +89,13 @@ export async function submitScheduledDraft(
       },
     )
   }
+  if (!input.idempotencyKey) {
+    throw new Error('F30_IDEMPOTENCY_INTENT_REQUIRED')
+  }
   return client.schedule(input.workspaceId, {
     channelIds: input.channelIds,
     draftId: input.draftId,
+    idempotencyKey: input.idempotencyKey,
     scheduledAt: input.scheduledAt,
   })
 }
