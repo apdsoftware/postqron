@@ -9,13 +9,13 @@ scope deliberated in #302:
 - X, LinkedIn profiles and Pages, Pinterest, TikTok, Google Business Profile,
   Mastodon, YouTube, Threads, and Bluesky.
 
-Only the first two entries currently have verified adapters and complete
-offline provider fixtures. Every other provider is present only in the
-versioned capability catalog and remains fail-closed with no authorization,
-refresh, or revocation capability. Provider-family follow-up issues own their
-official-documentation review, complete fixtures, and runtime enablement.
-Pre-wired no-op runtime extension files isolate those follow-ups by family;
-setting an invented or premature environment flag cannot enable them.
+Facebook Pages, Instagram Professional, and X currently have verified adapters
+and complete offline provider fixtures. Every other provider is present only
+in the versioned capability catalog and remains fail-closed with no
+authorization, refresh, or revocation capability. Provider-family follow-up
+issues own their official-documentation review, complete fixtures, and runtime
+enablement. Pre-wired runtime extension files isolate those follow-ups by
+family; setting an invented or premature environment flag cannot enable them.
 
 These are publishing channels, not the Facebook identity/login providers owned
 by F3. F5 never creates an application session or links a login method.
@@ -201,6 +201,12 @@ Runtime secret-store/environment keys:
 | `POSTQRON_F05_INSTAGRAM_REDIRECT_URL` | Exact server callback URL. |
 | `POSTQRON_F05_INSTAGRAM_APP_REVIEW_APPROVED` | Exact `true` only after required review/Advanced Access. |
 | `POSTQRON_F05_INSTAGRAM_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after a fixture-complete runtime audit and environment smoke test. |
+| `POSTQRON_F05_X_ENABLED` | Exact `true` to request X runtime enablement; all remaining X gates must also pass. |
+| `POSTQRON_F05_X_CLIENT_ID` / `POSTQRON_F05_X_CLIENT_SECRET` | Confidential X OAuth 2.0 web application credentials. |
+| `POSTQRON_F05_X_REDIRECT_URL` | Exact registered HTTPS server callback URL. |
+| `POSTQRON_F05_X_API_ACCESS_APPROVED` | Exact `true` only after developer app, write access, billing/access, and policy prerequisites are verified. |
+| `POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after the offline fixture and security audit. |
+| `POSTQRON_F05_X_SMOKE_TEST_VERIFIED` | Exact `true` only after an authorized environment smoke test. |
 
 Values must be injected by the runtime secret store. Do not commit them, expose
 them through bootstrap, or place them in browser configuration.
@@ -217,6 +223,10 @@ The preserved Meta adapter and fixtures are anchored to the official
 and [Instagram API with Instagram Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/)
 documentation. The runtime requires an explicit Graph version so a provider
 version change cannot happen silently.
+
+The X adapter, its exact official endpoints and scopes, the current atomic
+scope-parameter compatibility workaround, refresh/revoke semantics, gates, and
+offline fixtures are documented in [X.md](./X.md).
 
 The dynamic contract is anchored to the official
 [Mastodon OAuth documentation](https://docs.joinmastodon.org/spec/oauth/),

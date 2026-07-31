@@ -1,0 +1,7 @@
+{
+  "token_type": "bearer",
+  "expires_in": 7200,
+  "access_token": "fixture-x-access-token",
+  "scope": "offline.access users.read tweet.write tweet.read",
+  "refresh_token": "fixture-x-refresh-token"
+}

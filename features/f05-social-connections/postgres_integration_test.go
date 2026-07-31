@@ -152,8 +152,8 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	instagram.refreshErr = &ProviderFailure{
-		Kind: FailureAuthentication,
-		Code: "meta_error_190",
+		Kind: FailurePermissionMissing,
+		Code: "x_required_scope_missing",
 	}
 	if _, err = service.AccessToken(
 		context.Background(),
@@ -195,6 +195,20 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	if refreshCalls != 2 {
 		t.Fatalf("refresh calls = %d, want refresh plus one failed check", refreshCalls)
 	}
+	var eventCount int
+	if err = database.QueryRowContext(context.Background(), `
+		SELECT count(*)
+		FROM f05_social_outbox
+		WHERE connection_id = $1
+			AND event_type = $2`,
+		connection.ID,
+		EventReconnectRequired,
+	).Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("reconnect event count = %d, want 1", eventCount)
+	}
 
 	instagram.refreshErr = nil
 	instagram.resources = []DiscoveredResource{instagramResource(
@@ -226,7 +240,6 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	if !result.ProviderRevoked || result.Connection.Status != StatusRevoked {
 		t.Fatalf("revocation result = %#v", result)
 	}
-	var eventCount int
 	if err = database.QueryRowContext(context.Background(), `
 		SELECT count(*)
 		FROM f05_social_outbox

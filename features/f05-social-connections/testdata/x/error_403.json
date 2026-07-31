@@ -1,0 +1,5 @@
+{
+  "title": "Forbidden",
+  "type": "https://api.x.com/2/problems/client-forbidden",
+  "detail": "Fixture app lacks access"
+}

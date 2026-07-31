@@ -895,6 +895,60 @@ func TestRevokedPermissionTransitionsOnceWithoutRefreshLoopAndReconnects(
 	}
 }
 
+func TestRefreshScopeLossTransitionsOnceToReconnect(t *testing.T) {
+	fixture := newServiceFixture(t)
+	expired := serviceTestNow.Add(-time.Minute)
+	fixture.instagram.resources = []DiscoveredResource{instagramResource(
+		"ig-1",
+		"postqron",
+		"old-token",
+		&expired,
+	)}
+	fixture.instagram.refreshErr = &ProviderFailure{
+		Kind: FailurePermissionMissing,
+		Code: "x_required_scope_missing",
+	}
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderInstagramProfessional,
+		"ig-1",
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := fixture.service.AccessToken(
+			context.Background(),
+			"workspace-1",
+			connection.ID,
+		); !errors.Is(err, ErrReconnectRequired) {
+			t.Fatalf("AccessToken() attempt %d error = %v", attempt+1, err)
+		}
+	}
+	refreshCalls, _, _ := fixture.instagram.counts()
+	if refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want exactly 1", refreshCalls)
+	}
+	stored, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != StatusReconnectRequired ||
+		stored.ReconnectReason != string(FailurePermissionMissing) ||
+		len(stored.AccessTokenCiphertext.Data) != 0 ||
+		len(stored.RefreshTokenCiphertext.Data) != 0 {
+		t.Fatalf("reconnect state = %#v", stored)
+	}
+	if countEvents(fixture.repository.Events(), EventReconnectRequired) != 1 {
+		t.Fatalf("events = %#v", fixture.repository.Events())
+	}
+	if countEvents(fixture.repository.Events(), EventTokenRefreshed) != 0 {
+		t.Fatalf("unexpected refresh event = %#v", fixture.repository.Events())
+	}
+}
+
 func TestRevocationIsOwnerOnlyWipesTokensAndIsIdempotent(t *testing.T) {
 	fixture := newServiceFixture(t)
 	connection := connectResource(
