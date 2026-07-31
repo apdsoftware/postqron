@@ -65,6 +65,22 @@ not own pricing, checkout, admin, or any vertical feature.
   parent retains its polling handle. The relay has no configurable upstream and
   cannot operate as an open proxy.
 
+  Closing the authorization window is treated as its own non-success outcome:
+  the client emits `popup_closed`, the page renders the dedicated
+  `social.errorPopupClosed` alert (never the generic error), and no selection or
+  connection is created. A closed popup can therefore never be mistaken for a
+  completed flow.
+
+  Persistence after refresh covers the authoritative state F5 owns today:
+  reloading the page re-reads saved connections and the provider catalog per
+  workspace. A *pending* selection — the transient window after a successful
+  callback but before a resource is chosen — is held in component memory and is
+  restarted, not restored, after a full page reload, because durable
+  per-workspace OAuth session and selection state is owned by F5 and tracked in
+  #371 (Buffer hosted-OAuth alignment). F30 does not fabricate a client-side
+  substitute for that server state; once #371 persists and re-reads the pending
+  selection, this page can surface it after a reload without further UI changes.
+
   OAuth start does not accept or send a client-selected `redirect_uri`. The
   provider authorization URL and the subsequent code exchange use the exact
   redirect configured by the authoritative F5 adapter through `RUNTIME_ENV`.

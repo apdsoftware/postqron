@@ -958,6 +958,41 @@ test('owner social flow captures typed discovery, completes callback selection, 
   expect(results.violations).toEqual([])
 })
 
+test('closing the authorization popup fails closed with its own message and connects nothing', async ({
+  page,
+}) => {
+  const social = await routeSocialPage(page, 'owner')
+  // Hold the provider authorization page so the flow can only end by the user
+  // closing the window — never by reaching the callback relay.
+  await page.route('https://social-provider.example.test/oauth/start', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<title>Authorize</title>',
+    }))
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByRole('heading', { name: 'Social channels' })).toBeVisible()
+
+  const provider = page.locator('.app-provider-catalog li').filter({ hasText: 'Facebook Pages' })
+  const popupPromise = page.waitForEvent('popup')
+  await provider.getByRole('button', { name: 'Connect' }).click()
+  const popup = await popupPromise
+  // Ensure the opener is polling the authorization window before it is closed.
+  await popup.waitForURL('https://social-provider.example.test/oauth/start')
+  await popup.close()
+
+  // The closed popup reads as its own accessible alert, not the generic error.
+  const alert = page.locator('.app-inline-alert[role="alert"]')
+  await expect(alert).toHaveText(
+    'You closed the authorization window before finishing. No channel was connected. Try again when you are ready.',
+  )
+  // No false positive: no resource selection, no callback exchange, no channel.
+  await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toHaveCount(0)
+  expect(social.callbackRequests).toHaveLength(0)
+  await expect(page.locator('.app-provider-list')).toHaveCount(0)
+})
+
 test('member workspace stays fail-closed for connect, reconnect, and revoke', async ({
   page,
 }) => {

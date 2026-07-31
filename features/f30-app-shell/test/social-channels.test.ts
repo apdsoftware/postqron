@@ -101,6 +101,27 @@ test('the page distinguishes configuration, access denial, and temporary Meta er
   assert.match(APP_SHELL_CATALOGS.it['social.providerUnavailableHint'], /non è un errore temporaneo/u)
 })
 
+test('a closed authorization popup surfaces its own accessible message, never the generic error', async () => {
+  const [page, api] = await Promise.all([
+    source('../pages/social-channels.vue'),
+    source('../components/core/social-api.ts'),
+  ])
+  // The client emits `popup_closed` when the user shuts the window; the page
+  // maps that exact code to the dedicated copy before the kind switch, so a
+  // closed popup can never read as the generic error or a completed flow.
+  assert.match(api, /popup_closed: 'invalid'/u)
+  assert.match(page, /code: 'popup_closed'/u)
+  assert.match(
+    page,
+    /failure\.code === 'popup_closed'\)\s*\{\s*return 'social\.errorPopupClosed'/u,
+  )
+  for (const locale of APP_SHELL_LOCALES) {
+    const value = APP_SHELL_CATALOGS[locale]['social.errorPopupClosed']
+    assert.ok(value && value.trim() !== '', `${locale}.social.errorPopupClosed`)
+    assert.notEqual(value, APP_SHELL_CATALOGS[locale]['social.error'])
+  }
+})
+
 test('the social channels page never touches token or browser storage', async () => {
   const [page, api] = await Promise.all([
     source('../pages/social-channels.vue'),
