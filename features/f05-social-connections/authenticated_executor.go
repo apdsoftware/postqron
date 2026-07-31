@@ -671,14 +671,8 @@ func (executor *AuthenticatedExecutor) prepareRequest(
 		Header: request.Header.Clone(),
 		Body:   append([]byte(nil), request.Body...),
 	}
-	if request.Path != "/" {
-		target, parseErr := url.ParseRequestURI(request.Path)
-		if parseErr != nil || path.Clean(target.Path) != target.Path {
-			return AuthenticatedRequest{}, nil, nil, fmt.Errorf(
-				"%w: authenticated request path is not canonical",
-				ErrInvalidArgument,
-			)
-		}
+	if err := validateCanonicalPublishingPath(request.Path); err != nil {
+		return AuthenticatedRequest{}, nil, nil, err
 	}
 	for key := range request.Header {
 		if !validPublishingHeaderName(key) ||
@@ -712,6 +706,27 @@ func (executor *AuthenticatedExecutor) prepareRequest(
 	}
 	verifier := newVerifiedMediaReader(request.Media, digest)
 	return authenticated, verifier, verifier, nil
+}
+
+func validateCanonicalPublishingPath(requestPath string) error {
+	target, err := url.ParseRequestURI(requestPath)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: authenticated request path is not canonical",
+			ErrInvalidArgument,
+		)
+	}
+	canonicalPath := path.Clean(target.Path)
+	if target.Path != "/" && strings.HasSuffix(target.Path, "/") {
+		canonicalPath += "/"
+	}
+	if canonicalPath != target.Path {
+		return fmt.Errorf(
+			"%w: authenticated request path is not canonical",
+			ErrInvalidArgument,
+		)
+	}
+	return nil
 }
 
 func validPublishingHeaderName(value string) bool {
