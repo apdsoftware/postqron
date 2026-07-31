@@ -1,9 +1,21 @@
 # F5 — Social connections
 
-This slice connects the launch channels selected by D2:
+This slice provides the provider-agnostic connection platform for the channel
+scope deliberated in #302:
 
 - Facebook Pages managed with the official Meta Graph API;
 - Instagram Professional Business or Creator accounts through Instagram Login.
+- Facebook Groups and Instagram personal accounts in notification mode;
+- X, LinkedIn profiles and Pages, Pinterest, TikTok, Google Business Profile,
+  Mastodon, YouTube, Threads, and Bluesky.
+
+Only the first two entries currently have verified adapters and complete
+offline provider fixtures. Every other provider is present only in the
+versioned capability catalog and remains fail-closed with no authorization,
+refresh, or revocation capability. Provider-family follow-up issues own their
+official-documentation review, complete fixtures, and runtime enablement.
+Pre-wired no-op runtime extension files isolate those follow-ups by family;
+setting an invented or premature environment flag cannot enable them.
 
 These are publishing channels, not the Facebook identity/login providers owned
 by F3. F5 never creates an application session or links a login method.
@@ -26,7 +38,8 @@ transaction as the connection change.
 
 The authenticated runtime exposes:
 
-- a client-safe provider bootstrap;
+- a client-safe provider bootstrap with catalog version, resource types,
+  publishing modes, runtime capabilities, and configuration state;
 - connection listing;
 - OAuth start and a one-time public callback bound to the initiating workspace
   and actor through the stored state;
@@ -61,19 +74,28 @@ in `feature.yaml`. It uses the shared PostgreSQL runtime for F4 authorization,
 F10 channel quota commands, F5 persistence, and the authenticated account
 context.
 
-Provider availability is fail-closed. A provider is reported as `available`
-only when the global flag is exactly `true`, its App Review flag is exactly
-`true`, its complete Meta configuration is valid, and the external encryption
-key is a valid 32-byte key. Otherwise bootstrap reports `unavailable`, OAuth
-returns a non-retryable `provider_unavailable`, and listing/local revocation remain
-usable. No client response distinguishes a missing secret from an incomplete
-review.
+Provider availability is fail-closed. The binary `status` is `available` only
+when a verified adapter is mounted. The client-safe `configuration_state`
+distinguishes `not_configured`, `review_required`, `audit_required`, and
+`ready`; it never identifies which credential or secret is absent. Meta is
+`ready` only when the global flag is exactly `true`, the relevant App Review
+and runtime-audit flags are exactly `true`, its complete configuration is
+valid, and the external encryption key is a valid 32-byte key. Listing and
+local revocation remain usable when a provider is unavailable.
+
+`providers` remains a two-entry Meta compatibility projection for the F30
+client shipped before #302. New clients consume `catalog`, whose version is
+`2026-07-30`. This prevents a foundation-only F5 deployment from breaking the
+existing Social channels page while #306 is still pending.
 
 Provider failures use client-safe categories: `provider_access_denied` for
 authentication or permission rejection, `provider_temporary` for retryable
 transport/rate-limit/5xx failures, `provider_resource_unavailable` for a lost
 resource, and `provider_invalid_response` for malformed or unsupported
-responses. Raw Meta error codes remain server-side diagnostics.
+responses. Availability uses `provider_not_configured`,
+`provider_review_required`, `provider_audit_required`, or the fallback
+`provider_unavailable`; reconnect state uses `reconnect_required`. Raw provider
+codes remain server-side diagnostics.
 
 Runtime secret-store/environment keys:
 
@@ -88,9 +110,11 @@ Runtime secret-store/environment keys:
 | `POSTQRON_F05_FACEBOOK_REDIRECT_URL` | Exact server callback URL. |
 | `POSTQRON_F05_FACEBOOK_LOGIN_CONFIG_ID` | Reviewed Facebook Login configuration. |
 | `POSTQRON_F05_FACEBOOK_APP_REVIEW_APPROVED` | Exact `true` only after required review/Advanced Access. |
+| `POSTQRON_F05_FACEBOOK_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after a fixture-complete runtime audit and environment smoke test. |
 | `POSTQRON_F05_INSTAGRAM_CLIENT_ID` / `POSTQRON_F05_INSTAGRAM_CLIENT_SECRET` | Business Login for Instagram credentials. |
 | `POSTQRON_F05_INSTAGRAM_REDIRECT_URL` | Exact server callback URL. |
 | `POSTQRON_F05_INSTAGRAM_APP_REVIEW_APPROVED` | Exact `true` only after required review/Advanced Access. |
+| `POSTQRON_F05_INSTAGRAM_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after a fixture-complete runtime audit and environment smoke test. |
 
 Values must be injected by the runtime secret store. Do not commit them, expose
 them through bootstrap, or place them in browser configuration.
@@ -100,6 +124,13 @@ The Facebook adapter requests exactly `pages_show_list`,
 the `CREATE_CONTENT` task. The Instagram adapter requests exactly
 `instagram_business_basic` and `instagram_business_content_publish`, and
 accepts only Business or Creator accounts.
+
+The preserved Meta adapter and fixtures are anchored to the official
+[Pages API](https://developers.facebook.com/docs/pages-api/),
+[Facebook Login for Business](https://developers.facebook.com/docs/facebook-login/facebook-login-for-business/),
+and [Instagram API with Instagram Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/)
+documentation. The runtime requires an explicit Graph version so a provider
+version change cannot happen silently.
 
 Before a new resource (or a previously revoked resource) is persisted, the
 service sends an atomic `channels +1` command to F10 using a server-generated

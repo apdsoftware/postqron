@@ -316,6 +316,27 @@ func writeSocialServiceError(writer http.ResponseWriter, err error) {
 			"provider_unavailable",
 			false,
 		)
+	case errors.Is(err, ErrProviderNotConfigured):
+		writeSocialError(
+			writer,
+			http.StatusServiceUnavailable,
+			"provider_not_configured",
+			false,
+		)
+	case errors.Is(err, ErrProviderReviewRequired):
+		writeSocialError(
+			writer,
+			http.StatusServiceUnavailable,
+			"provider_review_required",
+			false,
+		)
+	case errors.Is(err, ErrProviderAuditRequired):
+		writeSocialError(
+			writer,
+			http.StatusServiceUnavailable,
+			"provider_audit_required",
+			false,
+		)
 	case errors.Is(err, ErrChannelQuotaExceeded):
 		writeSocialError(
 			writer,
@@ -340,6 +361,13 @@ func writeSocialServiceError(writer http.ResponseWriter, err error) {
 		writeSocialError(writer, http.StatusConflict, "invalid_oauth_state", false)
 	case errors.Is(err, ErrProviderDenied):
 		writeSocialError(writer, http.StatusBadRequest, "provider_denied", true)
+	case errors.Is(err, ErrReconnectRequired):
+		writeSocialError(
+			writer,
+			http.StatusUnprocessableEntity,
+			"reconnect_required",
+			false,
+		)
 	case errors.Is(err, ErrNoResources):
 		writeSocialError(writer, http.StatusUnprocessableEntity, "no_publishable_resources", true)
 	case errors.Is(err, ErrUnsupportedProvider), errors.Is(err, ErrInvalidArgument):

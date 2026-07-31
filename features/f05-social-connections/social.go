@@ -1,6 +1,6 @@
-// Package socialconnections owns OAuth connection, explicit resource
-// selection, encrypted credentials, refresh, reconnection, and revocation for
-// the launch social channels.
+// Package socialconnections owns provider-agnostic authorization, explicit
+// resource selection, encrypted credentials, refresh, reconnection, and
+// revocation for social publishing channels.
 package socialconnections
 
 import (
@@ -15,10 +15,40 @@ type Provider string
 
 const (
 	ProviderFacebookPages         Provider = "facebook_pages"
+	ProviderFacebookGroups        Provider = "facebook_groups"
 	ProviderInstagramProfessional Provider = "instagram_professional"
+	ProviderInstagramPersonal     Provider = "instagram_personal"
+	ProviderX                     Provider = "x"
+	ProviderLinkedIn              Provider = "linkedin"
+	ProviderPinterest             Provider = "pinterest"
+	ProviderTikTok                Provider = "tiktok"
+	ProviderGoogleBusinessProfile Provider = "google_business_profile"
+	ProviderMastodon              Provider = "mastodon"
+	ProviderYouTube               Provider = "youtube"
+	ProviderThreads               Provider = "threads"
+	ProviderBluesky               Provider = "bluesky"
 )
 
 var SupportedProviders = []Provider{
+	ProviderFacebookPages,
+	ProviderFacebookGroups,
+	ProviderInstagramProfessional,
+	ProviderInstagramPersonal,
+	ProviderX,
+	ProviderLinkedIn,
+	ProviderPinterest,
+	ProviderTikTok,
+	ProviderGoogleBusinessProfile,
+	ProviderMastodon,
+	ProviderYouTube,
+	ProviderThreads,
+	ProviderBluesky,
+}
+
+// LegacyBootstrapProviders keeps the already shipped F30 client operational
+// until #306 adopts the versioned provider catalog. New clients must consume
+// ClientBootstrap.Catalog.
+var LegacyBootstrapProviders = []Provider{
 	ProviderFacebookPages,
 	ProviderInstagramProfessional,
 }
@@ -26,17 +56,63 @@ var SupportedProviders = []Provider{
 type ResourceType string
 
 const (
-	ResourceFacebookPage          ResourceType = "facebook_page"
-	ResourceInstagramProfessional ResourceType = "instagram_professional"
+	ResourceFacebookPage           ResourceType = "facebook_page"
+	ResourceFacebookGroup          ResourceType = "facebook_group"
+	ResourceInstagramProfessional  ResourceType = "instagram_professional"
+	ResourceInstagramPersonal      ResourceType = "instagram_personal"
+	ResourceXProfile               ResourceType = "x_profile"
+	ResourceLinkedInProfile        ResourceType = "linkedin_profile"
+	ResourceLinkedInPage           ResourceType = "linkedin_page"
+	ResourcePinterestBoard         ResourceType = "pinterest_board"
+	ResourceTikTokProfile          ResourceType = "tiktok_profile"
+	ResourceGoogleBusinessLocation ResourceType = "google_business_profile_location"
+	ResourceMastodonAccount        ResourceType = "mastodon_account"
+	ResourceYouTubeChannel         ResourceType = "youtube_channel"
+	ResourceThreadsProfile         ResourceType = "threads_profile"
+	ResourceBlueskyAccount         ResourceType = "bluesky_account"
 )
 
 type AccountType string
 
 const (
-	AccountTypePage     AccountType = "page"
-	AccountTypeBusiness AccountType = "business"
-	AccountTypeCreator  AccountType = "creator"
+	AccountTypePage         AccountType = "page"
+	AccountTypeGroup        AccountType = "group"
+	AccountTypeBusiness     AccountType = "business"
+	AccountTypeCreator      AccountType = "creator"
+	AccountTypePersonal     AccountType = "personal"
+	AccountTypeProfile      AccountType = "profile"
+	AccountTypeOrganization AccountType = "organization"
+	AccountTypeBoard        AccountType = "board"
+	AccountTypeLocation     AccountType = "location"
+	AccountTypeChannel      AccountType = "channel"
 )
+
+type PublishingMode string
+
+const (
+	PublishingModeAuto         PublishingMode = "auto"
+	PublishingModeNotification PublishingMode = "notification"
+)
+
+type ResourceCapability struct {
+	ResourceType    ResourceType     `json:"resource_type"`
+	AccountTypes    []AccountType    `json:"account_types"`
+	PublishingModes []PublishingMode `json:"publishing_modes"`
+}
+
+type AdapterCapabilities struct {
+	Authorization     bool `json:"authorization"`
+	PKCE              bool `json:"pkce"`
+	ResourceSelection bool `json:"resource_selection"`
+	TokenRefresh      bool `json:"token_refresh"`
+	RemoteRevocation  bool `json:"remote_revocation"`
+}
+
+// AdapterCapabilityReporter is optional so existing test doubles and future
+// adapters cannot accidentally claim capabilities they do not implement.
+type AdapterCapabilityReporter interface {
+	AdapterCapabilities() AdapterCapabilities
+}
 
 type ConnectionStatus string
 
@@ -167,14 +243,35 @@ const (
 	ProviderUnavailable ProviderAvailabilityStatus = "unavailable"
 )
 
+type ProviderConfigurationState string
+
+const (
+	ProviderNotConfigured  ProviderConfigurationState = "not_configured"
+	ProviderReviewRequired ProviderConfigurationState = "review_required"
+	ProviderAuditRequired  ProviderConfigurationState = "audit_required"
+	ProviderReady          ProviderConfigurationState = "ready"
+)
+
 type ProviderAvailability struct {
-	Provider  Provider                   `json:"provider"`
-	Status    ProviderAvailabilityStatus `json:"status"`
-	Retryable bool                       `json:"retryable"`
+	Provider           Provider                   `json:"provider"`
+	Status             ProviderAvailabilityStatus `json:"status"`
+	ConfigurationState ProviderConfigurationState `json:"configuration_state"`
+	Retryable          bool                       `json:"retryable"`
+}
+
+type ProviderCatalogEntry struct {
+	Provider           Provider                   `json:"provider"`
+	Status             ProviderAvailabilityStatus `json:"status"`
+	ConfigurationState ProviderConfigurationState `json:"configuration_state"`
+	Retryable          bool                       `json:"retryable"`
+	Resources          []ResourceCapability       `json:"resources"`
+	Capabilities       AdapterCapabilities        `json:"capabilities"`
 }
 
 type ClientBootstrap struct {
-	Providers []ProviderAvailability `json:"providers"`
+	CatalogVersion string                 `json:"catalog_version"`
+	Providers      []ProviderAvailability `json:"providers"`
+	Catalog        []ProviderCatalogEntry `json:"catalog"`
 }
 
 type BeginRequest struct {
@@ -351,6 +448,9 @@ var (
 	ErrExternalRevocationUnavailable = errors.New("per-resource provider revocation is unavailable")
 	ErrConnectionRevoked             = errors.New("social connection is revoked")
 	ErrProviderUnavailable           = errors.New("social provider is unavailable")
+	ErrProviderNotConfigured         = errors.New("social provider is not configured")
+	ErrProviderReviewRequired        = errors.New("social provider review is required")
+	ErrProviderAuditRequired         = errors.New("social provider verification is required")
 	ErrChannelQuotaExceeded          = errors.New("social channel quota exceeded")
 	ErrChannelQuotaUnavailable       = errors.New("social channel quota is unavailable")
 )

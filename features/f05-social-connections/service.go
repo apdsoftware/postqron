@@ -71,7 +71,30 @@ func NewService(config Config) (*Service, error) {
 	)
 	for _, provider := range SupportedProviders {
 		adapter := config.Adapters[provider]
-		if adapter != nil {
+		providerAvailability, declared := config.Availability[provider]
+		if !declared {
+			providerAvailability = ProviderAvailability{
+				Provider:           provider,
+				Status:             ProviderUnavailable,
+				ConfigurationState: ProviderNotConfigured,
+				Retryable:          false,
+			}
+			if adapter != nil {
+				providerAvailability.Status = ProviderAvailable
+				providerAvailability.ConfigurationState = ProviderReady
+			}
+		}
+		providerAvailability.Provider = provider
+		if providerAvailability.ConfigurationState == "" {
+			if providerAvailability.Status == ProviderAvailable {
+				providerAvailability.ConfigurationState = ProviderReady
+			} else {
+				providerAvailability.ConfigurationState = ProviderNotConfigured
+			}
+		}
+		if adapter != nil &&
+			providerAvailability.Status == ProviderAvailable &&
+			providerAvailability.ConfigurationState == ProviderReady {
 			if config.Cipher == nil {
 				return nil, fmt.Errorf(
 					"%w: credential cipher is required for configured adapters",
@@ -83,22 +106,12 @@ func NewService(config Config) (*Service, error) {
 			}
 			adapters[provider] = adapter
 		}
-		providerAvailability, declared := config.Availability[provider]
-		if !declared {
-			providerAvailability = ProviderAvailability{
-				Provider:  provider,
-				Status:    ProviderUnavailable,
-				Retryable: false,
-			}
-			if adapter != nil {
-				providerAvailability.Status = ProviderAvailable
-				providerAvailability.Retryable = false
-			}
-		}
-		providerAvailability.Provider = provider
-		if adapter == nil {
+		if adapters[provider] == nil {
 			providerAvailability.Status = ProviderUnavailable
 			providerAvailability.Retryable = false
+			if providerAvailability.ConfigurationState == ProviderReady {
+				providerAvailability.ConfigurationState = ProviderNotConfigured
+			}
 		}
 		availability[provider] = providerAvailability
 	}
@@ -138,13 +151,30 @@ func NewService(config Config) (*Service, error) {
 
 func (service *Service) Bootstrap() ClientBootstrap {
 	bootstrap := ClientBootstrap{
-		Providers: make([]ProviderAvailability, 0, len(SupportedProviders)),
+		CatalogVersion: ProviderCatalogVersion,
+		Providers: make(
+			[]ProviderAvailability,
+			0,
+			len(LegacyBootstrapProviders),
+		),
+		Catalog: make([]ProviderCatalogEntry, 0, len(SupportedProviders)),
 	}
-	for _, provider := range SupportedProviders {
+	for _, provider := range LegacyBootstrapProviders {
 		bootstrap.Providers = append(
 			bootstrap.Providers,
 			service.availability[provider],
 		)
+	}
+	for _, provider := range SupportedProviders {
+		availability := service.availability[provider]
+		bootstrap.Catalog = append(bootstrap.Catalog, ProviderCatalogEntry{
+			Provider:           provider,
+			Status:             availability.Status,
+			ConfigurationState: availability.ConfigurationState,
+			Retryable:          availability.Retryable,
+			Resources:          providerResources(provider),
+			Capabilities:       adapterCapabilities(service.adapters[provider]),
+		})
 	}
 	return bootstrap
 }
@@ -172,10 +202,10 @@ func (service *Service) Begin(
 		strings.TrimSpace(request.ActorID) == "" {
 		return Authorization{}, fmt.Errorf("%w: workspace and actor are required", ErrInvalidArgument)
 	}
-	adapter, ok := service.adapters[request.Provider]
-	if !ok {
+	adapter, err := service.availableAdapter(request.Provider)
+	if err != nil {
 		if slices.Contains(SupportedProviders, request.Provider) {
-			return Authorization{}, ErrProviderUnavailable
+			return Authorization{}, err
 		}
 		return Authorization{}, ErrUnsupportedProvider
 	}
@@ -251,9 +281,9 @@ func (service *Service) Callback(
 	if strings.TrimSpace(request.Code) == "" {
 		return Selection{}, fmt.Errorf("%w: authorization code is required", ErrInvalidArgument)
 	}
-	adapter := service.adapters[attempt.Provider]
-	if adapter == nil {
-		return Selection{}, ErrProviderUnavailable
+	adapter, err := service.availableAdapter(attempt.Provider)
+	if err != nil {
+		return Selection{}, err
 	}
 	verifier := ""
 	if len(attempt.PKCEVerifierCiphertext.Data) > 0 {
@@ -280,7 +310,11 @@ func (service *Service) Callback(
 	}
 	valid := make([]DiscoveredResource, 0, len(resources))
 	for _, resource := range resources {
-		if validateDiscoveredResource(attempt.Provider, resource) == nil {
+		if validateDiscoveredResource(
+			attempt.Provider,
+			adapter.Config().Scopes,
+			resource,
+		) == nil {
 			valid = append(valid, resource)
 		}
 	}
@@ -374,8 +408,12 @@ func (service *Service) Select(
 	if err != nil {
 		return Connection{}, err
 	}
-	if service.adapters[target.Provider] == nil || service.cipher == nil {
-		return Connection{}, ErrProviderUnavailable
+	if _, err := service.availableAdapter(target.Provider); err != nil ||
+		service.cipher == nil {
+		if err != nil {
+			return Connection{}, err
+		}
+		return Connection{}, ErrProviderNotConfigured
 	}
 	connectionID, err := randomOpaqueID(18)
 	if err != nil {
@@ -497,11 +535,15 @@ func (service *Service) AccessToken(
 	if err != nil {
 		return "", err
 	}
-	if service.adapters[stored.Provider] == nil || service.cipher == nil {
+	adapter, availabilityErr := service.availableAdapter(stored.Provider)
+	if availabilityErr != nil || service.cipher == nil {
 		if claimed {
 			_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
 		}
-		return "", ErrProviderUnavailable
+		if availabilityErr != nil {
+			return "", availabilityErr
+		}
+		return "", ErrProviderNotConfigured
 	}
 	if !claimed {
 		return service.openAccessToken(stored)
@@ -511,11 +553,11 @@ func (service *Service) AccessToken(
 		_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
 		return "", err
 	}
-	refreshed, err := service.adapters[stored.Provider].Refresh(ctx, credential)
+	refreshed, err := adapter.Refresh(ctx, credential)
 	if err != nil {
 		return "", service.handleCredentialFailure(ctx, stored, err, now)
 	}
-	if validateScopes(stored.Provider, refreshed.Scopes) != nil ||
+	if validateScopes(adapter.Config().Scopes, refreshed.Scopes) != nil ||
 		strings.TrimSpace(refreshed.AccessToken) == "" {
 		return "", service.markReconnect(ctx, stored, "permission_missing", now)
 	}
@@ -583,15 +625,19 @@ func (service *Service) Verify(
 	if stored.Status == StatusRevoked {
 		return ErrConnectionRevoked
 	}
-	if service.adapters[stored.Provider] == nil || service.cipher == nil {
-		return ErrProviderUnavailable
+	adapter, availabilityErr := service.availableAdapter(stored.Provider)
+	if availabilityErr != nil {
+		return availabilityErr
+	}
+	if service.cipher == nil {
+		return ErrProviderNotConfigured
 	}
 	credential, err := service.openCredential(stored)
 	if err != nil {
 		return err
 	}
 	now := service.now().UTC()
-	if err := service.adapters[stored.Provider].Verify(
+	if err := adapter.Verify(
 		ctx,
 		stored.RemoteID,
 		credential,
@@ -793,6 +839,29 @@ func (service *Service) authorize(
 	return nil
 }
 
+func (service *Service) availableAdapter(provider Provider) (Adapter, error) {
+	if !slices.Contains(SupportedProviders, provider) {
+		return nil, ErrUnsupportedProvider
+	}
+	availability := service.availability[provider]
+	adapter := service.adapters[provider]
+	if adapter != nil &&
+		availability.Status == ProviderAvailable &&
+		availability.ConfigurationState == ProviderReady {
+		return adapter, nil
+	}
+	switch availability.ConfigurationState {
+	case ProviderReviewRequired:
+		return nil, ErrProviderReviewRequired
+	case ProviderAuditRequired:
+		return nil, ErrProviderAuditRequired
+	case ProviderNotConfigured, "":
+		return nil, ErrProviderNotConfigured
+	default:
+		return nil, ErrProviderUnavailable
+	}
+}
+
 func (service *Service) newEvent(
 	eventType string,
 	workspaceID, connectionID string,
@@ -883,6 +952,7 @@ func validateOAuthConfig(provider Provider, config OAuthConfig) error {
 
 func validateDiscoveredResource(
 	provider Provider,
+	requiredScopes []string,
 	resource DiscoveredResource,
 ) error {
 	if strings.TrimSpace(resource.Candidate.RemoteID) == "" ||
@@ -890,32 +960,20 @@ func validateDiscoveredResource(
 		strings.TrimSpace(resource.Credential.AccessToken) == "" {
 		return ErrInvalidArgument
 	}
-	if err := validateScopes(provider, resource.Credential.Scopes); err != nil {
+	if err := validateScopes(requiredScopes, resource.Credential.Scopes); err != nil {
 		return err
 	}
-	switch provider {
-	case ProviderFacebookPages:
-		if resource.Candidate.ResourceType != ResourceFacebookPage ||
-			resource.Candidate.AccountType != AccountTypePage {
-			return ErrInvalidArgument
-		}
-	case ProviderInstagramProfessional:
-		if resource.Candidate.ResourceType != ResourceInstagramProfessional ||
-			(resource.Candidate.AccountType != AccountTypeBusiness &&
-				resource.Candidate.AccountType != AccountTypeCreator) {
-			return ErrInvalidArgument
-		}
-	default:
+	if !providerAcceptsResource(
+		provider,
+		resource.Candidate.ResourceType,
+		resource.Candidate.AccountType,
+	) {
 		return ErrUnsupportedProvider
 	}
 	return nil
 }
 
-func validateScopes(provider Provider, scopes []string) error {
-	required, ok := requiredScopes[provider]
-	if !ok {
-		return ErrUnsupportedProvider
-	}
+func validateScopes(required, scopes []string) error {
 	for _, scope := range required {
 		if !slices.Contains(scopes, scope) {
 			return fmt.Errorf("%w: required scope %s is missing", ErrReconnectRequired, scope)
@@ -925,24 +983,42 @@ func validateScopes(provider Provider, scopes []string) error {
 }
 
 func validateRequestedScopes(provider Provider, scopes []string) error {
-	if err := validateScopes(provider, scopes); err != nil {
-		return err
-	}
-	required := requiredScopes[provider]
-	if len(scopes) != len(required) {
+	if len(scopes) == 0 {
 		return fmt.Errorf(
-			"%w: %s adapter must request only launch scopes",
+			"%w: %s adapter must request at least one scope",
 			ErrInvalidArgument,
 			provider,
 		)
 	}
+	seen := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {
-		if !slices.Contains(required, scope) {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
 			return fmt.Errorf(
-				"%w: %s adapter requests unsupported scope %s",
+				"%w: %s adapter requests an empty scope",
+				ErrInvalidArgument,
+				provider,
+			)
+		}
+		if _, duplicate := seen[scope]; duplicate {
+			return fmt.Errorf(
+				"%w: %s adapter requests duplicate scope %s",
 				ErrInvalidArgument,
 				provider,
 				scope,
+			)
+		}
+		seen[scope] = struct{}{}
+	}
+	if fixed, verified := requiredScopes[provider]; verified {
+		if err := validateScopes(fixed, scopes); err != nil {
+			return err
+		}
+		if len(scopes) != len(fixed) {
+			return fmt.Errorf(
+				"%w: %s adapter must request only verified scopes",
+				ErrInvalidArgument,
+				provider,
 			)
 		}
 	}

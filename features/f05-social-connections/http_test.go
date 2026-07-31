@@ -184,7 +184,7 @@ func TestHTTPRuntimeFailsClosedForUnavailableProviderAndQuota(t *testing.T) {
 		`{"provider":"facebook_pages"}`,
 	)
 	if begin.Code != http.StatusServiceUnavailable ||
-		!strings.Contains(begin.Body.String(), `"code":"provider_unavailable"`) ||
+		!strings.Contains(begin.Body.String(), `"code":"provider_not_configured"`) ||
 		!strings.Contains(begin.Body.String(), `"retryable":false`) {
 		t.Fatalf("unavailable begin = %d %s", begin.Code, begin.Body.String())
 	}
@@ -217,6 +217,77 @@ func TestHTTPRuntimeFailsClosedForUnavailableProviderAndQuota(t *testing.T) {
 	if response.Code != http.StatusConflict ||
 		!strings.Contains(response.Body.String(), `"code":"channel_quota_exceeded"`) {
 		t.Fatalf("quota response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestHTTPRuntimeDistinguishesProviderConfigurationGates(t *testing.T) {
+	tests := []struct {
+		name  string
+		state ProviderConfigurationState
+		code  string
+	}{
+		{
+			name:  "not configured",
+			state: ProviderNotConfigured,
+			code:  "provider_not_configured",
+		},
+		{
+			name:  "review required",
+			state: ProviderReviewRequired,
+			code:  "provider_review_required",
+		},
+		{
+			name:  "audit required",
+			state: ProviderAuditRequired,
+			code:  "provider_audit_required",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, err := NewService(Config{
+				Repository: NewMemoryRepository(),
+				Authorizer: &fakeAuthorizer{permissions: map[Permission]bool{
+					PermissionViewWorkspace:  true,
+					PermissionManageChannels: true,
+				}},
+				Quota: newFakeChannelQuota(),
+				Availability: map[Provider]ProviderAvailability{
+					ProviderX: {
+						Status:             ProviderUnavailable,
+						ConfigurationState: test.state,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler, err := NewHTTPHandler(
+				service,
+				fixedRequestAuthenticator{accountID: "owner-1"},
+				testSocialOrigin,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := performSocialRequest(
+				t,
+				handler,
+				http.MethodPost,
+				"/api/v1/workspaces/workspace-1/social-authorizations",
+				`{"provider":"x"}`,
+			)
+			if response.Code != http.StatusServiceUnavailable ||
+				!strings.Contains(
+					response.Body.String(),
+					`"code":"`+test.code+`"`,
+				) {
+				t.Fatalf(
+					"configuration gate = %d %s",
+					response.Code,
+					response.Body.String(),
+				)
+			}
+		})
 	}
 }
 

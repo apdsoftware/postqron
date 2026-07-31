@@ -26,10 +26,12 @@ const (
 	configFacebookRedirect  = "social.meta.facebook.redirect_url"
 	configFacebookConfigID  = "social.meta.facebook.login_config_id"
 	configFacebookReviewed  = "social.meta.facebook.app_review_approved"
+	configFacebookAudited   = "social.meta.facebook.runtime_audit_verified"
 	configInstagramID       = "social.meta.instagram.client_id"
 	configInstagramSecret   = "social.meta.instagram.client_secret"
 	configInstagramRedirect = "social.meta.instagram.redirect_url"
 	configInstagramReviewed = "social.meta.instagram.app_review_approved"
+	configInstagramAudited  = "social.meta.instagram.runtime_audit_verified"
 )
 
 var runtimeEnvironmentKeys = map[string]string{
@@ -43,10 +45,12 @@ var runtimeEnvironmentKeys = map[string]string{
 	configFacebookRedirect:  "POSTQRON_F05_FACEBOOK_REDIRECT_URL",
 	configFacebookConfigID:  "POSTQRON_F05_FACEBOOK_LOGIN_CONFIG_ID",
 	configFacebookReviewed:  "POSTQRON_F05_FACEBOOK_APP_REVIEW_APPROVED",
+	configFacebookAudited:   "POSTQRON_F05_FACEBOOK_RUNTIME_AUDIT_VERIFIED",
 	configInstagramID:       "POSTQRON_F05_INSTAGRAM_CLIENT_ID",
 	configInstagramSecret:   "POSTQRON_F05_INSTAGRAM_CLIENT_SECRET",
 	configInstagramRedirect: "POSTQRON_F05_INSTAGRAM_REDIRECT_URL",
 	configInstagramReviewed: "POSTQRON_F05_INSTAGRAM_APP_REVIEW_APPROVED",
+	configInstagramAudited:  "POSTQRON_F05_INSTAGRAM_RUNTIME_AUDIT_VERIFIED",
 }
 
 type Module struct {
@@ -105,9 +109,10 @@ func (module *Module) Configure(values map[string]string) error {
 	availability := make(map[Provider]ProviderAvailability)
 	for _, provider := range SupportedProviders {
 		availability[provider] = ProviderAvailability{
-			Provider:  provider,
-			Status:    ProviderUnavailable,
-			Retryable: false,
+			Provider:           provider,
+			Status:             ProviderUnavailable,
+			ConfigurationState: ProviderNotConfigured,
+			Retryable:          false,
 		}
 	}
 
@@ -126,6 +131,12 @@ func (module *Module) Configure(values map[string]string) error {
 		module.configureFacebook(configured, adapters, availability)
 		module.configureInstagram(configured, adapters, availability)
 	}
+	configureRuntimeProviderFamilies(
+		configured,
+		cipher,
+		adapters,
+		availability,
+	)
 	service, err := NewService(Config{
 		Repository:   module.repository,
 		Authorizer:   module.authorizer,
@@ -157,15 +168,28 @@ func (module *Module) configureFacebook(
 	adapters map[Provider]Adapter,
 	availability map[Provider]ProviderAvailability,
 ) {
-	if values[configFacebookReviewed] != "true" ||
-		!allPresent(
-			values,
-			configGraphVersion,
-			configFacebookID,
-			configFacebookSecret,
-			configFacebookRedirect,
-			configFacebookConfigID,
-		) {
+	if !allPresent(
+		values,
+		configGraphVersion,
+		configFacebookID,
+		configFacebookSecret,
+		configFacebookRedirect,
+		configFacebookConfigID,
+	) {
+		return
+	}
+	if values[configFacebookReviewed] != "true" {
+		availability[ProviderFacebookPages] = unavailableProvider(
+			ProviderFacebookPages,
+			ProviderReviewRequired,
+		)
+		return
+	}
+	if values[configFacebookAudited] != "true" {
+		availability[ProviderFacebookPages] = unavailableProvider(
+			ProviderFacebookPages,
+			ProviderAuditRequired,
+		)
 		return
 	}
 	adapter, err := NewMetaAdapter(MetaAdapterConfig{
@@ -182,8 +206,9 @@ func (module *Module) configureFacebook(
 	}
 	adapters[ProviderFacebookPages] = adapter
 	availability[ProviderFacebookPages] = ProviderAvailability{
-		Provider: ProviderFacebookPages,
-		Status:   ProviderAvailable,
+		Provider:           ProviderFacebookPages,
+		Status:             ProviderAvailable,
+		ConfigurationState: ProviderReady,
 	}
 }
 
@@ -192,14 +217,27 @@ func (module *Module) configureInstagram(
 	adapters map[Provider]Adapter,
 	availability map[Provider]ProviderAvailability,
 ) {
-	if values[configInstagramReviewed] != "true" ||
-		!allPresent(
-			values,
-			configGraphVersion,
-			configInstagramID,
-			configInstagramSecret,
-			configInstagramRedirect,
-		) {
+	if !allPresent(
+		values,
+		configGraphVersion,
+		configInstagramID,
+		configInstagramSecret,
+		configInstagramRedirect,
+	) {
+		return
+	}
+	if values[configInstagramReviewed] != "true" {
+		availability[ProviderInstagramProfessional] = unavailableProvider(
+			ProviderInstagramProfessional,
+			ProviderReviewRequired,
+		)
+		return
+	}
+	if values[configInstagramAudited] != "true" {
+		availability[ProviderInstagramProfessional] = unavailableProvider(
+			ProviderInstagramProfessional,
+			ProviderAuditRequired,
+		)
 		return
 	}
 	adapter, err := NewMetaAdapter(MetaAdapterConfig{
@@ -215,8 +253,9 @@ func (module *Module) configureInstagram(
 	}
 	adapters[ProviderInstagramProfessional] = adapter
 	availability[ProviderInstagramProfessional] = ProviderAvailability{
-		Provider: ProviderInstagramProfessional,
-		Status:   ProviderAvailable,
+		Provider:           ProviderInstagramProfessional,
+		Status:             ProviderAvailable,
+		ConfigurationState: ProviderReady,
 	}
 }
 
@@ -305,7 +344,13 @@ func (authorizer postgresSocialAuthorizer) Authorize(
 }
 
 func runtimeValues(values map[string]string) map[string]string {
-	result := make(map[string]string, len(runtimeEnvironmentKeys))
+	result := make(
+		map[string]string,
+		len(values)+len(runtimeEnvironmentKeys),
+	)
+	for key, value := range values {
+		result[key] = strings.TrimSpace(value)
+	}
 	for key, environmentKey := range runtimeEnvironmentKeys {
 		value := strings.TrimSpace(values[key])
 		if value == "" {
@@ -328,4 +373,16 @@ func allPresent(values map[string]string, keys ...string) bool {
 		}
 	}
 	return true
+}
+
+func unavailableProvider(
+	provider Provider,
+	state ProviderConfigurationState,
+) ProviderAvailability {
+	return ProviderAvailability{
+		Provider:           provider,
+		Status:             ProviderUnavailable,
+		ConfigurationState: state,
+		Retryable:          false,
+	}
 }

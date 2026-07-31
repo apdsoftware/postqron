@@ -1,13 +1,15 @@
 openapi: 3.1.0
 info:
   title: Postqron social connections API
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Owner-controlled Meta authorization, explicit resource selection,
-    connection state, reconnection, and revocation. Token material is never
-    part of this API. Browser responses use credentialed CORS for exact origins
-    from POSTQRON_AUTH_ALLOWED_ORIGINS; mutation requests require an allowed
-    Origin and public OPTIONS operations serve preflight.
+    Provider-agnostic, Owner-controlled authorization, explicit resource
+    selection, connection state, reconnection, and revocation. The bootstrap
+    contains a versioned capability catalog, while providers without a verified
+    adapter remain fail-closed. Token material is never part of this API.
+    Browser responses use credentialed CORS for exact origins from
+    POSTQRON_AUTH_ALLOWED_ORIGINS; mutation requests require an allowed Origin
+    and public OPTIONS operations serve preflight.
 paths:
   /api/v1/workspaces/{workspace_id}/social-connections/bootstrap:
     get:
@@ -238,7 +240,7 @@ paths:
   /api/v1/workspaces/{workspace_id}/social-connections/{connection_id}:
     delete:
       operationId: revokeSocialConnection
-      summary: Revoke locally, delete credentials, and revoke at Meta when safe
+      summary: Revoke locally, delete credentials, and revoke remotely when safe
       security:
         - session: []
       parameters:
@@ -314,7 +316,9 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     ProviderUnavailable:
-      description: Provider is fail-closed because configuration or review is incomplete
+      description: >
+        Provider is fail-closed because configuration, review, runtime audit,
+        or an adapter is incomplete
       content:
         application/json:
           schema:
@@ -336,37 +340,164 @@ components:
           description: >
             Client-safe category. Provider failures use provider_access_denied,
             provider_temporary, provider_resource_unavailable, or
-            provider_invalid_response; raw Meta error codes are not exposed.
+            provider_invalid_response. Availability failures use
+            provider_not_configured, provider_review_required,
+            provider_audit_required, or provider_unavailable. Raw provider
+            diagnostics are not exposed.
         message:
           type: string
         retryable:
           type: boolean
     Provider:
       type: string
-      enum: [facebook_pages, instagram_professional]
+      enum:
+        - facebook_pages
+        - facebook_groups
+        - instagram_professional
+        - instagram_personal
+        - x
+        - linkedin
+        - pinterest
+        - tiktok
+        - google_business_profile
+        - mastodon
+        - youtube
+        - threads
+        - bluesky
     ProviderAvailability:
       type: object
       additionalProperties: false
-      required: [provider, status, retryable]
+      required: [provider, status, configuration_state, retryable]
       properties:
         provider:
           $ref: "#/components/schemas/Provider"
         status:
           type: string
           enum: [available, unavailable]
+        configuration_state:
+          type: string
+          enum: [not_configured, review_required, audit_required, ready]
         retryable:
           type: boolean
+    AdapterCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - authorization
+        - pkce
+        - resource_selection
+        - token_refresh
+        - remote_revocation
+      properties:
+        authorization:
+          type: boolean
+        pkce:
+          type: boolean
+        resource_selection:
+          type: boolean
+        token_refresh:
+          type: boolean
+        remote_revocation:
+          type: boolean
+    ResourceCapability:
+      type: object
+      additionalProperties: false
+      required: [resource_type, account_types, publishing_modes]
+      properties:
+        resource_type:
+          $ref: "#/components/schemas/ResourceType"
+        account_types:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AccountType"
+        publishing_modes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [auto, notification]
+    ProviderCatalogEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - status
+        - configuration_state
+        - retryable
+        - resources
+        - capabilities
+      properties:
+        provider:
+          $ref: "#/components/schemas/Provider"
+        status:
+          type: string
+          enum: [available, unavailable]
+        configuration_state:
+          type: string
+          enum: [not_configured, review_required, audit_required, ready]
+        retryable:
+          type: boolean
+        resources:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ResourceCapability"
+        capabilities:
+          $ref: "#/components/schemas/AdapterCapabilities"
     ClientBootstrap:
       type: object
       additionalProperties: false
-      required: [providers]
+      required: [catalog_version, providers, catalog]
       properties:
+        catalog_version:
+          type: string
+          const: "2026-07-30"
         providers:
+          description: >
+            Compatibility projection for the Meta-only F30 client. New clients
+            consume catalog.
           type: array
           minItems: 2
           maxItems: 2
           items:
             $ref: "#/components/schemas/ProviderAvailability"
+        catalog:
+          type: array
+          minItems: 13
+          maxItems: 13
+          items:
+            $ref: "#/components/schemas/ProviderCatalogEntry"
+    ResourceType:
+      type: string
+      enum:
+        - facebook_page
+        - facebook_group
+        - instagram_professional
+        - instagram_personal
+        - x_profile
+        - linkedin_profile
+        - linkedin_page
+        - pinterest_board
+        - tiktok_profile
+        - google_business_profile_location
+        - mastodon_account
+        - youtube_channel
+        - threads_profile
+        - bluesky_account
+    AccountType:
+      type: string
+      enum:
+        - page
+        - group
+        - business
+        - creator
+        - personal
+        - profile
+        - organization
+        - board
+        - location
+        - channel
     Authorization:
       type: object
       additionalProperties: false
@@ -387,11 +518,9 @@ components:
         remote_id:
           type: string
         resource_type:
-          type: string
-          enum: [facebook_page, instagram_professional]
+          $ref: "#/components/schemas/ResourceType"
         account_type:
-          type: string
-          enum: [page, business, creator]
+          $ref: "#/components/schemas/AccountType"
         display_name:
           type: string
         handle:
@@ -445,11 +574,9 @@ components:
         remote_id:
           type: string
         resource_type:
-          type: string
-          enum: [facebook_page, instagram_professional]
+          $ref: "#/components/schemas/ResourceType"
         account_type:
-          type: string
-          enum: [page, business, creator]
+          $ref: "#/components/schemas/AccountType"
         display_name:
           type: string
         handle:
