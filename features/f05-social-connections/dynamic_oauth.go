@@ -303,7 +303,7 @@ func (service *Service) AuthenticatedRequest(
 		service.refreshLockTTL,
 	)
 	if errors.Is(err, ErrRefreshOutcomeUnknown) {
-		return AuthenticatedResponse{}, service.markReconnect(
+		return AuthenticatedResponse{}, service.markReconnectAfterSession(
 			ctx,
 			stored,
 			"refresh_outcome_unknown",
@@ -331,7 +331,7 @@ func (service *Service) AuthenticatedRequest(
 		refreshed, refreshErr := adapter.RefreshDynamic(ctx, session)
 		if refreshErr != nil {
 			if stored.RefreshTokenMode == RefreshTokenSingleUse {
-				return AuthenticatedResponse{}, service.markReconnect(
+				return AuthenticatedResponse{}, service.markReconnectAfterSession(
 					ctx,
 					stored,
 					"refresh_outcome_unknown",
@@ -350,7 +350,7 @@ func (service *Service) AuthenticatedRequest(
 			!refreshed.Session.Credential.ExpiresAt.After(
 				now.Add(service.refreshBefore),
 			) {
-			return AuthenticatedResponse{}, service.markReconnect(
+			return AuthenticatedResponse{}, service.markReconnectAfterSession(
 				ctx,
 				stored,
 				"invalid_refresh_rotation",
@@ -367,7 +367,7 @@ func (service *Service) AuthenticatedRequest(
 			"",
 		)
 		if eventErr != nil {
-			return AuthenticatedResponse{}, service.markReconnect(
+			return AuthenticatedResponse{}, service.markReconnectAfterSession(
 				ctx,
 				stored,
 				"refresh_outcome_unknown",
@@ -382,7 +382,7 @@ func (service *Service) AuthenticatedRequest(
 			&event,
 		)
 		if commandErr != nil {
-			return AuthenticatedResponse{}, service.markReconnect(
+			return AuthenticatedResponse{}, service.markReconnectAfterSession(
 				ctx,
 				stored,
 				"refresh_outcome_unknown",
@@ -480,6 +480,7 @@ func (service *Service) AuthenticatedRequest(
 		)
 		return AuthenticatedResponse{}, err
 	}
+	stored = afterSessionCompletion(stored)
 	if requestErr != nil {
 		var failure *ProviderFailure
 		if errors.As(requestErr, &failure) && isReconnectFailure(failure.Kind) {

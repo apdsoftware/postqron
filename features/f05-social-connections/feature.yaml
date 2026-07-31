@@ -1,7 +1,7 @@
 schema_version: 1
 id: social-connections
 kind: api
-version: 0.5.0
+version: 0.5.2
 entrypoint: ./social.go
 dependencies:
   - auth
@@ -12,6 +12,8 @@ migrations:
   - ./migrations/000002_provider_platform.sql
   - ./migrations/000003_dynamic_oauth_dpop.sql
   - ./migrations/000004_linkedin_dms_grants.sql
+  - ./migrations/000005_refresh_leases.sql
+  - ./migrations/000006_credential_generation.sql
 server:
   routes:
     - path: /workspaces/{workspace_id}/social-connections/bootstrap

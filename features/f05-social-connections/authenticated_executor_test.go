@@ -96,11 +96,7 @@ type failingMarkReconnectRepository struct {
 
 func (repository *failingMarkReconnectRepository) MarkReconnectRequired(
 	context.Context,
-	string,
-	string,
-	string,
-	time.Time,
-	Event,
+	ReconnectCommand,
 ) (Connection, bool, error) {
 	return Connection{}, false, errors.New("injected MarkReconnectRequired failure")
 }

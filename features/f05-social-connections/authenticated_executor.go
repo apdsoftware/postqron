@@ -453,7 +453,7 @@ func (executor *AuthenticatedExecutor) executeDynamicRequest(
 		executor.service.refreshLockTTL,
 	)
 	if errors.Is(err, ErrRefreshOutcomeUnknown) {
-		return AuthenticatedResponse{}, nil, executor.service.markReconnect(
+		return AuthenticatedResponse{}, nil, executor.service.markReconnectAfterSession(
 			ctx, stored, "refresh_outcome_unknown", now,
 		)
 	}
@@ -480,7 +480,7 @@ func (executor *AuthenticatedExecutor) executeDynamicRequest(
 		refreshed, refreshErr := dynamic.RefreshDynamic(ctx, session)
 		if refreshErr != nil {
 			if stored.RefreshTokenMode == RefreshTokenSingleUse {
-				return AuthenticatedResponse{}, nil, executor.service.markReconnect(
+				return AuthenticatedResponse{}, nil, executor.service.markReconnectAfterSession(
 					ctx, stored, "refresh_outcome_unknown", now,
 				)
 			}
@@ -494,7 +494,7 @@ func (executor *AuthenticatedExecutor) executeDynamicRequest(
 			!refreshed.Session.Credential.ExpiresAt.After(
 				now.Add(executor.service.refreshBefore),
 			) {
-			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnectAfterSession(
 				ctx, stored, "invalid_refresh_rotation", now,
 			)
 		}
@@ -508,7 +508,7 @@ func (executor *AuthenticatedExecutor) executeDynamicRequest(
 			"",
 		)
 		if eventErr != nil {
-			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnectAfterSession(
 				ctx, stored, "refresh_outcome_unknown", now,
 			)
 		}
@@ -516,7 +516,7 @@ func (executor *AuthenticatedExecutor) executeDynamicRequest(
 			stored, refreshed.Session, true, now, &event,
 		)
 		if commandErr != nil {
-			return AuthenticatedResponse{}, nil, executor.service.markReconnect(
+			return AuthenticatedResponse{}, nil, executor.service.markReconnectAfterSession(
 				ctx, stored, "refresh_outcome_unknown", now,
 			)
 		}
@@ -607,6 +607,7 @@ func (executor *AuthenticatedExecutor) executeDynamicRequest(
 			ctx, stored, request.Method, now, "dynamic_session_persistence_failed",
 		)
 	}
+	stored = afterSessionCompletion(stored)
 	if requestErr != nil {
 		var providerFailure *ProviderFailure
 		if errors.As(requestErr, &providerFailure) &&
@@ -656,7 +657,7 @@ func (executor *AuthenticatedExecutor) persistReconnectOrFail(
 	now time.Time,
 	outcome error,
 ) error {
-	if err := executor.service.markReconnect(
+	if err := executor.service.markReconnectAfterSession(
 		ctx,
 		stored,
 		reason,

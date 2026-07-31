@@ -32,10 +32,6 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	workspaceID := "integration-workspace-" + suffix
 	actorID := "integration-owner-" + suffix
 	remoteID := "integration-ig-" + suffix
-	repository, err := NewPostgresRepository(database)
-	if err != nil {
-		t.Fatal(err)
-	}
 	authorizer := &fakeAuthorizer{permissions: map[Permission]bool{
 		PermissionViewWorkspace:  true,
 		PermissionManageChannels: true,
@@ -92,28 +88,75 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 			),
 		},
 	}
-	service, err := NewService(Config{
-		Repository: repository,
-		Authorizer: authorizer,
-		Cipher:     cipher,
-		Quota:      newFakeChannelQuota(),
-		Adapters: map[Provider]Adapter{
-			ProviderFacebookPages:         facebook,
-			ProviderInstagramProfessional: instagram,
-		},
-		Now: func() time.Time { return serviceTestNow },
+	newRuntime := func() (*PostgresRepository, *Service) {
+		t.Helper()
+		repository, runtimeErr := NewPostgresRepository(database)
+		if runtimeErr != nil {
+			t.Fatal(runtimeErr)
+		}
+		service, runtimeErr := NewService(Config{
+			Repository: repository,
+			Authorizer: authorizer,
+			Cipher:     cipher,
+			Quota:      newFakeChannelQuota(),
+			Adapters: map[Provider]Adapter{
+				ProviderFacebookPages:         facebook,
+				ProviderInstagramProfessional: instagram,
+			},
+			Now: func() time.Time { return serviceTestNow },
+		})
+		if runtimeErr != nil {
+			t.Fatal(runtimeErr)
+		}
+		return repository, service
+	}
+	repository, service := newRuntime()
+	authorization, err := service.Begin(context.Background(), BeginRequest{
+		WorkspaceID: workspaceID,
+		ActorID:     actorID,
+		Provider:    ProviderInstagramProfessional,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	connection := postgresConnectInstagram(
-		t,
-		service,
+	parsedAuthorization, err := url.Parse(authorization.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, service = newRuntime()
+	selection, err := service.Callback(context.Background(), CallbackRequest{
+		State: parsedAuthorization.Query().Get("state"),
+		Code:  "integration-code",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, service = newRuntime()
+	connection, err := service.Select(context.Background(), SelectRequest{
+		WorkspaceID: workspaceID,
+		ActorID:     actorID,
+		SelectionID: selection.ID,
+		RemoteID:    remoteID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedAfterRestart, err := service.List(
+		context.Background(),
 		workspaceID,
 		actorID,
-		remoteID,
 	)
+	if err != nil || len(listedAfterRestart) != 1 ||
+		listedAfterRestart[0].ID != connection.ID {
+		t.Fatalf("connections after process restart = %#v, error %v", listedAfterRestart, err)
+	}
+	if _, err = service.AccessToken(
+		context.Background(),
+		"other-"+workspaceID,
+		connection.ID,
+	); !errors.Is(err, ErrResourceNotFound) {
+		t.Fatalf("cross-workspace credential error = %v", err)
+	}
 	var ciphertext []byte
 	var keyID, status string
 	if err = database.QueryRowContext(context.Background(), `
@@ -149,6 +192,73 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 		WHERE id = $1`,
 		connection.ID,
 		expired,
+	); err != nil {
+		t.Fatal(err)
+	}
+	firstLease, claimed, err := repository.ClaimRefresh(
+		context.Background(),
+		workspaceID,
+		connection.ID,
+		serviceTestNow,
+		serviceTestNow,
+		time.Second,
+	)
+	if err != nil || !claimed || firstLease.RefreshLeaseID == "" {
+		t.Fatalf("first PostgreSQL refresh lease = %#v, claimed %v, error %v", firstLease, claimed, err)
+	}
+	secondLease, claimed, err := repository.ClaimRefresh(
+		context.Background(),
+		workspaceID,
+		connection.ID,
+		serviceTestNow.Add(2*time.Second),
+		serviceTestNow.Add(2*time.Second),
+		time.Second,
+	)
+	if err != nil || !claimed || secondLease.RefreshLeaseID == "" ||
+		secondLease.RefreshLeaseID == firstLease.RefreshLeaseID {
+		t.Fatalf("second PostgreSQL refresh lease = %#v, claimed %v, error %v", secondLease, claimed, err)
+	}
+	if _, err = repository.CompleteRefresh(
+		context.Background(),
+		RefreshCommand{
+			ConnectionID:           connection.ID,
+			RefreshLeaseID:         firstLease.RefreshLeaseID,
+			AccessTokenCiphertext:  firstLease.AccessTokenCiphertext,
+			RefreshTokenCiphertext: firstLease.RefreshTokenCiphertext,
+			Scopes:                 firstLease.Scopes,
+			ExpiresAt:              firstLease.TokenExpiresAt,
+			VerifiedAt:             serviceTestNow,
+			Now:                    serviceTestNow,
+		},
+	); !errors.Is(err, ErrRefreshInProgress) {
+		t.Fatalf("stale PostgreSQL refresh completion error = %v", err)
+	}
+	if err = repository.ReleaseRefresh(
+		context.Background(),
+		workspaceID,
+		connection.ID,
+		firstLease.RefreshLeaseID,
+	); !errors.Is(err, ErrRefreshInProgress) {
+		t.Fatalf("stale PostgreSQL refresh release error = %v", err)
+	}
+	if _, _, err = repository.MarkReconnectRequired(
+		context.Background(),
+		ReconnectCommand{
+			WorkspaceID:                  workspaceID,
+			ConnectionID:                 connection.ID,
+			ExpectedCredentialGeneration: firstLease.CredentialGeneration,
+			ExpectedRefreshLeaseID:       firstLease.RefreshLeaseID,
+			Reason:                       "stale_refresh_failure",
+			Now:                          serviceTestNow.Add(2 * time.Second),
+		},
+	); !errors.Is(err, ErrRefreshInProgress) {
+		t.Fatalf("stale PostgreSQL refresh reconnect error = %v", err)
+	}
+	if err = repository.ReleaseRefresh(
+		context.Background(),
+		workspaceID,
+		connection.ID,
+		secondLease.RefreshLeaseID,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -569,6 +679,65 @@ func TestPostgresRepositoryDynamicSessionLeaseAndCrashSafety(t *testing.T) {
 	if err != nil || string(openedSession) != "dynamic-pg-dpop-key|as-2|rs-1" {
 		t.Fatalf("persisted session = %q, error %v", openedSession, err)
 	}
+	firstSession, _, err := repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now,
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSession, _, err := repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now.Add(2*time.Second),
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSession.SessionLeaseID == secondSession.SessionLeaseID {
+		t.Fatal("PostgreSQL expired session lease was reused")
+	}
+	if _, _, err = repository.MarkReconnectRequired(
+		context.Background(),
+		ReconnectCommand{
+			WorkspaceID:                  workspaceID,
+			ConnectionID:                 connectionID,
+			ExpectedCredentialGeneration: firstSession.CredentialGeneration,
+			ExpectedSessionLeaseID:       firstSession.SessionLeaseID,
+			Reason:                       "stale_session_failure",
+			Now:                          now.Add(2 * time.Second),
+		},
+	); !errors.Is(err, ErrAuthenticatedRequestInProgress) {
+		t.Fatalf("stale PostgreSQL session reconnect error = %v", err)
+	}
+	persisted, err = repository.GetCredential(
+		context.Background(),
+		workspaceID,
+		connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusConnected ||
+		persisted.SessionLeaseID != secondSession.SessionLeaseID ||
+		len(persisted.AccessTokenCiphertext.Data) == 0 {
+		t.Fatalf("credential after stale PostgreSQL reconnect = %#v", persisted)
+	}
+	if err = repository.ReleaseSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		secondSession.SessionLeaseID,
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err = database.ExecContext(context.Background(), `
 		UPDATE f05_social_connections
@@ -598,6 +767,108 @@ func TestPostgresRepositoryDynamicSessionLeaseAndCrashSafety(t *testing.T) {
 		time.Second,
 	); !errors.Is(err, ErrRefreshOutcomeUnknown) {
 		t.Fatalf("expired single-use lease error = %v", err)
+	}
+}
+
+func TestPostgresSocialAuthorizerEnforcesOwnerAndWorkspaceIsolation(t *testing.T) {
+	databaseURL := os.Getenv("F05_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("F05_DATABASE_URL is not set")
+	}
+	database, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err = database.PingContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	workspaceID := "f05-auth-workspace-" + suffix
+	otherWorkspaceID := "f05-auth-other-workspace-" + suffix
+	ownerID := "f05-auth-owner-" + suffix
+	memberID := "f05-auth-member-" + suffix
+	otherOwnerID := "f05-auth-other-owner-" + suffix
+	defer func() {
+		_, _ = database.ExecContext(
+			context.Background(),
+			`DELETE FROM f04_workspaces WHERE id IN ($1, $2)`,
+			workspaceID,
+			otherWorkspaceID,
+		)
+	}()
+	for _, fixture := range []struct {
+		workspaceID string
+		ownerID     string
+	}{
+		{workspaceID: workspaceID, ownerID: ownerID},
+		{workspaceID: otherWorkspaceID, ownerID: otherOwnerID},
+	} {
+		if _, err = database.ExecContext(context.Background(), `
+			INSERT INTO f04_workspaces (
+				id, personal_account_id, name, status, created_at, updated_at
+			) VALUES ($1, $2, $3, 'active', $4, $4)`,
+			fixture.workspaceID,
+			fixture.ownerID,
+			"F5 OAuth authorization fixture",
+			serviceTestNow,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = database.ExecContext(context.Background(), `
+			INSERT INTO f04_memberships (
+				workspace_id, account_id, role, status, created_at, updated_at
+			) VALUES ($1, $2, 'owner', 'active', $3, $3)`,
+			fixture.workspaceID,
+			fixture.ownerID,
+			serviceTestNow,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = database.ExecContext(context.Background(), `
+		INSERT INTO f04_memberships (
+			workspace_id, account_id, role, status, created_at, updated_at
+		) VALUES ($1, $2, 'member', 'active', $3, $3)`,
+		workspaceID,
+		memberID,
+		serviceTestNow,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	authorizer := postgresSocialAuthorizer{database: database}
+	if err = authorizer.Authorize(
+		context.Background(),
+		workspaceID,
+		ownerID,
+		PermissionManageChannels,
+	); err != nil {
+		t.Fatalf("owner manage authorization: %v", err)
+	}
+	if err = authorizer.Authorize(
+		context.Background(),
+		workspaceID,
+		memberID,
+		PermissionViewWorkspace,
+	); err != nil {
+		t.Fatalf("member view authorization: %v", err)
+	}
+	if err = authorizer.Authorize(
+		context.Background(),
+		workspaceID,
+		memberID,
+		PermissionManageChannels,
+	); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("member manage authorization error = %v", err)
+	}
+	if err = authorizer.Authorize(
+		context.Background(),
+		otherWorkspaceID,
+		ownerID,
+		PermissionManageChannels,
+	); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("cross-workspace owner authorization error = %v", err)
 	}
 }
 

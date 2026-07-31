@@ -455,11 +455,12 @@ func (service *Service) Select(
 	if err != nil {
 		return Connection{}, err
 	}
-	if _, err := service.availableAdapter(target.Provider); err != nil ||
-		service.cipher == nil {
-		if err != nil {
-			return Connection{}, err
-		}
+	staticAdapter, staticErr := service.availableAdapter(target.Provider)
+	dynamicAdapter, dynamicErr := service.availableDynamicAdapter(target.Provider)
+	if staticAdapter == nil && dynamicAdapter == nil {
+		return Connection{}, providerAvailabilityError(staticErr, dynamicErr)
+	}
+	if service.cipher == nil {
 		return Connection{}, ErrProviderNotConfigured
 	}
 	connectionID, err := randomOpaqueID(18)
@@ -597,7 +598,12 @@ func (service *Service) AccessToken(
 	adapter, availabilityErr := service.availableAdapter(stored.Provider)
 	if availabilityErr != nil || service.cipher == nil {
 		if claimed {
-			_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
+			_ = service.repository.ReleaseRefresh(
+				ctx,
+				workspaceID,
+				connectionID,
+				stored.RefreshLeaseID,
+			)
 		}
 		if availabilityErr != nil {
 			return "", availabilityErr
@@ -609,7 +615,12 @@ func (service *Service) AccessToken(
 	}
 	credential, err := service.openCredential(stored)
 	if err != nil {
-		_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
+		_ = service.repository.ReleaseRefresh(
+			ctx,
+			workspaceID,
+			connectionID,
+			stored.RefreshLeaseID,
+		)
 		return "", err
 	}
 	refreshed, err := adapter.Refresh(ctx, credential)
@@ -618,7 +629,12 @@ func (service *Service) AccessToken(
 	}
 	if validateScopes(adapter.Config().Scopes, refreshed.Scopes) != nil ||
 		strings.TrimSpace(refreshed.AccessToken) == "" {
-		return "", service.markReconnect(ctx, stored, "permission_missing", now)
+		return "", service.markReconnectAfterRefresh(
+			ctx,
+			stored,
+			"permission_missing",
+			now,
+		)
 	}
 	additionalData := credentialAdditionalData(
 		stored.WorkspaceID,
@@ -630,7 +646,12 @@ func (service *Service) AccessToken(
 		additionalData,
 	)
 	if err != nil {
-		_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
+		_ = service.repository.ReleaseRefresh(
+			ctx,
+			workspaceID,
+			connectionID,
+			stored.RefreshLeaseID,
+		)
 		return "", err
 	}
 	refreshCiphertext, err := service.cipher.Seal(
@@ -638,7 +659,12 @@ func (service *Service) AccessToken(
 		additionalData,
 	)
 	if err != nil {
-		_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
+		_ = service.repository.ReleaseRefresh(
+			ctx,
+			workspaceID,
+			connectionID,
+			stored.RefreshLeaseID,
+		)
 		return "", err
 	}
 	event, err := service.newEvent(
@@ -651,11 +677,17 @@ func (service *Service) AccessToken(
 		"",
 	)
 	if err != nil {
-		_ = service.repository.ReleaseRefresh(ctx, workspaceID, connectionID)
+		_ = service.repository.ReleaseRefresh(
+			ctx,
+			workspaceID,
+			connectionID,
+			stored.RefreshLeaseID,
+		)
 		return "", err
 	}
 	_, err = service.repository.CompleteRefresh(ctx, RefreshCommand{
 		ConnectionID:           stored.ID,
+		RefreshLeaseID:         stored.RefreshLeaseID,
 		AccessTokenCiphertext:  accessCiphertext,
 		RefreshTokenCiphertext: refreshCiphertext,
 		Scopes:                 append([]string(nil), refreshed.Scopes...),
@@ -879,13 +911,23 @@ func (service *Service) handleCredentialFailure(
 	now time.Time,
 ) error {
 	if errors.Is(err, ErrNotRefreshable) {
-		return service.markReconnect(ctx, stored, "not_refreshable", now)
+		return service.markReconnectAfterRefresh(ctx, stored, "not_refreshable", now)
 	}
 	var failure *ProviderFailure
 	if errors.As(err, &failure) && isReconnectFailure(failure.Kind) {
-		return service.markReconnect(ctx, stored, string(failure.Kind), now)
+		return service.markReconnectAfterRefresh(
+			ctx,
+			stored,
+			string(failure.Kind),
+			now,
+		)
 	}
-	_ = service.repository.ReleaseRefresh(ctx, stored.WorkspaceID, stored.ID)
+	_ = service.repository.ReleaseRefresh(
+		ctx,
+		stored.WorkspaceID,
+		stored.ID,
+		stored.RefreshLeaseID,
+	)
 	return err
 }
 
@@ -894,6 +936,49 @@ func (service *Service) markReconnect(
 	stored StoredCredential,
 	reason string,
 	now time.Time,
+) error {
+	return service.markReconnectCAS(ctx, stored, reason, now, "", "")
+}
+
+func (service *Service) markReconnectAfterRefresh(
+	ctx context.Context,
+	stored StoredCredential,
+	reason string,
+	now time.Time,
+) error {
+	return service.markReconnectCAS(
+		ctx,
+		stored,
+		reason,
+		now,
+		stored.RefreshLeaseID,
+		"",
+	)
+}
+
+func (service *Service) markReconnectAfterSession(
+	ctx context.Context,
+	stored StoredCredential,
+	reason string,
+	now time.Time,
+) error {
+	return service.markReconnectCAS(
+		ctx,
+		stored,
+		reason,
+		now,
+		"",
+		stored.SessionLeaseID,
+	)
+}
+
+func (service *Service) markReconnectCAS(
+	ctx context.Context,
+	stored StoredCredential,
+	reason string,
+	now time.Time,
+	refreshLeaseID string,
+	sessionLeaseID string,
 ) error {
 	event, err := service.newEvent(
 		EventReconnectRequired,
@@ -905,20 +990,44 @@ func (service *Service) markReconnect(
 		reason,
 	)
 	if err != nil {
-		_ = service.repository.ReleaseRefresh(ctx, stored.WorkspaceID, stored.ID)
+		if refreshLeaseID != "" {
+			_ = service.repository.ReleaseRefresh(
+				ctx,
+				stored.WorkspaceID,
+				stored.ID,
+				refreshLeaseID,
+			)
+		}
 		return err
 	}
 	if _, _, err = service.repository.MarkReconnectRequired(
 		ctx,
-		stored.WorkspaceID,
-		stored.ID,
-		reason,
-		now,
-		event,
+		ReconnectCommand{
+			WorkspaceID:  stored.WorkspaceID,
+			ConnectionID: stored.ID,
+			ExpectedCredentialGeneration: normalizedCredentialGeneration(
+				stored.CredentialGeneration,
+			),
+			ExpectedRefreshLeaseID: refreshLeaseID,
+			ExpectedSessionLeaseID: sessionLeaseID,
+			Reason:                 reason,
+			Now:                    now,
+			Event:                  event,
+		},
 	); err != nil {
 		return err
 	}
 	return ErrReconnectRequired
+}
+
+func afterSessionCompletion(stored StoredCredential) StoredCredential {
+	stored.CredentialGeneration = normalizedCredentialGeneration(
+		stored.CredentialGeneration,
+	) + 1
+	stored.SessionLockedUntil = nil
+	stored.SessionLeaseID = ""
+	stored.SessionRefreshing = false
+	return stored
 }
 
 func (service *Service) openAccessToken(stored StoredCredential) (string, error) {

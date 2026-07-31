@@ -515,9 +515,11 @@ type StoredSelection struct {
 
 type StoredCredential struct {
 	Connection
+	CredentialGeneration   int64
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
 	RefreshLockedUntil     *time.Time
+	RefreshLeaseID         string
 	OAuthSessionCiphertext Ciphertext
 	Binding                OAuthBinding
 	RefreshTokenMode       RefreshTokenMode
@@ -580,6 +582,7 @@ type ChannelQuota interface {
 
 type RefreshCommand struct {
 	ConnectionID           string
+	RefreshLeaseID         string
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
 	Scopes                 []string
@@ -601,6 +604,24 @@ type SessionCommand struct {
 	VerifiedAt             time.Time
 	Now                    time.Time
 	Event                  *Event
+}
+
+type ReconnectCommand struct {
+	WorkspaceID                  string
+	ConnectionID                 string
+	ExpectedCredentialGeneration int64
+	ExpectedRefreshLeaseID       string
+	ExpectedSessionLeaseID       string
+	Reason                       string
+	Now                          time.Time
+	Event                        Event
+}
+
+func normalizedCredentialGeneration(generation int64) int64 {
+	if generation > 0 {
+		return generation
+	}
+	return 1
 }
 
 type LinkedInDMSGrantState string
@@ -750,14 +771,14 @@ type Repository interface {
 	GetCredential(context.Context, string, string) (StoredCredential, error)
 	ClaimRefresh(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
 	CompleteRefresh(context.Context, RefreshCommand) (Connection, error)
-	ReleaseRefresh(context.Context, string, string) error
+	ReleaseRefresh(context.Context, string, string, string) error
 	ClaimSession(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
 	CompleteSession(context.Context, SessionCommand) (Connection, error)
 	ReleaseSession(context.Context, string, string, string) error
 	SaveLinkedInDMSGrant(context.Context, StoredLinkedInDMSGrant) error
 	GetLinkedInDMSGrant(context.Context, string, string, string, time.Time) (StoredLinkedInDMSGrant, error)
 	TransitionLinkedInDMSGrant(context.Context, LinkedInDMSGrantTransition) (StoredLinkedInDMSGrant, error)
-	MarkReconnectRequired(context.Context, string, string, string, time.Time, Event) (Connection, bool, error)
+	MarkReconnectRequired(context.Context, ReconnectCommand) (Connection, bool, error)
 	Revoke(context.Context, string, string, time.Time, Event) (Connection, bool, error)
 }
 
