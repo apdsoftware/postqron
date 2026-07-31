@@ -172,11 +172,21 @@ type DiscoveredResource struct {
 	Credential Credential
 }
 
+type OAuthScopeSeparator string
+
+const (
+	// OAuthScopeSeparatorComma preserves the Meta-compatible serialization
+	// used before OAuthConfig exposed a provider-neutral separator.
+	OAuthScopeSeparatorComma OAuthScopeSeparator = ","
+	OAuthScopeSeparatorSpace OAuthScopeSeparator = " "
+)
+
 type OAuthConfig struct {
 	ClientID         string
 	AuthorizationURL string
 	RedirectURL      string
 	Scopes           []string
+	ScopeSeparator   OAuthScopeSeparator
 	SupportsPKCE     bool
 	ExtraParameters  map[string]string
 }

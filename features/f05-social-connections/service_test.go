@@ -93,6 +93,115 @@ func (adapter *fakeAdapter) Config() OAuthConfig {
 	return adapter.config
 }
 
+func TestOAuthScopeParameterSerializationPreservesMetaAndSupportsX(t *testing.T) {
+	tests := []struct {
+		name       string
+		provider   Provider
+		config     OAuthConfig
+		wantScopes string
+		wantURL    string
+	}{
+		{
+			name:     "Meta comma-delimited default",
+			provider: ProviderFacebookPages,
+			config: OAuthConfig{
+				ClientID:         "meta-client",
+				AuthorizationURL: "https://www.facebook.com/v25.0/dialog/oauth",
+				RedirectURL:      "https://app.example.test/social/callback",
+				Scopes: append(
+					[]string(nil),
+					requiredScopes[ProviderFacebookPages]...,
+				),
+			},
+			wantScopes: strings.Join(
+				requiredScopes[ProviderFacebookPages],
+				string(OAuthScopeSeparatorComma),
+			),
+			wantURL: "https://www.facebook.com/v25.0/dialog/oauth?" +
+				"client_id=meta-client&" +
+				"redirect_uri=https%3A%2F%2Fapp.example.test%2Fsocial%2Fcallback&" +
+				"response_type=code&" +
+				"scope=pages_show_list%2Cpages_read_engagement%2Cpages_manage_posts&" +
+				"state=fixture-state",
+		},
+		{
+			name:     "X space-delimited individual set",
+			provider: ProviderX,
+			config: OAuthConfig{
+				ClientID:         "x-client",
+				AuthorizationURL: "https://x.com/i/oauth2/authorize",
+				RedirectURL:      "https://app.example.test/social/callback",
+				Scopes: []string{
+					"tweet.read",
+					"tweet.write",
+					"users.read",
+					"offline.access",
+				},
+				ScopeSeparator: OAuthScopeSeparatorSpace,
+			},
+			wantScopes: "tweet.read tweet.write users.read offline.access",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateOAuthConfig(test.provider, test.config); err != nil {
+				t.Fatal(err)
+			}
+			authorizationURL, err := buildAuthorizationURL(
+				test.config,
+				"fixture-state",
+				"",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(authorizationURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := parsed.Query().Get("scope"); got != test.wantScopes {
+				t.Fatalf("scope parameter = %q, want %q", got, test.wantScopes)
+			}
+			if test.wantURL != "" && authorizationURL != test.wantURL {
+				t.Fatalf(
+					"authorization URL = %q, want preserved Meta URL %q",
+					authorizationURL,
+					test.wantURL,
+				)
+			}
+		})
+	}
+}
+
+func TestOAuthScopeConfigurationRejectsCompositeEntriesAndUnknownSeparators(
+	t *testing.T,
+) {
+	tests := []OAuthConfig{
+		{
+			ClientID:         "x-client",
+			AuthorizationURL: "https://x.com/i/oauth2/authorize",
+			RedirectURL:      "https://app.example.test/social/callback",
+			Scopes:           []string{"tweet.read tweet.write", "users.read"},
+			ScopeSeparator:   OAuthScopeSeparatorSpace,
+		},
+		{
+			ClientID:         "x-client",
+			AuthorizationURL: "https://x.com/i/oauth2/authorize",
+			RedirectURL:      "https://app.example.test/social/callback",
+			Scopes:           []string{"tweet.read", "tweet.write"},
+			ScopeSeparator:   OAuthScopeSeparator(";"),
+		},
+	}
+	for index, config := range tests {
+		if err := validateOAuthConfig(ProviderX, config); !errors.Is(
+			err,
+			ErrInvalidArgument,
+		) {
+			t.Fatalf("config %d error = %v, want ErrInvalidArgument", index, err)
+		}
+	}
+}
+
 func (adapter *fakeAdapter) Exchange(
 	_ context.Context,
 	request ExchangeRequest,
