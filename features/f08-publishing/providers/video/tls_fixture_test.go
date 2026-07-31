@@ -15,13 +15,18 @@ import (
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 )
 
-func TestTikTokOfflineTLSFixtureFailsClosedUntilF5Issue342(t *testing.T) {
+func TestTikTokOfflineTLSFixturePreservesOfficialTrailingSlash(t *testing.T) {
 	var calls atomic.Int32
 	var sawBearer atomic.Bool
+	var requestPaths []string
+	var requestPathsMu sync.Mutex
 	server := httptest.NewTLSServer(http.HandlerFunc(func(
 		writer http.ResponseWriter,
 		request *http.Request,
 	) {
+		requestPathsMu.Lock()
+		requestPaths = append(requestPaths, request.URL.RequestURI())
+		requestPathsMu.Unlock()
 		if strings.HasPrefix(request.Header.Get("Authorization"), "Bearer ") {
 			sawBearer.Store(true)
 		}
@@ -89,14 +94,45 @@ func TestTikTokOfflineTLSFixtureFailsClosedUntilF5Issue342(t *testing.T) {
 		t.Fatalf("pending=%#v error=%v", pending, err)
 	}
 	request.Checkpoint = pending.Checkpoint
-	if _, err = adapter.Publish(context.Background(), request); err == nil {
-		t.Fatal("F5 accepted a trailing-slash provider path before issue #342")
+	creator, err := adapter.Publish(context.Background(), request)
+	if err != nil || creator.Complete || len(creator.Checkpoint) == 0 {
+		t.Fatalf("creator=%#v error=%v", creator, err)
 	}
-	if calls.Load() != 0 || sawBearer.Load() {
+	request.Checkpoint = creator.Checkpoint
+	initialized, err := adapter.Publish(context.Background(), request)
+	if err != nil || initialized.Complete || len(initialized.Checkpoint) == 0 {
+		t.Fatalf("initialized=%#v error=%v", initialized, err)
+	}
+	request.Checkpoint = initialized.Checkpoint
+	final, err := adapter.Publish(context.Background(), request)
+	if err != nil || !final.Complete || final.RemoteID != "12345" ||
+		final.Permalink != "https://www.tiktok.com/@tls_creator/video/12345" {
+		t.Fatalf("final=%#v error=%v", final, err)
+	}
+	if calls.Load() != 3 || !sawBearer.Load() {
 		t.Fatalf("TLS calls=%d bearer=%v", calls.Load(), sawBearer.Load())
 	}
-	if transport.PinnedOrigin() != "" {
+	requestPathsMu.Lock()
+	gotPaths := append([]string(nil), requestPaths...)
+	requestPathsMu.Unlock()
+	wantPaths := []string{
+		tikTokCreatorPath,
+		tikTokInitPath,
+		tikTokStatusPath,
+	}
+	if len(gotPaths) != len(wantPaths) {
+		t.Fatalf("request paths=%#v", gotPaths)
+	}
+	for index := range wantPaths {
+		if gotPaths[index] != wantPaths[index] {
+			t.Fatalf("request path %d=%q, want %q", index, gotPaths[index], wantPaths[index])
+		}
+	}
+	if transport.PinnedOrigin() != "https://open.tiktokapis.com" {
 		t.Fatalf("pinned origin=%q", transport.PinnedOrigin())
+	}
+	if recording.err != nil {
+		t.Fatalf("executor error=%v", recording.err)
 	}
 }
 
