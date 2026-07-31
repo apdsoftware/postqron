@@ -172,6 +172,27 @@ func TestValidateCountsNFCUnicodeCodePoints(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsOnlyHTTPOrHTTPSLinks(t *testing.T) {
+	catalog := fixtureCatalog(t)
+	for index := range catalog.Capabilities {
+		if catalog.Capabilities[index].ID == "fixture:link" {
+			catalog.Capabilities[index].Link.RequireHTTPS = false
+		}
+	}
+	httpReport := Validate(DraftContent{
+		Link:         "http://example.com/post",
+		Destinations: []Destination{fixtureDestination("link")},
+	}, catalog)
+	if !httpReport.Valid {
+		t.Fatalf("http link rejected: %#v", httpReport.Destinations[0].Errors)
+	}
+	ftpReport := Validate(DraftContent{
+		Link:         "ftp://example.com/post",
+		Destinations: []Destination{fixtureDestination("link")},
+	}, catalog)
+	assertErrorCode(t, ftpReport.Destinations[0].Errors, "url_scheme_invalid")
+}
+
 func TestValidateRequiresDestination(t *testing.T) {
 	report := Validate(DraftContent{}, fixtureCatalog(t))
 	if report.Valid || len(report.Errors) != 1 {

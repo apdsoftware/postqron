@@ -225,7 +225,8 @@ func (store *PostgresMediaStore) CompleteUpload(
 		  FROM f06_composer_media
 		 WHERE workspace_id = $1
 		   AND id = $2
-		   AND status = 'pending'`,
+		   AND status = 'pending'
+		   AND deleting_at IS NULL`,
 		workspaceID,
 		mediaID,
 	).Scan(&objectKey, &declaredType, &declaredSize, &expiresAt)
@@ -281,7 +282,10 @@ func (store *PostgresMediaStore) CompleteUpload(
 	tag, err := store.database.ExecContext(ctx, `
 		UPDATE f06_composer_media
 		   SET status = 'ready', inspected_metadata = $3
-		 WHERE workspace_id = $1 AND id = $2 AND status = 'pending'`,
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND status = 'pending'
+		   AND deleting_at IS NULL`,
 		workspaceID,
 		mediaID,
 		metadata,
@@ -305,7 +309,10 @@ func (store *PostgresMediaStore) Get(
 	err := store.database.QueryRowContext(ctx, `
 		SELECT object_key, inspected_metadata, expires_at
 		  FROM f06_composer_media
-		 WHERE workspace_id = $1 AND id = $2 AND status = 'ready'`,
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND status = 'ready'
+		   AND deleting_at IS NULL`,
 		workspaceID,
 		mediaID,
 	).Scan(&objectKey, &metadata, &expiresAt)
@@ -343,7 +350,10 @@ func (store *PostgresMediaStore) Download(
 	err := store.database.QueryRowContext(ctx, `
 		SELECT object_key
 		  FROM f06_composer_media
-		 WHERE workspace_id = $1 AND id = $2 AND status = 'ready'`,
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND status = 'ready'
+		   AND deleting_at IS NULL`,
 		workspaceID,
 		mediaID,
 	).Scan(&objectKey)
@@ -362,34 +372,82 @@ func (store *PostgresMediaStore) Delete(
 	ctx context.Context,
 	workspaceID, mediaID string,
 ) error {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin composer media delete: %w", err)
+	}
+	defer transaction.Rollback()
 	var objectKey string
-	err := store.database.QueryRowContext(ctx, `
-		SELECT object_key
+	var deletingAt sql.NullTime
+	err = transaction.QueryRowContext(ctx, `
+		SELECT object_key, deleting_at
 		  FROM f06_composer_media
-		 WHERE workspace_id = $1 AND id = $2 AND attached_draft_id IS NULL`,
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		 FOR UPDATE`,
 		workspaceID,
 		mediaID,
-	).Scan(&objectKey)
+	).Scan(&objectKey, &deletingAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("read composer media for deletion: %w", err)
 	}
-	if err := store.objects.Delete(ctx, objectKey); err != nil {
-		return fmt.Errorf("delete composer object: %w", err)
+	if deletingAt.Valid {
+		return ErrConflict
 	}
-	tag, err := store.database.ExecContext(ctx, `
-		DELETE FROM f06_composer_media
-		 WHERE workspace_id = $1 AND id = $2 AND attached_draft_id IS NULL`,
+	reservedAt := store.clock().UTC()
+	tag, err := transaction.ExecContext(ctx, `
+		UPDATE f06_composer_media
+		   SET deleting_at = $3
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		   AND deleting_at IS NULL`,
 		workspaceID,
 		mediaID,
+		reservedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("reserve composer media deletion: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return ErrConflict
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit composer media delete reservation: %w", err)
+	}
+	if err := store.objects.Delete(ctx, objectKey); err != nil {
+		_, _ = store.database.ExecContext(ctx, `
+			UPDATE f06_composer_media
+			   SET deleting_at = NULL
+			 WHERE workspace_id = $1
+			   AND id = $2
+			   AND attached_draft_id IS NULL
+			   AND deleting_at = $3`,
+			workspaceID,
+			mediaID,
+			reservedAt,
+		)
+		return fmt.Errorf("delete composer object: %w", err)
+	}
+	tag, err = store.database.ExecContext(ctx, `
+		DELETE FROM f06_composer_media
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		   AND deleting_at = $3`,
+		workspaceID,
+		mediaID,
+		reservedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("delete composer media metadata: %w", err)
 	}
 	if affected, _ := tag.RowsAffected(); affected != 1 {
-		return ErrNotFound
+		return ErrConflict
 	}
 	return nil
 }
@@ -443,6 +501,7 @@ func (store *PostgresMediaStore) ReconcileLifecycle(
 		   AND lifecycle_state = 'temporary'
 		   AND lifecycle_sync_pending
 		   AND attached_draft_id IS NULL
+		   AND deleting_at IS NULL
 		 ORDER BY id
 		 LIMIT 100`,
 		workspaceID,
@@ -497,16 +556,16 @@ func (store *PostgresMediaStore) prepareDraftMediaTx(
 		var link mediaLifecycleLink
 		var status string
 		var attachedDraft sql.NullString
-		var expiresAt sql.NullTime
+		var expiresAt, deletingAt sql.NullTime
 		link.ID = mediaID
 		err := transaction.QueryRowContext(ctx, `
-			SELECT object_key, status, attached_draft_id, expires_at
+			SELECT object_key, status, attached_draft_id, expires_at, deleting_at
 			  FROM f06_composer_media
 			 WHERE workspace_id = $1 AND id = $2
 			 FOR UPDATE`,
 			workspaceID,
 			mediaID,
-		).Scan(&link.ObjectKey, &status, &attachedDraft, &expiresAt)
+		).Scan(&link.ObjectKey, &status, &attachedDraft, &expiresAt, &deletingAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			return mutation, &FieldRuleError{
 				Field: "media", Rule: "ready_workspace_media",
@@ -518,6 +577,7 @@ func (store *PostgresMediaStore) prepareDraftMediaTx(
 			return mutation, fmt.Errorf("lock composer media attachment: %w", err)
 		}
 		if status != "ready" ||
+			deletingAt.Valid ||
 			(expiresAt.Valid && !expiresAt.Time.After(now) && !attachedDraft.Valid) {
 			return mutation, &FieldRuleError{
 				Field: "media", Rule: "ready_workspace_media",
@@ -632,9 +692,11 @@ func (store *PostgresMediaStore) compensateRetained(
 	for _, link := range mutation.retained {
 		var attachedDraft sql.NullString
 		err := store.database.QueryRowContext(compensationContext, `
-			SELECT attached_draft_id
+		 SELECT attached_draft_id
 			  FROM f06_composer_media
-			 WHERE workspace_id = $1 AND id = $2`,
+			 WHERE workspace_id = $1
+			   AND id = $2
+			   AND deleting_at IS NULL`,
 			mutation.workspaceID,
 			link.ID,
 		).Scan(&attachedDraft)
@@ -697,7 +759,8 @@ func (store *PostgresMediaStore) makeTemporary(
 		       expires_at = GREATEST(COALESCE(expires_at, $4), $4)
 		 WHERE workspace_id = $1
 		   AND id = $2
-		   AND attached_draft_id IS NULL`,
+		   AND attached_draft_id IS NULL
+		   AND deleting_at IS NULL`,
 		workspaceID,
 		link.ID,
 		pending,
@@ -794,12 +857,18 @@ func (StreamMediaInspector) Inspect(
 		media.Width = config.Width
 		media.Height = config.Height
 	case actualType == "video/mp4":
-		moovBeforeMedia, err := inspectMP4(buffered, info.SizeBytes)
+		mp4, err := inspectMP4Metadata(buffered, info.SizeBytes)
 		if err != nil {
 			return Media{}, err
 		}
 		media.Kind = MediaVideo
-		media.MoovBeforeMediaData = moovBeforeMedia
+		media.Width = mp4.Width
+		media.Height = mp4.Height
+		media.DurationSeconds = mp4.DurationSeconds
+		media.VideoCodec = mp4.VideoCodec
+		media.AudioCodec = mp4.AudioCodec
+		media.HasAudio = mp4.HasAudio
+		media.MoovBeforeMediaData = mp4.MoovBeforeMediaData
 	default:
 		return Media{}, &FieldRuleError{
 			Field: "upload", Rule: "inspectable_media_type",

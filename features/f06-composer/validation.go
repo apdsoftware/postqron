@@ -272,6 +272,15 @@ func validateURL(
 			"Remove the username and password from the URL.", nil,
 		)
 	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		add(
+			"link", "http_https_scheme", "url_scheme_invalid",
+			"The link must use HTTP or HTTPS.",
+			"Use an http:// or https:// URL.", map[string]any{"url": rawURL},
+		)
+		return
+	}
 	if rules.RequireHTTPS && !strings.EqualFold(parsed.Scheme, "https") {
 		add(
 			"link", "https", "url_must_be_https",

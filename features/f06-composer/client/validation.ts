@@ -310,6 +310,17 @@ function validateURL(rawURL: string, rules: LinkRules, add: AddError): void {
       'Remove the username and password from the URL.',
     )
   }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    add(
+      'link',
+      'http_https_scheme',
+      'url_scheme_invalid',
+      'The link must use HTTP or HTTPS.',
+      'Use an http:// or https:// URL.',
+      { url: rawURL },
+    )
+    return
+  }
   if (rules.require_https === true && parsed.protocol !== 'https:') {
     add(
       'link',

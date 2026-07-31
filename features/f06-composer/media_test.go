@@ -31,6 +31,9 @@ type fakeObjectStore struct {
 	tempCalls    []string
 	retainErr    error
 	temporaryErr error
+	deleteErr    error
+	deleteStart  chan string
+	deleteWait   <-chan struct{}
 }
 
 func newFakeObjectStore() *fakeObjectStore {
@@ -137,7 +140,21 @@ func (store *fakeObjectStore) MakeTemporary(_ context.Context, key string) error
 
 func (store *fakeObjectStore) Delete(_ context.Context, key string) error {
 	store.mutex.Lock()
+	start := store.deleteStart
+	wait := store.deleteWait
+	deleteErr := store.deleteErr
+	store.mutex.Unlock()
+	if start != nil {
+		start <- key
+	}
+	if wait != nil {
+		<-wait
+	}
+	store.mutex.Lock()
 	defer store.mutex.Unlock()
+	if deleteErr != nil {
+		return deleteErr
+	}
 	delete(store.objects, key)
 	store.deletedKeys = append(store.deletedKeys, key)
 	return nil
@@ -216,7 +233,14 @@ func TestStreamMediaInspectorValidatesMP4StructureWithoutBufferingObject(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if media.Kind != MediaVideo || !media.MoovBeforeMediaData {
+	if media.Kind != MediaVideo ||
+		!media.MoovBeforeMediaData ||
+		media.Width != 1080 ||
+		media.Height != 1920 ||
+		media.DurationSeconds != 30 ||
+		media.VideoCodec != "h264" ||
+		media.AudioCodec != "aac" ||
+		!media.HasAudio {
 		t.Fatalf("inspected MP4 = %#v", media)
 	}
 	truncated := mp4[:len(mp4)-1]
@@ -302,20 +326,75 @@ func testPNG(t *testing.T) []byte {
 }
 
 func testMP4() []byte {
-	var result bytes.Buffer
-	for _, box := range []struct {
-		name    string
-		payload []byte
-	}{
-		{name: "ftyp", payload: []byte("isom0000")},
-		{name: "moov"},
-		{name: "mdat"},
-	} {
-		_ = binary.Write(&result, binary.BigEndian, uint32(8+len(box.payload)))
-		result.WriteString(box.name)
-		result.Write(box.payload)
-	}
-	return result.Bytes()
+	mvhd := make([]byte, 20)
+	mvhd[0] = 0
+	binary.BigEndian.PutUint32(mvhd[12:16], 1000)
+	binary.BigEndian.PutUint32(mvhd[16:20], 30000)
+
+	videoTkhd := makeTrackHeaderPayload(1080, 1920)
+	videoMdhd := makeMediaHeaderPayload(30000)
+	videoHdlr := makeHandlerPayload("vide")
+	videoStsd := makeSampleDescriptionPayload("avc1")
+	videoTrak := makeMP4Box("trak", makeMP4Box("tkhd", videoTkhd), makeMP4Box("mdia",
+		makeMP4Box("mdhd", videoMdhd),
+		makeMP4Box("hdlr", videoHdlr),
+		makeMP4Box("minf", makeMP4Box("stbl", makeMP4Box("stsd", videoStsd))),
+	))
+
+	audioTkhd := makeTrackHeaderPayload(0, 0)
+	audioMdhd := makeMediaHeaderPayload(30000)
+	audioHdlr := makeHandlerPayload("soun")
+	audioStsd := makeSampleDescriptionPayload("mp4a")
+	audioTrak := makeMP4Box("trak", makeMP4Box("tkhd", audioTkhd), makeMP4Box("mdia",
+		makeMP4Box("mdhd", audioMdhd),
+		makeMP4Box("hdlr", audioHdlr),
+		makeMP4Box("minf", makeMP4Box("stbl", makeMP4Box("stsd", audioStsd))),
+	))
+
+	return bytes.Join([][]byte{
+		makeMP4Box("ftyp", []byte("isom\x00\x00\x02\x00isomiso2mp41")),
+		makeMP4Box("moov", makeMP4Box("mvhd", mvhd), videoTrak, audioTrak),
+		makeMP4Box("mdat", []byte{0x00, 0x00, 0x00, 0x00}),
+	}, nil)
+}
+
+func makeMP4Box(name string, payloads ...[]byte) []byte {
+	payload := bytes.Join(payloads, nil)
+	result := make([]byte, 8+len(payload))
+	binary.BigEndian.PutUint32(result[:4], uint32(len(result)))
+	copy(result[4:8], []byte(name))
+	copy(result[8:], payload)
+	return result
+}
+
+func makeTrackHeaderPayload(width, height int) []byte {
+	payload := make([]byte, 84)
+	payload[0] = 0
+	binary.BigEndian.PutUint32(payload[len(payload)-8:len(payload)-4], uint32(width<<16))
+	binary.BigEndian.PutUint32(payload[len(payload)-4:], uint32(height<<16))
+	return payload
+}
+
+func makeMediaHeaderPayload(duration uint32) []byte {
+	payload := make([]byte, 20)
+	payload[0] = 0
+	binary.BigEndian.PutUint32(payload[12:16], 1000)
+	binary.BigEndian.PutUint32(payload[16:20], duration)
+	return payload
+}
+
+func makeHandlerPayload(handler string) []byte {
+	payload := make([]byte, 24)
+	copy(payload[8:12], []byte(handler))
+	return payload
+}
+
+func makeSampleDescriptionPayload(codec string) []byte {
+	payload := make([]byte, 24)
+	binary.BigEndian.PutUint32(payload[4:8], 1)
+	binary.BigEndian.PutUint32(payload[8:12], 16)
+	copy(payload[12:16], []byte(codec))
+	return payload
 }
 
 func containsJSONField(encoded []byte, field string) bool {

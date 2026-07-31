@@ -129,6 +129,39 @@ test('browser validation preserves NFC code point parity with the server', () =>
   assert.equal(report.valid, true, JSON.stringify(report))
 })
 
+test('browser validation accepts only http and https links', () => {
+  const linkCatalog = JSON.parse(JSON.stringify(catalog)) as CapabilityCatalog
+  const linkCapability = linkCatalog.capabilities.find(
+    (capability) => capability.id === 'fixture:link',
+  )
+  if (!linkCapability) {
+    throw new Error('fixture:link capability missing')
+  }
+  linkCapability.link.require_https = false
+
+  const httpReport = validateDraft(
+    content({
+      link: 'http://example.com/post',
+      destinations: [destination('link')],
+    }),
+    linkCatalog,
+  )
+  assert.equal(httpReport.valid, true, JSON.stringify(httpReport))
+
+  const ftpReport = validateDraft(
+    content({
+      link: 'ftp://example.com/post',
+      destinations: [destination('link')],
+    }),
+    linkCatalog,
+  )
+  assert.ok(
+    ftpReport.destinations[0]?.errors.some(
+      (error) => error.code === 'url_scheme_invalid',
+    ),
+  )
+})
+
 function content(overrides: Partial<DraftContent>): DraftContent {
   return {
     text: '',

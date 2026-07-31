@@ -106,12 +106,17 @@ func (module *Module) Configure(values map[string]string) error {
 	if err != nil {
 		return err
 	}
+	destinations, err := NewPostgresDestinationResolver(module.database, catalog)
+	if err != nil {
+		return err
+	}
 	service, err := NewService(
 		module.repository,
 		module.authorizer,
 		WithClock(module.clock),
 		WithCapabilityCatalog(catalog),
 		WithMediaResolver(media),
+		WithDestinationResolver(destinations),
 	)
 	if err != nil {
 		return err

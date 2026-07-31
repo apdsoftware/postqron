@@ -376,6 +376,86 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 			t.Fatalf("retry changed committed draft: %#v", stored.Content.Media)
 		}
 	})
+
+	t.Run("delete reservation wins against concurrent attach", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-race")
+		objects, media, _, service := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			5,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-race.png",
+		)
+		deleteStarted := make(chan string, 1)
+		deleteRelease := make(chan struct{})
+		objects.deleteStart = deleteStarted
+		objects.deleteWait = deleteRelease
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- media.Delete(context.Background(), workspaceID, inspected.ID)
+		}()
+		select {
+		case key := <-deleteStarted:
+			if key != objectKey {
+				t.Fatalf("delete started for %q, want %q", key, objectKey)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for reserved delete")
+		}
+		var deletingAt sql.NullTime
+		if err := database.QueryRow(`
+			SELECT deleting_at
+			  FROM f06_composer_media
+			 WHERE workspace_id = $1 AND id = $2`,
+			workspaceID,
+			inspected.ID,
+		).Scan(&deletingAt); err != nil {
+			t.Fatal(err)
+		}
+		if !deletingAt.Valid {
+			t.Fatal("delete did not reserve metadata before object deletion")
+		}
+		objects.mutex.Lock()
+		_, exists := objects.objects[objectKey]
+		objects.mutex.Unlock()
+		if !exists {
+			t.Fatal("object was deleted before metadata reservation became visible")
+		}
+		_, err := service.CreateDraft(context.Background(), CreateDraftCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			Content:     DraftContent{Media: []Media{{ID: inspected.ID}}},
+		})
+		var fieldError *FieldRuleError
+		if !errors.As(err, &fieldError) || fieldError.Code != "media_not_ready" {
+			t.Fatalf("attach during delete error = %#v", err)
+		}
+		close(deleteRelease)
+		if err := <-errCh; err != nil {
+			t.Fatalf("reserved delete failed: %v", err)
+		}
+		assertDraftCount(t, database, workspaceID, 0)
+		var remaining int
+		if err := database.QueryRow(`
+			SELECT count(*)
+			  FROM f06_composer_media
+			 WHERE workspace_id = $1 AND id = $2`,
+			workspaceID,
+			inspected.ID,
+		).Scan(&remaining); err != nil {
+			t.Fatal(err)
+		}
+		if remaining != 0 {
+			t.Fatalf("deleted media row count = %d, want 0", remaining)
+		}
+	})
 }
 
 func atomicMediaTestService(

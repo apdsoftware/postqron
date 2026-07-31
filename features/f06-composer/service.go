@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -33,6 +34,7 @@ type Service struct {
 	authorizer ContentAuthorizer
 	catalog    CapabilityCatalog
 	media      MediaResolver
+	destinations DestinationResolver
 	now        func() time.Time
 	random     func([]byte) error
 }
@@ -92,6 +94,12 @@ func WithMediaResolver(resolver MediaResolver) ServiceOption {
 	}
 }
 
+func WithDestinationResolver(resolver DestinationResolver) ServiceOption {
+	return func(service *Service) {
+		service.destinations = resolver
+	}
+}
+
 func (service *Service) CreateDraft(
 	ctx context.Context,
 	command CreateDraftCommand,
@@ -109,6 +117,10 @@ func (service *Service) CreateDraft(
 		command.ActorID,
 		content,
 	)
+	if err != nil {
+		return DraftView{}, err
+	}
+	content, err = service.canonicalizeDestinations(ctx, command.WorkspaceID, content)
 	if err != nil {
 		return DraftView{}, err
 	}
@@ -187,6 +199,10 @@ func (service *Service) UpdateDraft(
 		command.ActorID,
 		content,
 	)
+	if err != nil {
+		return DraftView{}, err
+	}
+	content, err = service.canonicalizeDestinations(ctx, command.WorkspaceID, content)
 	if err != nil {
 		return DraftView{}, err
 	}
@@ -335,12 +351,12 @@ func normalizeContent(content DraftContent) (DraftContent, error) {
 				"Destination channel id is required.",
 			)
 		}
-		if destination.CapabilityID == "" {
+		if strings.TrimSpace(string(destination.Format)) == "" {
 			return DraftContent{}, invalidField(
-				fmt.Sprintf("destinations[%d].capability_id", index),
+				fmt.Sprintf("destinations[%d].format", index),
 				"required",
-				"capability_id_required",
-				"Destination capability id is required.",
+				"format_required",
+				"Destination format is required.",
 			)
 		}
 		if _, duplicate := destinationIDs[destination.ID]; duplicate {
@@ -418,6 +434,40 @@ func (service *Service) canonicalizeMedia(
 		return DraftContent{}, err
 	}
 	content.Media = canonical
+	return content, nil
+}
+
+func (service *Service) canonicalizeDestinations(
+	ctx context.Context,
+	workspaceID string,
+	content DraftContent,
+) (DraftContent, error) {
+	if len(content.Destinations) == 0 || service.destinations == nil {
+		return content, nil
+	}
+	for index := range content.Destinations {
+		resolved, err := service.destinations.Resolve(
+			ctx,
+			workspaceID,
+			content.Destinations[index].ChannelID,
+			content.Destinations[index].Format,
+		)
+		if err != nil {
+			var resolutionErr *destinationResolutionError
+			if errors.As(err, &resolutionErr) {
+				return DraftContent{}, &FieldRuleError{
+					Field:   fmt.Sprintf("destinations[%d].channel_id", index),
+					Rule:    resolutionErr.Rule,
+					Code:    resolutionErr.Code,
+					Message: resolutionErr.Message,
+				}
+			}
+			return DraftContent{}, err
+		}
+		content.Destinations[index].ChannelType = resolved.ChannelType
+		content.Destinations[index].CapabilityID = resolved.CapabilityID
+		content.Destinations[index].Format = resolved.Format
+	}
 	return content, nil
 }
 
