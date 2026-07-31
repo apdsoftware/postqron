@@ -418,7 +418,7 @@ func TestXAdapterRejectsMalformedOrOverScopedResponses(t *testing.T) {
 			},
 		},
 		{
-			name:       "additional scope",
+			name:       "exchange additional scope",
 			statusCode: http.StatusOK,
 			payload: []byte(`{
 				"token_type":"bearer",
@@ -437,7 +437,7 @@ func TestXAdapterRejectsMalformedOrOverScopedResponses(t *testing.T) {
 			},
 		},
 		{
-			name:       "missing individual scope",
+			name:       "exchange missing individual scope",
 			statusCode: http.StatusOK,
 			payload: []byte(`{
 				"token_type":"bearer",
@@ -456,7 +456,7 @@ func TestXAdapterRejectsMalformedOrOverScopedResponses(t *testing.T) {
 			},
 		},
 		{
-			name:       "duplicate individual scope",
+			name:       "exchange duplicate individual scope",
 			statusCode: http.StatusOK,
 			payload: []byte(`{
 				"token_type":"bearer",
@@ -502,6 +502,66 @@ func TestXAdapterRejectsMalformedOrOverScopedResponses(t *testing.T) {
 			var failure *ProviderFailure
 			if !errors.As(err, &failure) ||
 				failure.Kind != FailureInvalidResponse {
+				t.Fatalf("failure = %#v, error = %v", failure, err)
+			}
+		})
+	}
+}
+
+func TestXRefreshScopeSetMismatchRequiresReconnect(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{
+			name: "additional scope",
+			payload: []byte(`{
+				"token_type":"bearer",
+				"expires_in":7200,
+				"access_token":"fixture-token",
+				"refresh_token":"fixture-refresh-2",
+				"scope":"tweet.read tweet.write users.read offline.access dm.read"
+			}`),
+		},
+		{
+			name: "missing scope",
+			payload: []byte(`{
+				"token_type":"bearer",
+				"expires_in":7200,
+				"access_token":"fixture-token",
+				"refresh_token":"fixture-refresh-2",
+				"scope":"tweet.read tweet.write users.read"
+			}`),
+		},
+		{
+			name: "duplicate scope",
+			payload: []byte(`{
+				"token_type":"bearer",
+				"expires_in":7200,
+				"access_token":"fixture-token",
+				"refresh_token":"fixture-refresh-2",
+				"scope":"tweet.read tweet.write users.read users.read"
+			}`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(
+				response http.ResponseWriter,
+				_ *http.Request,
+			) {
+				response.WriteHeader(http.StatusOK)
+				_, _ = response.Write(test.payload)
+			}))
+			defer server.Close()
+			adapter := newFixtureXAdapter(t, server)
+			_, err := adapter.Refresh(context.Background(), Credential{
+				RefreshToken: "fixture-refresh-1",
+			})
+			var failure *ProviderFailure
+			if !errors.As(err, &failure) ||
+				failure.Kind != FailurePermissionMissing ||
+				failure.Code != "x_required_scope_missing" {
 				t.Fatalf("failure = %#v, error = %v", failure, err)
 			}
 		})

@@ -169,7 +169,7 @@ func (adapter *XAdapter) Exchange(
 	if err != nil {
 		return Credential{}, err
 	}
-	return adapter.credentialFromToken(response, "", true)
+	return adapter.credentialFromToken(response, "", true, false)
 }
 
 func (adapter *XAdapter) Discover(
@@ -222,6 +222,7 @@ func (adapter *XAdapter) Refresh(
 		response,
 		credential.RefreshToken,
 		false,
+		true,
 	)
 }
 
@@ -332,6 +333,7 @@ func (adapter *XAdapter) credentialFromToken(
 	response xTokenResponse,
 	previousRefreshToken string,
 	requireRefreshToken bool,
+	refreshGrant bool,
 ) (Credential, error) {
 	if !strings.EqualFold(response.TokenType, "bearer") ||
 		strings.TrimSpace(response.AccessToken) == "" ||
@@ -339,6 +341,12 @@ func (adapter *XAdapter) credentialFromToken(
 		return Credential{}, invalidXResponse("X token response is incomplete")
 	}
 	if err := validateXGrantedScopes(response.Scope); err != nil {
+		if refreshGrant && isXGrantedScopeFailure(err) {
+			return Credential{}, &ProviderFailure{
+				Kind: FailurePermissionMissing,
+				Code: "x_required_scope_missing",
+			}
+		}
 		return Credential{}, err
 	}
 	refreshToken := response.RefreshToken
@@ -549,6 +557,13 @@ func validateXGrantedScopes(raw string) error {
 		}
 	}
 	return nil
+}
+
+func isXGrantedScopeFailure(err error) bool {
+	var failure *ProviderFailure
+	return errors.As(err, &failure) &&
+		(failure.Code == "x_invalid_response" ||
+			failure.Code == "x_required_scope_missing")
 }
 
 func validateXUser(profile xUserResponse) error {
