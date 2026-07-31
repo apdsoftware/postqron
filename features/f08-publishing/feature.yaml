@@ -1,7 +1,7 @@
 schema_version: 1
 id: publishing
 kind: worker
-version: 0.1.0
+version: 0.2.0
 entrypoint: ./publishing.go
 dependencies:
   - f06-composer
@@ -10,3 +10,4 @@ dependencies:
   - social-connections
 migrations:
   - ./migrations/000001_create_publishing.sql
+  - ./migrations/000002_capability_snapshots_and_reconciliation.sql

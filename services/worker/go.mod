@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/apdsoftware/postqron/features/f03-auth v0.0.0
 	github.com/apdsoftware/postqron/features/f04-workspaces v0.0.0
+	github.com/apdsoftware/postqron/features/f08-publishing v0.0.0
 	github.com/apdsoftware/postqron/features/f14-email v0.0.0
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
@@ -30,5 +31,7 @@ replace github.com/apdsoftware/postqron/packages/runtime => ../../packages/runti
 replace github.com/apdsoftware/postqron/features/f03-auth => ../../features/f03-auth
 
 replace github.com/apdsoftware/postqron/features/f04-workspaces => ../../features/f04-workspaces
+
+replace github.com/apdsoftware/postqron/features/f08-publishing => ../../features/f08-publishing
 
 replace github.com/apdsoftware/postqron/features/f14-email => ../../features/f14-email

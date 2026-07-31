@@ -67,6 +67,7 @@ func main() {
 	worker, err := runner.NewRuntime(
 		features,
 		database,
+		os.Getenv("DATABASE_URL"),
 		os.Getenv("APP_DOMAIN"),
 		interval,
 		time.Now,
@@ -76,6 +77,7 @@ func main() {
 		logger.Error("configure worker", "error", err)
 		os.Exit(1)
 	}
+	defer worker.Close()
 	if runOnce {
 		worker.Tick(ctx)
 		return
