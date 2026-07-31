@@ -1,15 +1,26 @@
 package publishingruntime
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"strings"
 	"testing"
+	"time"
 
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
+	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 )
 
 func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
-	registry := newRuntimeAdapterRegistry()
+	registry, err := newRuntimeAdapterRegistry(nil, staticproviders.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := registry.ResolvePublisher(
 		context.Background(),
 		"facebook_pages",
@@ -21,5 +32,285 @@ func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
 		"instagram_personal",
 	); !errors.Is(err, publishing.ErrProviderUnavailable) {
 		t.Fatalf("notification publisher resolution error=%v", err)
+	}
+}
+
+func TestRuntimeDynamicAdaptersStayClosedWithoutTrustedExecutor(t *testing.T) {
+	for name, dependencies := range map[string]DynamicAdapterDependencies{
+		"mastodon": {
+			Mastodon: ProviderGate{
+				Configured: true, ReviewApproved: true,
+				AuditVerified: true, QuotaVerified: true,
+			},
+		},
+		"bluesky": {
+			Bluesky: ProviderGate{
+				Configured: true, ReviewApproved: true,
+				AuditVerified: true, QuotaVerified: true,
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewDynamicAdapterRegistry(
+				dependencies,
+				time.Now,
+			); !errors.Is(err, publishing.ErrInvalidArgument) {
+				t.Fatalf("registry error=%v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeDynamicAdaptersRemainUnavailableWithIncompleteGate(t *testing.T) {
+	registry, err := NewDynamicAdapterRegistry(DynamicAdapterDependencies{
+		Mastodon: ProviderGate{
+			Configured: true, ReviewApproved: true,
+			AuditVerified: true,
+		},
+		Bluesky: ProviderGate{
+			Configured: true, ReviewApproved: true,
+			QuotaVerified: true,
+		},
+	}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"mastodon", "bluesky"} {
+		if _, resolveErr := registry.ResolvePublisher(
+			context.Background(),
+			provider,
+		); !errors.Is(resolveErr, publishing.ErrProviderUnavailable) {
+			t.Fatalf("%s resolution error=%v", provider, resolveErr)
+		}
+	}
+}
+
+func TestCompositionRootExplicitlyRejectsUnavailableF5Dependencies(t *testing.T) {
+	for _, values := range [][2]string{{"true", "false"}, {"false", "true"}} {
+		if _, err := FailClosedDynamicBootstrap(values[0], values[1]); err == nil {
+			t.Fatalf("bootstrap(%q,%q) succeeded", values[0], values[1])
+		}
+	}
+	dependencies, err := FailClosedDynamicBootstrap("false", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewDynamicAdapterRegistry(dependencies, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = registry.ResolvePublisher(
+		context.Background(), "mastodon",
+	); !errors.Is(err, publishing.ErrProviderUnavailable) {
+		t.Fatalf("Mastodon resolution error=%v", err)
+	}
+}
+
+func TestRuntimeAdapterRegistryRegistersInjectedMetaNotifications(t *testing.T) {
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		nil,
+		staticproviders.Config{},
+		metapublishing.RegistrationConfig{
+			NotificationStore: runtimeNotificationStore{},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"facebook_groups", "instagram_personal"} {
+		if _, err = registry.ResolveNotificationPublisher(
+			context.Background(),
+			provider,
+		); err != nil {
+			t.Fatalf("resolve %s: %v", provider, err)
+		}
+	}
+}
+
+type runtimeNotificationStore struct{}
+
+func (runtimeNotificationStore) PutIfAbsent(
+	context.Context,
+	string,
+	string,
+	string,
+	string,
+	string,
+	json.RawMessage,
+) (string, bool, error) {
+	return "meta_notification_0123456789abcdef0123456789abcdef", true, nil
+}
+
+type rejectingExecutor struct{}
+
+type runtimeTargetResolver struct{}
+
+func (runtimeTargetResolver) ResolveTarget(
+	context.Context, string, string,
+) (staticproviders.ConnectionTarget, error) {
+	return staticproviders.ConnectionTarget{
+		Provider: socialconnections.ProviderX, RemoteID: "123",
+	}, nil
+}
+
+type fixtureRuntimeMediaResolver struct{}
+
+func (fixtureRuntimeMediaResolver) OpenMedia(
+	context.Context, string, string,
+) (staticproviders.ResolvedMedia, error) {
+	return staticproviders.ResolvedMedia{
+		Body: io.NopCloser(bytes.NewReader(nil)),
+	}, nil
+}
+
+func (rejectingExecutor) Execute(
+	context.Context,
+	socialconnections.PublishingRequest,
+) (socialconnections.PublishingResponse, error) {
+	return socialconnections.PublishingResponse{}, &socialconnections.ExecutorFailure{
+		Kind: socialconnections.ExecutorFailurePermanent,
+		Code: "fixture_rejected",
+	}
+}
+
+func TestRuntimeRegistersOnlyExplicitlyGatedStaticProviders(t *testing.T) {
+	registry, err := newRuntimeAdapterRegistry(rejectingExecutor{}, staticproviders.Config{
+		LinkedInVersion: "202606",
+		Targets:         runtimeTargetResolver{},
+		Media:           fixtureRuntimeMediaResolver{},
+		Gates: map[string]staticproviders.Gate{
+			staticproviders.ProviderX: {
+				Enabled: true, ReviewApproved: true,
+				AuditVerified: true, QuotaConfigured: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = registry.ResolvePublisher(
+		context.Background(),
+		staticproviders.ProviderX,
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{
+		staticproviders.ProviderLinkedIn,
+		staticproviders.ProviderPinterest,
+		staticproviders.ProviderGoogleBusinessProfile,
+	} {
+		if _, resolveErr := registry.ResolvePublisher(
+			context.Background(), provider,
+		); !errors.Is(resolveErr, publishing.ErrProviderUnavailable) {
+			t.Fatalf("%s resolution error=%v", provider, resolveErr)
+		}
+	}
+}
+
+func TestRuntimeEnvironmentGateFailsClosed(t *testing.T) {
+	for _, key := range []string{
+		"POSTQRON_F08_X_ENABLED",
+		"POSTQRON_F08_X_REVIEW_APPROVED",
+		"POSTQRON_F08_X_RUNTIME_AUDIT_VERIFIED",
+		"POSTQRON_F08_X_QUOTA_CONFIGURED",
+	} {
+		t.Setenv(key, "true")
+	}
+	config := runtimeStaticProviderConfig(nil)
+	gate := config.Gates[staticproviders.ProviderX]
+	if !gate.Enabled || !gate.ReviewApproved ||
+		!gate.AuditVerified || !gate.QuotaConfigured {
+		t.Fatalf("X gate=%+v", gate)
+	}
+	t.Setenv("POSTQRON_F08_X_QUOTA_CONFIGURED", "false")
+	registry, err := newRuntimeAdapterRegistry(
+		rejectingExecutor{},
+		runtimeStaticProviderConfig(nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = registry.ResolvePublisher(
+		context.Background(),
+		staticproviders.ProviderX,
+	); !errors.Is(err, publishing.ErrProviderUnavailable) {
+		t.Fatalf("resolution error=%v", err)
+	}
+}
+
+func TestVideoAdapterRegistrationFailsClosedWithoutEveryGate(t *testing.T) {
+	registry, err := NewVideoAdapterRegistry(VideoAdapterDependencies{
+		TikTok: ProviderGate{
+			Configured: true, ReviewApproved: true,
+			AuditVerified: true, QuotaVerified: false,
+		},
+		YouTube: ProviderGate{
+			Configured: true, ReviewApproved: false,
+			AuditVerified: true, QuotaVerified: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"tiktok", "youtube"} {
+		if _, err := registry.ResolvePublisher(
+			context.Background(), provider,
+		); !errors.Is(err, publishing.ErrProviderUnavailable) {
+			t.Fatalf("%s resolution error=%v", provider, err)
+		}
+	}
+}
+
+func TestTikTokRegistrationFailsClosedUntilF5TrailingSlashSupport(t *testing.T) {
+	ready := ProviderGate{
+		Configured: true, ReviewApproved: true,
+		AuditVerified: true, QuotaVerified: true,
+	}
+	_, err := NewVideoAdapterRegistry(VideoAdapterDependencies{
+		TikTok:                   ready,
+		TikTokVerifiedPullPrefix: "https://media.example/tiktok/",
+	})
+	if err == nil || !strings.Contains(err.Error(), "issue #342") {
+		t.Fatalf("registration error=%v", err)
+	}
+}
+
+func TestRuntimeRegistryPreservesStaticAndVideoWiring(t *testing.T) {
+	ready := ProviderGate{
+		Configured: true, ReviewApproved: true,
+		AuditVerified: true, QuotaVerified: true,
+	}
+	registry, err := newRuntimeAdapterRegistry(
+		rejectingExecutor{},
+		staticproviders.Config{
+			LinkedInVersion: "202606",
+			Targets:         runtimeTargetResolver{},
+			Media:           fixtureRuntimeMediaResolver{},
+			Gates: map[string]staticproviders.Gate{
+				staticproviders.ProviderX: {
+					Enabled: true, ReviewApproved: true,
+					AuditVerified: true, QuotaConfigured: true,
+				},
+			},
+		},
+		VideoAdapterDependencies{
+			Executor:                 &socialconnections.AuthenticatedExecutor{},
+			TikTokVerifiedPullPrefix: "https://media.example/tiktok/",
+			F5TrailingSlashPaths:     true,
+			TikTok:                   ready,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{
+		staticproviders.ProviderX,
+		string(socialconnections.ProviderTikTok),
+	} {
+		if _, err = registry.ResolvePublisher(
+			context.Background(), provider,
+		); err != nil {
+			t.Fatalf("%s resolution error=%v", provider, err)
+		}
 	}
 }

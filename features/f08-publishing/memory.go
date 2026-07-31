@@ -17,6 +17,8 @@ type MemoryStore struct {
 	commandJobs  map[string]string
 	destinations map[string]Destination
 	idempotency  map[string]string
+	tidLast      map[string]uint64
+	tidAllocated map[string]map[string]uint64
 	order        []string
 }
 
@@ -26,7 +28,42 @@ func NewMemoryStore() *MemoryStore {
 		commandJobs:  make(map[string]string),
 		destinations: make(map[string]Destination),
 		idempotency:  make(map[string]string),
+		tidLast:      make(map[string]uint64),
+		tidAllocated: make(map[string]map[string]uint64),
 	}
+}
+
+func (store *MemoryStore) AllocateMonotonicTID(
+	_ context.Context,
+	namespace, idempotencyKey string,
+	physicalMicroseconds int64,
+) (uint64, error) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	floor, err := monotonicTIDFloor(
+		namespace, idempotencyKey, physicalMicroseconds,
+	)
+	if err != nil {
+		return 0, err
+	}
+	allocated := store.tidAllocated[namespace]
+	if allocated == nil {
+		allocated = make(map[string]uint64)
+		store.tidAllocated[namespace] = allocated
+	}
+	if existing, exists := allocated[idempotencyKey]; exists {
+		return existing, nil
+	}
+	value := floor
+	if last, exists := store.tidLast[namespace]; exists && value <= last {
+		if last == uint64(^uint64(0)>>1) {
+			return 0, ErrInvalidArgument
+		}
+		value = last + 1
+	}
+	allocated[idempotencyKey] = value
+	store.tidLast[namespace] = value
+	return value, nil
 }
 
 func (store *MemoryStore) Enqueue(

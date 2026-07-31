@@ -282,6 +282,20 @@ func c(subject, preheader, heading, intro, action string) localizedCopy {
 }
 
 var templateCatalog = map[TemplateID]map[Locale]localizedCopy{
+	TemplateFacebookGroupManual: translations(
+		c("Publish your Facebook Group post", "A Facebook Group post is ready for your manual action.", "Your Facebook Group post is ready", "Facebook Groups require you to complete this publication manually. Open Postqron to review the intended destination and continue securely.", "Open Facebook Group action"),
+		c("Pubblica il post nel Gruppo Facebook", "Un post per un Gruppo Facebook richiede la tua azione manuale.", "Il post per il Gruppo Facebook è pronto", "I Gruppi Facebook richiedono di completare manualmente questa pubblicazione. Apri Postqron per controllare la destinazione prevista e continuare in sicurezza.", "Apri l’azione Gruppo Facebook"),
+		c("Publica tu post en el grupo de Facebook", "Un post para un grupo de Facebook necesita tu acción manual.", "Tu post para el grupo de Facebook está listo", "Los grupos de Facebook requieren completar esta publicación manualmente. Abre Postqron para revisar el destino previsto y continuar de forma segura.", "Abrir acción del grupo"),
+		c("Publiez votre post dans le groupe Facebook", "Une publication de groupe Facebook nécessite votre action manuelle.", "Votre publication de groupe Facebook est prête", "Les groupes Facebook nécessitent de terminer cette publication manuellement. Ouvrez Postqron pour vérifier la destination prévue et continuer en toute sécurité.", "Ouvrir l’action du groupe"),
+		c("Veröffentliche deinen Facebook-Gruppenbeitrag", "Ein Facebook-Gruppenbeitrag benötigt deine manuelle Aktion.", "Dein Facebook-Gruppenbeitrag ist bereit", "Bei Facebook-Gruppen muss diese Veröffentlichung manuell abgeschlossen werden. Öffne Postqron, prüfe das vorgesehene Ziel und fahre sicher fort.", "Gruppenaktion öffnen"),
+	),
+	TemplateInstagramPersonalManual: translations(
+		c("Publish your Instagram personal post", "An Instagram personal post is ready for your manual action.", "Your Instagram personal post is ready", "Instagram personal accounts require you to complete this publication manually. Open Postqron to review the intended destination and continue securely.", "Open Instagram action"),
+		c("Pubblica il post su Instagram personale", "Un post per Instagram personale richiede la tua azione manuale.", "Il post per Instagram personale è pronto", "Gli account Instagram personali richiedono di completare manualmente questa pubblicazione. Apri Postqron per controllare la destinazione prevista e continuare in sicurezza.", "Apri l’azione Instagram"),
+		c("Publica tu post en Instagram personal", "Un post para Instagram personal necesita tu acción manual.", "Tu post para Instagram personal está listo", "Las cuentas personales de Instagram requieren completar esta publicación manualmente. Abre Postqron para revisar el destino previsto y continuar de forma segura.", "Abrir acción de Instagram"),
+		c("Publiez votre post Instagram personnel", "Une publication Instagram personnelle nécessite votre action manuelle.", "Votre publication Instagram personnelle est prête", "Les comptes Instagram personnels nécessitent de terminer cette publication manuellement. Ouvrez Postqron pour vérifier la destination prévue et continuer en toute sécurité.", "Ouvrir l’action Instagram"),
+		c("Veröffentliche deinen persönlichen Instagram-Beitrag", "Ein persönlicher Instagram-Beitrag benötigt deine manuelle Aktion.", "Dein persönlicher Instagram-Beitrag ist bereit", "Persönliche Instagram-Konten erfordern einen manuellen Abschluss dieser Veröffentlichung. Öffne Postqron, prüfe das vorgesehene Ziel und fahre sicher fort.", "Instagram-Aktion öffnen"),
+	),
 	TemplateWelcome: translations(
 		c("Welcome to %s", "Your account is ready.", "Welcome", "Your Postqron account is ready. Complete onboarding to start publishing.", "Continue"),
 		c("Benvenuto su %s", "Il tuo account è pronto.", "Benvenuto", "Il tuo account Postqron è pronto. Completa l’onboarding per iniziare a pubblicare.", "Continua"),

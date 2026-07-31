@@ -112,6 +112,70 @@ func TestServiceRetriesTransientFailureThenAccepts(t *testing.T) {
 	}
 }
 
+func TestServiceFifthProviderAttemptFailsInsteadOfRetryingForever(t *testing.T) {
+	store := NewMemoryStore()
+	retryable := &MailronixError{
+		Code: "rate_limited", Retryable: true, RetryAfter: time.Minute,
+		Detail: "retry later",
+	}
+	sender := &scriptedSender{errors: []error{
+		retryable,
+		retryable,
+		retryable,
+		retryable,
+		retryable,
+	}}
+	service, now := testService(t, store, sender)
+	result, err := service.Enqueue(
+		context.Background(),
+		testMessage(TemplateAccountSecurity),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := now
+	for attempt := 1; attempt <= 5; attempt++ {
+		dispatchAt := current
+		service.now = func() time.Time { return dispatchAt }
+		processed, dispatchErr := service.DispatchOne(context.Background())
+		if dispatchErr != nil || !processed {
+			t.Fatalf(
+				"attempt %d processed=%v error=%v",
+				attempt,
+				processed,
+				dispatchErr,
+			)
+		}
+		delivery, _ := store.Delivery(result.ID)
+		if delivery.Attempt != attempt {
+			t.Fatalf(
+				"attempt %d persisted count=%d",
+				attempt,
+				delivery.Attempt,
+			)
+		}
+		if attempt < 5 && delivery.State != StateRetry {
+			t.Fatalf("attempt %d state=%s", attempt, delivery.State)
+		}
+		if attempt < 5 {
+			current = delivery.NextAttemptAt
+		}
+		if attempt == 5 && delivery.State != StateFailed {
+			t.Fatalf("fifth attempt state=%s", delivery.State)
+		}
+	}
+	service.now = func() time.Time { return now.Add(10 * time.Minute) }
+	processed, err := service.DispatchOne(context.Background())
+	if err != nil || processed || len(sender.messages) != 5 {
+		t.Fatalf(
+			"post-budget processed=%v calls=%d error=%v",
+			processed,
+			len(sender.messages),
+			err,
+		)
+	}
+}
+
 func TestServiceStopsAfterPermanentFailure(t *testing.T) {
 	store := NewMemoryStore()
 	sender := &scriptedSender{errors: []error{
@@ -128,6 +192,86 @@ func TestServiceStopsAfterPermanentFailure(t *testing.T) {
 	delivery, _ := store.Delivery(result.ID)
 	if delivery.State != StateFailed || delivery.LastDiagnostic.Retryable {
 		t.Fatalf("failed delivery = %#v", delivery)
+	}
+}
+
+func TestServiceNeverReplaysAmbiguousProviderOutcome(t *testing.T) {
+	store := NewMemoryStore()
+	sender := &scriptedSender{errors: []error{
+		&MailronixError{
+			Code:      "transport_error",
+			Retryable: true,
+			Detail:    "Mailronix did not return a response",
+		},
+	}}
+	service, now := testService(t, store, sender)
+	result, err := service.Enqueue(
+		context.Background(),
+		testMessage(TemplateFacebookGroupManual),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.DispatchOne(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	delivery, _ := store.Delivery(result.ID)
+	if delivery.State != StateFailed ||
+		delivery.LastDiagnostic.Code != "transport_error" ||
+		delivery.LastDiagnostic.Retryable ||
+		len(sender.messages) != 1 {
+		t.Fatalf("ambiguous delivery = %#v calls=%d", delivery, len(sender.messages))
+	}
+	service.now = func() time.Time { return now.Add(time.Hour) }
+	processed, err := service.DispatchOne(context.Background())
+	if err != nil || processed || len(sender.messages) != 1 {
+		t.Fatalf(
+			"ambiguous replay processed=%v calls=%d error=%v",
+			processed,
+			len(sender.messages),
+			err,
+		)
+	}
+}
+
+func TestCoreServiceReconcilesExpiredPostCallLeaseBeforeClaim(t *testing.T) {
+	store := NewMemoryStore()
+	sender := &scriptedSender{}
+	service, now := testService(t, store, sender)
+	result, err := service.Enqueue(
+		context.Background(),
+		testMessage(TemplateAccountSecurity),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, found, err := store.ClaimDue(context.Background(), now)
+	if err != nil || !found || claimed.Message.ID != result.ID {
+		t.Fatalf("claim = %+v, %v, %v", claimed, found, err)
+	}
+	if err = store.MarkProviderCallStarted(
+		context.Background(),
+		result.ID,
+		claimed.LeaseToken,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return now.Add(3 * time.Minute) }
+	processed, err := service.DispatchOne(context.Background())
+	if err != nil || processed || len(sender.messages) != 0 {
+		t.Fatalf(
+			"reconcile processed=%v calls=%d error=%v",
+			processed,
+			len(sender.messages),
+			err,
+		)
+	}
+	delivery, _ := store.Delivery(result.ID)
+	if delivery.State != StateFailed ||
+		delivery.LastDiagnostic.Code != "ambiguous_delivery" ||
+		delivery.LastDiagnostic.At.IsZero() {
+		t.Fatalf("reconciled delivery = %#v", delivery)
 	}
 }
 

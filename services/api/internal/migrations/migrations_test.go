@@ -64,6 +64,36 @@ func TestCollectOrdersF10WorkspaceBoundaryBeforeF12Recovery(t *testing.T) {
 	}
 }
 
+func TestCollectPreservesParentMetaOutboxBeforeSocialBoundaryUpgrade(t *testing.T) {
+	features, err := featureruntime.Discover(
+		filepath.Join("..", "..", "features"),
+		filepath.Join("..", "..", "..", "..", "features"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collected, err := Collect(features)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publishing []Migration
+	for _, migration := range collected {
+		if migration.FeatureID == "publishing" {
+			publishing = append(publishing, migration)
+		}
+	}
+	if len(publishing) != 5 {
+		t.Fatalf("publishing migrations = %d, want 5", len(publishing))
+	}
+	if publishing[2].Name != "000003_meta_notification_outbox.sql" ||
+		publishing[2].Checksum !=
+			"108f50baa59265797b12d6a5a54c3c4386a3dc7f72c0cdfd289772079ed6d66a" ||
+		publishing[3].Name != "000004_social_notification_boundary.sql" ||
+		publishing[4].Name != "000005_bluesky_tid_allocator.sql" {
+		t.Fatalf("unexpected publishing migration chain: %#v", publishing)
+	}
+}
+
 func TestCollectRejectsDownMigration(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "000001_create_records.sql")

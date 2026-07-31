@@ -1,9 +1,10 @@
 schema_version: 1
 id: publishing
 kind: worker
-version: 0.2.0
+version: 0.3.0
 entrypoint: ./publishing.go
 dependencies:
+  - email
   - f06-composer
   - operations
   - scheduling
@@ -11,3 +12,6 @@ dependencies:
 migrations:
   - ./migrations/000001_create_publishing.sql
   - ./migrations/000002_capability_snapshots_and_reconciliation.sql
+  - ./migrations/000003_meta_notification_outbox.sql
+  - ./migrations/000004_social_notification_boundary.sql
+  - ./migrations/000005_bluesky_tid_allocator.sql

@@ -32,8 +32,32 @@ while IFS= read -r go_mod; do
   fi
 done < <(find features -mindepth 2 -maxdepth 2 -name go.mod | sort)
 
+for worker_package in ./internal/emailruntime ./internal/privacyruntime; do
+  printf '\n=== services/worker/%s: PostgreSQL integration ===\n' "$worker_package"
+  if output=$(cd services/worker && GOWORK=off go test -race -count=1 -v "$worker_package" 2>&1); then
+    printf '%s\n' "$output"
+  else
+    printf '%s\n' "$output"
+    failed=1
+  fi
+  if grep -q -- '--- SKIP:' <<<"$output"; then
+    skipped=1
+  fi
+done
+
+printf '\n=== services/api/internal/emailruntime: PostgreSQL integration ===\n'
+if output=$(go test -race -count=1 -v ./services/api/internal/emailruntime 2>&1); then
+  printf '%s\n' "$output"
+else
+  printf '%s\n' "$output"
+  failed=1
+fi
+if grep -q -- '--- SKIP:' <<<"$output"; then
+  skipped=1
+fi
+
 if (( skipped != 0 )); then
-  echo "At least one feature test was skipped with PostgreSQL configured." >&2
+  echo "At least one PostgreSQL integration test was skipped with PostgreSQL configured." >&2
   failed=1
 fi
 exit "$failed"

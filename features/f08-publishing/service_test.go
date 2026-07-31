@@ -103,6 +103,9 @@ func TestConcurrentWorkersClaimDestinationOnce(t *testing.T) {
 	if processed.Load() != 1 || provider.Creates() != 1 {
 		t.Fatalf("processed=%d creates=%d", processed.Load(), provider.Creates())
 	}
+	if !provider.ReceivedTIDAllocator() {
+		t.Fatal("engine did not inject the durable TID allocator")
+	}
 	job, err := engine.GetJob(ctx, "workspace-1", result.JobID)
 	if err != nil || job.Status != JobPublished {
 		t.Fatalf("job=%#v error=%v", job, err)
@@ -449,6 +452,7 @@ type fakeProvider struct {
 	capabilities    AdapterCapabilities
 	reconciliations map[string]ReconcileResult
 	reconcileCalls  int
+	tidAllocator    bool
 }
 
 func newFakeProvider() *fakeProvider {
@@ -483,6 +487,8 @@ func (provider *fakeProvider) Publish(
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	provider.calls++
+	provider.tidAllocator = provider.tidAllocator ||
+		request.TIDAllocator != nil
 	if remoteID, exists := provider.remote[request.IdempotencyKey]; exists {
 		return PublishResult{Complete: true, RemoteID: remoteID}, nil
 	}
@@ -532,4 +538,10 @@ func (provider *fakeProvider) ReconcileCalls() int {
 	provider.mutex.Lock()
 	defer provider.mutex.Unlock()
 	return provider.reconcileCalls
+}
+
+func (provider *fakeProvider) ReceivedTIDAllocator() bool {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+	return provider.tidAllocator
 }

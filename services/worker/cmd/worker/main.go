@@ -13,6 +13,7 @@ import (
 	"time"
 
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
+	"github.com/apdsoftware/postqron/services/worker/internal/publishingruntime"
 	"github.com/apdsoftware/postqron/services/worker/internal/runner"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -48,6 +49,14 @@ func main() {
 		"features", len(features),
 		"version", version,
 	)
+	dynamicPublishing, err := publishingruntime.FailClosedDynamicBootstrap(
+		os.Getenv("POSTQRON_F08_MASTODON_ENABLED"),
+		os.Getenv("POSTQRON_F08_BLUESKY_ENABLED"),
+	)
+	if err != nil {
+		logger.Error("configure dynamic publishing", "error", err)
+		os.Exit(1)
+	}
 	if shouldSkipRunOnceDatabase(runOnce, os.Getenv("DATABASE_URL")) {
 		runner.New(features, interval, logger).Tick(ctx)
 		logger.Info(
@@ -72,6 +81,11 @@ func main() {
 		interval,
 		time.Now,
 		logger,
+		// Video adapters are injected only by a reviewed F5/F6 composition.
+		// The standalone worker remains fail-closed until the F5 video
+		// adapters from #313 / PR #326 are integrated.
+		publishingruntime.VideoAdapterDependencies{},
+		dynamicPublishing,
 	)
 	if err != nil {
 		logger.Error("configure worker", "error", err)
