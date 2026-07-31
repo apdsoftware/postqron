@@ -5,6 +5,7 @@
 - **Ambito:** F5, F6, F8; coerenza con F7; dipendenza da F9/F23 per le destinazioni notification-only; preparazione di F18
 - **Fonte:** decisione D2 in `.context/SPEC.md` (F5, F6, F7, F8, sezione «Rischi ed Edge Cases», «Dipendenze tra Funzionalità»); issue #301; epic #300.
 - **Sostituisce:** la versione Meta-only del 2026-07-24 (`page_id` Facebook e Instagram Professional soltanto). Questa revisione estende la copertura ai social gestiti da Buffer al 30 luglio 2026, mantenendo l'integrazione **diretta** con le API ufficiali di ogni provider.
+- **Precedenza documentale:** questa decisione è la fonte canonica per i social supportati al lancio. Ogni riferimento residuo a D02 come decisione Meta-only in altri documenti di `main` va considerato superato da questa revisione finché quei documenti non vengono aggiornati.
 
 ## Decisione
 
