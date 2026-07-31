@@ -29,6 +29,30 @@ function json(body: unknown): {
   }
 }
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function socialSelection(displayName = 'A Pending Resource') {
+  return {
+    selection_id: 'selection-a',
+    provider: 'bluesky',
+    expires_at: '2026-07-31T12:15:00.000Z',
+    resources: [{
+      remote_id: 'did:plc:pending-a',
+      resource_type: 'bluesky_account',
+      account_type: 'profile',
+      display_name: displayName,
+      handle: 'pending-a.test',
+      scopes: ['atproto'],
+    }],
+  }
+}
+
 function session(role: 'owner' | 'member' = 'owner') {
   return {
     account: {
@@ -117,76 +141,63 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
   let connections = role === 'owner' ? [] as Array<ReturnType<typeof socialConnection>> : [socialConnection('reconnect_required')]
   let beginBody: unknown
 
-  await page.context().route('**/*', async route => {
-    const request = route.request()
-    const url = new URL(request.url())
-
-    if (url.pathname === '/api/v1/app/session') {
-      await route.fulfill(json(session(role)))
-      return
-    }
-    if (url.pathname === '/api/v1/app/workspaces/current') {
-      await route.fulfill(json(currentWorkspace(role)))
-      return
-    }
-    if (url.pathname === '/api/v1/workspaces/workspace-fixture/social-connections/bootstrap') {
-      await route.fulfill(json(socialBootstrap()))
-      return
-    }
-    if (url.pathname === '/api/v1/workspaces/workspace-fixture/social-connections'
-      && request.method() === 'GET') {
+  await page.route('**/api/v1/app/session', route =>
+    route.fulfill(json(session(role))))
+  await page.route('**/api/v1/app/workspaces/current', route =>
+    route.fulfill(json(currentWorkspace(role))))
+  await page.route(
+    '**/api/v1/workspaces/workspace-fixture/social-connections/bootstrap',
+    route => route.fulfill(json(socialBootstrap())),
+  )
+  await page.route(
+    '**/api/v1/workspaces/workspace-fixture/social-connections',
+    async route => {
+      const request = route.request()
+      if (request.method() === 'POST') {
+        connections = [socialConnection()]
+        await route.fulfill(json(connections[0]))
+        return
+      }
       await route.fulfill(json({ connections }))
-      return
-    }
-    if (url.pathname === '/api/v1/workspaces/workspace-fixture/social-authorizations'
-      && request.method() === 'POST') {
-      beginBody = request.postDataJSON()
+    },
+  )
+  await page.route(
+    '**/api/v1/workspaces/workspace-fixture/social-authorizations',
+    async route => {
+      beginBody = route.request().postDataJSON()
       await route.fulfill(json({
         authorization_url: 'https://social-provider.example.test/oauth/start',
         expires_at: '2026-07-31T12:10:00.000Z',
       }))
-      return
+    },
+  )
+  await page.context().route('https://social-provider.example.test/oauth/start', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<script>location.replace(${JSON.stringify(`${offBaseURL}/api/v1/social-authorizations/callback`)})</script>`,
+    }))
+  await page.context().route('**/api/v1/social-authorizations/callback*', async route => {
+    const payload = {
+      selection_id: 'selection-1',
+      provider: 'bluesky',
+      expires_at: '2026-07-31T12:15:00.000Z',
+      resources: [{
+        remote_id: 'did:plc:alice',
+        resource_type: 'bluesky_account',
+        account_type: 'profile',
+        display_name: 'Alice',
+        handle: 'alice.test',
+        scopes: ['atproto'],
+      }],
     }
-    if (url.origin === 'https://social-provider.example.test'
-      && url.pathname === '/oauth/start') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        body: `<script>location.replace(${JSON.stringify(`${offBaseURL}/api/v1/social-authorizations/callback`)})</script>`,
-      })
-      return
-    }
-    if (url.pathname === '/api/v1/social-authorizations/callback') {
-      const payload = {
-        selection_id: 'selection-1',
-        provider: 'bluesky',
-        expires_at: '2026-07-31T12:15:00.000Z',
-        resources: [{
-          remote_id: 'did:plc:alice',
-          resource_type: 'bluesky_account',
-          account_type: 'profile',
-          display_name: 'Alice',
-          handle: 'alice.test',
-          scopes: ['atproto'],
-        }],
-      }
-      await route.fulfill(request.isNavigationRequest()
-        ? {
-            status: 200,
-            contentType: 'text/plain',
-            body: JSON.stringify(payload),
-          }
-        : json(payload))
-      return
-    }
-    if (url.pathname === '/api/v1/workspaces/workspace-fixture/social-connections'
-      && request.method() === 'POST') {
-      connections = [socialConnection()]
-      await route.fulfill(json(connections[0]))
-      return
-    }
-
-    await route.continue()
+    await route.fulfill(route.request().isNavigationRequest()
+      ? {
+          status: 200,
+          contentType: 'text/plain',
+          body: JSON.stringify(payload),
+        }
+      : json(payload))
   })
 
   return {
@@ -194,12 +205,22 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
   }
 }
 
-async function routeWorkspaceSwitchPage(page: Page) {
+async function routeWorkspaceSwitchPage(
+  page: Page,
+  options: {
+    aConnectionStatus?: 'connected' | 'reconnect_required'
+    failFirstSessionRefresh?: boolean
+    failNextSwitch?: boolean
+  } = {},
+) {
   const roles = {
     'workspace-a': 'owner',
     'workspace-b': 'member',
   } as const
   let activeWorkspace: keyof typeof roles = 'workspace-a'
+  let failNextSwitch = options.failNextSwitch ?? false
+  let failedSessionRefreshRequests = 0
+  const listRequests = { 'workspace-a': 0, 'workspace-b': 0 }
   const names = {
     'workspace-a': 'Workspace A',
     'workspace-b': 'Workspace B',
@@ -221,58 +242,96 @@ async function routeWorkspaceSwitchPage(page: Page) {
     }
   }
 
-  await page.route('**/*', async route => {
-    const request = route.request()
-    const url = new URL(request.url())
-    if (url.pathname === '/api/v1/auth/csrf') {
-      await route.fulfill(json({ csrf_token: 'workspace-switch-csrf' }))
+  await page.route('**/api/v1/auth/csrf', route =>
+    route.fulfill(json({ csrf_token: 'workspace-switch-csrf' })))
+  await page.route('**/api/v1/app/workspaces/select', async route => {
+    if (failNextSwitch) {
+      failNextSwitch = false
+      await route.fulfill({
+        ...json({
+          error: {
+            code: 'workspace_switch_failed',
+            message: 'The workspace switch failed.',
+            retryable: true,
+          },
+        }),
+        status: 503,
+      })
       return
     }
-    if (url.pathname === '/api/v1/app/workspaces/select' && request.method() === 'POST') {
-      activeWorkspace = (request.postDataJSON() as { workspace_id: typeof activeWorkspace }).workspace_id
+    if (options.failFirstSessionRefresh) {
+      // ofetch retries a failed GET once; fail both attempts belonging to the
+      // first api.session() so the layout's explicit recovery path executes.
+      failedSessionRefreshRequests = 2
       await route.fulfill(json({ ok: true }))
       return
     }
-    if (url.pathname === '/api/v1/app/session') {
-      await route.fulfill(json(activeSession()))
-      return
-    }
-    if (url.pathname === '/api/v1/app/workspaces/current') {
-      if (activeWorkspace === 'workspace-b') {
-        await new Promise(resolve => globalThis.setTimeout(resolve, 250))
-      }
-      await route.fulfill(json({
-        ...currentWorkspace(roles[activeWorkspace]),
-        id: activeWorkspace,
-        name: names[activeWorkspace],
-      }))
-      return
-    }
-    if (url.pathname === `/api/v1/workspaces/${activeWorkspace}/social-connections/bootstrap`) {
-      if (activeWorkspace === 'workspace-b') {
-        await new Promise(resolve => globalThis.setTimeout(resolve, 250))
-      }
-      await route.fulfill(json(socialBootstrap()))
-      return
-    }
-    if (url.pathname === `/api/v1/workspaces/${activeWorkspace}/social-connections`
-      && request.method() === 'GET') {
-      if (activeWorkspace === 'workspace-b') {
-        await new Promise(resolve => globalThis.setTimeout(resolve, 250))
-      }
-      await route.fulfill(json({
-        connections: [{
-          ...socialConnection(),
-          id: `connection-${activeWorkspace}`,
-          display_name: activeWorkspace === 'workspace-a'
-            ? 'A Owner Channel'
-            : 'B Member Channel',
-        }],
-      }))
-      return
-    }
-    await route.continue()
+    activeWorkspace = (
+      route.request().postDataJSON() as { workspace_id: typeof activeWorkspace }
+    ).workspace_id
+    await route.fulfill(json({ ok: true }))
   })
+  await page.route('**/api/v1/app/session', async route => {
+    if (failedSessionRefreshRequests > 0) {
+      failedSessionRefreshRequests -= 1
+      await route.fulfill({
+        ...json({
+          error: {
+            code: 'session_refresh_failed',
+            message: 'The session refresh failed.',
+            retryable: true,
+          },
+        }),
+        status: 503,
+      })
+      return
+    }
+    await route.fulfill(json(activeSession()))
+  })
+  await page.route('**/api/v1/app/workspaces/current', async route => {
+    const requestedWorkspace = activeWorkspace
+    if (requestedWorkspace === 'workspace-b') {
+      await new Promise(resolve => globalThis.setTimeout(resolve, 250))
+    }
+    await route.fulfill(json({
+      ...currentWorkspace(roles[requestedWorkspace]),
+      id: requestedWorkspace,
+      name: names[requestedWorkspace],
+    }))
+  })
+  for (const workspaceId of Object.keys(roles) as Array<keyof typeof roles>) {
+    await page.route(
+      `**/api/v1/workspaces/${workspaceId}/social-connections/bootstrap`,
+      async route => {
+        if (workspaceId === 'workspace-b') {
+          await new Promise(resolve => globalThis.setTimeout(resolve, 250))
+        }
+        await route.fulfill(json(socialBootstrap()))
+      },
+    )
+    await page.route(
+      `**/api/v1/workspaces/${workspaceId}/social-connections`,
+      async route => {
+        listRequests[workspaceId] += 1
+        if (workspaceId === 'workspace-b') {
+          await new Promise(resolve => globalThis.setTimeout(resolve, 250))
+        }
+        await route.fulfill(json({
+          connections: [{
+            ...socialConnection(workspaceId === 'workspace-a'
+              ? options.aConnectionStatus
+              : 'connected'),
+            id: `connection-${workspaceId}`,
+            workspace_id: workspaceId,
+            display_name: workspaceId === 'workspace-a'
+              ? 'A Owner Channel'
+              : 'B Member Channel',
+          }],
+        }))
+      },
+    )
+  }
+  return { listRequests }
 }
 
 async function routeComposerPage(page: Page) {
@@ -765,6 +824,275 @@ test('workspace changes clear social state atomically across Owner and Member ro
   expect(await page.getByText('B Member Channel').isVisible()).toBe(false)
   await expect(page.getByText('A Owner Channel')).toBeVisible()
   await expect(page.locator('.app-provider-catalog').getByRole('button', { name: 'Connect' }).first()).toBeEnabled()
+})
+
+test('an in-flight connect popup closes on Owner to Member switch and its delayed error is ignored', async ({
+  page,
+}) => {
+  await routeWorkspaceSwitchPage(page)
+  const beginRequested = deferred()
+  const releaseBegin = deferred()
+  await page.route(
+    '**/api/v1/workspaces/workspace-a/social-authorizations',
+    async route => {
+      beginRequested.resolve()
+      await releaseBegin.promise
+      await route.fulfill({
+        ...json({
+          code: 'provider_temporary',
+          message: 'STALE_A_CONNECT_ERROR',
+          retryable: true,
+        }),
+        status: 503,
+      })
+    },
+  )
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+  const provider = page.locator('.app-provider-catalog li').filter({ hasText: 'Facebook Pages' })
+  const popupPromise = page.waitForEvent('popup')
+  await provider.getByRole('button', { name: 'Connect' }).click()
+  const popup = await popupPromise
+  await beginRequested.promise
+
+  const popupClosed = popup.waitForEvent('close')
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+  await popupClosed
+  releaseBegin.resolve()
+
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText('STALE_A_CONNECT_ERROR')).toHaveCount(0)
+  await expect(page.locator('.app-inline-alert[role="alert"]')).toHaveCount(0)
+})
+
+test('an in-flight reconnect popup closes on transition and stale callback metadata is discarded', async ({
+  page,
+}) => {
+  await routeWorkspaceSwitchPage(page, { aConnectionStatus: 'reconnect_required' })
+  const reconnectRequested = deferred()
+  const releaseReconnect = deferred()
+  await page.route(
+    '**/api/v1/workspaces/workspace-a/social-connections/connection-workspace-a/reconnect',
+    async route => {
+      reconnectRequested.resolve()
+      await releaseReconnect.promise
+      await route.fulfill(json({
+        authorization_url: 'https://social-provider.example.test/oauth/pending-a',
+        expires_at: '2026-07-31T12:10:00.000Z',
+      }))
+    },
+  )
+  await page.context().route('https://social-provider.example.test/oauth/pending-a', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/plain',
+      body: JSON.stringify(socialSelection('STALE_A_CALLBACK_RESOURCE')),
+    }))
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  const popupPromise = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Reconnect' }).click()
+  const popup = await popupPromise
+  await reconnectRequested.promise
+
+  const popupClosed = popup.waitForEvent('close')
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+  await popupClosed
+  releaseReconnect.resolve()
+
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText('STALE_A_CALLBACK_RESOURCE')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toHaveCount(0)
+})
+
+test('a delayed processCallback response cannot expose workspace A selection under workspace B', async ({
+  page,
+}) => {
+  await routeWorkspaceSwitchPage(page)
+  const callbackRequested = deferred()
+  const releaseCallback = deferred()
+  await page.route('**/api/v1/social-authorizations/callback*', async route => {
+    callbackRequested.resolve()
+    await releaseCallback.promise
+    await route.fulfill(json(socialSelection('STALE_A_PROCESS_CALLBACK')))
+  })
+
+  await page.goto(`${offBaseURL}/en/app/social-channels?state=state-a&code=code-a`)
+  await callbackRequested.promise
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+  releaseCallback.resolve()
+
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText('STALE_A_PROCESS_CALLBACK')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toHaveCount(0)
+})
+
+test('a delayed selectResource list from A cannot repopulate B', async ({ page }) => {
+  await routeWorkspaceSwitchPage(page)
+  const staleListRequested = deferred()
+  const releaseStaleList = deferred()
+  let resourceSelected = false
+  await page.route(
+    '**/api/v1/workspaces/workspace-a/social-connections',
+    async route => {
+      if (route.request().method() === 'POST') {
+        resourceSelected = true
+        await route.fulfill(json({
+          ...socialConnection(),
+          id: 'selected-a',
+          workspace_id: 'workspace-a',
+          display_name: 'Selected A Resource',
+        }))
+        return
+      }
+      if (resourceSelected) {
+        staleListRequested.resolve()
+        await releaseStaleList.promise
+        await route.fulfill(json({
+          connections: [{
+            ...socialConnection(),
+            id: 'stale-selected-a',
+            workspace_id: 'workspace-a',
+            display_name: 'STALE_A_SELECTED_LIST',
+          }],
+        }))
+        return
+      }
+      await route.fulfill(json({ connections: [
+        { ...socialConnection(), workspace_id: 'workspace-a', display_name: 'A Owner Channel' },
+      ] }))
+    },
+  )
+  await page.route('**/api/v1/social-authorizations/callback*', route =>
+    route.fulfill(json(socialSelection())))
+
+  await page.goto(`${offBaseURL}/en/app/social-channels?state=state-a&code=code-a`)
+  await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toBeVisible()
+  await page.getByRole('button', { name: 'Connect this resource' }).click()
+  await staleListRequested.promise
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+  releaseStaleList.resolve()
+
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText('STALE_A_SELECTED_LIST')).toHaveCount(0)
+  await expect(page.getByText('Selected A Resource')).toHaveCount(0)
+})
+
+test('a delayed disconnect list from A cannot repopulate B or publish stale notice', async ({
+  page,
+}) => {
+  await routeWorkspaceSwitchPage(page)
+  const staleListRequested = deferred()
+  const releaseStaleList = deferred()
+  let revoked = false
+  await page.route(
+    '**/api/v1/workspaces/workspace-a/social-connections/connection-workspace-a',
+    async route => {
+      revoked = true
+      await route.fulfill(json({
+        connection: {
+          ...socialConnection(),
+          id: 'connection-workspace-a',
+          workspace_id: 'workspace-a',
+          display_name: 'A Owner Channel',
+          status: 'revoked',
+          revoked_at: '2026-07-31T12:30:00.000Z',
+        },
+        provider_revoked: true,
+      }))
+    },
+  )
+  await page.route(
+    '**/api/v1/workspaces/workspace-a/social-connections',
+    async route => {
+      if (revoked) {
+        staleListRequested.resolve()
+        await releaseStaleList.promise
+        await route.fulfill(json({
+          connections: [{
+            ...socialConnection(),
+            id: 'stale-revoked-a',
+            workspace_id: 'workspace-a',
+            display_name: 'STALE_A_REVOKE_LIST',
+          }],
+        }))
+        return
+      }
+      await route.fulfill(json({ connections: [{
+        ...socialConnection(),
+        id: 'connection-workspace-a',
+        workspace_id: 'workspace-a',
+        display_name: 'A Owner Channel',
+      }] }))
+    },
+  )
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await page.getByRole('button', { name: 'Disconnect' }).click()
+  await staleListRequested.promise
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+  releaseStaleList.resolve()
+
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText('STALE_A_REVOKE_LIST')).toHaveCount(0)
+  await expect(page.getByText(
+    'Channel disconnected. Its stored credentials were deleted.',
+  )).toHaveCount(0)
+})
+
+test('B to A transition discards delayed B reads', async ({ page }) => {
+  await routeWorkspaceSwitchPage(page)
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  const workspace = page.getByLabel('Current workspace')
+
+  await workspace.selectOption('workspace-b')
+  await expect(workspace).toBeEnabled()
+  await workspace.selectOption('workspace-a')
+
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+  await page.waitForTimeout(400)
+  await expect(page.getByText('B Member Channel')).toHaveCount(0)
+})
+
+test('failed workspace switch restores and refetches the effective old workspace', async ({
+  page,
+}) => {
+  const fixture = await routeWorkspaceSwitchPage(page, { failNextSwitch: true })
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+
+  const workspace = page.getByLabel('Current workspace')
+  await workspace.selectOption('workspace-b')
+
+  await expect(workspace).toHaveValue('workspace-a')
+  await expect(page.getByText(
+    'We could not switch workspaces. The previous workspace has been restored and refreshed.',
+  )).toBeVisible()
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+  await expect.poll(() => fixture.listRequests['workspace-a']).toBeGreaterThanOrEqual(2)
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+})
+
+test('failed session refresh also restores and refetches the still-effective old workspace', async ({
+  page,
+}) => {
+  const fixture = await routeWorkspaceSwitchPage(page, {
+    failFirstSessionRefresh: true,
+  })
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+
+  const workspace = page.getByLabel('Current workspace')
+  await workspace.selectOption('workspace-b')
+
+  await expect(workspace).toHaveValue('workspace-a')
+  await expect(page.getByText(
+    'We could not switch workspaces. The previous workspace has been restored and refreshed.',
+  )).toBeVisible()
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+  await expect.poll(() => fixture.listRequests['workspace-a']).toBeGreaterThanOrEqual(2)
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
 })
 
 test('cross-origin F5 callbacks fail closed before OAuth starts', async ({ page }) => {

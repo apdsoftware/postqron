@@ -38,6 +38,17 @@ test('the shell navigation exposes Social channels without access methods', asyn
   assert.doesNotMatch(layout, /key: 'providers'|appRoute\([^)]*'providers'/u)
 })
 
+test('the shell always signals transition completion and exposes recovery feedback', async () => {
+  const [layout, composable] = await Promise.all([
+    source('../layouts/app-shell.vue'),
+    source('../components/core/use-app-shell.ts'),
+  ])
+  assert.match(layout, /finally \{[\s\S]*workspaceTransitionRevision\.value \+= 1/u)
+  assert.match(layout, /catch \{[\s\S]*const recoveredSession = await api\.session\(\)/u)
+  assert.match(layout, /role="alert"[\s\S]*shell\.workspaceSwitchError/u)
+  assert.match(composable, /postqron\.app-shell\.workspace-transition-revision/u)
+})
+
 test('the social channels page follows the accessible retryable page contract', async () => {
   const page = await source('../pages/social-channels.vue')
   assert.match(page, /kind="loading"/u)
@@ -48,12 +59,15 @@ test('the social channels page follows the accessible retryable page contract', 
   assert.match(page, /useSocialConnectionsApi/u)
   assert.match(page, /documentTitle\.socialChannels/u)
   // Availability bootstrap, connect, callback selection, reconnect, revoke.
-  assert.match(page, /social\.bootstrap\(requestedWorkspaceId\)/u)
-  assert.match(page, /social\.begin\([\s\S]*mutationWorkspaceId/u)
+  assert.match(page, /social\.bootstrap\(context\.workspaceId\)/u)
+  assert.match(page, /social\.begin\([\s\S]*context\.workspaceId/u)
   assert.match(page, /social\.completeAuthorization\(/u)
-  assert.match(page, /social\.selectResource\(mutationWorkspaceId/u)
-  assert.match(page, /social\.reconnect\(mutationWorkspaceId/u)
-  assert.match(page, /social\.revoke\(mutationWorkspaceId/u)
+  assert.match(page, /social\.selectResource\(context\.workspaceId/u)
+  assert.match(page, /social\.reconnect\(context\.workspaceId/u)
+  assert.match(page, /social\.revoke\(context\.workspaceId/u)
+  assert.match(page, /function contextIsCurrent\([\s\S]*context\.epoch === loadEpoch/u)
+  assert.match(page, /watch\(workspaceTransitionRevision,[\s\S]*void refresh\(\)/u)
+  assert.match(page, /activePopups[\s\S]*closeActivePopups/u)
   // Fail-closed provider availability drives an explicit unavailable state.
   assert.match(page, /catalogState\(provider\) === 'available'/u)
   assert.match(page, /social\.catalogState\.\$\{catalogState\(provider\)\}/u)
