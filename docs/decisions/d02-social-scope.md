@@ -36,8 +36,8 @@ Classificazione al 30 luglio 2026. È **version-sensitive**: va riverificata all
 | LinkedIn profilo | Membro | **Auto** | Posts API, autore membro (`w_member_social`). |
 | LinkedIn Pagina | Organizzazione | **Auto** | Posts API, autore organizzazione (`w_organization_social`) + Community Management API. |
 | Pinterest | Board di destinazione | **Auto** | Pins API v5; una board è obbligatoria per il pin. |
-| TikTok | Account creator | **Auto**, gate su audit | Content Posting API / Direct Post; senza audit si pubblica solo privato. Resta fail-closed finché l'audit non è approvato. |
-| Google Business Profile | Location verificata | **Auto** | Business Profile API `localPosts`. |
+| TikTok | Account creator | **Auto**, gate su audit | Content Posting API / Direct Post **video-only** al lancio; senza audit si pubblica solo privato. Resta fail-closed finché l'audit non è approvato. |
+| Google Business Profile | Location verificata | **Auto** | Business Profile API `localPosts` documentata per summary, CTA e media via `sourceUrl`; il contratto di lancio usa solo immagine finché Google non documenta esplicitamente il video nei Local Posts. |
 | Mastodon | Account su istanza | **Auto** | API per-istanza; OAuth e limiti letti dall'istanza. |
 | YouTube Shorts | Canale | **Auto** | Data API v3 `videos.insert` (upload resumable). |
 | Threads | Account Threads | **Auto** | Threads API (Meta), container + publish. |
@@ -62,8 +62,8 @@ I formati F6 usano le sigle: **T** testo/link, **I** immagine singola, **C** car
 | LinkedIn profilo | Sì | T, I, C (documenti), V | Auto: Posts API + remote ID (URN) | Preparata: solo metriche consentite al membro; molte richiedono contesto organizzazione. |
 | LinkedIn Pagina | Sì | T, I, C (documenti), V | Auto: Posts API autore organizzazione + URN | Preparata: analytics organizzazione via Community Management API con permesso dedicato. |
 | Pinterest | Sì | I, V (una board) | Auto: `POST /v5/pins` + remote ID | Preparata: metriche pin quando l'accesso è approvato. |
-| TikTok | Sì (gate audit) | V, I (photo mode) | Auto se audit approvato; altrimenti disabilitato fail-closed | Preparata: metriche video quando l'audit e i permessi lo consentono. |
-| Google Business Profile | Sì | T, I, V | Auto: `localPosts.create` + remote ID | Preparata: insight `localPosts`/location con permesso dedicato. |
+| TikTok | Sì (gate audit) | V | Auto se audit approvato; altrimenti disabilitato fail-closed | Preparata: metriche video quando l'audit e i permessi lo consentono. |
+| Google Business Profile | Sì | T, I | Auto: `localPosts.create` + remote ID | Preparata: insight `localPosts`/location con permesso dedicato. |
 | Mastodon | Sì | T, I, V, C (fino a 4) | Auto: `POST /api/v1/statuses` + remote ID | Preparata: contatori pubblici dello status quando esposti dall'istanza. |
 | YouTube Shorts | Sì | R (short verticale) | Auto: `videos.insert` resumable + remote ID | Preparata: YouTube Analytics API con permesso e quota dedicati. |
 | Threads | Sì | T, I, V, C, Th | Auto: container + publish + remote ID | Preparata: Threads insight con permesso dedicato. |
@@ -153,16 +153,16 @@ Per ogni canale la risorsa remota canonica è persistita insieme al token cifrat
 ### TikTok (auto, gate su audit)
 
 - **Risorsa:** account creator.
-- **Operazioni:** Content Posting API — inizializzazione, upload del video, `POST /v2/post/publish/...` in modalità **Direct Post**; salvare publish ID/video ID.
-- **OAuth:** `video.upload`, `video.publish`.
-- **Review/audit:** **audit obbligatorio**. Senza audit i client pubblicano solo contenuti privati/`SELF_ONLY`; anche dopo l'audit esistono cap per creator e per client. TikTok resta **disabilitato fail-closed** finché l'audit non è approvato e i requisiti UX/video non sono pronti.
+- **Operazioni:** Content Posting API — query `creator_info`, inizializzazione Direct Post video, upload del video e polling stato; salvare `publish_id`/video ID. Il supporto foto esiste nella documentazione ufficiale al 2026-07-31, ma **resta esplicitamente fuori scope** in questa decisione per minimizzare il perimetro del Direct Post al lancio.
+- **OAuth:** `video.publish` per F5/F8. `video.upload` non è richiesto al lancio perché il flusso inbox/upload resta fuori scope.
+- **Review/audit:** **audit obbligatorio**. Senza audit i client Direct Post possono pubblicare solo con visibilità privata/`SELF_ONLY`; anche dopo l'audit esistono cap per creator e per client. TikTok resta **disabilitato fail-closed** finché l'audit non è approvato e i requisiti UX/video non sono pronti.
 - **Rate limit:** cap giornalieri per creator e per client; rispettare le finestre indicate.
 - **Idempotenza:** publish ID persistito; nessun re-publish cieco.
 
 ### Google Business Profile (auto)
 
 - **Risorsa:** location verificata dell'account.
-- **Operazioni:** Business Profile API `accounts.locations.localPosts.create` (post `STANDARD`, `EVENT`, `OFFER`, `ALERT`) con `summary`, media e call to action; salvare il nome/ID del localPost.
+- **Operazioni:** Business Profile API `accounts.locations.localPosts.create` (post `STANDARD`, `EVENT`, `OFFER`, `ALERT`) con `summary`, call to action e **una immagine** via `media[].sourceUrl`; salvare il nome/ID del localPost. Il video resta escluso finché la documentazione ufficiale dei Local Posts non lo definisce in modo esplicito nel payload e negli esempi.
 - **OAuth:** scope `https://www.googleapis.com/auth/business.manage`.
 - **Review/audit:** **richiesta di accesso all'API** e approvazione quota da parte di Google prima dell'uso; location verificata.
 - **Rate limit:** quote per progetto (QPM) e quota giornaliera di modifica; rispettare i 429/`RESOURCE_EXHAUSTED`.
@@ -180,9 +180,9 @@ Per ogni canale la risorsa remota canonica è persistita insieme al token cifrat
 
 - **Risorsa:** canale YouTube.
 - **Operazioni:** `videos.insert` con upload resumable; un video è uno Short se verticale e ≤ 3 minuti; salvare il video ID.
-- **OAuth:** `https://www.googleapis.com/auth/youtube.upload` (+ `youtube.readonly`/`yt-analytics.readonly` per F18).
+- **OAuth:** `https://www.googleapis.com/auth/youtube.upload` per la pubblicazione; `https://www.googleapis.com/auth/youtube.readonly` solo se serve leggere il canale/risorse YouTube in F5; `https://www.googleapis.com/auth/yt-analytics.readonly` resta separato e differito a F18.
 - **Review/audit:** progetti non verificati caricano video **privati**; audit/verifica Google per pubblicare come pubblico e per aumentare la quota.
-- **Rate limit:** quota giornaliera default 10.000 unità; `videos.insert` ≈ 1.600 unità (≈ 6 upload/giorno di default). L'adapter tratta la quota come risorsa scarsa e non promette più di quanto verificato.
+- **Rate limit:** al 2026-07-31 `videos.insert` usa un bucket granulare dedicato con quota di default di **100 chiamate/giorno** e costo **1 unità** per chiamata; gli altri endpoint mantengono la quota combinata separata. L'adapter tratta questo bucket come risorsa scarsa e non promette nel piano più upload di quelli verificati.
 - **Idempotenza:** nessuna key nativa; il video ID persistito è l'ancora; upload resumable ripetibile solo secondo le regole del protocollo.
 
 ### Bluesky (auto)
@@ -198,7 +198,7 @@ Per ogni canale la risorsa remota canonica è persistita insieme al token cifrat
 
 I limiti seguenti sono il **contratto Postqron di lancio**, intenzionalmente più conservativo di alcuni massimi dei provider. F6 valida nel browser per feedback rapido e ripete la stessa validazione lato server prima di salvare come programmato e prima di pubblicare. Un cambiamento del provider può restringere il contratto, mai ampliarlo automaticamente.
 
-Il testo è UTF-8, normalizzato NFC. I conteggi sono per Unicode code point dopo la normalizzazione (per Bluesky per grapheme, come richiede la rete); newline, URL, menzioni, emoji e hashtag rientrano nello stesso limite. Postqron **non** effettua crop o transcoding silenzioso nella prima release: un file non conforme è rifiutato, preservando il controllo creativo e rendendo deterministica la validazione.
+Il testo è UTF-8 e normalizzato NFC dove richiesto dal provider. **Non esiste un conteggio globale unico cross-provider**: Postqron applica il contratto ufficiale del singolo canale. In particolare: X usa il conteggio pesato ufficiale, inclusi URL `t.co`; TikTok usa i limiti espressi in UTF-16 runes; Bluesky richiede sia il limite di grapheme sia il limite `maxLength` del lexicon (`app.bsky.feed.post`). Postqron **non** effettua crop o transcoding silenzioso nella prima release: un file non conforme è rifiutato, preservando il controllo creativo e rendendo deterministica la validazione.
 
 | Canale | Testo | Media, codec, dimensioni | Ratio e durata | Note |
 | --- | --- | --- | --- | --- |
@@ -207,15 +207,15 @@ Il testo è UTF-8, normalizzato NFC. I conteggi sono per Unicode code point dopo
 | Facebook Pages / Instagram Reel | Caption ≤ 5.000 (FB) / ≤ 2.200 (IG). | MP4 H.264, audio AAC 48 kHz; 23–60 fps; video ≤ 25 Mbps, audio ≤ 128 kbps; ≤ 100 MB; 720×1.280–1.080×1.920. | 9:16; 4–60 s. | Un solo video, `moov atom` prima dei dati; audio opzionale. |
 | Instagram immagine | Caption 0–2.200. | Una JPEG sRGB ≤ 8 MB; larghezza 320–1.440 px. | Da 4:5 a 1,91:1. | Media obbligatorio: non esiste post solo testo. |
 | Instagram carousel | Caption 0–2.200. | 2–10 JPEG, ciascuna ≤ 8 MB, totale ≤ 80 MB; larghezza 320–1.440 px. | Stesso ratio per tutti, 4:5–1,91:1. | Carousel misti immagine/video esclusi; ordine salvato vincolante. |
-| X post | 1–280 caratteri (contratto di lancio; long-post premium non usato); max un URL. | Fino a 4 immagini JPEG/PNG oppure 1 video oppure 1 GIF. | Immagini ≤ 5 MB; video secondo i limiti X. | Thread come catena di reply; ogni elemento rispetta il limite. |
+| X post | 1–280 **weighted characters** secondo le regole ufficiali X; gli URL validi contano `t.co` e rientrano nel budget; long-post premium non usato. | Fino a 4 immagini JPEG/PNG oppure 1 video oppure 1 GIF. | Immagini ≤ 5 MB; video secondo i limiti X. | Thread come catena di reply; ogni elemento rispetta il conteggio pesato ufficiale. |
 | LinkedIn (profilo/Pagina) | 1–3.000 caratteri. | Fino a 9 immagini, 1 video o 1 documento (PDF). | Secondo i limiti LinkedIn. | Autore membro o organizzazione; personalizzazione per destinazione. |
 | Pinterest pin | Titolo ≤ 100; descrizione ≤ 500. | Una immagine (JPEG/PNG) o un video; board obbligatoria; link opzionale. | Ratio consigliato 2:3 per l'immagine. | Un pin per board; niente pubblicazione senza board. |
-| TikTok | Caption ≤ 2.200. | Un video MP4/MOV; photo mode dove supportato. | 9:16 consigliato; durata secondo i limiti TikTok. | Disponibile solo dopo audit; senza audit non pubblicabile pubblicamente. |
-| Google Business Profile | Summary ≤ 1.500. | Una immagine o un video per post; CTA opzionale. | Secondo i limiti GBP. | Tipi `STANDARD`/`EVENT`/`OFFER`; niente selezione multi-canale con vincoli incompatibili. |
+| TikTok | Caption ≤ 2.200 **UTF-16 runes**. | Un video MP4/MOV. | 9:16 consigliato; durata secondo i limiti TikTok. | Solo Direct Post video al lancio; creator info obbligatorio; senza audit non pubblicabile pubblicamente. |
+| Google Business Profile | Summary ≤ 1.500. | Una immagine per post; CTA opzionale. | Secondo i limiti GBP. | Tipi `STANDARD`/`EVENT`/`OFFER`; video escluso finché non documentato ufficialmente per Local Posts. |
 | Mastodon | 1 – limite dell'istanza (default 500). | Fino a 4 immagini oppure 1 video. | Secondo i limiti dell'istanza. | Limite testo letto dall'istanza; content warning opzionale. |
 | YouTube Shorts | Titolo ≤ 100; descrizione ≤ 5.000. | Un video MP4 verticale. | 9:16; ≤ 3 minuti. | Short pubblico solo dopo verifica/audit del progetto. |
 | Threads | 1–500 caratteri. | Una immagine o un video; carousel dove supportato. | Secondo i limiti Threads. | Thread come catena; media opzionale. |
-| Bluesky | 1–300 grapheme. | Fino a 4 immagini o 1 video; embed esterno opzionale. | Immagini ≤ 1 MB ciascuna (blob). | Facet per link/menzioni; thread via reply root/parent. |
+| Bluesky | Testo valido solo se rispetta **entrambi**: ≤ 300 grapheme e ≤ 3.000 `maxLength` del lexicon. | Fino a 4 immagini o 1 video; embed esterno opzionale. | Immagini ≤ 1 MB ciascuna (blob). | Facet per link/menzioni; thread via reply root/parent. |
 
 Regole di selezione multi-canale (intersezione dei vincoli):
 
@@ -266,7 +266,7 @@ Le quote dei provider non vengono codificate come costanti di prodotto. L'adapte
 - riduce polling e analytics oltre l'80% della quota osservata e sospende operazioni non essenziali oltre il 90%;
 - non promette nel piano commerciale (F10) una quota superiore a quella verificata sul provider (rilevante per X e YouTube, a quota/costo vincolati).
 
-Errori `429`, `5xx` sicuramente precedenti alla creazione, timeout di lettura e indisponibilità temporanee usano al massimo cinque tentativi con full jitter e finestre base di 30 s, 2 min, 5 min, 15 min e 30 min, mai prima di `Retry-After`. Errori `400`, `401`, `403` e media rifiutati non sono ritentati automaticamente; auth revocata richiede riconnessione. Esauriti i tentativi la destinazione passa a `Fallito` con causa utile e notifica (F9, US4).
+Errori `429`, `5xx` sicuramente precedenti alla creazione e indisponibilità temporanee usano al massimo cinque tentativi con full jitter e finestre base di 30 s, 2 min, 5 min, 15 min e 30 min, mai prima di `Retry-After`. I timeout di lettura sono ritentabili **solo** se l'operazione è sicuramente pre-side-effect, nativamente idempotente oppure riconciliabile in modo univoco con identificativi/status remoti già persistiti; se l'esito resta ambiguo dopo un comando di pubblicazione, il flusso va in `Esito incerto` e **fail-closed** senza retry automatico del side effect. Errori `400`, `401`, `403` e media rifiutati non sono ritentati automaticamente; auth revocata richiede riconnessione. Esauriti i tentativi la destinazione passa a `Fallito` con causa utile e notifica (F9, US4).
 
 Analytics F18 usa code a priorità inferiore rispetto alle pubblicazioni e non può consumare l'ultima capacità disponibile di una risorsa.
 
@@ -321,7 +321,7 @@ Il go-live di un canale è bloccato finché review, audit, accesso o tier dichia
 
 ## Fonti ufficiali
 
-Fonti consultate il 2026-07-30; modalità, limiti, scope, quote e metriche sono **version-sensitive** e vanno ricontrollati all'implementazione di ogni adapter (vedi «Versionamento»).
+Fonti consultate e riverificate il **2026-07-31**; modalità, limiti, scope, quote e metriche sono **version-sensitive** e vanno ricontrollati all'implementazione di ogni adapter (vedi «Versionamento»).
 
 Riferimento di copertura Buffer (non dipendenza runtime):
 
@@ -333,11 +333,11 @@ Fonti ufficiali dei provider:
 - Meta, [Pages API — Posts](https://developers.facebook.com/docs/pages-api/posts/), [Page access tokens](https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-page), [Graph API rate limiting](https://developers.facebook.com/docs/graph-api/overview/rate-limiting/) e [App Review](https://developers.facebook.com/docs/app-review/).
 - Meta, [Instagram Content Publishing](https://developers.facebook.com/docs/instagram-platform/content-publishing/) e [Instagram Insights](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/insights/).
 - Meta, [Threads API — Posts](https://developers.facebook.com/docs/threads/posts) e [Threads publishing limits](https://developers.facebook.com/docs/threads/troubleshooting#rate-limiting).
-- X, [Manage Tweets — POST /2/tweets](https://docs.x.com/x-api/posts/creation-of-a-post) e [API pricing e tier](https://docs.x.com/x-api/getting-started/pricing).
+- X, [Manage Tweets — POST /2/tweets](https://docs.x.com/x-api/posts/creation-of-a-post), [Counting Characters](https://docs.x.com/fundamentals/counting-characters) e [API pricing e tier](https://docs.x.com/x-api/getting-started/pricing).
 - LinkedIn, [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Community Management App Review](https://learn.microsoft.com/en-us/linkedin/marketing/community-management-app-review) e [API rate limiting](https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/rate-limits).
 - Pinterest, [Create Pin — API v5](https://developers.pinterest.com/docs/api/v5/pins-create/) e [App review e access](https://developers.pinterest.com/docs/getting-started/set-up-app/).
-- TikTok, [Content Posting API — Direct Post](https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide/) e [Content Sharing Guidelines / audit](https://developers.tiktok.com/doc/content-sharing-guidelines).
-- Google, [Business Profile API — Local Posts](https://developers.google.com/my-business/reference/rest/v4/accounts.locations.localPosts) e [richiesta di accesso all'API](https://developers.google.com/my-business/content/prereqs).
+- TikTok, [Direct Post](https://developers.tiktok.com/doc/content-posting-api-reference-direct-post), [Query Creator Info](https://developers.tiktok.com/doc/content-posting-api-reference-query-creator-info), [Photo](https://developers.tiktok.com/doc/content-posting-api-reference-photo-post/) e [Content Sharing Guidelines / audit](https://developers.tiktok.com/doc/content-sharing-guidelines).
+- Google, [Business Profile API — Local Posts](https://developers.google.com/my-business/reference/rest/v4/accounts.locations.localPosts), [Create Posts on Google](https://developers.google.com/my-business/content/posts-data) e [richiesta di accesso all'API](https://developers.google.com/my-business/content/prereqs).
 - Mastodon, [Statuses API](https://docs.joinmastodon.org/methods/statuses/) e [Rate limits](https://docs.joinmastodon.org/api/rate-limits/).
-- YouTube, [Data API — videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) e [Quota and Compliance Audits](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits).
-- Bluesky / AT Protocol, [Creating a post](https://docs.bsky.app/docs/tutorials/creating-a-post) e [Rate limits](https://docs.bsky.app/docs/advanced-guides/rate-limits).
+- YouTube, [Data API — videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert), [YouTube Data API overview / quota](https://developers.google.com/youtube/v3/getting-started), [YouTube Analytics reports.query](https://developers.google.com/youtube/analytics/reference/reports/query) e [Quota and Compliance Audits](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits).
+- Bluesky / AT Protocol, [Creating a post](https://docs.bsky.app/docs/tutorials/creating-a-post), [app.bsky.feed.post lexicon](https://raw.githubusercontent.com/bluesky-social/atproto/main/lexicons/app/bsky/feed/post.json) e [Rate limits](https://docs.bsky.app/docs/advanced-guides/rate-limits).
