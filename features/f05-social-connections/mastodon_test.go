@@ -389,6 +389,45 @@ func TestMastodonDiscoversIndependentPKCECompatibilityVersions(t *testing.T) {
 	}
 }
 
+func TestMastodonMetadataNonJSONFailsClosedInsteadOfFallingBack(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		switch request.URL.Path {
+		case "/api/v2/instance":
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"domain":  "example.com",
+				"version": "4.2.13",
+			})
+		case "/.well-known/oauth-authorization-server":
+			response.Header().Set("Content-Type", "text/plain")
+			_, _ = response.Write([]byte("not-json"))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	safeHTTP, origin := mastodonFixtureHTTP(
+		t,
+		server,
+		&mastodonFixtureResolver{addresses: [][]netip.Addr{{
+			netip.MustParseAddr("9.9.9.9"),
+		}}},
+	)
+	_, err := (&MastodonDiscovery{http: safeHTTP}).Discover(
+		context.Background(),
+		origin,
+	)
+	var failure *ProviderFailure
+	if !errors.As(err, &failure) ||
+		failure.Code != "mastodon_oauth_metadata_malformed" {
+		t.Fatalf("metadata error = %#v", err)
+	}
+}
+
 func TestMastodonAndBlueskyStatusClassificationFixtures(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

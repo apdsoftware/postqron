@@ -132,6 +132,122 @@ func TestBlueskyRuntimeAttemptStateExpiresAcrossAdapterRestart(t *testing.T) {
 	}
 }
 
+func TestBlueskyRuntimeAuthenticatedRequestRetriesHeaderOnlyNonceOnce(
+	t *testing.T,
+) {
+	t.Parallel()
+	var logical string
+	var proofs []string
+	requests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.URL.Path != "/xrpc/app.bsky.feed.getFeed" {
+			http.NotFound(response, request)
+			return
+		}
+		requests++
+		proofs = append(proofs, request.Header.Get("DPoP"))
+		if requests == 1 {
+			response.Header().Set("DPoP-Nonce", "rs-nonce-2")
+			response.Header().Set(
+				"WWW-Authenticate",
+				`DPoP error="use_dpop_nonce"`,
+			)
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("DPoP-Nonce", "rs-nonce-3")
+		_ = json.NewEncoder(response).Encode(map[string]any{"ok": true})
+	}))
+	t.Cleanup(server.Close)
+	safeHTTP, origin := mastodonFixtureHTTP(
+		t,
+		server,
+		&mastodonFixtureResolver{addresses: [][]netip.Addr{{
+			netip.MustParseAddr("8.8.8.8"),
+		}}},
+	)
+	logical = origin
+	cipher, err := NewAESGCMCipher(
+		"runtime-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 31, 11, 0, 0, 0, time.UTC)
+	client, err := NewBlueskyOAuthClient(BlueskyOAuthConfig{
+		ClientID:           "https://client.example.test/oauth.json",
+		RedirectURL:        "https://app.example.test/oauth/callback",
+		Cipher:             cipher,
+		HTTP:               safeHTTP,
+		PLCDirectoryOrigin: logical,
+		Now:                func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := newBlueskyDPoPKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &blueskyRuntimeDynamicAdapter{client: client}
+	sessionState, err := marshalBlueskyRuntimeSession(BlueskySession{
+		SubjectDID: "did:plc:alice",
+		PDSOrigin:  logical,
+		Issuer:     logical,
+		RSNonce:    "rs-nonce-1",
+		DPoPKey:    key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := adapter.DoAuthenticated(
+		context.Background(),
+		DynamicSession{
+			Binding: OAuthBinding{
+				Issuer:         logical,
+				ResourceServer: logical,
+				Subject:        "did:plc:alice",
+			},
+			Credential:    Credential{AccessToken: "access-token"},
+			ProviderState: sessionState,
+		},
+		AuthenticatedRequest{
+			Method: http.MethodGet,
+			Path:   "/xrpc/app.bsky.feed.getFeed",
+			Header: http.Header{},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("runtime request count = %d", requests)
+	}
+	if len(proofs) != 2 || proofs[0] == proofs[1] {
+		t.Fatalf("runtime proofs = %#v", proofs)
+	}
+	if !blueskyProofHasClaim(proofs[0], "nonce", "rs-nonce-1") ||
+		!blueskyProofHasClaim(proofs[1], "nonce", "rs-nonce-2") {
+		t.Fatalf("runtime proofs did not rotate nonce = %#v", proofs)
+	}
+	updated, err := openBlueskyRuntimeSession(
+		result.Session.ProviderState,
+		result.Session.Credential,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.RSNonce != "rs-nonce-3" ||
+		result.Response.StatusCode != http.StatusOK {
+		t.Fatalf("runtime result = %#v, session = %#v", result.Response, updated)
+	}
+}
+
 func newBlueskyRuntimeFixture(
 	t *testing.T,
 	cipher CredentialCipher,

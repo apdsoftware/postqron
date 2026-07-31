@@ -714,22 +714,14 @@ func blueskyRuntimeRequest(
 		if readErr != nil {
 			return nil, nil, "", blueskyFailure("bluesky_request", readErr)
 		}
-		if response.StatusCode == http.StatusBadRequest &&
-			strings.EqualFold(
-				strings.TrimSpace(response.Header.Get("DPoP-Nonce")),
-				"",
-			) &&
-			attempt == 0 {
+		rotatedNonce := strings.TrimSpace(response.Header.Get("DPoP-Nonce"))
+		if rotatedNonce == "" {
 			return nil, nil, "", blueskyFailure(
 				"bluesky_request",
 				fmt.Errorf("missing DPoP nonce"),
 			)
 		}
-		rotatedNonce := strings.TrimSpace(response.Header.Get("DPoP-Nonce"))
-		if response.StatusCode == http.StatusUnauthorized &&
-			rotatedNonce != "" &&
-			strings.Contains(string(body), "use_dpop_nonce") &&
-			attempt == 0 {
+		if attempt == 0 && blueskyDPoPError(response, body) {
 			nonce = rotatedNonce
 			continue
 		}
@@ -737,12 +729,6 @@ func blueskyRuntimeRequest(
 			return nil, nil, "", blueskyStatusFailure(
 				"bluesky_request",
 				response.StatusCode,
-			)
-		}
-		if rotatedNonce == "" {
-			return nil, nil, "", blueskyFailure(
-				"bluesky_request",
-				fmt.Errorf("missing DPoP nonce"),
 			)
 		}
 		return response, body, rotatedNonce, nil

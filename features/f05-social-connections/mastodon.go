@@ -152,7 +152,10 @@ func (discovery *MastodonDiscovery) oauthMetadata(
 		)
 	}
 	if !mastodonJSON(response.Header.Get("Content-Type")) {
-		return mastodonOAuthMetadata{}, false, nil
+		return mastodonOAuthMetadata{}, true, mastodonFailure(
+			"mastodon_oauth_metadata_malformed",
+			errors.New("expected application/json"),
+		)
 	}
 	var document struct {
 		Issuer                  string   `json:"issuer"`
