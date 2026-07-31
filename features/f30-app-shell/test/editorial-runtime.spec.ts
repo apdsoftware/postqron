@@ -4,6 +4,7 @@ import {
   offBaseURL,
 } from '../../../tests/e2e/launch-readiness/helpers.ts'
 import { socialBootstrapFixture } from './fixtures.ts'
+import type { Page } from '@playwright/test'
 
 const require = createRequire(
   new URL('../../../tests/e2e/launch-readiness/package.json', import.meta.url),
@@ -103,7 +104,7 @@ function socialConnection(status: 'connected' | 'reconnect_required' = 'connecte
   }
 }
 
-async function routeSocialPage(page: any, role: 'owner' | 'member') {
+async function routeSocialPage(page: Page, role: 'owner' | 'member') {
   let connections = role === 'owner' ? [] as Array<ReturnType<typeof socialConnection>> : [socialConnection('reconnect_required')]
   let beginBody: unknown
 
@@ -184,7 +185,7 @@ async function routeSocialPage(page: any, role: 'owner' | 'member') {
   }
 }
 
-async function routeComposerPage(page: any) {
+async function routeComposerPage(page: Page) {
   let draftRevision = 0
   let scheduleRequests = 0
   let draftContent = {
@@ -386,7 +387,7 @@ async function routeComposerPage(page: any) {
   }
 }
 
-async function routeCalendarPage(page: any) {
+async function routeCalendarPage(page: Page) {
   const calendarRequests: string[] = []
 
   await page.route('**/*', async route => {

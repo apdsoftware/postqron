@@ -70,6 +70,21 @@ const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const canManageChannels = computed(() =>
   workspace.value?.role === 'owner' && workspace.value?.status === 'active')
 
+type CallbackPopupHandle = {
+  closed: boolean
+  close(): void
+  location: {
+    assign(url: string): void
+    origin: string
+    pathname: string
+  }
+  document: {
+    body: {
+      textContent: string | null
+    } | null
+  }
+}
+
 useHead(computed(() => ({
   title: t('documentTitle.socialChannels'),
 })))
@@ -248,11 +263,12 @@ function popupFeatures(): string {
   ].join(',')
 }
 
-function callbackPopup(): Window | null {
+function callbackPopup(): CallbackPopupHandle | null {
   if (!import.meta.client) {
     return null
   }
-  return globalThis.open('', 'postqron-social-authorization', popupFeatures())
+  const popup = globalThis.open('', 'postqron-social-authorization', popupFeatures())
+  return popup as CallbackPopupHandle | null
 }
 
 function discoveryInput(
@@ -270,7 +286,14 @@ function discoveryInput(
   return { kind, value }
 }
 
-async function waitForSelection(windowHandle: Window): Promise<SocialSelection> {
+function isCrossOriginSecurityError(error: unknown): error is { name: string } {
+  return typeof error === 'object'
+    && error !== null
+    && 'name' in error
+    && error.name === 'SecurityError'
+}
+
+async function waitForSelection(windowHandle: CallbackPopupHandle): Promise<SocialSelection> {
   return await new Promise((resolve, reject) => {
     const deadline = Date.now() + 120_000
     const timer = globalThis.setInterval(() => {
@@ -308,7 +331,7 @@ async function waitForSelection(windowHandle: Window): Promise<SocialSelection> 
         windowHandle.close()
         resolve(parsed)
       } catch (error) {
-        if (error instanceof DOMException && error.name === 'SecurityError') {
+        if (isCrossOriginSecurityError(error)) {
           return
         }
         globalThis.clearInterval(timer)
