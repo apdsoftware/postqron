@@ -37,22 +37,25 @@ type ScheduleInput struct {
 }
 
 type ScheduledPost struct {
-	ID                   string     `json:"id"`
-	WorkspaceID          string     `json:"workspace_id"`
-	DraftID              string     `json:"draft_id"`
-	ChannelIDs           []string   `json:"channel_ids"`
-	Status               PostStatus `json:"status"`
-	ScheduledForUTC      time.Time  `json:"scheduled_for_utc"`
-	ScheduledLocal       string     `json:"scheduled_local"`
-	TimeZone             string     `json:"time_zone"`
-	UTCOffsetMinutes     int        `json:"utc_offset_minutes"`
-	Revision             int64      `json:"revision"`
-	ActiveCommandID      string     `json:"active_command_id,omitempty"`
-	DuplicatedFromPostID string     `json:"duplicated_from_post_id,omitempty"`
-	CreatedBy            string     `json:"created_by"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-	CancelledAt          *time.Time `json:"cancelled_at,omitempty"`
+	ID                   string             `json:"id"`
+	WorkspaceID          string             `json:"workspace_id"`
+	DraftID              string             `json:"draft_id"`
+	DraftRevision        int64              `json:"draft_revision"`
+	ChannelIDs           []string           `json:"channel_ids"`
+	Status               PostStatus         `json:"status"`
+	ScheduledForUTC      time.Time          `json:"scheduled_for_utc"`
+	ScheduledLocal       string             `json:"scheduled_local"`
+	TimeZone             string             `json:"time_zone"`
+	UTCOffsetMinutes     int                `json:"utc_offset_minutes"`
+	Revision             int64              `json:"revision"`
+	ActiveCommandID      string             `json:"active_command_id,omitempty"`
+	DuplicatedFromPostID string             `json:"duplicated_from_post_id,omitempty"`
+	CreatedBy            string             `json:"created_by"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	CancelledAt          *time.Time         `json:"cancelled_at,omitempty"`
+	IdempotencyReplayed  bool               `json:"-"`
+	ResponseSnapshot     *ScheduledPostView `json:"-"`
 }
 
 // ScheduledPostView is the browser-safe representation. Publication command
@@ -82,6 +85,7 @@ type PublicationCommand struct {
 	WorkspaceID     string       `json:"workspace_id"`
 	PostID          string       `json:"post_id"`
 	DraftID         string       `json:"draft_id"`
+	DraftRevision   int64        `json:"draft_revision"`
 	ChannelIDs      []string     `json:"channel_ids"`
 	Generation      int64        `json:"generation"`
 	ExecuteAtUTC    time.Time    `json:"execute_at_utc"`
@@ -111,11 +115,12 @@ type CalendarFilter struct {
 }
 
 type SchedulePostCommand struct {
-	WorkspaceID string
-	ActorID     string
-	DraftID     string
-	ChannelIDs  []string
-	Schedule    ScheduleInput
+	WorkspaceID    string
+	ActorID        string
+	IdempotencyKey string
+	DraftID        string
+	ChannelIDs     []string
+	Schedule       ScheduleInput
 }
 
 type EditPostCommand struct {
@@ -138,6 +143,7 @@ type ReschedulePostCommand struct {
 type DuplicatePostCommand struct {
 	WorkspaceID      string
 	ActorID          string
+	IdempotencyKey   string
 	PostID           string
 	ExpectedRevision int64
 	Schedule         *ScheduleInput

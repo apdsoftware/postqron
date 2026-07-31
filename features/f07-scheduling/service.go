@@ -16,11 +16,53 @@ type Authorizer interface {
 // ContentGateway is the explicit F6 boundary. Validation enforces composer
 // channel/media rules; duplication creates an independent draft snapshot.
 type ContentGateway interface {
-	ValidateForScheduling(context.Context, string, string, string, []string) error
-	DuplicateDraft(context.Context, string, string, string) (string, error)
+	ValidateForScheduling(
+		context.Context,
+		string,
+		string,
+		string,
+		[]string,
+	) (ValidatedDraft, error)
+	DuplicateDraft(
+		context.Context,
+		string,
+		string,
+		string,
+		int64,
+		string,
+	) (DuplicatedDraft, error)
 }
 
 type Repository interface {
+	ReserveOperation(context.Context, IdempotencyOperation, time.Time) (IdempotencyOperation, error)
+	ReleaseOperation(context.Context, IdempotencyOperation, time.Time) error
+	PrepareDuplicateOperation(
+		context.Context,
+		IdempotencyOperation,
+		ScheduledPost,
+		resolvedSchedule,
+		time.Time,
+	) (IdempotencyOperation, error)
+	RecordDuplicateClone(
+		context.Context,
+		IdempotencyOperation,
+		DuplicatedDraft,
+		time.Time,
+	) (IdempotencyOperation, error)
+	CompleteScheduleOperation(
+		context.Context,
+		IdempotencyOperation,
+		ScheduledPost,
+		PublicationCommand,
+		time.Time,
+	) (ScheduledPost, error)
+	CompleteDuplicateOperation(
+		context.Context,
+		IdempotencyOperation,
+		ScheduledPost,
+		PublicationCommand,
+		time.Time,
+	) (ScheduledPost, error)
 	Create(context.Context, ScheduledPost, PublicationCommand) (ScheduledPost, error)
 	Get(context.Context, string, string) (ScheduledPost, error)
 	List(context.Context, string, CalendarFilter) ([]ScheduledPost, error)
@@ -100,6 +142,11 @@ func (service *Service) SchedulePost(
 	if err := service.authorize(ctx, command.WorkspaceID, command.ActorID); err != nil {
 		return ScheduledPost{}, err
 	}
+	idempotencyKey, err := normalizeIdempotencyKey(command.IdempotencyKey)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	idempotencyKey = idempotencyKeyDigest(idempotencyKey)
 	draftID, channels, err := normalizeContentSelection(command.DraftID, command.ChannelIDs)
 	if err != nil {
 		return ScheduledPost{}, err
@@ -112,37 +159,66 @@ func (service *Service) SchedulePost(
 	if err := requireFuture(schedule, now); err != nil {
 		return ScheduledPost{}, err
 	}
-	if err := service.content.ValidateForScheduling(
+	fingerprint, err := schedulePayloadFingerprint(draftID, channels, schedule)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	operation, err := service.reserveOperation(
+		ctx,
+		OperationSchedule,
+		command.WorkspaceID,
+		idempotencyKey,
+		fingerprint,
+		now,
+	)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	if operation.State == OperationCompleted {
+		return service.replayOperation(ctx, operation)
+	}
+	completed := false
+	defer func() {
+		if !completed {
+			service.releaseOperation(operation)
+		}
+	}()
+	validated, err := service.content.ValidateForScheduling(
 		ctx,
 		command.WorkspaceID,
 		command.ActorID,
 		draftID,
 		channels,
-	); err != nil {
+	)
+	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("validate draft for scheduling: %w", err)
 	}
 
-	postID, err := service.randomID("post")
-	if err != nil {
-		return ScheduledPost{}, err
-	}
-	commandID, err := service.randomID("pubcmd")
-	if err != nil {
-		return ScheduledPost{}, err
-	}
 	post := newScheduledPost(
-		postID,
-		commandID,
+		operation.PostID,
+		operation.PublicationCommandID,
 		command.WorkspaceID,
 		command.ActorID,
-		draftID,
-		channels,
+		validated.DraftID,
+		validated.DraftRevision,
+		validated.ChannelIDs,
 		schedule,
 		1,
 		now,
 	)
-	publicationCommand := commandFor(post, commandID, now)
-	return service.repository.Create(ctx, post, publicationCommand)
+	publicationCommand := commandFor(post, operation.PublicationCommandID, now)
+	created, err := service.repository.CompleteScheduleOperation(
+		ctx,
+		operation,
+		post,
+		publicationCommand,
+		now,
+	)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	completed = true
+	return created, nil
 }
 
 func (service *Service) GetPost(
@@ -200,13 +276,14 @@ func (service *Service) EditPost(
 	if err != nil {
 		return ScheduledPost{}, err
 	}
-	if err := service.content.ValidateForScheduling(
+	validated, err := service.content.ValidateForScheduling(
 		ctx,
 		command.WorkspaceID,
 		command.ActorID,
 		draftID,
 		channels,
-	); err != nil {
+	)
+	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("validate edited draft for scheduling: %w", err)
 	}
 	current, err := service.repository.Get(ctx, command.WorkspaceID, command.PostID)
@@ -226,8 +303,9 @@ func (service *Service) EditPost(
 		return ScheduledPost{}, err
 	}
 	replacement := clonePost(current)
-	replacement.DraftID = draftID
-	replacement.ChannelIDs = channels
+	replacement.DraftID = validated.DraftID
+	replacement.DraftRevision = validated.DraftRevision
+	replacement.ChannelIDs = validated.ChannelIDs
 	replacement.Revision = current.Revision + 1
 	replacement.ActiveCommandID = commandID
 	replacement.UpdatedAt = now
@@ -292,90 +370,167 @@ func (service *Service) DuplicatePost(
 	if err := service.authorize(ctx, command.WorkspaceID, command.ActorID); err != nil {
 		return ScheduledPost{}, err
 	}
-	if err := validateMutation(command.PostID, command.ExpectedRevision); err != nil {
-		return ScheduledPost{}, err
-	}
-	source, err := service.repository.Get(ctx, command.WorkspaceID, command.PostID)
+	idempotencyKey, err := normalizeIdempotencyKey(command.IdempotencyKey)
 	if err != nil {
 		return ScheduledPost{}, err
 	}
-	if source.Revision != command.ExpectedRevision {
-		return ScheduledPost{}, ErrConflict
+	idempotencyKey = idempotencyKeyDigest(idempotencyKey)
+	if err := validateMutation(command.PostID, command.ExpectedRevision); err != nil {
+		return ScheduledPost{}, err
 	}
-	if source.Status != StatusScheduled {
-		return ScheduledPost{}, ErrImmutable
-	}
-
-	schedule := resolvedSchedule{
-		utc:           source.ScheduledForUTC,
-		local:         source.ScheduledLocal,
-		timeZone:      source.TimeZone,
-		offsetMinutes: source.UTCOffsetMinutes,
-	}
+	var requestedSchedule *resolvedSchedule
 	if command.Schedule != nil {
-		schedule, err = resolveSchedule(*command.Schedule)
+		resolved, resolveErr := resolveSchedule(*command.Schedule)
+		if resolveErr != nil {
+			return ScheduledPost{}, resolveErr
+		}
+		requestedSchedule = &resolved
+	}
+	now := service.now().UTC()
+	if requestedSchedule != nil {
+		if err := requireFuture(*requestedSchedule, now); err != nil {
+			return ScheduledPost{}, err
+		}
+	}
+	fingerprint, err := duplicatePayloadFingerprint(
+		command.PostID,
+		command.ExpectedRevision,
+		requestedSchedule,
+	)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	operation, err := service.reserveOperation(
+		ctx,
+		OperationDuplicate,
+		command.WorkspaceID,
+		idempotencyKey,
+		fingerprint,
+		now,
+	)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	if operation.State == OperationCompleted {
+		return service.replayOperation(ctx, operation)
+	}
+	completed := false
+	defer func() {
+		if !completed {
+			service.releaseOperation(operation)
+		}
+	}()
+	if operation.State == OperationReserved {
+		source, sourceErr := service.repository.Get(
+			ctx,
+			command.WorkspaceID,
+			command.PostID,
+		)
+		if sourceErr != nil {
+			return ScheduledPost{}, sourceErr
+		}
+		if source.Revision != command.ExpectedRevision {
+			return ScheduledPost{}, ErrConflict
+		}
+		if source.Status != StatusScheduled {
+			return ScheduledPost{}, ErrImmutable
+		}
+		schedule := resolvedSchedule{
+			utc:           source.ScheduledForUTC,
+			local:         source.ScheduledLocal,
+			timeZone:      source.TimeZone,
+			offsetMinutes: source.UTCOffsetMinutes,
+		}
+		if requestedSchedule != nil {
+			schedule = *requestedSchedule
+		}
+		if err := requireFuture(schedule, now); err != nil {
+			return ScheduledPost{}, err
+		}
+		operation, err = service.repository.PrepareDuplicateOperation(
+			ctx,
+			operation,
+			source,
+			schedule,
+			now,
+		)
 		if err != nil {
 			return ScheduledPost{}, err
 		}
 	}
-	now := service.now().UTC()
-	if err := requireFuture(schedule, now); err != nil {
-		return ScheduledPost{}, err
+	if operation.State == OperationPrepared {
+		duplicatedDraft, duplicateErr := service.content.DuplicateDraft(
+			ctx,
+			command.WorkspaceID,
+			command.ActorID,
+			operation.SourceDraftID,
+			operation.SourceDraftRevision,
+			composerDuplicateIdempotencyKey(operation),
+		)
+		if duplicateErr != nil {
+			return ScheduledPost{}, fmt.Errorf("duplicate scheduled draft: %w", duplicateErr)
+		}
+		duplicatedDraft.DraftID = strings.TrimSpace(duplicatedDraft.DraftID)
+		if duplicatedDraft.DraftID == "" || duplicatedDraft.DraftRevision < 1 {
+			return ScheduledPost{}, fmt.Errorf(
+				"%w: content gateway returned an invalid duplicated draft reference",
+				ErrInvalidArgument,
+			)
+		}
+		operation, err = service.repository.RecordDuplicateClone(
+			ctx,
+			operation,
+			duplicatedDraft,
+			now,
+		)
+		if err != nil {
+			return ScheduledPost{}, err
+		}
 	}
-	duplicatedDraftID, err := service.content.DuplicateDraft(
+	validated, err := service.content.ValidateForScheduling(
 		ctx,
 		command.WorkspaceID,
 		command.ActorID,
-		source.DraftID,
+		operation.CloneDraftID,
+		operation.ChannelIDs,
 	)
 	if err != nil {
-		return ScheduledPost{}, fmt.Errorf("duplicate scheduled draft: %w", err)
-	}
-	duplicatedDraftID = strings.TrimSpace(duplicatedDraftID)
-	if duplicatedDraftID == "" {
-		return ScheduledPost{}, fmt.Errorf(
-			"%w: content gateway returned an empty duplicated draft id",
-			ErrInvalidArgument,
-		)
-	}
-	if err := service.content.ValidateForScheduling(
-		ctx,
-		command.WorkspaceID,
-		command.ActorID,
-		duplicatedDraftID,
-		source.ChannelIDs,
-	); err != nil {
 		return ScheduledPost{}, fmt.Errorf("validate duplicated draft: %w", err)
 	}
+	if validated.DraftID != operation.CloneDraftID ||
+		validated.DraftRevision != operation.CloneDraftRevision ||
+		!equalStrings(validated.ChannelIDs, operation.ChannelIDs) {
+		return ScheduledPost{}, fmt.Errorf(
+			"duplicated draft validation changed the recovery snapshot: %w",
+			ErrDependencyUnavailable,
+		)
+	}
 
-	postID, err := service.randomID("post")
-	if err != nil {
-		return ScheduledPost{}, err
-	}
-	commandID, err := service.randomID("pubcmd")
-	if err != nil {
-		return ScheduledPost{}, err
-	}
 	duplicate := newScheduledPost(
-		postID,
-		commandID,
+		operation.PostID,
+		operation.PublicationCommandID,
 		command.WorkspaceID,
 		command.ActorID,
-		duplicatedDraftID,
-		source.ChannelIDs,
-		schedule,
+		validated.DraftID,
+		validated.DraftRevision,
+		validated.ChannelIDs,
+		operation.Schedule,
 		1,
 		now,
 	)
-	duplicate.DuplicatedFromPostID = source.ID
-	return service.repository.Duplicate(
+	duplicate.DuplicatedFromPostID = operation.SourcePostID
+	created, err := service.repository.CompleteDuplicateOperation(
 		ctx,
-		command.WorkspaceID,
-		command.PostID,
-		command.ExpectedRevision,
+		operation,
 		duplicate,
-		commandFor(duplicate, commandID, now),
+		commandFor(duplicate, operation.PublicationCommandID, now),
+		now,
 	)
+	if err != nil {
+		return ScheduledPost{}, err
+	}
+	completed = true
+	return created, nil
 }
 
 func (service *Service) CancelPost(
@@ -428,6 +583,64 @@ func (service *Service) randomID(prefix string) (string, error) {
 		return "", fmt.Errorf("generate %s id: %w", prefix, err)
 	}
 	return prefix + "_" + base64.RawURLEncoding.EncodeToString(randomBytes), nil
+}
+
+func (service *Service) reserveOperation(
+	ctx context.Context,
+	kind OperationKind,
+	workspaceID, idempotencyKey, fingerprint string,
+	now time.Time,
+) (IdempotencyOperation, error) {
+	postID, err := service.randomID("post")
+	if err != nil {
+		return IdempotencyOperation{}, err
+	}
+	commandID, err := service.randomID("pubcmd")
+	if err != nil {
+		return IdempotencyOperation{}, err
+	}
+	candidate := IdempotencyOperation{
+		WorkspaceID:            workspaceID,
+		Kind:                   kind,
+		IdempotencyKey:         idempotencyKey,
+		PayloadFingerprint:     fingerprint,
+		State:                  OperationReserved,
+		PostID:                 postID,
+		PublicationCommandID:   commandID,
+		ResponseSnapshotStatus: ResponseSnapshotPending,
+	}
+	if kind == OperationDuplicate {
+		candidate.DownstreamIdempotencyKey = deriveComposerDuplicateIdempotencyKey(candidate)
+	}
+	return service.repository.ReserveOperation(ctx, candidate, now)
+}
+
+func (service *Service) replayOperation(
+	_ context.Context,
+	operation IdempotencyOperation,
+) (ScheduledPost, error) {
+	if operation.ResponseSnapshotStatus == ResponseSnapshotLegacyUnavailable {
+		return ScheduledPost{}, ErrIdempotencyReplayUnavailable
+	}
+	if operation.ResponseSnapshot == nil {
+		return ScheduledPost{}, fmt.Errorf(
+			"recover completed idempotent operation: %w",
+			ErrDependencyUnavailable,
+		)
+	}
+	view := cloneScheduledPostView(*operation.ResponseSnapshot)
+	return ScheduledPost{
+		ID:                  view.ID,
+		WorkspaceID:         view.WorkspaceID,
+		IdempotencyReplayed: true,
+		ResponseSnapshot:    &view,
+	}, nil
+}
+
+func (service *Service) releaseOperation(operation IdempotencyOperation) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = service.repository.ReleaseOperation(ctx, operation, service.now().UTC())
 }
 
 func normalizeContentSelection(draftID string, channelIDs []string) (string, []string, error) {
@@ -515,6 +728,7 @@ func normalizeCalendarFilter(filter CalendarFilter) (CalendarFilter, error) {
 
 func newScheduledPost(
 	postID, commandID, workspaceID, actorID, draftID string,
+	draftRevision int64,
 	channelIDs []string,
 	schedule resolvedSchedule,
 	revision int64,
@@ -524,6 +738,7 @@ func newScheduledPost(
 		ID:              postID,
 		WorkspaceID:     workspaceID,
 		DraftID:         draftID,
+		DraftRevision:   draftRevision,
 		ChannelIDs:      append([]string(nil), channelIDs...),
 		Status:          StatusScheduled,
 		Revision:        revision,
@@ -549,6 +764,7 @@ func commandFor(post ScheduledPost, commandID string, now time.Time) Publication
 		WorkspaceID:     post.WorkspaceID,
 		PostID:          post.ID,
 		DraftID:         post.DraftID,
+		DraftRevision:   post.DraftRevision,
 		ChannelIDs:      append([]string(nil), post.ChannelIDs...),
 		Generation:      post.Revision,
 		ExecuteAtUTC:    post.ScheduledForUTC,
@@ -573,6 +789,9 @@ func calendarEntry(post ScheduledPost) CalendarEntry {
 }
 
 func scheduledPostView(post ScheduledPost) ScheduledPostView {
+	if post.ResponseSnapshot != nil {
+		return cloneScheduledPostView(*post.ResponseSnapshot)
+	}
 	view := ScheduledPostView{
 		ID:                   post.ID,
 		WorkspaceID:          post.WorkspaceID,
@@ -595,11 +814,24 @@ func scheduledPostView(post ScheduledPost) ScheduledPostView {
 	return view
 }
 
+func cloneScheduledPostView(view ScheduledPostView) ScheduledPostView {
+	view.ChannelIDs = append([]string(nil), view.ChannelIDs...)
+	if view.CancelledAt != nil {
+		cancelledAt := *view.CancelledAt
+		view.CancelledAt = &cancelledAt
+	}
+	return view
+}
+
 func clonePost(post ScheduledPost) ScheduledPost {
 	post.ChannelIDs = append([]string(nil), post.ChannelIDs...)
 	if post.CancelledAt != nil {
 		cancelledAt := *post.CancelledAt
 		post.CancelledAt = &cancelledAt
+	}
+	if post.ResponseSnapshot != nil {
+		view := cloneScheduledPostView(*post.ResponseSnapshot)
+		post.ResponseSnapshot = &view
 	}
 	return post
 }

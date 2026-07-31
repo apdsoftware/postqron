@@ -6,6 +6,8 @@ export const schedulingPostStatuses = [
   "cancelled",
 ] as const
 
+export const schedulingIdempotencyHeaderName = "Idempotency-Key" as const
+
 export type SchedulingPostStatus = (typeof schedulingPostStatuses)[number];
 
 export interface ScheduleInput {

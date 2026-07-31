@@ -107,11 +107,12 @@ func (handler *HTTPHandler) schedule(writer http.ResponseWriter, request *http.R
 		return
 	}
 	post, err := handler.service.SchedulePost(request.Context(), SchedulePostCommand{
-		WorkspaceID: request.PathValue("workspace_id"),
-		ActorID:     accountID,
-		DraftID:     payload.DraftID,
-		ChannelIDs:  payload.ChannelIDs,
-		Schedule:    payload.Scheduled,
+		WorkspaceID:    request.PathValue("workspace_id"),
+		ActorID:        accountID,
+		IdempotencyKey: request.Header.Get("Idempotency-Key"),
+		DraftID:        payload.DraftID,
+		ChannelIDs:     payload.ChannelIDs,
+		Schedule:       payload.Scheduled,
 	})
 	if err != nil {
 		writeSchedulingServiceError(writer, err)
@@ -121,6 +122,7 @@ func (handler *HTTPHandler) schedule(writer http.ResponseWriter, request *http.R
 		"Location",
 		"/api/v1/workspaces/"+post.WorkspaceID+"/scheduled-posts/"+post.ID,
 	)
+	setIdempotencyReplayHeader(writer, post)
 	writeSchedulingJSON(writer, http.StatusCreated, scheduledPostView(post))
 }
 
@@ -252,6 +254,7 @@ func (handler *HTTPHandler) duplicate(writer http.ResponseWriter, request *http.
 		DuplicatePostCommand{
 			WorkspaceID:      request.PathValue("workspace_id"),
 			ActorID:          accountID,
+			IdempotencyKey:   request.Header.Get("Idempotency-Key"),
 			PostID:           request.PathValue("post_id"),
 			ExpectedRevision: payload.ExpectedRevision,
 			Schedule:         payload.Scheduled,
@@ -265,6 +268,7 @@ func (handler *HTTPHandler) duplicate(writer http.ResponseWriter, request *http.
 		"Location",
 		"/api/v1/workspaces/"+post.WorkspaceID+"/scheduled-posts/"+post.ID,
 	)
+	setIdempotencyReplayHeader(writer, post)
 	writeSchedulingJSON(writer, http.StatusCreated, scheduledPostView(post))
 }
 
@@ -303,9 +307,15 @@ func (handler *HTTPHandler) preflight(
 		"Access-Control-Allow-Methods",
 		"GET, POST, PUT, OPTIONS",
 	)
-	writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Idempotency-Key")
 	writer.Header().Set("Access-Control-Max-Age", "600")
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+func setIdempotencyReplayHeader(writer http.ResponseWriter, post ScheduledPost) {
+	if post.IdempotencyReplayed {
+		writer.Header().Set("Idempotency-Replayed", "true")
+	}
 }
 
 func (handler *HTTPHandler) accountID(
@@ -407,6 +417,16 @@ func writeSchedulingServiceError(writer http.ResponseWriter, err error) {
 		writeSchedulingError(writer, http.StatusForbidden, "forbidden", nil)
 	case errors.Is(err, ErrNotFound):
 		writeSchedulingError(writer, http.StatusNotFound, "scheduled_post_not_found", nil)
+	case errors.Is(err, ErrDraftNotFound):
+		writeSchedulingError(writer, http.StatusNotFound, "draft_not_found", nil)
+	case errors.Is(err, ErrDraftRevisionStale):
+		writeSchedulingError(writer, http.StatusConflict, "draft_revision_stale", nil)
+	case errors.Is(err, ErrIdempotencyMismatch):
+		writeSchedulingError(writer, http.StatusConflict, "idempotency_payload_mismatch", nil)
+	case errors.Is(err, ErrIdempotencyReplayUnavailable):
+		writeSchedulingError(writer, http.StatusConflict, "idempotency_replay_unavailable", nil)
+	case errors.Is(err, ErrOperationInProgress), errors.Is(err, ErrComposerContention):
+		writeSchedulingRetryableError(writer, http.StatusConflict, "idempotency_in_progress")
 	case errors.Is(err, ErrConflict):
 		writeSchedulingError(writer, http.StatusConflict, "revision_conflict", nil)
 	case errors.Is(err, ErrImmutable):
@@ -423,6 +443,15 @@ func writeSchedulingServiceError(writer http.ResponseWriter, err error) {
 	default:
 		writeSchedulingError(writer, http.StatusInternalServerError, "internal_error", nil)
 	}
+}
+
+func writeSchedulingRetryableError(writer http.ResponseWriter, status int, code string) {
+	body := map[string]any{
+		"code":      code,
+		"message":   http.StatusText(status),
+		"retryable": true,
+	}
+	writeSchedulingJSON(writer, status, map[string]any{"error": body})
 }
 
 func writeSchedulingError(
