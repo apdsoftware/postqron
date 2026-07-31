@@ -1,7 +1,7 @@
 schema_version: 1
 id: app-shell
 kind: web
-version: 0.1.0
+version: 0.2.0
 entrypoints:
   server: ./module.go
   web: ./runtime.ts
@@ -14,6 +14,8 @@ dependencies:
   - f10-entitlements
   - i18n
   - social-connections
+  - f06-composer
+  - scheduling
   - workspaces
 migrations: []
 server:
@@ -51,6 +53,11 @@ web:
       file: ./pages/oauth-callback.vue
       visibility: public
       middleware: []
+    - name: app-social-oauth-callback
+      path: /app/social-oauth/callback
+      file: ./pages/social-oauth-callback.vue
+      visibility: public
+      middleware: []
     - name: app-onboarding
       path: /app/onboarding
       file: ./pages/onboarding.vue
@@ -79,6 +86,16 @@ web:
     - name: app-social-channels
       path: /app/social-channels
       file: ./pages/social-channels.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-publish
+      path: /app/publish
+      file: ./pages/publish.vue
+      visibility: private
+      middleware: [app-session]
+    - name: app-calendar
+      path: /app/calendar
+      file: ./pages/calendar.vue
       visibility: private
       middleware: [app-session]
     - name: app-plan

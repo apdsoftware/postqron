@@ -13,6 +13,8 @@ export type AppSection =
   | 'profile'
   | 'security'
   | 'social-channels'
+  | 'publish'
+  | 'calendar'
   | 'plan'
   | 'workspace'
   | 'privacy'
@@ -104,6 +106,10 @@ export function appRoute(
       return `${appRoot(locale)}/security`
     case 'social-channels':
       return `${appRoot(locale)}/social-channels`
+    case 'publish':
+      return `${appRoot(locale)}/publish`
+    case 'calendar':
+      return `${appRoot(locale)}/calendar`
     case 'plan':
       return `${appRoot(locale)}/plan`
     case 'workspace':

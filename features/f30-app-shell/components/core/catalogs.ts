@@ -1,3 +1,5 @@
+import { EDITORIAL_CATALOGS } from './editorial-catalogs.ts'
+
 export const APP_SHELL_LOCALES = ['en', 'it', 'es', 'fr', 'de'] as const
 export type AppShellLocale = typeof APP_SHELL_LOCALES[number]
 
@@ -48,6 +50,8 @@ const en = {
   'shell.profile': 'Profile',
   'shell.logout': 'Sign out',
   'shell.logoutError': 'We could not sign you out securely. Your session is still active; try again.',
+  'shell.workspaceSwitchUnchanged': 'We could not switch workspaces. Your current workspace was not changed.',
+  'shell.workspaceSwitchRestored': 'The new workspace could not be verified. Your previous workspace was restored and verified.',
   'shell.menu': 'Open navigation',
   'shell.closeMenu': 'Close navigation',
   'home.eyebrow': 'Workspace overview',
@@ -307,9 +311,9 @@ const en = {
   'home.card.social.description': 'Link the Facebook Pages and Instagram Professional accounts you publish to.',
   'social.eyebrow': 'Publishing channels',
   'social.title': 'Social channels',
-  'social.description': 'Connect the Facebook Pages and Instagram Professional accounts your workspace publishes to.',
-  'social.scopeNote': 'These are the social channels where Postqron publishes your content.',
-  'social.requirementsNote': 'You need a Facebook Page you manage or an Instagram Professional (Business or Creator) account. Postqron requests only the permissions needed to list resources and publish.',
+  'social.description': 'Connect and manage every supported publishing destination for this workspace.',
+  'social.scopeNote': 'Postqron uses the official provider authorization flow and never exposes access tokens to this page.',
+  'social.requirementsNote': 'Availability is fail-closed: a provider becomes connectable only after configuration, review, audit, and runtime checks succeed.',
   'social.availabilityEyebrow': 'Add a channel',
   'social.availabilityTitle': 'Connect a channel',
   'social.connectHint': 'Start a secure authorization and choose exactly which resource to connect.',
@@ -360,6 +364,7 @@ const en = {
   'social.errorForbidden': 'Only a workspace Owner can manage social channels.',
   'social.errorSession': 'Your session is no longer valid. Sign in again to manage channels.',
   'social.errorNotFound': 'This channel is no longer available. Refresh the list and try again.',
+  ...EDITORIAL_CATALOGS.en,
 } as const
 
 export type AppShellMessageKey = keyof typeof en
@@ -412,6 +417,8 @@ const it: AppShellCatalog = {
   'shell.profile': 'Profilo',
   'shell.logout': 'Esci',
   'shell.logoutError': 'Non è stato possibile terminare la sessione in modo sicuro. La sessione è ancora attiva; riprova.',
+  'shell.workspaceSwitchUnchanged': 'Non è stato possibile cambiare workspace. Il workspace corrente non è stato modificato.',
+  'shell.workspaceSwitchRestored': 'Non è stato possibile verificare il nuovo workspace. Il workspace precedente è stato ripristinato e verificato.',
   'shell.menu': 'Apri la navigazione',
   'shell.closeMenu': 'Chiudi la navigazione',
   'home.eyebrow': 'Panoramica workspace',
@@ -671,9 +678,9 @@ const it: AppShellCatalog = {
   'home.card.social.description': 'Collega le Pagine Facebook e gli account Instagram Professional su cui pubblichi.',
   'social.eyebrow': 'Canali di pubblicazione',
   'social.title': 'Canali social',
-  'social.description': 'Collega le Pagine Facebook e gli account Instagram Professional su cui pubblica il tuo workspace.',
-  'social.scopeNote': 'Questi sono i canali social su cui Postqron pubblica i tuoi contenuti.',
-  'social.requirementsNote': 'Ti serve una Pagina Facebook che gestisci o un account Instagram Professional (Business o Creator). Postqron richiede solo i permessi necessari per elencare le risorse e pubblicare.',
+  'social.description': 'Collega e gestisci tutte le destinazioni di pubblicazione supportate per questo workspace.',
+  'social.scopeNote': 'Postqron usa il flusso ufficiale del provider e non espone mai i token di accesso in questa pagina.',
+  'social.requirementsNote': 'La disponibilità è fail-closed: un provider diventa collegabile solo dopo configurazione, review, audit e controlli runtime.',
   'social.availabilityEyebrow': 'Aggiungi un canale',
   'social.availabilityTitle': 'Collega un canale',
   'social.connectHint': 'Avvia un’autorizzazione sicura e scegli esattamente quale risorsa collegare.',
@@ -724,6 +731,7 @@ const it: AppShellCatalog = {
   'social.errorForbidden': 'Solo un Owner del workspace può gestire i canali social.',
   'social.errorSession': 'La tua sessione non è più valida. Accedi di nuovo per gestire i canali.',
   'social.errorNotFound': 'Questo canale non è più disponibile. Aggiorna l’elenco e riprova.',
+  ...EDITORIAL_CATALOGS.it,
 }
 
 const es: AppShellCatalog = {
@@ -773,6 +781,8 @@ const es: AppShellCatalog = {
   'shell.profile': 'Perfil',
   'shell.logout': 'Cerrar sesión',
   'shell.logoutError': 'No pudimos cerrar la sesión de forma segura. La sesión sigue activa; inténtalo de nuevo.',
+  'shell.workspaceSwitchUnchanged': 'No pudimos cambiar de espacio. El espacio actual no ha cambiado.',
+  'shell.workspaceSwitchRestored': 'No pudimos verificar el espacio nuevo. El espacio anterior se restauró y verificó.',
   'shell.menu': 'Abrir navegación',
   'shell.closeMenu': 'Cerrar navegación',
   'home.eyebrow': 'Resumen del espacio',
@@ -1032,9 +1042,9 @@ const es: AppShellCatalog = {
   'home.card.social.description': 'Conecta las páginas de Facebook y las cuentas de Instagram Professional donde publicas.',
   'social.eyebrow': 'Canales de publicación',
   'social.title': 'Canales sociales',
-  'social.description': 'Conecta las páginas de Facebook y las cuentas de Instagram Professional donde publica tu espacio de trabajo.',
-  'social.scopeNote': 'Estos son los canales sociales donde Postqron publica tu contenido.',
-  'social.requirementsNote': 'Necesitas una página de Facebook que gestiones o una cuenta de Instagram Professional (Business o Creator). Postqron solicita solo los permisos necesarios para listar recursos y publicar.',
+  'social.description': 'Conecta y gestiona todos los destinos de publicación compatibles de este espacio.',
+  'social.scopeNote': 'Postqron usa la autorización oficial del proveedor y nunca muestra tokens de acceso en esta página.',
+  'social.requirementsNote': 'La disponibilidad es cerrada por defecto: un proveedor solo se habilita tras configuración, revisión, auditoría y controles.',
   'social.availabilityEyebrow': 'Añadir un canal',
   'social.availabilityTitle': 'Conectar un canal',
   'social.connectHint': 'Inicia una autorización segura y elige exactamente qué recurso conectar.',
@@ -1085,6 +1095,7 @@ const es: AppShellCatalog = {
   'social.errorForbidden': 'Solo un Owner del espacio de trabajo puede gestionar los canales sociales.',
   'social.errorSession': 'Tu sesión ya no es válida. Inicia sesión de nuevo para gestionar los canales.',
   'social.errorNotFound': 'Este canal ya no está disponible. Actualiza la lista e inténtalo de nuevo.',
+  ...EDITORIAL_CATALOGS.es,
 }
 
 const fr: AppShellCatalog = {
@@ -1134,6 +1145,8 @@ const fr: AppShellCatalog = {
   'shell.profile': 'Profil',
   'shell.logout': 'Se déconnecter',
   'shell.logoutError': 'Nous n’avons pas pu vous déconnecter en toute sécurité. La session reste active ; réessayez.',
+  'shell.workspaceSwitchUnchanged': 'Le changement d’espace a échoué. Votre espace actuel n’a pas été modifié.',
+  'shell.workspaceSwitchRestored': 'Le nouvel espace n’a pas pu être vérifié. L’espace précédent a été restauré et vérifié.',
   'shell.menu': 'Ouvrir la navigation',
   'shell.closeMenu': 'Fermer la navigation',
   'home.eyebrow': 'Vue d’ensemble de l’espace',
@@ -1393,9 +1406,9 @@ const fr: AppShellCatalog = {
   'home.card.social.description': 'Reliez les Pages Facebook et les comptes Instagram Professional sur lesquels vous publiez.',
   'social.eyebrow': 'Canaux de publication',
   'social.title': 'Canaux sociaux',
-  'social.description': 'Reliez les Pages Facebook et les comptes Instagram Professional sur lesquels votre espace de travail publie.',
-  'social.scopeNote': 'Ce sont les canaux sociaux sur lesquels Postqron publie votre contenu.',
-  'social.requirementsNote': 'Il vous faut une Page Facebook que vous gérez ou un compte Instagram Professional (Business ou Creator). Postqron ne demande que les permissions nécessaires pour lister les ressources et publier.',
+  'social.description': 'Connectez et gérez toutes les destinations de publication compatibles de cet espace.',
+  'social.scopeNote': 'Postqron utilise l’autorisation officielle du fournisseur et n’expose jamais les jetons d’accès.',
+  'social.requirementsNote': 'La disponibilité est fermée par défaut : configuration, validation, audit et contrôles doivent réussir.',
   'social.availabilityEyebrow': 'Ajouter un canal',
   'social.availabilityTitle': 'Connecter un canal',
   'social.connectHint': 'Lancez une autorisation sécurisée et choisissez exactement la ressource à connecter.',
@@ -1446,6 +1459,7 @@ const fr: AppShellCatalog = {
   'social.errorForbidden': 'Seul un Owner de l’espace de travail peut gérer les canaux sociaux.',
   'social.errorSession': 'Votre session n’est plus valide. Reconnectez-vous pour gérer les canaux.',
   'social.errorNotFound': 'Ce canal n’est plus disponible. Actualisez la liste et réessayez.',
+  ...EDITORIAL_CATALOGS.fr,
 }
 
 const de: AppShellCatalog = {
@@ -1495,6 +1509,8 @@ const de: AppShellCatalog = {
   'shell.profile': 'Profil',
   'shell.logout': 'Abmelden',
   'shell.logoutError': 'Sie konnten nicht sicher abgemeldet werden. Die Sitzung ist weiterhin aktiv; versuchen Sie es erneut.',
+  'shell.workspaceSwitchUnchanged': 'Der Arbeitsbereich konnte nicht gewechselt werden. Der aktuelle Bereich wurde nicht geändert.',
+  'shell.workspaceSwitchRestored': 'Der neue Arbeitsbereich konnte nicht verifiziert werden. Der vorherige Bereich wurde wiederhergestellt und verifiziert.',
   'shell.menu': 'Navigation öffnen',
   'shell.closeMenu': 'Navigation schließen',
   'home.eyebrow': 'Arbeitsbereich im Überblick',
@@ -1754,9 +1770,9 @@ const de: AppShellCatalog = {
   'home.card.social.description': 'Verbinde die Facebook-Seiten und Instagram-Professional-Konten, auf denen du veröffentlichst.',
   'social.eyebrow': 'Veröffentlichungskanäle',
   'social.title': 'Social-Kanäle',
-  'social.description': 'Verbinde die Facebook-Seiten und Instagram-Professional-Konten, auf denen dein Workspace veröffentlicht.',
-  'social.scopeNote': 'Dies sind die Social-Kanäle, auf denen Postqron deine Inhalte veröffentlicht.',
-  'social.requirementsNote': 'Du benötigst eine Facebook-Seite, die du verwaltest, oder ein Instagram-Professional-Konto (Business oder Creator). Postqron fordert nur die Berechtigungen an, die zum Auflisten der Ressourcen und zum Veröffentlichen nötig sind.',
+  'social.description': 'Verbinde und verwalte alle unterstützten Veröffentlichungsziele dieses Workspace.',
+  'social.scopeNote': 'Postqron nutzt die offizielle Anbieter-Autorisierung und zeigt hier niemals Zugriffstoken.',
+  'social.requirementsNote': 'Verfügbarkeit ist standardmäßig gesperrt: Konfiguration, Prüfung, Audit und Laufzeitchecks müssen erfolgreich sein.',
   'social.availabilityEyebrow': 'Kanal hinzufügen',
   'social.availabilityTitle': 'Kanal verbinden',
   'social.connectHint': 'Starte eine sichere Autorisierung und wähle genau die Ressource aus, die verbunden werden soll.',
@@ -1807,6 +1823,7 @@ const de: AppShellCatalog = {
   'social.errorForbidden': 'Nur ein Owner des Workspace kann Social-Kanäle verwalten.',
   'social.errorSession': 'Deine Sitzung ist nicht mehr gültig. Melde dich erneut an, um Kanäle zu verwalten.',
   'social.errorNotFound': 'Dieser Kanal ist nicht mehr verfügbar. Aktualisiere die Liste und versuche es erneut.',
+  ...EDITORIAL_CATALOGS.de,
 }
 
 export const APP_SHELL_CATALOGS: Readonly<

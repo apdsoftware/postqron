@@ -6,6 +6,8 @@ import {
   SocialApiError,
   SocialConnectionsApi,
 } from '../components/core/social-api.ts'
+import { parseSocialCallbackDocument } from '../components/core/social-callback.ts'
+import { socialBootstrapFixture } from './fixtures.ts'
 
 const connection = {
   id: 'conn-1',
@@ -27,10 +29,7 @@ test('bootstrap and list hit the workspace-scoped F5 routes with credentials, no
   const fetch: AppFetch = async (path, options) => {
     calls.push({ path, options })
     if (path.endsWith('/bootstrap')) {
-      return { providers: [
-        { provider: 'facebook_pages', status: 'available', retryable: false },
-        { provider: 'instagram_professional', status: 'unavailable', retryable: false },
-      ] }
+      return socialBootstrapFixture()
     }
     return { connections: [connection] }
   }
@@ -75,6 +74,10 @@ test('begin, select, reconnect, and revoke use the exact contract paths and bodi
   const api = new SocialConnectionsApi('https://api.postqron.test', fetch)
 
   await api.begin('workspace-1', 'facebook_pages')
+  await api.begin('workspace-1', 'bluesky', {
+    kind: 'did',
+    value: 'did:plc:alice',
+  })
   await api.selectResource('workspace-1', { selectionId: 'sel-1', remoteId: 'page-1' })
   await api.reconnect('workspace-1', 'conn-1')
   const revocation = await api.revoke('workspace-1', 'conn-1')
@@ -82,18 +85,30 @@ test('begin, select, reconnect, and revoke use the exact contract paths and bodi
   assert.equal(revocation.provider_revoked, true)
   assert.deepEqual(calls.map(call => `${call.options?.method ?? 'GET'} ${call.path}`), [
     'POST /api/v1/workspaces/workspace-1/social-authorizations',
+    'POST /api/v1/workspaces/workspace-1/social-authorizations',
     'POST /api/v1/workspaces/workspace-1/social-connections',
     'POST /api/v1/workspaces/workspace-1/social-connections/conn-1/reconnect',
     'DELETE /api/v1/workspaces/workspace-1/social-connections/conn-1',
   ])
   assert.deepEqual(calls[0]?.options?.body, { provider: 'facebook_pages' })
+  assert.equal(
+    'redirect_uri' in (calls[0]?.options?.body as Record<string, unknown>),
+    false,
+  )
   assert.deepEqual(calls[1]?.options?.body, {
+    provider: 'bluesky',
+    discovery: {
+      kind: 'did',
+      value: 'did:plc:alice',
+    },
+  })
+  assert.deepEqual(calls[2]?.options?.body, {
     selection_id: 'sel-1',
     remote_id: 'page-1',
   })
 })
 
-test('callback exchange forwards state, code, and error to the shared endpoint', async () => {
+test('callback exchange forwards state, code, error, and iss to the shared endpoint', async () => {
   const calls: string[] = []
   const fetch: AppFetch = async (path) => {
     calls.push(path)
@@ -116,10 +131,71 @@ test('callback exchange forwards state, code, and error to the shared endpoint',
     state: 'state-1',
     code: 'code-1',
     error: '',
+    iss: 'https://bsky.social',
   })
 
   assert.equal(selection.resources.length, 1)
-  assert.equal(calls[0], '/api/v1/social-authorizations/callback?state=state-1&code=code-1')
+  assert.equal(
+    calls[0],
+    '/api/v1/social-authorizations/callback?state=state-1&code=code-1&iss=https%3A%2F%2Fbsky.social',
+  )
+})
+
+test('callback endpoint preserves API origin while relay remains on the app origin', () => {
+  const crossOrigin = new SocialConnectionsApi('https://api.postqron.test', async () => ({}))
+  assert.equal(
+    crossOrigin.callbackURL('https://app.postqron.test').href,
+    'https://api.postqron.test/api/v1/social-authorizations/callback',
+  )
+  assert.equal(
+    crossOrigin.callbackRelayURL('https://app.postqron.test').href,
+    'https://app.postqron.test/app/social-oauth/callback',
+  )
+  const proxied = new SocialConnectionsApi('/api', async () => ({}))
+  assert.equal(
+    proxied.callbackURL('https://app.postqron.test').origin,
+    'https://app.postqron.test',
+  )
+})
+
+test('dynamic discovery is provider-specific and rejects incompatible kinds', async () => {
+  const api = new SocialConnectionsApi('https://api.postqron.test', async () => ({
+    authorization_url: 'https://provider.example/oauth',
+    expires_at: '2026-07-30T10:10:00.000Z',
+  }))
+  await assert.doesNotReject(() => api.begin('workspace-1', 'mastodon', {
+    kind: 'instance_origin',
+    value: 'https://social.example',
+  }))
+  await assert.doesNotReject(() => api.begin('workspace-1', 'bluesky', {
+    kind: 'pds_origin',
+    value: 'https://pds.example',
+  }))
+  await assert.rejects(() => api.begin('workspace-1', 'mastodon', {
+    kind: 'handle',
+    value: '@alice@example.test',
+  }))
+  await assert.rejects(() => api.begin('workspace-1', 'bluesky', {
+    kind: 'instance_origin',
+    value: 'https://social.example',
+  }))
+})
+
+test('direct callback parsing remains compatible with the JSON callback document', () => {
+  const selection = parseSocialCallbackDocument(JSON.stringify({
+    selection_id: 'sel-1',
+    provider: 'bluesky',
+    expires_at: '2026-07-30T10:10:00.000Z',
+    resources: [{
+      remote_id: 'did:plc:alice',
+      resource_type: 'bluesky_account',
+      account_type: 'profile',
+      display_name: 'Alice',
+      scopes: ['atproto'],
+    }],
+  }))
+
+  assert.equal(selection.provider, 'bluesky')
 })
 
 test('flat F5 error envelope maps to stable, fail-closed kinds', () => {

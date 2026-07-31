@@ -16,6 +16,8 @@ import {
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
+  useAppWorkspaceTransitionRevisionState,
+  useAppWorkspaceTransitionState,
 } from '../components/core/use-app-shell.ts'
 
 const route = useRoute()
@@ -23,9 +25,13 @@ const session = useAppSessionState()
 const bootstrap = useAppBootstrapState()
 const accountArea = useAppAccountAreaState()
 const api = useAppShellApi()
+const workspaceTransition = useAppWorkspaceTransitionState()
+const workspaceTransitionRevision = useAppWorkspaceTransitionRevisionState()
 const { t } = useAppShellI18n()
 const menuOpen = ref(false)
 const changingWorkspace = ref(false)
+const workspaceSwitchNotice = ref<'restored' | 'unchanged'>()
+const workspaceRecoveryUnavailable = ref(false)
 const loggingOut = ref(false)
 const logoutError = ref(false)
 const currentWorkspaceId = computed(() => session.value?.current_workspace?.id ?? '')
@@ -33,13 +39,47 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
 
 const links = computed(() => [
   { key: 'home', href: appRoute(locale.value, 'home') },
+  { key: 'publish', href: appRoute(locale.value, 'publish') },
+  { key: 'calendar', href: appRoute(locale.value, 'calendar') },
+  { key: 'social', href: appRoute(locale.value, 'social-channels') },
   { key: 'profile', href: appRoute(locale.value, 'profile') },
   { key: 'security', href: appRoute(locale.value, 'security') },
-  { key: 'social', href: appRoute(locale.value, 'social-channels') },
   { key: 'plan', href: appRoute(locale.value, 'plan') },
   { key: 'workspace', href: appRoute(locale.value, 'workspace') },
   { key: 'privacy', href: appRoute(locale.value, 'privacy') },
 ])
+
+function clearWorkspaceAuthority() {
+  bootstrap.value = undefined
+  accountArea.value = undefined
+  session.value = undefined
+  workspaceSwitchNotice.value = undefined
+  workspaceRecoveryUnavailable.value = true
+}
+
+async function reconcileUnverifiedWorkspaceSelection(
+  previousWorkspaceId: string,
+): Promise<'restored' | 'unchanged'> {
+  // A rejected request may still have committed server-side. Never infer
+  // authority from the transport result: read the session first.
+  const authoritativeSession = await api.session()
+  if (previousWorkspaceId
+    && authoritativeSession.current_workspace?.id === previousWorkspaceId) {
+    session.value = authoritativeSession
+    return 'unchanged'
+  }
+
+  if (!previousWorkspaceId) {
+    throw new Error('APP_WORKSPACE_ROLLBACK_TARGET_UNAVAILABLE')
+  }
+  await api.selectWorkspace(previousWorkspaceId)
+  const recoveredSession = await api.session()
+  if (recoveredSession.current_workspace?.id !== previousWorkspaceId) {
+    throw new Error('APP_WORKSPACE_ROLLBACK_NOT_VERIFIED')
+  }
+  session.value = recoveredSession
+  return 'restored'
+}
 
 async function selectWorkspace(event: unknown) {
   const workspaceId = (
@@ -48,12 +88,54 @@ async function selectWorkspace(event: unknown) {
   if (!workspaceId || workspaceId === currentWorkspaceId.value) {
     return
   }
+  const previousWorkspaceId = session.value?.current_workspace?.id ?? ''
   changingWorkspace.value = true
+  workspaceSwitchNotice.value = undefined
+  workspaceRecoveryUnavailable.value = false
+  workspaceTransition.value = workspaceId
   try {
     await api.selectWorkspace(workspaceId)
-    session.value = await api.session()
+    const refreshedSession = await api.session()
+    if (refreshedSession.current_workspace?.id !== workspaceId) {
+      throw new Error('APP_WORKSPACE_SWITCH_NOT_VERIFIED')
+    }
+    session.value = refreshedSession
     await navigateTo(route.fullPath)
+  } catch {
+    try {
+      workspaceSwitchNotice.value =
+        await reconcileUnverifiedWorkspaceSelection(previousWorkspaceId)
+    } catch {
+      // Server authority is unknown or rollback could not be verified.
+      clearWorkspaceAuthority()
+    }
   } finally {
+    if (!workspaceRecoveryUnavailable.value) {
+      workspaceTransition.value = undefined
+      workspaceTransitionRevision.value += 1
+    }
+    changingWorkspace.value = false
+  }
+}
+
+async function retryWorkspaceRecovery() {
+  if (changingWorkspace.value) {
+    return
+  }
+  changingWorkspace.value = true
+  workspaceTransition.value = 'authoritative-recovery'
+  try {
+    const recoveredSession = await api.session()
+    session.value = recoveredSession
+    workspaceRecoveryUnavailable.value = false
+    await navigateTo(route.fullPath)
+  } catch {
+    clearWorkspaceAuthority()
+  } finally {
+    if (!workspaceRecoveryUnavailable.value) {
+      workspaceTransition.value = undefined
+      workspaceTransitionRevision.value += 1
+    }
     changingWorkspace.value = false
   }
 }
@@ -118,6 +200,15 @@ async function logout() {
         </button>
       </div>
 
+      <NuxtLink
+        class="product-sidebar__primary"
+        :to="appRoute(locale, 'publish')"
+        @click="menuOpen = false"
+      >
+        <span aria-hidden="true">＋</span>
+        {{ t('shell.newPost') }}
+      </NuxtLink>
+
       <nav :aria-label="t('shell.navigation')">
         <NuxtLink
           v-for="link in links"
@@ -155,7 +246,7 @@ async function logout() {
           <span>{{ t('shell.workspace') }}</span>
           <select
             :value="currentWorkspaceId"
-            :disabled="changingWorkspace"
+            :disabled="changingWorkspace || workspaceRecoveryUnavailable"
             @change="selectWorkspace"
           >
             <option
@@ -166,12 +257,26 @@ async function logout() {
               {{ workspace.name }}
             </option>
           </select>
+          <small
+            v-if="workspaceSwitchNotice"
+            class="workspace-switcher__error"
+            role="alert"
+          >
+            {{ t(`shell.workspaceSwitch${workspaceSwitchNotice === 'restored' ? 'Restored' : 'Unchanged'}`) }}
+          </small>
         </label>
 
         <div
           class="product-topbar__actions"
           data-postqron-slot="workspace-actions"
         >
+          <NuxtLink
+            class="pq-button product-topbar__primary"
+            :to="appRoute(locale, 'publish')"
+          >
+            <span aria-hidden="true">＋</span>
+            {{ t('shell.newPost') }}
+          </NuxtLink>
           <PostqronLanguageSwitcher />
         </div>
 
@@ -224,7 +329,13 @@ async function logout() {
         class="product-main"
         tabindex="-1"
       >
-        <slot />
+        <AppState
+          v-if="workspaceRecoveryUnavailable"
+          kind="unavailable"
+          action
+          @retry="retryWorkspaceRecovery"
+        />
+        <slot v-else />
       </main>
     </section>
   </div>

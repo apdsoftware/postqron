@@ -12,6 +12,10 @@ import {
   type AppFetch,
 } from './api.ts'
 import { SocialConnectionsApi } from './social-api.ts'
+import {
+  ComposerApi,
+  SchedulingApi,
+} from './editorial-api.ts'
 import type {
   AccountArea,
   AppBootstrap,
@@ -81,6 +85,20 @@ export function useAccountDeletionCancellationState() {
   )
 }
 
+export function useAppWorkspaceTransitionState() {
+  return useState<string | undefined>(
+    'postqron.app-shell.workspace-transition',
+    () => undefined,
+  )
+}
+
+export function useAppWorkspaceTransitionRevisionState() {
+  return useState<number>(
+    'postqron.app-shell.workspace-transition-revision',
+    () => 0,
+  )
+}
+
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()
@@ -94,6 +112,24 @@ export function useSocialConnectionsApi(): SocialConnectionsApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()
   return new SocialConnectionsApi(
+    resolveAppShellApiBase(config, import.meta.server),
+    requestFetch as unknown as AppFetch,
+  )
+}
+
+export function useComposerApi(): ComposerApi {
+  const config = useRuntimeConfig()
+  const requestFetch = useRequestFetch()
+  return new ComposerApi(
+    resolveAppShellApiBase(config, import.meta.server),
+    requestFetch as unknown as AppFetch,
+  )
+}
+
+export function useSchedulingApi(): SchedulingApi {
+  const config = useRuntimeConfig()
+  const requestFetch = useRequestFetch()
+  return new SchedulingApi(
     resolveAppShellApiBase(config, import.meta.server),
     requestFetch as unknown as AppFetch,
   )

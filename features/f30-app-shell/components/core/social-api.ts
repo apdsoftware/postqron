@@ -11,12 +11,14 @@ import {
   parseSocialAuthorization,
   parseSocialBootstrap,
   parseSocialConnection,
+  parseProviderDiscoveryInput,
   parseSocialConnections,
   parseSocialRevocation,
   parseSocialSelection,
   type SocialAuthorization,
   type SocialBootstrap,
   type SocialConnection,
+  type SocialDiscoveryInput,
   type SocialProvider,
   type SocialRevocation,
   type SocialSelection,
@@ -29,6 +31,9 @@ export type SocialApiErrorKind =
   | 'quota-exceeded'
   | 'quota-unavailable'
   | 'provider-unavailable'
+  | 'provider-not-configured'
+  | 'provider-review-required'
+  | 'provider-audit-required'
   | 'provider-temporary'
   | 'provider-access-denied'
   | 'already-connected'
@@ -113,6 +118,9 @@ const kindByCode: Readonly<Record<string, SocialApiErrorKind>> = {
   channel_quota_exceeded: 'quota-exceeded',
   channel_quota_unavailable: 'quota-unavailable',
   provider_unavailable: 'provider-unavailable',
+  provider_not_configured: 'provider-not-configured',
+  provider_review_required: 'provider-review-required',
+  provider_audit_required: 'provider-audit-required',
   provider_temporary: 'provider-temporary',
   provider_access_denied: 'provider-access-denied',
   provider_resource_unavailable: 'not-found',
@@ -121,9 +129,11 @@ const kindByCode: Readonly<Record<string, SocialApiErrorKind>> = {
   invalid_oauth_state: 'invalid-state',
   provider_denied: 'provider-denied',
   no_publishable_resources: 'no-resources',
+  popup_closed: 'invalid',
   resource_not_found: 'not-found',
   unauthenticated: 'session',
   invalid_request: 'invalid',
+  callback_handoff_unavailable: 'unavailable',
 }
 
 export function normalizeSocialApiError(error: unknown): SocialApiError {
@@ -176,6 +186,15 @@ export class SocialConnectionsApi {
     this.#fetch = fetch
   }
 
+  callbackURL(browserOrigin: string): URL {
+    const base = new URL(this.#baseURL || '/', browserOrigin)
+    return new URL('/api/v1/social-authorizations/callback', base.origin)
+  }
+
+  callbackRelayURL(browserOrigin: string): URL {
+    return new URL('/app/social-oauth/callback', browserOrigin)
+  }
+
   async #request(
     path: string,
     options: Readonly<Record<string, unknown>> = {},
@@ -226,12 +245,20 @@ export class SocialConnectionsApi {
   async begin(
     workspaceId: string,
     provider: SocialProvider,
+    discovery?: SocialDiscoveryInput,
   ): Promise<SocialAuthorization> {
     const workspace = requireWorkspace(workspaceId)
+    const body: {
+      discovery?: SocialDiscoveryInput
+      provider: SocialProvider
+    } = { provider }
+    if (discovery) {
+      body.discovery = parseProviderDiscoveryInput(provider, discovery)
+    }
     return this.#parse(
       await this.#request(
         `/api/v1/workspaces/${workspace}/social-authorizations`,
-        { method: 'POST', body: { provider } },
+        { method: 'POST', body },
       ),
       parseSocialAuthorization,
     )
@@ -241,6 +268,7 @@ export class SocialConnectionsApi {
     state: string
     code: string
     error: string
+    iss?: string
   }): Promise<SocialSelection> {
     const query = new URLSearchParams()
     for (const [key, value] of Object.entries(parameters)) {

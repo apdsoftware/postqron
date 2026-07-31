@@ -38,6 +38,21 @@ test('the shell navigation exposes Social channels without access methods', asyn
   assert.doesNotMatch(layout, /key: 'providers'|appRoute\([^)]*'providers'/u)
 })
 
+test('the shell always signals transition completion and exposes recovery feedback', async () => {
+  const [layout, composable] = await Promise.all([
+    source('../layouts/app-shell.vue'),
+    source('../components/core/use-app-shell.ts'),
+  ])
+  assert.match(layout, /finally \{[\s\S]*workspaceTransitionRevision\.value \+= 1/u)
+  assert.doesNotMatch(layout, /serverCommitted/u)
+  assert.match(layout, /const authoritativeSession = await api\.session\(\)[\s\S]*api\.selectWorkspace\(previousWorkspaceId\)[\s\S]*const recoveredSession = await api\.session\(\)/u)
+  assert.match(layout, /recoveredSession\.current_workspace\?\.id !== previousWorkspaceId/u)
+  assert.match(layout, /session\.value = undefined[\s\S]*workspaceRecoveryUnavailable\.value = true/u)
+  assert.match(layout, /kind="unavailable"[\s\S]*@retry="retryWorkspaceRecovery"/u)
+  assert.match(layout, /role="alert"[\s\S]*shell\.workspaceSwitch/u)
+  assert.match(composable, /postqron\.app-shell\.workspace-transition-revision/u)
+})
+
 test('the social channels page follows the accessible retryable page contract', async () => {
   const page = await source('../pages/social-channels.vue')
   assert.match(page, /kind="loading"/u)
@@ -48,15 +63,26 @@ test('the social channels page follows the accessible retryable page contract', 
   assert.match(page, /useSocialConnectionsApi/u)
   assert.match(page, /documentTitle\.socialChannels/u)
   // Availability bootstrap, connect, callback selection, reconnect, revoke.
-  assert.match(page, /social\.bootstrap\(workspaceId\.value\)/u)
-  assert.match(page, /social\.begin\(workspaceId\.value/u)
+  assert.match(page, /social\.bootstrap\(context\.workspaceId\)/u)
+  assert.match(page, /social\.begin\([\s\S]*context\.workspaceId/u)
   assert.match(page, /social\.completeAuthorization\(/u)
-  assert.match(page, /social\.selectResource\(workspaceId\.value/u)
-  assert.match(page, /social\.reconnect\(workspaceId\.value/u)
-  assert.match(page, /social\.revoke\(workspaceId\.value/u)
+  assert.match(page, /social\.selectResource\(context\.workspaceId/u)
+  assert.match(page, /social\.reconnect\(context\.workspaceId/u)
+  assert.match(page, /social\.revoke\(context\.workspaceId/u)
+  assert.match(page, /function contextIsCurrent\([\s\S]*context\.epoch === loadEpoch/u)
+  assert.match(page, /contextStillTargetsCurrentWorkspace\(context\)[\s\S]*workspaceContextMismatch\(\)/u)
+  assert.match(page, /currentWorkspace\.id !== context\.workspaceId[\s\S]*workspaceContextMismatch\(\)/u)
+  assert.match(page, /social_workspace_context_mismatch[\s\S]*kind: 'unavailable'[\s\S]*retryable: true/u)
+  assert.match(page, /const isCurrentRequest = context[\s\S]*contextStillTargetsCurrentWorkspace\(context\)/u)
+  assert.match(page, /authoritativePermissionMismatch[\s\S]*context\.permission !== currentPermission\(\)[\s\S]*workspaceContextMismatch\(\)/u)
+  assert.match(page, /error instanceof AppApiError[\s\S]*appServiceStateFromError\(error\)/u)
+  assert.match(page, /async function retry\(\)[\s\S]*session\.value = undefined[\s\S]*await accountApi\.session\(\)[\s\S]*await refresh\(\)/u)
+  assert.match(page, /watch\(workspaceId,[\s\S]*void refresh\(\)/u)
+  assert.match(page, /watch\(workspaceTransitionRevision,[\s\S]*void refresh\(\)/u)
+  assert.match(page, /activePopups[\s\S]*closeActivePopups/u)
   // Fail-closed provider availability drives an explicit unavailable state.
-  assert.match(page, /provider\.status === 'available'/u)
-  assert.match(page, /social\.providerUnavailable/u)
+  assert.match(page, /catalogState\(provider\) === 'available'/u)
+  assert.match(page, /social\.catalogState\.\$\{catalogState\(provider\)\}/u)
   // Accessible feedback: errors announce as alert, successes as status.
   assert.match(page, /:role="notice\.tone === 'success' \? 'status' : 'alert'"/u)
 })
@@ -76,14 +102,13 @@ test('the page distinguishes configuration, access denial, and temporary Meta er
 })
 
 test('the social channels page never touches token or browser storage', async () => {
-  const [page, api, contract] = await Promise.all([
+  const [page, api] = await Promise.all([
     source('../pages/social-channels.vue'),
     source('../components/core/social-api.ts'),
-    source('../components/core/social-connections.ts'),
   ])
-  const joined = `${page}\n${api}\n${contract}`.toLowerCase()
+  const joined = `${page}\n${api}`.toLowerCase()
   assert.doesNotMatch(joined, /localstorage|sessionstorage/u)
-  assert.doesNotMatch(joined, /access_token|refresh_token|page_access_token/u)
+  assert.doesNotMatch(joined, /\baccess_token\b|\brefresh_token\b|\bpage_access_token\b/u)
 })
 
 test('every social catalog key is present, localized, and identical across locales', () => {

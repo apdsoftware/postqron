@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  discoveryKindsForProvider,
   parseSocialBootstrap,
   parseSocialAuthorization,
   parseSocialConnection,
@@ -8,6 +9,7 @@ import {
   parseSocialRevocation,
   parseSocialSelection,
 } from '../components/core/social-connections.ts'
+import { socialBootstrapFixture } from './fixtures.ts'
 
 const connectionPayload = {
   id: 'conn-1',
@@ -26,24 +28,31 @@ const connectionPayload = {
 }
 
 test('bootstrap availability parses fail-closed provider states', () => {
-  const bootstrap = parseSocialBootstrap({
-    providers: [
-      { provider: 'facebook_pages', status: 'available', retryable: false },
-      { provider: 'instagram_professional', status: 'unavailable', retryable: false },
-    ],
-  })
+  const bootstrap = parseSocialBootstrap(socialBootstrapFixture())
   assert.equal(bootstrap.providers.length, 2)
+  assert.equal(bootstrap.catalog.length, 13)
   assert.equal(bootstrap.providers[0]?.status, 'available')
   assert.equal(bootstrap.providers[1]?.status, 'unavailable')
 })
 
+test('dynamic discovery exposes only provider-compatible inputs', () => {
+  assert.deepEqual(discoveryKindsForProvider('mastodon'), ['instance_origin'])
+  assert.deepEqual(discoveryKindsForProvider('bluesky'), ['handle', 'did', 'pds_origin'])
+  assert.deepEqual(discoveryKindsForProvider('facebook_pages'), [])
+})
+
 test('bootstrap rejects an unknown provider or status', () => {
-  assert.throws(() => parseSocialBootstrap({
-    providers: [{ provider: 'tiktok', status: 'available', retryable: false }],
-  }))
-  assert.throws(() => parseSocialBootstrap({
-    providers: [{ provider: 'facebook_pages', status: 'maybe', retryable: false }],
-  }))
+  const unknown = socialBootstrapFixture() as unknown as {
+    catalog: Array<Record<string, unknown>>
+  }
+  unknown.catalog[0]!.provider = 'surprise'
+  assert.throws(() => parseSocialBootstrap(unknown))
+
+  const invalid = socialBootstrapFixture() as unknown as {
+    catalog: Array<Record<string, unknown>>
+  }
+  invalid.catalog[0]!.status = 'maybe'
+  assert.throws(() => parseSocialBootstrap(invalid))
 })
 
 test('authorization requires an https URL and rejects insecure hand-offs', () => {
