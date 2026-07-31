@@ -99,6 +99,7 @@ func (repository *failingMarkReconnectRepository) MarkReconnectRequired(
 	string,
 	string,
 	string,
+	string,
 	time.Time,
 	Event,
 ) (Connection, bool, error) {

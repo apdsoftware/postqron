@@ -187,6 +187,7 @@ func (repository *MemoryRepository) Connect(
 		existing.Binding = selected.Binding
 		existing.RefreshTokenMode = selected.RefreshTokenMode
 		existing.RefreshLockedUntil = nil
+		existing.RefreshLeaseID = ""
 		existing.SessionLockedUntil = nil
 		existing.SessionLeaseID = ""
 		existing.SessionRefreshing = false
@@ -310,7 +311,12 @@ func (repository *MemoryRepository) ClaimRefresh(
 		return StoredCredential{}, false, ErrRefreshInProgress
 	}
 	lockedUntil := now.Add(lockTTL)
+	leaseID, err := randomOpaqueID(18)
+	if err != nil {
+		return StoredCredential{}, false, err
+	}
 	stored.RefreshLockedUntil = &lockedUntil
+	stored.RefreshLeaseID = leaseID
 	repository.connections[connectionID] = stored
 	return cloneStoredCredential(stored), true, nil
 }
@@ -325,7 +331,10 @@ func (repository *MemoryRepository) CompleteRefresh(
 	if !exists {
 		return Connection{}, ErrResourceNotFound
 	}
-	if stored.Status != StatusConnected || stored.RefreshLockedUntil == nil {
+	if stored.Status != StatusConnected ||
+		stored.RefreshLockedUntil == nil ||
+		command.RefreshLeaseID == "" ||
+		stored.RefreshLeaseID != command.RefreshLeaseID {
 		return Connection{}, ErrRefreshInProgress
 	}
 	stored.AccessTokenCiphertext = cloneCiphertext(command.AccessTokenCiphertext)
@@ -334,6 +343,7 @@ func (repository *MemoryRepository) CompleteRefresh(
 	stored.TokenExpiresAt = cloneTimePointer(command.ExpiresAt)
 	stored.LastVerifiedAt = cloneTimePointer(&command.VerifiedAt)
 	stored.RefreshLockedUntil = nil
+	stored.RefreshLeaseID = ""
 	stored.UpdatedAt = command.Now
 	repository.connections[stored.ID] = stored
 	repository.events = append(repository.events, command.Event)
@@ -342,7 +352,7 @@ func (repository *MemoryRepository) CompleteRefresh(
 
 func (repository *MemoryRepository) ReleaseRefresh(
 	_ context.Context,
-	workspaceID, connectionID string,
+	workspaceID, connectionID, leaseID string,
 ) error {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
@@ -350,7 +360,11 @@ func (repository *MemoryRepository) ReleaseRefresh(
 	if !exists || stored.WorkspaceID != workspaceID {
 		return ErrResourceNotFound
 	}
+	if leaseID == "" || stored.RefreshLeaseID != leaseID {
+		return ErrRefreshInProgress
+	}
 	stored.RefreshLockedUntil = nil
+	stored.RefreshLeaseID = ""
 	repository.connections[connectionID] = stored
 	return nil
 }
@@ -547,7 +561,7 @@ func (repository *MemoryRepository) ReleaseSession(
 
 func (repository *MemoryRepository) MarkReconnectRequired(
 	_ context.Context,
-	workspaceID, connectionID, reason string,
+	workspaceID, connectionID, refreshLeaseID, reason string,
 	now time.Time,
 	event Event,
 ) (Connection, bool, error) {
@@ -563,6 +577,9 @@ func (repository *MemoryRepository) MarkReconnectRequired(
 	if stored.Status == StatusReconnectRequired {
 		return cloneConnection(stored.Connection), false, nil
 	}
+	if refreshLeaseID != "" && stored.RefreshLeaseID != refreshLeaseID {
+		return Connection{}, false, ErrRefreshInProgress
+	}
 	stored.Status = StatusReconnectRequired
 	stored.ReconnectReason = reason
 	stored.AccessTokenCiphertext = Ciphertext{}
@@ -570,6 +587,7 @@ func (repository *MemoryRepository) MarkReconnectRequired(
 	stored.OAuthSessionCiphertext = Ciphertext{}
 	stored.TokenExpiresAt = nil
 	stored.RefreshLockedUntil = nil
+	stored.RefreshLeaseID = ""
 	stored.SessionLockedUntil = nil
 	stored.SessionLeaseID = ""
 	stored.SessionRefreshing = false
@@ -601,6 +619,7 @@ func (repository *MemoryRepository) Revoke(
 	stored.OAuthSessionCiphertext = Ciphertext{}
 	stored.TokenExpiresAt = nil
 	stored.RefreshLockedUntil = nil
+	stored.RefreshLeaseID = ""
 	stored.SessionLockedUntil = nil
 	stored.SessionLeaseID = ""
 	stored.SessionRefreshing = false

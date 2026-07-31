@@ -20,6 +20,38 @@ family; setting an invented or premature environment flag cannot enable them.
 These are publishing channels, not the Facebook identity/login providers owned
 by F3. F5 never creates an application session or links a login method.
 
+## Hosted OAuth persistence audit (#371)
+
+The July 31, 2026 audit compared this slice with Buffer's hosted OAuth product
+model. Provider application credentials are global Postqron runtime secrets;
+the public begin contract accepts only a provider and, for decentralized
+networks, typed discovery. Unknown fields are rejected, so a workspace cannot
+supply a client ID, client secret, social password, or app password.
+
+Tenant OAuth state is PostgreSQL-backed throughout the flow:
+
+- begin stores a one-time state hash plus encrypted PKCE or dynamic provider
+  state, bound to the initiating workspace and Owner;
+- callback consumes that row atomically and stores discovered resources with
+  AES-GCM-encrypted access/refresh tokens and dynamic session material;
+- selection atomically promotes one workspace-bound resource into a social
+  connection; list, refresh, reconnect, and revoke read the connection back
+  from PostgreSQL rather than process memory;
+- scopes, expiry, provider/resource identifiers, and safe display metadata are
+  persisted as the grant's queryable operational metadata, while all bearer,
+  refresh, DPoP, nonce, PKCE, and opaque provider-session material remains
+  encrypted. Provider client secrets remain in server-side runtime secret
+  configuration, and the encryption master key is external to PostgreSQL.
+
+The audit found and closed two runtime gaps: dynamic adapters completed begin
+and callback but were rejected during explicit resource selection, and static
+refresh locking had no lease identity. Refresh completion/release now requires
+the exact persisted lease ID, preventing an expired worker from overwriting or
+unlocking its successor after a process pause or restart. PostgreSQL tests
+cover restart persistence, stale-worker races, Owner authorization, and
+cross-workspace denial; HTTP tests cover the hosted contract and reject tenant
+developer keys.
+
 The domain flow is deliberately two-step. `Begin`/`Callback` discovers
 publishable resources and returns only safe metadata; `Select` requires the
 Owner to name one exact remote resource before a connection exists. OAuth

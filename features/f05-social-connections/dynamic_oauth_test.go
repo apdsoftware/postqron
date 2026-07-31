@@ -339,7 +339,7 @@ func TestDynamicDiscoveryAndBindingRejectSSRFOrigins(t *testing.T) {
 	}
 }
 
-func TestDynamicAttemptAndSessionAreEncryptedAndIssuerSubjectBound(t *testing.T) {
+func TestDynamicAttemptSessionAndSelectionArePersistedAndBound(t *testing.T) {
 	fixture := newDynamicServiceFixture(t)
 	fixture.adapter.completeResult = DynamicCompletion{
 		Resources: []DiscoveredResource{{
@@ -420,39 +420,64 @@ func TestDynamicAttemptAndSessionAreEncryptedAndIssuerSubjectBound(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.repository.mu.Lock()
-	defer fixture.repository.mu.Unlock()
-	for _, attempt := range fixture.repository.attempts {
-		if attempt.Binding.Issuer != "https://auth.example.com" ||
-			attempt.Binding.ResourceServer != "https://pds.example.com" ||
-			attempt.Binding.Subject != dynamicTestDID {
-			t.Fatalf("attempt binding = %#v", attempt.Binding)
+	func() {
+		fixture.repository.mu.Lock()
+		defer fixture.repository.mu.Unlock()
+		for _, attempt := range fixture.repository.attempts {
+			if attempt.Binding.Issuer != "https://auth.example.com" ||
+				attempt.Binding.ResourceServer != "https://pds.example.com" ||
+				attempt.Binding.Subject != dynamicTestDID {
+				t.Fatalf("attempt binding = %#v", attempt.Binding)
+			}
+			if strings.Contains(
+				string(attempt.OAuthStateCiphertext.Data),
+				"encrypted-by-central-attempt-state",
+			) ||
+				strings.Contains(
+					string(attempt.OAuthStateCiphertext.Data),
+					"urn:example:par",
+				) {
+				t.Fatal("attempt ciphertext contains provider state or PAR request_uri")
+			}
+		}
+		storedSelection := fixture.repository.selections[selection.ID]
+		if len(storedSelection.Resources) != 1 {
+			t.Fatalf("stored dynamic resources = %d", len(storedSelection.Resources))
+		}
+		resource := storedSelection.Resources[0]
+		if resource.Binding.Subject != dynamicTestDID ||
+			resource.RefreshTokenMode != RefreshTokenSingleUse {
+			t.Fatalf("stored session contract = %#v/%q", resource.Binding, resource.RefreshTokenMode)
 		}
 		if strings.Contains(
-			string(attempt.OAuthStateCiphertext.Data),
-			"encrypted-by-central-attempt-state",
-		) ||
-			strings.Contains(
-				string(attempt.OAuthStateCiphertext.Data),
-				"urn:example:par",
-			) {
-			t.Fatal("attempt ciphertext contains provider state or PAR request_uri")
+			string(resource.OAuthSessionCiphertext.Data),
+			"callback-dpop-private-key-and-nonces",
+		) {
+			t.Fatal("session ciphertext contains DPoP key or nonce state")
 		}
+		delete(fixture.repository.connections, fixture.connectionID)
+		delete(
+			fixture.repository.connectionKey,
+			uniqueConnectionKey("workspace-1", ProviderBluesky, dynamicTestDID),
+		)
+	}()
+
+	connection, err := fixture.service.Select(
+		context.Background(),
+		SelectRequest{
+			WorkspaceID: "workspace-1",
+			ActorID:     "owner-1",
+			SelectionID: selection.ID,
+			RemoteID:    dynamicTestDID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("select dynamic resource: %v", err)
 	}
-	storedSelection := fixture.repository.selections[selection.ID]
-	if len(storedSelection.Resources) != 1 {
-		t.Fatalf("stored dynamic resources = %d", len(storedSelection.Resources))
-	}
-	resource := storedSelection.Resources[0]
-	if resource.Binding.Subject != dynamicTestDID ||
-		resource.RefreshTokenMode != RefreshTokenSingleUse {
-		t.Fatalf("stored session contract = %#v/%q", resource.Binding, resource.RefreshTokenMode)
-	}
-	if strings.Contains(
-		string(resource.OAuthSessionCiphertext.Data),
-		"callback-dpop-private-key-and-nonces",
-	) {
-		t.Fatal("session ciphertext contains DPoP key or nonce state")
+	if connection.Provider != ProviderBluesky ||
+		connection.RemoteID != dynamicTestDID ||
+		connection.Status != StatusConnected {
+		t.Fatalf("dynamic connection = %#v", connection)
 	}
 }
 

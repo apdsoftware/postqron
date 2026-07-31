@@ -220,6 +220,29 @@ func TestHTTPRuntimeFailsClosedForUnavailableProviderAndQuota(t *testing.T) {
 	}
 }
 
+func TestHTTPBeginRejectsTenantDeveloperCredentials(t *testing.T) {
+	fixture := newServiceFixture(t)
+	handler, err := NewHTTPHandler(
+		fixture.service,
+		fixedRequestAuthenticator{accountID: "owner-1"},
+		testSocialOrigin,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performSocialRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/workspaces/workspace-1/social-authorizations",
+		`{"provider":"facebook_pages","client_id":"tenant-client","client_secret":"tenant-secret"}`,
+	)
+	if response.Code != http.StatusBadRequest ||
+		!strings.Contains(response.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf("developer credential payload = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestHTTPRuntimeDistinguishesProviderConfigurationGates(t *testing.T) {
 	tests := []struct {
 		name  string

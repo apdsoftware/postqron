@@ -518,6 +518,7 @@ type StoredCredential struct {
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
 	RefreshLockedUntil     *time.Time
+	RefreshLeaseID         string
 	OAuthSessionCiphertext Ciphertext
 	Binding                OAuthBinding
 	RefreshTokenMode       RefreshTokenMode
@@ -580,6 +581,7 @@ type ChannelQuota interface {
 
 type RefreshCommand struct {
 	ConnectionID           string
+	RefreshLeaseID         string
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
 	Scopes                 []string
@@ -750,14 +752,14 @@ type Repository interface {
 	GetCredential(context.Context, string, string) (StoredCredential, error)
 	ClaimRefresh(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
 	CompleteRefresh(context.Context, RefreshCommand) (Connection, error)
-	ReleaseRefresh(context.Context, string, string) error
+	ReleaseRefresh(context.Context, string, string, string) error
 	ClaimSession(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
 	CompleteSession(context.Context, SessionCommand) (Connection, error)
 	ReleaseSession(context.Context, string, string, string) error
 	SaveLinkedInDMSGrant(context.Context, StoredLinkedInDMSGrant) error
 	GetLinkedInDMSGrant(context.Context, string, string, string, time.Time) (StoredLinkedInDMSGrant, error)
 	TransitionLinkedInDMSGrant(context.Context, LinkedInDMSGrantTransition) (StoredLinkedInDMSGrant, error)
-	MarkReconnectRequired(context.Context, string, string, string, time.Time, Event) (Connection, bool, error)
+	MarkReconnectRequired(context.Context, string, string, string, string, time.Time, Event) (Connection, bool, error)
 	Revoke(context.Context, string, string, time.Time, Event) (Connection, bool, error)
 }
 

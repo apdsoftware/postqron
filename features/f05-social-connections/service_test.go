@@ -857,6 +857,100 @@ func TestExpiredCredentialRefreshesOnceAndEmitsEvent(t *testing.T) {
 	}
 }
 
+func TestRefreshLeaseRejectsStaleCompletionAndRelease(t *testing.T) {
+	fixture := newServiceFixture(t)
+	expired := serviceTestNow.Add(-time.Minute)
+	fixture.instagram.resources = []DiscoveredResource{instagramResource(
+		"ig-refresh-lease",
+		"refresh-lease",
+		"old-token",
+		&expired,
+	)}
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderInstagramProfessional,
+		"ig-refresh-lease",
+	)
+	first, claimed, err := fixture.repository.ClaimRefresh(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+		serviceTestNow,
+		serviceTestNow,
+		time.Second,
+	)
+	if err != nil || !claimed || first.RefreshLeaseID == "" {
+		t.Fatalf("first refresh claim = %#v, claimed %v, error %v", first, claimed, err)
+	}
+	second, claimed, err := fixture.repository.ClaimRefresh(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+		serviceTestNow.Add(2*time.Second),
+		serviceTestNow.Add(2*time.Second),
+		time.Second,
+	)
+	if err != nil || !claimed || second.RefreshLeaseID == "" ||
+		second.RefreshLeaseID == first.RefreshLeaseID {
+		t.Fatalf("second refresh claim = %#v, claimed %v, error %v", second, claimed, err)
+	}
+	if _, err = fixture.repository.CompleteRefresh(
+		context.Background(),
+		RefreshCommand{
+			ConnectionID:           connection.ID,
+			RefreshLeaseID:         first.RefreshLeaseID,
+			AccessTokenCiphertext:  first.AccessTokenCiphertext,
+			RefreshTokenCiphertext: first.RefreshTokenCiphertext,
+			Scopes:                 first.Scopes,
+			ExpiresAt:              first.TokenExpiresAt,
+			VerifiedAt:             serviceTestNow,
+			Now:                    serviceTestNow,
+		},
+	); !errors.Is(err, ErrRefreshInProgress) {
+		t.Fatalf("stale refresh completion error = %v", err)
+	}
+	if err = fixture.repository.ReleaseRefresh(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+		first.RefreshLeaseID,
+	); !errors.Is(err, ErrRefreshInProgress) {
+		t.Fatalf("stale refresh release error = %v", err)
+	}
+	if _, _, err = fixture.repository.MarkReconnectRequired(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+		first.RefreshLeaseID,
+		"stale_refresh_failure",
+		serviceTestNow.Add(2*time.Second),
+		Event{},
+	); !errors.Is(err, ErrRefreshInProgress) {
+		t.Fatalf("stale refresh reconnect error = %v", err)
+	}
+	persisted, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusConnected ||
+		persisted.RefreshLeaseID != second.RefreshLeaseID {
+		t.Fatalf("active refresh state = %#v, want lease %q", persisted, second.RefreshLeaseID)
+	}
+	if err = fixture.repository.ReleaseRefresh(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+		second.RefreshLeaseID,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRevokedPermissionTransitionsOnceWithoutRefreshLoopAndReconnects(
 	t *testing.T,
 ) {
@@ -1174,6 +1268,7 @@ func TestReconnectRequiredDoesNotConsumeASecondChannelQuota(t *testing.T) {
 		context.Background(),
 		"workspace-1",
 		connection.ID,
+		"",
 		"authentication_revoked",
 		serviceTestNow.Add(time.Minute),
 		Event{
