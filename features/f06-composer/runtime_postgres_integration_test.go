@@ -303,6 +303,19 @@ func TestPostgresDestinationResolverRejectsUnknownCrossWorkspaceAndDisconnectedC
 			ActorID:     accountID,
 		},
 	)
+	insertConnectedRuntimeChannel(
+		t,
+		database,
+		runtimeChannel{
+			ID:          "channel-invalid-linkedin-" + workspaceID,
+			WorkspaceID: workspaceID,
+			Provider:    "linkedin",
+			Resource:    "linkedin_page",
+			AccountType: "profile",
+			DisplayName: "Broken LinkedIn channel",
+			ActorID:     accountID,
+		},
+	)
 	catalog, err := ParseCapabilityCatalog(runtimeCapabilityCatalog(t))
 	if err != nil {
 		t.Fatal(err)
@@ -336,6 +349,11 @@ func TestPostgresDestinationResolverRejectsUnknownCrossWorkspaceAndDisconnectedC
 			channelID: "channel-disconnected-" + workspaceID,
 			code:      "channel_disconnected",
 		},
+		{
+			name:      "unsupported-resource",
+			channelID: "channel-invalid-linkedin-" + workspaceID,
+			code:      "channel_resource_unsupported",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -354,6 +372,122 @@ func TestPostgresDestinationResolverRejectsUnknownCrossWorkspaceAndDisconnectedC
 			var fieldError *FieldRuleError
 			if !errors.As(err, &fieldError) || fieldError.Code != test.code {
 				t.Fatalf("resolver error = %#v", err)
+			}
+		})
+	}
+}
+
+func TestPostgresDestinationResolverDisambiguatesLinkedInProfileAndPage(
+	t *testing.T,
+) {
+	databaseURL := os.Getenv("F06_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("F06_DATABASE_URL is not configured")
+	}
+	database, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	workspaceID, accountID := createRuntimeWorkspace(t, database, "linkedin")
+	insertConnectedRuntimeChannel(
+		t,
+		database,
+		runtimeChannel{
+			ID:          "channel-linkedin-profile-" + workspaceID,
+			WorkspaceID: workspaceID,
+			Provider:    "linkedin",
+			Resource:    "linkedin_profile",
+			AccountType: "profile",
+			DisplayName: "LinkedIn profile",
+			ActorID:     accountID,
+		},
+	)
+	insertConnectedRuntimeChannel(
+		t,
+		database,
+		runtimeChannel{
+			ID:          "channel-linkedin-page-" + workspaceID,
+			WorkspaceID: workspaceID,
+			Provider:    "linkedin",
+			Resource:    "linkedin_page",
+			AccountType: "organization",
+			DisplayName: "LinkedIn page",
+			ActorID:     accountID,
+		},
+	)
+
+	module := newRuntimeModule(t, database)
+	if err := module.Configure(map[string]string{
+		configCapabilitiesJSON: runtimeCapabilityCatalog(t),
+		configAllowedOrigins:   "https://postqron.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	handler, ok := module.Handler(composerRuntimeHandlerName)
+	if !ok {
+		t.Fatal("runtime handler missing")
+	}
+
+	tests := []struct {
+		name          string
+		channelID     string
+		expectedType  ChannelType
+		expectedCapID string
+	}{
+		{
+			name:          "profile",
+			channelID:     "channel-linkedin-profile-" + workspaceID,
+			expectedType:  "linkedin_profile_text",
+			expectedCapID: "runtime:linkedin:profile:text",
+		},
+		{
+			name:          "page",
+			channelID:     "channel-linkedin-page-" + workspaceID,
+			expectedType:  "linkedin_page_text",
+			expectedCapID: "runtime:linkedin:page:text",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{
+				"content": DraftContent{
+					Text: "linkedin ready",
+					Destinations: []Destination{{
+						ID:           "linkedin-text",
+						ChannelID:    test.channelID,
+						ChannelType:  "ignored",
+						CapabilityID: "ignored",
+						Format:       FormatText,
+					}},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := authenticatedRuntimeRequest(
+				http.MethodPost,
+				"/api/v1/workspaces/"+workspaceID+"/drafts",
+				string(payload),
+				accountID,
+			)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusCreated {
+				t.Fatalf("create = %d %s", response.Code, response.Body.String())
+			}
+			var created DraftView
+			if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
+				t.Fatal(err)
+			}
+			destination := created.Draft.Content.Destinations[0]
+			if destination.ChannelType != test.expectedType ||
+				destination.CapabilityID != test.expectedCapID {
+				t.Fatalf("linkedin destination = %#v", destination)
 			}
 		})
 	}
@@ -743,6 +877,28 @@ func runtimeCapabilityCatalog(t *testing.T) string {
 	        "allowed_audio_codecs": ["aac"],
 	        "require_audio": true
 	      },
+	      "thread": {"allowed": false}
+	    },
+	    {
+	      "id": "runtime:linkedin:profile:text",
+	      "provider": "linkedin",
+	      "channel_type": "linkedin_profile_text",
+	      "format": "text",
+	      "available": true,
+	      "text": {"allowed": true, "required": true, "max_characters": 3000},
+	      "link": {"allowed": true, "maximum_urls": 1, "require_https": true, "require_public_host": true},
+	      "media": {"allowed": false},
+	      "thread": {"allowed": false}
+	    },
+	    {
+	      "id": "runtime:linkedin:page:text",
+	      "provider": "linkedin",
+	      "channel_type": "linkedin_page_text",
+	      "format": "text",
+	      "available": true,
+	      "text": {"allowed": true, "required": true, "max_characters": 3000},
+	      "link": {"allowed": true, "maximum_urls": 1, "require_https": true, "require_public_host": true},
+	      "media": {"allowed": false},
 	      "thread": {"allowed": false}
 	    }
 	  ]

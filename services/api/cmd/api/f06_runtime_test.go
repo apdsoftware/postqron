@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -117,7 +118,49 @@ func TestComposerFactoryMountsCredentialedRuntimeRoutes(t *testing.T) {
 	}
 }
 
+func TestComposerFeatureDeclaresSocialConnectionsDependencyAndDiscoveryOrder(
+	t *testing.T,
+) {
+	features := discoverRuntimeFeatures(t)
+	composerIndex := -1
+	socialIndex := -1
+	var composer featureruntime.Feature
+	for index, feature := range features {
+		switch feature.Manifest.ID {
+		case "social-connections":
+			socialIndex = index
+		case "f06-composer":
+			composerIndex = index
+			composer = feature
+		}
+	}
+	if composerIndex == -1 || socialIndex == -1 {
+		t.Fatalf("discovered features missing composer/social: %#v", features)
+	}
+	if !slices.Contains(composer.Manifest.Dependencies, "social-connections") {
+		t.Fatalf("composer dependencies = %v", composer.Manifest.Dependencies)
+	}
+	if socialIndex > composerIndex {
+		t.Fatalf(
+			"discovery order = social %d composer %d, want social before composer",
+			socialIndex,
+			composerIndex,
+		)
+	}
+}
+
 func discoverComposerFeature(t *testing.T) featureruntime.Feature {
+	t.Helper()
+	for _, feature := range discoverRuntimeFeatures(t) {
+		if feature.Manifest.ID == "f06-composer" {
+			return feature
+		}
+	}
+	t.Fatal("f06-composer was not discovered")
+	return featureruntime.Feature{}
+}
+
+func discoverRuntimeFeatures(t *testing.T) []featureruntime.Feature {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	if err != nil {
@@ -130,11 +173,5 @@ func discoverComposerFeature(t *testing.T) featureruntime.Feature {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, feature := range features {
-		if feature.Manifest.ID == "f06-composer" {
-			return feature
-		}
-	}
-	t.Fatal("f06-composer was not discovered")
-	return featureruntime.Feature{}
+	return features
 }

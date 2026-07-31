@@ -28,6 +28,8 @@ const (
 	uploadLifetime                  = 24 * time.Hour
 	signedURLLifetime               = 15 * time.Minute
 	maximumImageHeaderBytes   int64 = 16 * 1024 * 1024
+	mediaDeleteLease                = 2 * time.Minute
+	mediaDeleteRecoveryBatch        = 16
 )
 
 type ObjectInfo struct {
@@ -372,9 +374,44 @@ func (store *PostgresMediaStore) Delete(
 	ctx context.Context,
 	workspaceID, mediaID string,
 ) error {
+	recovered, err := store.recoverExpiredTargetDelete(ctx, workspaceID, mediaID)
+	if err != nil {
+		return err
+	}
+	if recovered {
+		return nil
+	}
+	if err := store.recoverExpiredDeleteReservations(
+		ctx,
+		workspaceID,
+		mediaID,
+	); err != nil {
+		return err
+	}
+	objectKey, reservedAt, err := store.claimDeleteReservation(
+		ctx,
+		workspaceID,
+		mediaID,
+	)
+	if err != nil {
+		return err
+	}
+	return store.finalizeDeleteReservation(
+		ctx,
+		workspaceID,
+		mediaID,
+		objectKey,
+		reservedAt,
+	)
+}
+
+func (store *PostgresMediaStore) claimDeleteReservation(
+	ctx context.Context,
+	workspaceID, mediaID string,
+) (string, time.Time, error) {
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin composer media delete: %w", err)
+		return "", time.Time{}, fmt.Errorf("begin composer media delete: %w", err)
 	}
 	defer transaction.Rollback()
 	var objectKey string
@@ -390,50 +427,69 @@ func (store *PostgresMediaStore) Delete(
 		mediaID,
 	).Scan(&objectKey, &deletingAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		return "", time.Time{}, ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("read composer media for deletion: %w", err)
+		return "", time.Time{}, fmt.Errorf("read composer media for deletion: %w", err)
 	}
-	if deletingAt.Valid {
-		return ErrConflict
+	if deletingAt.Valid &&
+		deletingAt.Time.After(store.clock().UTC().Add(-mediaDeleteLease)) {
+		return "", time.Time{}, ErrConflict
 	}
 	reservedAt := store.clock().UTC()
-	tag, err := transaction.ExecContext(ctx, `
-		UPDATE f06_composer_media
-		   SET deleting_at = $3
-		 WHERE workspace_id = $1
-		   AND id = $2
-		   AND attached_draft_id IS NULL
-		   AND deleting_at IS NULL`,
-		workspaceID,
-		mediaID,
-		reservedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("reserve composer media deletion: %w", err)
-	}
-	if affected, _ := tag.RowsAffected(); affected != 1 {
-		return ErrConflict
-	}
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit composer media delete reservation: %w", err)
-	}
-	if err := store.objects.Delete(ctx, objectKey); err != nil {
-		_, _ = store.database.ExecContext(ctx, `
+	var tag sql.Result
+	if deletingAt.Valid {
+		tag, err = transaction.ExecContext(ctx, `
 			UPDATE f06_composer_media
-			   SET deleting_at = NULL
+			   SET deleting_at = $3
 			 WHERE workspace_id = $1
 			   AND id = $2
 			   AND attached_draft_id IS NULL
-			   AND deleting_at = $3`,
+			   AND deleting_at = $4`,
+			workspaceID,
+			mediaID,
+			reservedAt,
+			deletingAt.Time.UTC(),
+		)
+	} else {
+		tag, err = transaction.ExecContext(ctx, `
+			UPDATE f06_composer_media
+			   SET deleting_at = $3
+			 WHERE workspace_id = $1
+			   AND id = $2
+			   AND attached_draft_id IS NULL
+			   AND deleting_at IS NULL`,
 			workspaceID,
 			mediaID,
 			reservedAt,
 		)
+	}
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("reserve composer media deletion: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return "", time.Time{}, ErrConflict
+	}
+	if err := transaction.Commit(); err != nil {
+		return "", time.Time{}, fmt.Errorf(
+			"commit composer media delete reservation: %w",
+			err,
+		)
+	}
+	return objectKey, reservedAt, nil
+}
+
+func (store *PostgresMediaStore) finalizeDeleteReservation(
+	ctx context.Context,
+	workspaceID, mediaID, objectKey string,
+	reservedAt time.Time,
+) error {
+	if err := store.objects.Delete(ctx, objectKey); err != nil &&
+		!errors.Is(err, ErrNotFound) {
+		store.releaseDeleteReservation(ctx, workspaceID, mediaID, reservedAt)
 		return fmt.Errorf("delete composer object: %w", err)
 	}
-	tag, err = store.database.ExecContext(ctx, `
+	tag, err := store.database.ExecContext(ctx, `
 		DELETE FROM f06_composer_media
 		 WHERE workspace_id = $1
 		   AND id = $2
@@ -450,6 +506,184 @@ func (store *PostgresMediaStore) Delete(
 		return ErrConflict
 	}
 	return nil
+}
+
+func (store *PostgresMediaStore) releaseDeleteReservation(
+	ctx context.Context,
+	workspaceID, mediaID string,
+	reservedAt time.Time,
+) {
+	_, _ = store.database.ExecContext(ctx, `
+		UPDATE f06_composer_media
+		   SET deleting_at = NULL
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		   AND deleting_at = $3`,
+		workspaceID,
+		mediaID,
+		reservedAt,
+	)
+}
+
+func (store *PostgresMediaStore) recoverExpiredTargetDelete(
+	ctx context.Context,
+	workspaceID, mediaID string,
+) (bool, error) {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin expired composer media delete recovery: %w", err)
+	}
+	defer transaction.Rollback()
+	var objectKey string
+	var deletingAt sql.NullTime
+	err = transaction.QueryRowContext(ctx, `
+		SELECT object_key, deleting_at
+		  FROM f06_composer_media
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		 FOR UPDATE`,
+		workspaceID,
+		mediaID,
+	).Scan(&objectKey, &deletingAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read expired composer media delete recovery: %w", err)
+	}
+	if !deletingAt.Valid ||
+		deletingAt.Time.After(store.clock().UTC().Add(-mediaDeleteLease)) {
+		return false, nil
+	}
+	reservedAt := store.clock().UTC()
+	tag, err := transaction.ExecContext(ctx, `
+		UPDATE f06_composer_media
+		   SET deleting_at = $3
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		   AND deleting_at = $4`,
+		workspaceID,
+		mediaID,
+		reservedAt,
+		deletingAt.Time.UTC(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("claim expired composer media delete recovery: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return false, ErrConflict
+	}
+	if err := transaction.Commit(); err != nil {
+		return false, fmt.Errorf("commit expired composer media delete recovery: %w", err)
+	}
+	return true, store.finalizeDeleteReservation(
+		ctx,
+		workspaceID,
+		mediaID,
+		objectKey,
+		reservedAt,
+	)
+}
+
+func (store *PostgresMediaStore) recoverExpiredDeleteReservations(
+	ctx context.Context,
+	workspaceID, skipMediaID string,
+) error {
+	var recoveryErrors []error
+	for recovered := 0; recovered < mediaDeleteRecoveryBatch; recovered++ {
+		mediaID, objectKey, reservedAt, ok, err :=
+			store.claimNextExpiredDeleteReservation(ctx, workspaceID, skipMediaID)
+		if err != nil {
+			recoveryErrors = append(recoveryErrors, err)
+			break
+		}
+		if !ok {
+			break
+		}
+		if err := store.finalizeDeleteReservation(
+			ctx,
+			workspaceID,
+			mediaID,
+			objectKey,
+			reservedAt,
+		); err != nil {
+			recoveryErrors = append(recoveryErrors, err)
+		}
+	}
+	return errors.Join(recoveryErrors...)
+}
+
+func (store *PostgresMediaStore) claimNextExpiredDeleteReservation(
+	ctx context.Context,
+	workspaceID, skipMediaID string,
+) (string, string, time.Time, bool, error) {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return "", "", time.Time{}, false, fmt.Errorf(
+			"begin composer media delete sweep: %w",
+			err,
+		)
+	}
+	defer transaction.Rollback()
+	var mediaID string
+	var objectKey string
+	var deletingAt time.Time
+	err = transaction.QueryRowContext(ctx, `
+		SELECT id, object_key, deleting_at
+		  FROM f06_composer_media
+		 WHERE workspace_id = $1
+		   AND attached_draft_id IS NULL
+		   AND deleting_at IS NOT NULL
+		   AND deleting_at < $2
+		   AND ($3 = '' OR id <> $3)
+		 ORDER BY deleting_at, id
+		 LIMIT 1
+		 FOR UPDATE SKIP LOCKED`,
+		workspaceID,
+		store.clock().UTC().Add(-mediaDeleteLease),
+		skipMediaID,
+	).Scan(&mediaID, &objectKey, &deletingAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", time.Time{}, false, nil
+	}
+	if err != nil {
+		return "", "", time.Time{}, false, fmt.Errorf(
+			"scan composer media delete sweep: %w",
+			err,
+		)
+	}
+	reservedAt := store.clock().UTC()
+	tag, err := transaction.ExecContext(ctx, `
+		UPDATE f06_composer_media
+		   SET deleting_at = $3
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND attached_draft_id IS NULL
+		   AND deleting_at = $4`,
+		workspaceID,
+		mediaID,
+		reservedAt,
+		deletingAt.UTC(),
+	)
+	if err != nil {
+		return "", "", time.Time{}, false, fmt.Errorf(
+			"claim composer media delete sweep: %w",
+			err,
+		)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return "", "", time.Time{}, false, ErrConflict
+	}
+	if err := transaction.Commit(); err != nil {
+		return "", "", time.Time{}, false, fmt.Errorf(
+			"commit composer media delete sweep: %w",
+			err,
+		)
+	}
+	return mediaID, objectKey, reservedAt, true, nil
 }
 
 func (store *PostgresMediaStore) Canonicalize(

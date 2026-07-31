@@ -456,6 +456,121 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 			t.Fatalf("deleted media row count = %d, want 0", remaining)
 		}
 	})
+
+	t.Run("expired delete reservation recovers after crash before object delete", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-crash-before")
+		objects, media, _, _ := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			6,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-crash-before.png",
+		)
+		expireDeleteReservation(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			now.Add(-mediaDeleteLease-time.Second),
+		)
+		if err := media.Delete(context.Background(), workspaceID, inspected.ID); err != nil {
+			t.Fatalf("delete recovery after crash before object delete = %v", err)
+		}
+		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
+	})
+
+	t.Run("expired delete reservation recovers after crash after object delete", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-crash-after")
+		objects, media, _, _ := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			7,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-crash-after.png",
+		)
+		expireDeleteReservation(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			now.Add(-mediaDeleteLease-time.Second),
+		)
+		objects.mutex.Lock()
+		delete(objects.objects, objectKey)
+		objects.mutex.Unlock()
+		if err := media.Delete(context.Background(), workspaceID, inspected.ID); err != nil {
+			t.Fatalf("delete recovery after crash after object delete = %v", err)
+		}
+		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
+	})
+
+	t.Run("expired delete reservation lease stays single-writer under concurrency", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-recover-race")
+		objects, media, _, _ := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			8,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-recover-race.png",
+		)
+		expireDeleteReservation(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			now.Add(-mediaDeleteLease-time.Second),
+		)
+		deleteStarted := make(chan string, 1)
+		deleteRelease := make(chan struct{})
+		objects.deleteStart = deleteStarted
+		objects.deleteWait = deleteRelease
+		firstErrCh := make(chan error, 1)
+		secondErrCh := make(chan error, 1)
+		go func() {
+			firstErrCh <- media.Delete(context.Background(), workspaceID, inspected.ID)
+		}()
+		select {
+		case key := <-deleteStarted:
+			if key != objectKey {
+				t.Fatalf("concurrent recovery delete key = %q, want %q", key, objectKey)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for recovered delete to start")
+		}
+		go func() {
+			secondErrCh <- media.Delete(context.Background(), workspaceID, inspected.ID)
+		}()
+		secondErr := <-secondErrCh
+		if !errors.Is(secondErr, ErrConflict) {
+			t.Fatalf("second concurrent recovery delete = %v, want conflict", secondErr)
+		}
+		close(deleteRelease)
+		if err := <-firstErrCh; err != nil {
+			t.Fatalf("first concurrent recovery delete = %v", err)
+		}
+		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
+	})
 }
 
 func atomicMediaTestService(
@@ -543,6 +658,54 @@ func createReadyAtomicMedia(
 		t.Fatal(err)
 	}
 	return inspected, objectKey
+}
+
+func expireDeleteReservation(
+	t *testing.T,
+	database *sql.DB,
+	workspaceID, mediaID string,
+	reservedAt time.Time,
+) {
+	t.Helper()
+	if _, err := database.Exec(`
+		UPDATE f06_composer_media
+		   SET deleting_at = $3
+		 WHERE workspace_id = $1
+		   AND id = $2`,
+		workspaceID,
+		mediaID,
+		reservedAt.UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertDeletedAtomicMedia(
+	t *testing.T,
+	database *sql.DB,
+	objects *fakeObjectStore,
+	workspaceID, mediaID, objectKey string,
+) {
+	t.Helper()
+	var remaining int
+	if err := database.QueryRow(`
+		SELECT count(*)
+		  FROM f06_composer_media
+		 WHERE workspace_id = $1 AND id = $2`,
+		workspaceID,
+		mediaID,
+	).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining media rows = %d, want 0", remaining)
+	}
+	objects.mutex.Lock()
+	_, exists := objects.objects[objectKey]
+	objects.mutex.Unlock()
+	if exists {
+		t.Fatalf("object %q still exists after delete recovery", objectKey)
+	}
 }
 
 func assertDraftCount(

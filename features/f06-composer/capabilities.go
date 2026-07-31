@@ -188,6 +188,32 @@ func (catalog CapabilityCatalog) ResolveProviderFormat(
 	return resolved, found, nil
 }
 
+func (catalog CapabilityCatalog) ResolveProviderResourceFormat(
+	provider, resourceType string,
+	format Format,
+) (ContentCapability, bool, error) {
+	var resolved ContentCapability
+	found := false
+	for _, capability := range catalog.Capabilities {
+		if capability.Provider != provider ||
+			capability.Format != format ||
+			!channelTypeMatchesResource(capability.ChannelType, resourceType) {
+			continue
+		}
+		if found {
+			return ContentCapability{}, false, fmt.Errorf(
+				"duplicate provider/resource/format capability for %q, %q, and %q",
+				provider,
+				resourceType,
+				format,
+			)
+		}
+		resolved = capability
+		found = true
+	}
+	return resolved, found, nil
+}
+
 func cloneCatalog(catalog CapabilityCatalog) CapabilityCatalog {
 	copyOfCatalog := catalog
 	copyOfCatalog.Capabilities = slices.Clone(catalog.Capabilities)
