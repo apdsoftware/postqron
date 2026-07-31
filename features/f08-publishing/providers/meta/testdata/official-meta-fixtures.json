@@ -1,0 +1,40 @@
+[
+  {
+    "provider": "facebook_pages",
+    "mode": "auto",
+    "formats": ["text", "link", "image"],
+    "create_path": "/v25.0/me/feed",
+    "reconciliation": false,
+    "multi_step": true
+  },
+  {
+    "provider": "instagram_professional",
+    "mode": "auto",
+    "formats": ["image", "carousel", "reel"],
+    "create_path": "/v25.0/me/media",
+    "publish_path": "/v25.0/me/media_publish",
+    "reconciliation": false,
+    "multi_step": true
+  },
+  {
+    "provider": "threads",
+    "mode": "auto",
+    "formats": ["text", "image", "carousel", "reel"],
+    "create_path": "/v1.0/me/threads",
+    "publish_path": "/v1.0/me/threads_publish",
+    "reconciliation": false,
+    "multi_step": true
+  },
+  {
+    "provider": "facebook_groups",
+    "mode": "notification",
+    "formats": ["text", "link", "image", "carousel", "reel"],
+    "notification_idempotency": true
+  },
+  {
+    "provider": "instagram_personal",
+    "mode": "notification",
+    "formats": ["image", "carousel", "reel"],
+    "notification_idempotency": true
+  }
+]

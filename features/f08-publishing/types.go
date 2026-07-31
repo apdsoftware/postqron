@@ -38,15 +38,20 @@ const (
 
 // AdapterCapabilities is captured in the immutable destination snapshot.
 // Provider names never imply safety: auto-publishing is enabled only when the
-// adapter declares native idempotency or deterministic reconciliation.
+// adapter declares native idempotency, deterministic reconciliation, or an
+// explicit guarantee that ambiguous mutations are never replayed.
 type AdapterCapabilities struct {
 	Version                 string         `json:"version"`
 	Mode                    PublishingMode `json:"mode"`
 	NativeIdempotency       bool           `json:"native_idempotency"`
 	Reconciliation          bool           `json:"reconciliation"`
+	AmbiguousFailClosed     bool           `json:"ambiguous_fail_closed"`
 	MultiStep               bool           `json:"multi_step"`
 	RemotePermalink         bool           `json:"remote_permalink"`
 	NotificationIdempotency bool           `json:"notification_idempotency"`
+	// MediaFormats is a canonical, versioned JSON capability document. It is
+	// kept as a string so immutable snapshots remain directly comparable.
+	MediaFormats string `json:"media_formats,omitempty"`
 }
 
 type CommandState string

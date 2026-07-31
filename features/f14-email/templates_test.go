@@ -33,7 +33,7 @@ func testRenderer(t *testing.T) *Renderer {
 func testMessage(templateID TemplateID) Message {
 	count := int64(12345)
 	amount := int64(123456)
-	return Message{
+	message := Message{
 		ID: "email_1", IdempotencyKey: "event:1",
 		Channel: ChannelTransactional, Template: templateID,
 		TemplateVersion: "1.0.0",
@@ -50,6 +50,11 @@ func testMessage(templateID TemplateID) Message {
 		CreatedAt:   time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		MaxAttempts: 5,
 	}
+	if templateID == TemplateFacebookGroupManual ||
+		templateID == TemplateInstagramPersonalManual {
+		message.SourceWorkspaceID = "workspace-1"
+	}
+	return message
 }
 
 func TestEveryTemplateRendersAllLocalesWithCompleteAlternatives(t *testing.T) {
@@ -181,6 +186,37 @@ func TestAccountVerificationUsesLocalizedExpiryLabel(t *testing.T) {
 	}
 }
 
+func TestManualSocialTemplatesAreTargetSpecificAndContainNoSocialToken(t *testing.T) {
+	renderer := testRenderer(t)
+	tests := []struct {
+		template TemplateID
+		target   string
+	}{
+		{TemplateFacebookGroupManual, "Gruppo Facebook"},
+		{TemplateInstagramPersonalManual, "Instagram personale"},
+	}
+	for _, test := range tests {
+		message := testMessage(test.template)
+		message.Data.Detail = ""
+		message.Data.ActionURL = "https://app.example.test/app/posts/post-1?channel=channel-1"
+		rendered, err := renderer.Render(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		combined := rendered.Subject + "\n" + rendered.HTML + "\n" + rendered.Text
+		if !strings.Contains(combined, test.target) {
+			t.Fatalf("%s copy is not target-specific", test.template)
+		}
+		for _, forbidden := range []string{
+			"access_token", "refresh_token", "oauth", "bearer", "social-token",
+		} {
+			if strings.Contains(strings.ToLower(combined), forbidden) {
+				t.Fatalf("%s leaked %q", test.template, forbidden)
+			}
+		}
+	}
+}
+
 func TestOtherTemplatesRetainLocalizedDateAndTimeLabel(t *testing.T) {
 	renderer := testRenderer(t)
 	tests := []struct {
@@ -277,7 +313,7 @@ func TestNormalizedTemplateCatalogSnapshot(t *testing.T) {
 			_, _ = hash.Write([]byte(normalized))
 		}
 	}
-	const expected = "6023ec0eb5bc771319c74f0ca21dcf4f71c68cda63b16f0f5abe4a3b9793891d"
+	const expected = "b5df191e51e75bc20eb0df7e9de428c7fe16bba25a6284496dbd63d5a9436507"
 	if actual := hex.EncodeToString(hash.Sum(nil)); actual != expected {
 		t.Fatalf("normalized template snapshot = %s, want %s", actual, expected)
 	}
