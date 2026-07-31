@@ -243,12 +243,14 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	}
 	if _, _, err = repository.MarkReconnectRequired(
 		context.Background(),
-		workspaceID,
-		connection.ID,
-		firstLease.RefreshLeaseID,
-		"stale_refresh_failure",
-		serviceTestNow.Add(2*time.Second),
-		Event{},
+		ReconnectCommand{
+			WorkspaceID:                  workspaceID,
+			ConnectionID:                 connection.ID,
+			ExpectedCredentialGeneration: firstLease.CredentialGeneration,
+			ExpectedRefreshLeaseID:       firstLease.RefreshLeaseID,
+			Reason:                       "stale_refresh_failure",
+			Now:                          serviceTestNow.Add(2 * time.Second),
+		},
 	); !errors.Is(err, ErrRefreshInProgress) {
 		t.Fatalf("stale PostgreSQL refresh reconnect error = %v", err)
 	}
@@ -676,6 +678,65 @@ func TestPostgresRepositoryDynamicSessionLeaseAndCrashSafety(t *testing.T) {
 	)
 	if err != nil || string(openedSession) != "dynamic-pg-dpop-key|as-2|rs-1" {
 		t.Fatalf("persisted session = %q, error %v", openedSession, err)
+	}
+	firstSession, _, err := repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now,
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSession, _, err := repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now.Add(2*time.Second),
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSession.SessionLeaseID == secondSession.SessionLeaseID {
+		t.Fatal("PostgreSQL expired session lease was reused")
+	}
+	if _, _, err = repository.MarkReconnectRequired(
+		context.Background(),
+		ReconnectCommand{
+			WorkspaceID:                  workspaceID,
+			ConnectionID:                 connectionID,
+			ExpectedCredentialGeneration: firstSession.CredentialGeneration,
+			ExpectedSessionLeaseID:       firstSession.SessionLeaseID,
+			Reason:                       "stale_session_failure",
+			Now:                          now.Add(2 * time.Second),
+		},
+	); !errors.Is(err, ErrAuthenticatedRequestInProgress) {
+		t.Fatalf("stale PostgreSQL session reconnect error = %v", err)
+	}
+	persisted, err = repository.GetCredential(
+		context.Background(),
+		workspaceID,
+		connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusConnected ||
+		persisted.SessionLeaseID != secondSession.SessionLeaseID ||
+		len(persisted.AccessTokenCiphertext.Data) == 0 {
+		t.Fatalf("credential after stale PostgreSQL reconnect = %#v", persisted)
+	}
+	if err = repository.ReleaseSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		secondSession.SessionLeaseID,
+	); err != nil {
+		t.Fatal(err)
 	}
 
 	if _, err = database.ExecContext(context.Background(), `

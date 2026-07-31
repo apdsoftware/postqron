@@ -359,6 +359,7 @@ func (repository *PostgresRepository) Connect(
 				refresh_locked_until = NULL, refresh_lock_id = NULL,
 				session_locked_until = NULL,
 				session_lock_id = NULL, session_refreshing = false,
+				credential_generation = credential_generation + 1,
 				last_verified_at = $19,
 				connected_by_actor_id = $20, updated_at = $19,
 				revoked_at = NULL
@@ -595,6 +596,7 @@ func (repository *PostgresRepository) CompleteRefresh(
 			refresh_token_ciphertext = $6, scopes = $7,
 			token_expires_at = $8, last_verified_at = $9,
 			refresh_locked_until = NULL, refresh_lock_id = NULL,
+			credential_generation = credential_generation + 1,
 			updated_at = $10
 		WHERE id = $1 AND status = 'connected'
 			AND refresh_locked_until IS NOT NULL
@@ -774,6 +776,7 @@ func (repository *PostgresRepository) CompleteSession(
 			session_locked_until = NULL,
 			session_lock_id = NULL,
 			session_refreshing = false,
+			credential_generation = credential_generation + 1,
 			updated_at = $13
 		WHERE id = $1 AND status = 'connected'
 			AND session_lock_id = $2`,
@@ -1023,9 +1026,7 @@ func (repository *PostgresRepository) TransitionLinkedInDMSGrant(
 
 func (repository *PostgresRepository) MarkReconnectRequired(
 	ctx context.Context,
-	workspaceID, connectionID, refreshLeaseID, reason string,
-	now time.Time,
-	event Event,
+	command ReconnectCommand,
 ) (Connection, bool, error) {
 	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelSerializable,
@@ -1038,8 +1039,8 @@ func (repository *PostgresRepository) MarkReconnectRequired(
 		transaction.QueryRowContext(ctx, credentialSelect+`
 			WHERE workspace_id = $1 AND id = $2
 			FOR UPDATE`,
-			workspaceID,
-			connectionID,
+			command.WorkspaceID,
+			command.ConnectionID,
 		),
 	)
 	if err != nil {
@@ -1054,8 +1055,23 @@ func (repository *PostgresRepository) MarkReconnectRequired(
 	if stored.Status == StatusReconnectRequired {
 		return stored.Connection, false, nil
 	}
-	if refreshLeaseID != "" && stored.RefreshLeaseID != refreshLeaseID {
+	if command.ExpectedCredentialGeneration <= 0 ||
+		stored.CredentialGeneration != command.ExpectedCredentialGeneration {
+		return Connection{}, false, ErrInvalidState
+	}
+	if command.ExpectedRefreshLeaseID != "" {
+		if stored.RefreshLeaseID != command.ExpectedRefreshLeaseID {
+			return Connection{}, false, ErrRefreshInProgress
+		}
+	} else if stored.RefreshLeaseID != "" {
 		return Connection{}, false, ErrRefreshInProgress
+	}
+	if command.ExpectedSessionLeaseID != "" {
+		if stored.SessionLeaseID != command.ExpectedSessionLeaseID {
+			return Connection{}, false, ErrAuthenticatedRequestInProgress
+		}
+	} else if stored.SessionLeaseID != "" {
+		return Connection{}, false, ErrAuthenticatedRequestInProgress
 	}
 	if _, err = transaction.ExecContext(ctx, `
 		UPDATE f05_social_connections
@@ -1068,18 +1084,23 @@ func (repository *PostgresRepository) MarkReconnectRequired(
 			oauth_session_key_id = NULL, oauth_session_ciphertext = NULL,
 			session_locked_until = NULL, session_lock_id = NULL,
 			session_refreshing = false,
+			credential_generation = credential_generation + 1,
 			updated_at = $3
 		WHERE id = $1`,
-		connectionID,
-		reason,
-		now,
+		command.ConnectionID,
+		command.Reason,
+		command.Now,
 	); err != nil {
 		return Connection{}, false, err
 	}
-	if err = insertEvent(ctx, transaction, event); err != nil {
+	if err = insertEvent(ctx, transaction, command.Event); err != nil {
 		return Connection{}, false, err
 	}
-	connection, _, err := selectConnectionByID(ctx, transaction, connectionID)
+	connection, _, err := selectConnectionByID(
+		ctx,
+		transaction,
+		command.ConnectionID,
+	)
 	if err != nil {
 		return Connection{}, false, err
 	}
@@ -1130,6 +1151,7 @@ func (repository *PostgresRepository) Revoke(
 			oauth_session_key_id = NULL, oauth_session_ciphertext = NULL,
 			session_locked_until = NULL, session_lock_id = NULL,
 			session_refreshing = false,
+			credential_generation = credential_generation + 1,
 			revoked_at = $2, updated_at = $2
 		WHERE id = $1`,
 		connectionID,
@@ -1199,6 +1221,7 @@ const credentialSelect = `
 		refresh_token_mode, token_expires_at, refresh_locked_until,
 		refresh_lock_id,
 		session_locked_until, session_lock_id, session_refreshing,
+		credential_generation,
 		last_verified_at,
 		connected_by_actor_id, created_at, updated_at, revoked_at
 	FROM f05_social_connections
@@ -1243,6 +1266,7 @@ func selectCredential(scanner rowScanner) (StoredCredential, bool, error) {
 		&sessionLocked,
 		&sessionLeaseID,
 		&stored.SessionRefreshing,
+		&stored.CredentialGeneration,
 		&verified,
 		&stored.ConnectedByActorID,
 		&stored.CreatedAt,

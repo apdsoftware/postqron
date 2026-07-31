@@ -515,6 +515,7 @@ type StoredSelection struct {
 
 type StoredCredential struct {
 	Connection
+	CredentialGeneration   int64
 	AccessTokenCiphertext  Ciphertext
 	RefreshTokenCiphertext Ciphertext
 	RefreshLockedUntil     *time.Time
@@ -603,6 +604,24 @@ type SessionCommand struct {
 	VerifiedAt             time.Time
 	Now                    time.Time
 	Event                  *Event
+}
+
+type ReconnectCommand struct {
+	WorkspaceID                  string
+	ConnectionID                 string
+	ExpectedCredentialGeneration int64
+	ExpectedRefreshLeaseID       string
+	ExpectedSessionLeaseID       string
+	Reason                       string
+	Now                          time.Time
+	Event                        Event
+}
+
+func normalizedCredentialGeneration(generation int64) int64 {
+	if generation > 0 {
+		return generation
+	}
+	return 1
 }
 
 type LinkedInDMSGrantState string
@@ -759,7 +778,7 @@ type Repository interface {
 	SaveLinkedInDMSGrant(context.Context, StoredLinkedInDMSGrant) error
 	GetLinkedInDMSGrant(context.Context, string, string, string, time.Time) (StoredLinkedInDMSGrant, error)
 	TransitionLinkedInDMSGrant(context.Context, LinkedInDMSGrantTransition) (StoredLinkedInDMSGrant, error)
-	MarkReconnectRequired(context.Context, string, string, string, string, time.Time, Event) (Connection, bool, error)
+	MarkReconnectRequired(context.Context, ReconnectCommand) (Connection, bool, error)
 	Revoke(context.Context, string, string, time.Time, Event) (Connection, bool, error)
 }
 

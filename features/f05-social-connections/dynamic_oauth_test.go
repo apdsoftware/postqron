@@ -769,6 +769,165 @@ func TestAuthenticatedRequestSerializesNonceUpdatesAndRejectsStaleLeaseReplay(
 	}
 }
 
+func TestSessionLeaseRejectsStaleReconnectAfterNewClaim(t *testing.T) {
+	fixture := newDynamicServiceFixture(t)
+	now := *fixture.now
+	first, _, err := fixture.repository.ClaimSession(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+		now,
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := fixture.repository.ClaimSession(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+		now.Add(2*time.Second),
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SessionLeaseID == second.SessionLeaseID {
+		t.Fatal("expired session lease was reused")
+	}
+	if _, _, err = fixture.repository.MarkReconnectRequired(
+		context.Background(),
+		ReconnectCommand{
+			WorkspaceID:                  "workspace-1",
+			ConnectionID:                 fixture.connectionID,
+			ExpectedCredentialGeneration: first.CredentialGeneration,
+			ExpectedSessionLeaseID:       first.SessionLeaseID,
+			Reason:                       "stale_session_failure",
+			Now:                          now.Add(2 * time.Second),
+		},
+	); !errors.Is(err, ErrAuthenticatedRequestInProgress) {
+		t.Fatalf("stale session reconnect error = %v", err)
+	}
+	persisted, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusConnected ||
+		persisted.SessionLeaseID != second.SessionLeaseID ||
+		len(persisted.AccessTokenCiphertext.Data) == 0 {
+		t.Fatalf("credential after stale session reconnect = %#v", persisted)
+	}
+	if err = fixture.repository.ReleaseSession(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+		second.SessionLeaseID,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type blockingReconnectRepository struct {
+	Repository
+	entered chan ReconnectCommand
+	release <-chan struct{}
+}
+
+func (repository *blockingReconnectRepository) MarkReconnectRequired(
+	ctx context.Context,
+	command ReconnectCommand,
+) (Connection, bool, error) {
+	repository.entered <- command
+	<-repository.release
+	return repository.Repository.MarkReconnectRequired(ctx, command)
+}
+
+func TestDynamicPostCompleteSessionReconnectCannotDeleteNewSession(
+	t *testing.T,
+) {
+	fixture := newDynamicServiceFixture(t)
+	reconnectEntered := make(chan ReconnectCommand, 1)
+	reconnectRelease := make(chan struct{})
+	fixture.service.repository = &blockingReconnectRepository{
+		Repository: fixture.repository,
+		entered:    reconnectEntered,
+		release:    reconnectRelease,
+	}
+	fixture.adapter.requestErr = &ProviderFailure{
+		Kind: FailurePermissionMissing,
+		Code: "stale_dynamic_permission",
+	}
+	requestDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.AuthenticatedRequest(
+			context.Background(),
+			"workspace-1",
+			fixture.connectionID,
+			AuthenticatedRequest{Method: http.MethodGet, Path: "/xrpc/stale"},
+		)
+		requestDone <- err
+	}()
+	staleReconnect := <-reconnectEntered
+	if staleReconnect.ExpectedSessionLeaseID != "" {
+		t.Fatalf("post-completion reconnect retained lease %q", staleReconnect.ExpectedSessionLeaseID)
+	}
+	now := *fixture.now
+	claimed, _, err := fixture.repository.ClaimSession(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+		now,
+		time.Time{},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := fixture.service.openDynamicSession(claimed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := fixture.service.dynamicSessionCommand(
+		claimed,
+		session,
+		false,
+		now,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = fixture.repository.CompleteSession(
+		context.Background(),
+		command,
+	); err != nil {
+		t.Fatal(err)
+	}
+	close(reconnectRelease)
+	if err = <-requestDone; !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("stale post-completion reconnect error = %v", err)
+	}
+	persisted, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		fixture.connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusConnected ||
+		len(persisted.AccessTokenCiphertext.Data) == 0 ||
+		persisted.CredentialGeneration <= staleReconnect.ExpectedCredentialGeneration {
+		t.Fatalf("credential after stale post-completion reconnect = %#v", persisted)
+	}
+}
+
 type failFirstSessionCompletionRepository struct {
 	Repository
 	mu       sync.Mutex

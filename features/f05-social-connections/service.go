@@ -937,7 +937,7 @@ func (service *Service) markReconnect(
 	reason string,
 	now time.Time,
 ) error {
-	return service.markReconnectWithRefreshLease(ctx, stored, reason, now, "")
+	return service.markReconnectCAS(ctx, stored, reason, now, "", "")
 }
 
 func (service *Service) markReconnectAfterRefresh(
@@ -946,21 +946,39 @@ func (service *Service) markReconnectAfterRefresh(
 	reason string,
 	now time.Time,
 ) error {
-	return service.markReconnectWithRefreshLease(
+	return service.markReconnectCAS(
 		ctx,
 		stored,
 		reason,
 		now,
 		stored.RefreshLeaseID,
+		"",
 	)
 }
 
-func (service *Service) markReconnectWithRefreshLease(
+func (service *Service) markReconnectAfterSession(
+	ctx context.Context,
+	stored StoredCredential,
+	reason string,
+	now time.Time,
+) error {
+	return service.markReconnectCAS(
+		ctx,
+		stored,
+		reason,
+		now,
+		"",
+		stored.SessionLeaseID,
+	)
+}
+
+func (service *Service) markReconnectCAS(
 	ctx context.Context,
 	stored StoredCredential,
 	reason string,
 	now time.Time,
 	refreshLeaseID string,
+	sessionLeaseID string,
 ) error {
 	event, err := service.newEvent(
 		EventReconnectRequired,
@@ -972,26 +990,44 @@ func (service *Service) markReconnectWithRefreshLease(
 		reason,
 	)
 	if err != nil {
-		_ = service.repository.ReleaseRefresh(
-			ctx,
-			stored.WorkspaceID,
-			stored.ID,
-			stored.RefreshLeaseID,
-		)
+		if refreshLeaseID != "" {
+			_ = service.repository.ReleaseRefresh(
+				ctx,
+				stored.WorkspaceID,
+				stored.ID,
+				refreshLeaseID,
+			)
+		}
 		return err
 	}
 	if _, _, err = service.repository.MarkReconnectRequired(
 		ctx,
-		stored.WorkspaceID,
-		stored.ID,
-		refreshLeaseID,
-		reason,
-		now,
-		event,
+		ReconnectCommand{
+			WorkspaceID:  stored.WorkspaceID,
+			ConnectionID: stored.ID,
+			ExpectedCredentialGeneration: normalizedCredentialGeneration(
+				stored.CredentialGeneration,
+			),
+			ExpectedRefreshLeaseID: refreshLeaseID,
+			ExpectedSessionLeaseID: sessionLeaseID,
+			Reason:                 reason,
+			Now:                    now,
+			Event:                  event,
+		},
 	); err != nil {
 		return err
 	}
 	return ErrReconnectRequired
+}
+
+func afterSessionCompletion(stored StoredCredential) StoredCredential {
+	stored.CredentialGeneration = normalizedCredentialGeneration(
+		stored.CredentialGeneration,
+	) + 1
+	stored.SessionLockedUntil = nil
+	stored.SessionLeaseID = ""
+	stored.SessionRefreshing = false
+	return stored
 }
 
 func (service *Service) openAccessToken(stored StoredCredential) (string, error) {
