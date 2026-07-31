@@ -206,7 +206,7 @@ func productionMetaAutoConfig(
 	return metapublishing.RegistrationConfig{
 		Executor:            executor,
 		GraphVersion:        graphVersion,
-		ThreadsGraphVersion: graphVersion,
+		ThreadsGraphVersion: "",
 		AutoProviders:       providers,
 	}, nil
 }

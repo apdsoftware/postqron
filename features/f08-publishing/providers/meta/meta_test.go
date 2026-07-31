@@ -146,7 +146,7 @@ func TestThreadsEndToEndCheckpointsPollFinishedAndNeverReplay(t *testing.T) {
 		)},
 	}}
 	publisher, err := newPublisher(
-		executor, socialconnections.ProviderThreads, "v1.0",
+		executor, socialconnections.ProviderThreads, "",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -196,11 +196,11 @@ func TestThreadsEndToEndCheckpointsPollFinishedAndNeverReplay(t *testing.T) {
 	}
 
 	expectedPaths := []string{
-		"/v1.0/me/threads",
-		"/v1.0/threads-container-1?fields=id,status",
-		"/v1.0/threads-container-1?fields=id,status",
-		"/v1.0/me/threads_publish",
-		"/v1.0/thread-1?fields=id,permalink,permalink_url",
+		"/me/threads",
+		"/threads-container-1?fields=id,status",
+		"/threads-container-1?fields=id,status",
+		"/me/threads_publish",
+		"/thread-1?fields=id,permalink,permalink_url",
 	}
 	if len(executor.calls) != len(expectedPaths) {
 		t.Fatalf("calls=%d, possible loop or replay: %+v", len(executor.calls), executor.calls)
@@ -283,7 +283,7 @@ func TestAmbiguousExecutorFailureIsNeverBlindlyRetried(t *testing.T) {
 		}},
 	}
 	publisher, err := newPublisher(
-		executor, socialconnections.ProviderThreads, "v1.0",
+		executor, socialconnections.ProviderThreads, "",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func TestReconciliationUsesCheckpointRemoteIDDeterministically(t *testing.T) {
 		)},
 	}}
 	publisher, err := newPublisher(
-		executor, socialconnections.ProviderThreads, "v1.0",
+		executor, socialconnections.ProviderThreads, "",
 	)
 	if err != nil {
 		t.Fatal(err)

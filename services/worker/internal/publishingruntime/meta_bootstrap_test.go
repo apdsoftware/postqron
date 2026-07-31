@@ -154,7 +154,7 @@ func TestProductionMetaBootstrapRegistersReviewedThreads(t *testing.T) {
 		t.Fatal(err)
 	}
 	if config.Executor == nil || config.GraphVersion != "v25.0" ||
-		config.ThreadsGraphVersion != "v25.0" ||
+		config.ThreadsGraphVersion != "" ||
 		len(config.AutoProviders) != 1 ||
 		config.AutoProviders[0] != socialconnections.ProviderThreads {
 		t.Fatalf("config=%+v", config)
