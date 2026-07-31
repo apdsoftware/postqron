@@ -30,13 +30,13 @@ type MediaResolver interface {
 }
 
 type Service struct {
-	repository Repository
-	authorizer ContentAuthorizer
-	catalog    CapabilityCatalog
-	media      MediaResolver
+	repository   Repository
+	authorizer   ContentAuthorizer
+	catalog      CapabilityCatalog
+	media        MediaResolver
 	destinations DestinationResolver
-	now        func() time.Time
-	random     func([]byte) error
+	now          func() time.Time
+	random       func([]byte) error
 }
 
 type ServiceOption func(*Service)
