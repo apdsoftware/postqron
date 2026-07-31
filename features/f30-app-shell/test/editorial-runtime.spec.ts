@@ -210,8 +210,10 @@ async function routeWorkspaceSwitchPage(
   options: {
     aConnectionStatus?: 'connected' | 'reconnect_required'
     failFirstSessionRefresh?: boolean
+    failLostResponseRecoverySession?: boolean
     failNextSwitch?: boolean
     failRollback?: boolean
+    loseNextSwitchResponse?: boolean
   } = {},
 ) {
   const roles = {
@@ -221,6 +223,7 @@ async function routeWorkspaceSwitchPage(
   let activeWorkspace: keyof typeof roles = 'workspace-a'
   let failNextSwitch = options.failNextSwitch ?? false
   let failFirstSessionRefresh = options.failFirstSessionRefresh ?? false
+  let loseNextSwitchResponse = options.loseNextSwitchResponse ?? false
   let failedSessionRefreshRequests = 0
   let rollbackAttempts = 0
   const listRequests = { 'workspace-a': 0, 'workspace-b': 0 }
@@ -263,6 +266,17 @@ async function routeWorkspaceSwitchPage(
         }),
         status: 503,
       })
+      return
+    }
+    if (loseNextSwitchResponse && targetWorkspace === 'workspace-b') {
+      loseNextSwitchResponse = false
+      // The server commits before the transport fails, faithfully modelling a
+      // timeout/lost response after the mutation reached the backend.
+      activeWorkspace = targetWorkspace
+      if (options.failLostResponseRecoverySession) {
+        failedSessionRefreshRequests = 2
+      }
+      await route.abort('timedout')
       return
     }
     if (targetWorkspace === 'workspace-a' && activeWorkspace === 'workspace-b') {
@@ -1126,6 +1140,56 @@ test('a post-commit session failure explicitly rolls back and verifies workspace
   await expect(page.getByText('Loading your workspace')).toHaveCount(0)
 })
 
+test('a lost switch response reconciles server workspace B and verifies rollback A', async ({
+  page,
+}) => {
+  const fixture = await routeWorkspaceSwitchPage(page, {
+    loseNextSwitchResponse: true,
+  })
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+
+  await expect(page.getByLabel('Current workspace')).toHaveValue('workspace-a')
+  await expect(page.getByText(
+    'The new workspace could not be verified. Your previous workspace was restored and verified.',
+  )).toBeVisible()
+  expect(fixture.rollbackAttempts()).toBe(1)
+  expect(fixture.activeWorkspace()).toBe('workspace-a')
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+})
+
+test('a lost switch response with unavailable reconciliation fails closed until authoritative retry', async ({
+  page,
+}) => {
+  const fixture = await routeWorkspaceSwitchPage(page, {
+    failLostResponseRecoverySession: true,
+    loseNextSwitchResponse: true,
+  })
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toBeVisible()
+  expect(fixture.rollbackAttempts()).toBe(0)
+  expect(fixture.activeWorkspace()).toBe('workspace-b')
+  await expect(page.getByLabel('Current workspace')).toHaveValue('')
+  await expect(page.getByText('A Owner Channel')).toHaveCount(0)
+  await expect(page.getByText('B Member Channel')).toHaveCount(0)
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Retry' }).click()
+
+  await expect(page.getByLabel('Current workspace')).toHaveValue('workspace-b')
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+})
+
 test('a failed rollback removes stale authority and later retry adopts server workspace B', async ({
   page,
 }) => {
@@ -1156,6 +1220,27 @@ test('a failed rollback removes stale authority and later retry adopts server wo
     'Only an Owner on an active workspace can connect, reconnect, select, or revoke channels.',
   )).toBeVisible()
   await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+})
+
+test('an authoritative Social workspace mismatch terminates in retryable unavailable state', async ({
+  page,
+}) => {
+  await routeWorkspaceSwitchPage(page)
+  await page.route('**/api/v1/app/workspaces/current', route =>
+    route.fulfill(json({
+      ...currentWorkspace('member'),
+      id: 'workspace-b',
+      name: 'Workspace B',
+    })))
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+  await expect(page.getByText('A Owner Channel')).toHaveCount(0)
 })
 
 test('cross-origin F5 callbacks fail closed before OAuth starts', async ({ page }) => {

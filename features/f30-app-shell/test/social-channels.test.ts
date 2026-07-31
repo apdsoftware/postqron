@@ -44,7 +44,8 @@ test('the shell always signals transition completion and exposes recovery feedba
     source('../components/core/use-app-shell.ts'),
   ])
   assert.match(layout, /finally \{[\s\S]*workspaceTransitionRevision\.value \+= 1/u)
-  assert.match(layout, /serverCommitted = true[\s\S]*api\.selectWorkspace\(previousWorkspaceId\)[\s\S]*const recoveredSession = await api\.session\(\)/u)
+  assert.doesNotMatch(layout, /serverCommitted/u)
+  assert.match(layout, /const authoritativeSession = await api\.session\(\)[\s\S]*api\.selectWorkspace\(previousWorkspaceId\)[\s\S]*const recoveredSession = await api\.session\(\)/u)
   assert.match(layout, /recoveredSession\.current_workspace\?\.id !== previousWorkspaceId/u)
   assert.match(layout, /session\.value = undefined[\s\S]*workspaceRecoveryUnavailable\.value = true/u)
   assert.match(layout, /kind="unavailable"[\s\S]*@retry="retryWorkspaceRecovery"/u)
@@ -69,6 +70,9 @@ test('the social channels page follows the accessible retryable page contract', 
   assert.match(page, /social\.reconnect\(context\.workspaceId/u)
   assert.match(page, /social\.revoke\(context\.workspaceId/u)
   assert.match(page, /function contextIsCurrent\([\s\S]*context\.epoch === loadEpoch/u)
+  assert.match(page, /mismatchStillTargetsCurrentWorkspace[\s\S]*workspaceContextMismatch\(\)/u)
+  assert.match(page, /currentWorkspace\.id !== context\.workspaceId[\s\S]*workspaceContextMismatch\(\)/u)
+  assert.match(page, /social_workspace_context_mismatch[\s\S]*kind: 'unavailable'[\s\S]*retryable: true/u)
   assert.match(page, /watch\(workspaceTransitionRevision,[\s\S]*void refresh\(\)/u)
   assert.match(page, /activePopups[\s\S]*closeActivePopups/u)
   // Fail-closed provider availability drives an explicit unavailable state.

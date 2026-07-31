@@ -49,6 +49,38 @@ const links = computed(() => [
   { key: 'privacy', href: appRoute(locale.value, 'privacy') },
 ])
 
+function clearWorkspaceAuthority() {
+  bootstrap.value = undefined
+  accountArea.value = undefined
+  session.value = undefined
+  workspaceSwitchNotice.value = undefined
+  workspaceRecoveryUnavailable.value = true
+}
+
+async function reconcileUnverifiedWorkspaceSelection(
+  previousWorkspaceId: string,
+): Promise<'restored' | 'unchanged'> {
+  // A rejected request may still have committed server-side. Never infer
+  // authority from the transport result: read the session first.
+  const authoritativeSession = await api.session()
+  if (previousWorkspaceId
+    && authoritativeSession.current_workspace?.id === previousWorkspaceId) {
+    session.value = authoritativeSession
+    return 'unchanged'
+  }
+
+  if (!previousWorkspaceId) {
+    throw new Error('APP_WORKSPACE_ROLLBACK_TARGET_UNAVAILABLE')
+  }
+  await api.selectWorkspace(previousWorkspaceId)
+  const recoveredSession = await api.session()
+  if (recoveredSession.current_workspace?.id !== previousWorkspaceId) {
+    throw new Error('APP_WORKSPACE_ROLLBACK_NOT_VERIFIED')
+  }
+  session.value = recoveredSession
+  return 'restored'
+}
+
 async function selectWorkspace(event: unknown) {
   const workspaceId = (
     event as { target?: { value?: string } }
@@ -56,16 +88,13 @@ async function selectWorkspace(event: unknown) {
   if (!workspaceId || workspaceId === currentWorkspaceId.value) {
     return
   }
-  const previousSession = session.value
-  const previousWorkspaceId = previousSession?.current_workspace?.id ?? ''
-  let serverCommitted = false
+  const previousWorkspaceId = session.value?.current_workspace?.id ?? ''
   changingWorkspace.value = true
   workspaceSwitchNotice.value = undefined
   workspaceRecoveryUnavailable.value = false
   workspaceTransition.value = workspaceId
   try {
     await api.selectWorkspace(workspaceId)
-    serverCommitted = true
     const refreshedSession = await api.session()
     if (refreshedSession.current_workspace?.id !== workspaceId) {
       throw new Error('APP_WORKSPACE_SWITCH_NOT_VERIFIED')
@@ -73,32 +102,12 @@ async function selectWorkspace(event: unknown) {
     session.value = refreshedSession
     await navigateTo(route.fullPath)
   } catch {
-    if (!serverCommitted) {
-      // The target POST did not commit, so the previously verified client
-      // session remains authoritative and no server rollback is necessary.
-      session.value = previousSession
-      workspaceSwitchNotice.value = 'unchanged'
-    } else {
-      try {
-        if (!previousWorkspaceId) {
-          throw new Error('APP_WORKSPACE_ROLLBACK_TARGET_UNAVAILABLE')
-        }
-        await api.selectWorkspace(previousWorkspaceId)
-        const recoveredSession = await api.session()
-        if (recoveredSession.current_workspace?.id !== previousWorkspaceId) {
-          throw new Error('APP_WORKSPACE_ROLLBACK_NOT_VERIFIED')
-        }
-        session.value = recoveredSession
-        workspaceSwitchNotice.value = 'restored'
-      } catch {
-        // The server may still be on the new workspace. Remove every cached
-        // source of workspace/role authority until a later session retry.
-        bootstrap.value = undefined
-        accountArea.value = undefined
-        session.value = undefined
-        workspaceSwitchNotice.value = undefined
-        workspaceRecoveryUnavailable.value = true
-      }
+    try {
+      workspaceSwitchNotice.value =
+        await reconcileUnverifiedWorkspaceSelection(previousWorkspaceId)
+    } catch {
+      // Server authority is unknown or rollback could not be verified.
+      clearWorkspaceAuthority()
     }
   } finally {
     if (!workspaceRecoveryUnavailable.value) {
@@ -121,10 +130,7 @@ async function retryWorkspaceRecovery() {
     workspaceRecoveryUnavailable.value = false
     await navigateTo(route.fullPath)
   } catch {
-    bootstrap.value = undefined
-    accountArea.value = undefined
-    session.value = undefined
-    workspaceRecoveryUnavailable.value = true
+    clearWorkspaceAuthority()
   } finally {
     if (!workspaceRecoveryUnavailable.value) {
       workspaceTransition.value = undefined

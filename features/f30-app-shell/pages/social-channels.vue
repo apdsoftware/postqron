@@ -19,7 +19,6 @@ import {
   withoutSocialOAuthCallbackParameters,
 } from '../components/core/social-callback.ts'
 import {
-  appStateKindFromError,
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
@@ -28,7 +27,10 @@ import {
   useSocialConnectionsApi,
 } from '../components/core/use-app-shell.ts'
 import { formatDateTime } from '../components/core/preferences.ts'
-import { normalizeSocialApiError } from '../components/core/social-api.ts'
+import {
+  normalizeSocialApiError,
+  SocialApiError,
+} from '../components/core/social-api.ts'
 import type {
   SocialBootstrap,
   SocialConnection,
@@ -210,7 +212,16 @@ function socialPageState(error: unknown): 'access-denied' | 'offline' | 'unavail
   if (kind === 'access-denied' || kind === 'session') {
     return 'access-denied'
   }
-  return appStateKindFromError(error)
+  return 'unavailable'
+}
+
+function workspaceContextMismatch(): SocialApiError {
+  return new SocialApiError({
+    code: 'social_workspace_context_mismatch',
+    kind: 'unavailable',
+    message: 'The social workspace response did not match the active session',
+    retryable: true,
+  })
 }
 
 async function processCallback(context: AsyncWorkspaceContext) {
@@ -314,10 +325,18 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
       social.bootstrap(context.workspaceId),
       social.list(context.workspaceId),
     ])
-    if (!contextIsCurrent(context)
-      || currentWorkspace.id !== context.workspaceId
-      || (currentWorkspace.role === 'owner' ? 'manage' : 'read-only') !== context.permission) {
+    if (!contextIsCurrent(context)) {
+      const mismatchStillTargetsCurrentWorkspace = context.epoch === loadEpoch
+        && context.workspaceId === workspaceId.value
+        && !workspaceTransition.value
+      if (mismatchStillTargetsCurrentWorkspace) {
+        throw workspaceContextMismatch()
+      }
       return undefined
+    }
+    if (currentWorkspace.id !== context.workspaceId
+      || (currentWorkspace.role === 'owner' ? 'manage' : 'read-only') !== context.permission) {
+      throw workspaceContextMismatch()
     }
     workspace.value = currentWorkspace
     bootstrap.value = currentBootstrap
