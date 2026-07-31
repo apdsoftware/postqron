@@ -11,7 +11,7 @@ import {
   parseSocialAuthorization,
   parseSocialBootstrap,
   parseSocialConnection,
-  parseSocialDiscoveryInput,
+  parseProviderDiscoveryInput,
   parseSocialConnections,
   parseSocialRevocation,
   parseSocialSelection,
@@ -186,6 +186,11 @@ export class SocialConnectionsApi {
     this.#fetch = fetch
   }
 
+  callbackURL(browserOrigin: string): URL {
+    const base = new URL(this.#baseURL || '/', browserOrigin)
+    return new URL('/api/v1/social-authorizations/callback', base.origin)
+  }
+
   async #request(
     path: string,
     options: Readonly<Record<string, unknown>> = {},
@@ -244,7 +249,7 @@ export class SocialConnectionsApi {
       provider: SocialProvider
     } = { provider }
     if (discovery) {
-      body.discovery = parseSocialDiscoveryInput(discovery)
+      body.discovery = parseProviderDiscoveryInput(provider, discovery)
     }
     return this.#parse(
       await this.#request(

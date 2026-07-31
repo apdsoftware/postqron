@@ -85,6 +85,13 @@ export function useAccountDeletionCancellationState() {
   )
 }
 
+export function useAppWorkspaceTransitionState() {
+  return useState<string | undefined>(
+    'postqron.app-shell.workspace-transition',
+    () => undefined,
+  )
+}
+
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()

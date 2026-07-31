@@ -8,6 +8,7 @@ import {
   useAsyncData,
   useHead,
   useRoute,
+  watch,
 } from '#imports'
 import {
   appRoute,
@@ -19,6 +20,7 @@ import {
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
+  useAppWorkspaceTransitionState,
   useSocialConnectionsApi,
 } from '../components/core/use-app-shell.ts'
 import { formatDateTime } from '../components/core/preferences.ts'
@@ -32,7 +34,10 @@ import type {
   SocialProvider,
   SocialSelection,
 } from '../components/core/social-connections.ts'
-import { publishingModesForConnection } from '../components/core/social-connections.ts'
+import {
+  discoveryKindsForProvider,
+  publishingModesForConnection,
+} from '../components/core/social-connections.ts'
 import type { AppShellMessageKey } from '../components/core/catalogs.ts'
 
 definePageMeta({ layout: 'app-shell' })
@@ -41,6 +46,7 @@ const route = useRoute()
 const accountApi = useAppShellApi()
 const social = useSocialConnectionsApi()
 const session = useAppSessionState()
+const workspaceTransition = useAppWorkspaceTransitionState()
 const { t, locale: uiLocale } = useAppShellI18n()
 const locale = computed(() => localeFromAppPath(route.fullPath))
 
@@ -61,6 +67,8 @@ const reconnecting = ref<string>()
 const revoking = ref<string>()
 const selecting = ref<string>()
 const callbackProcessed = ref(false)
+const loadingWorkspace = ref(true)
+let loadEpoch = 0
 const catalogHeading = ref<{
   focus(): void
   scrollIntoView(options: { behavior: 'smooth', block: 'start' }): void
@@ -68,7 +76,9 @@ const catalogHeading = ref<{
 
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const canManageChannels = computed(() =>
-  workspace.value?.role === 'owner' && workspace.value?.status === 'active')
+  !workspaceTransition.value
+  && workspace.value?.role === 'owner'
+  && workspace.value?.status === 'active')
 
 type CallbackPopupHandle = {
   closed: boolean
@@ -83,6 +93,7 @@ type CallbackPopupHandle = {
       textContent: string | null
     } | null
   }
+  opener: unknown
 }
 
 useHead(computed(() => ({
@@ -172,31 +183,73 @@ async function processCallback() {
   }
 }
 
+function resetWorkspaceSensitiveState() {
+  bootstrap.value = undefined
+  connections.value = undefined
+  selection.value = undefined
+  workspace.value = undefined
+  pageState.value = undefined
+  notice.value = undefined
+  discoveryKinds.value = {}
+  discoveryValues.value = {}
+  connecting.value = undefined
+  reconnecting.value = undefined
+  revoking.value = undefined
+  selecting.value = undefined
+  loadingWorkspace.value = true
+}
+
+watch(workspaceId, (current, previous) => {
+  if (current !== previous) {
+    loadEpoch += 1
+    resetWorkspaceSensitiveState()
+  }
+}, { flush: 'sync' })
+watch(workspaceTransition, (targetWorkspaceId) => {
+  if (targetWorkspaceId && targetWorkspaceId !== workspaceId.value) {
+    loadEpoch += 1
+    resetWorkspaceSensitiveState()
+  }
+}, { flush: 'sync' })
+
 const { pending, refresh } = useAsyncData('postqron-social-channels', async () => {
+  let epoch = ++loadEpoch
   try {
     if (!session.value) {
       session.value = await accountApi.session()
+      epoch = ++loadEpoch
+    }
+    const requestedWorkspaceId = workspaceId.value
+    if (!requestedWorkspaceId) {
+      throw new Error('SOCIAL_WORKSPACE_UNAVAILABLE')
     }
     const [currentWorkspace, currentBootstrap, currentConnections] = await Promise.all([
       accountApi.currentWorkspace(),
-      social.bootstrap(workspaceId.value),
-      social.list(workspaceId.value),
+      social.bootstrap(requestedWorkspaceId),
+      social.list(requestedWorkspaceId),
     ])
+    if (epoch !== loadEpoch || requestedWorkspaceId !== workspaceId.value) {
+      return undefined
+    }
     workspace.value = currentWorkspace
     bootstrap.value = currentBootstrap
     connections.value = currentConnections
     pageState.value = undefined
+    loadingWorkspace.value = false
     if (!callbackProcessed.value) {
       callbackProcessed.value = true
       await processCallback()
     }
     return { loaded: true }
   } catch (error) {
-    connections.value = undefined
-    pageState.value = socialPageState(error)
+    if (epoch === loadEpoch) {
+      resetWorkspaceSensitiveState()
+      pageState.value = socialPageState(error)
+      loadingWorkspace.value = false
+    }
     return undefined
   }
-}, { server: false })
+}, { server: false, watch: [workspaceId] })
 
 function ensureManagePermission(): boolean {
   if (canManageChannels.value) {
@@ -271,6 +324,27 @@ function callbackPopup(): CallbackPopupHandle | null {
   return popup as CallbackPopupHandle | null
 }
 
+function secureCallbackURL() {
+  if (!import.meta.client) {
+    return undefined
+  }
+  const callback = social.callbackURL(globalThis.location.origin)
+  if (callback.origin !== globalThis.location.origin) {
+    notice.value = { tone: 'error', key: 'social.errorCallbackSameOrigin' }
+    return undefined
+  }
+  return callback
+}
+
+function isolatePopup(windowHandle: CallbackPopupHandle): boolean {
+  try {
+    windowHandle.opener = null
+    return windowHandle.opener === null
+  } catch {
+    return false
+  }
+}
+
 function discoveryInput(
   provider: SocialProviderCatalogEntry,
 ): SocialDiscoveryInput | undefined {
@@ -279,7 +353,9 @@ function discoveryInput(
   }
   const kind = discoveryKinds.value[provider.provider]
   const value = discoveryValues.value[provider.provider]?.trim()
-  if (!kind || !value) {
+  if (!kind
+    || !discoveryKindsForProvider(provider.provider).includes(kind)
+    || !value) {
     notice.value = { tone: 'error', key: 'social.errorDiscoveryRequired' }
     return undefined
   }
@@ -294,6 +370,16 @@ function isCrossOriginSecurityError(error: unknown): error is { name: string } {
 }
 
 async function waitForSelection(windowHandle: CallbackPopupHandle): Promise<SocialSelection> {
+  const callbackURL = secureCallbackURL()
+  if (!callbackURL) {
+    throw normalizeSocialApiError({
+      data: {
+        code: 'callback_handoff_unavailable',
+        message: 'The callback origin is not readable by the application.',
+        retryable: false,
+      },
+    })
+  }
   return await new Promise((resolve, reject) => {
     const deadline = Date.now() + 120_000
     const timer = globalThis.setInterval(() => {
@@ -321,8 +407,8 @@ async function waitForSelection(windowHandle: CallbackPopupHandle): Promise<Soci
         return
       }
       try {
-        if (windowHandle.location.origin !== globalThis.location.origin
-          || windowHandle.location.pathname !== '/api/v1/social-authorizations/callback') {
+        if (windowHandle.location.origin !== callbackURL.origin
+          || windowHandle.location.pathname !== callbackURL.pathname) {
           return
         }
         const selectionDocument = windowHandle.document.body?.textContent ?? ''
@@ -351,9 +437,18 @@ async function connect(provider: SocialProviderCatalogEntry) {
   if (!ensureManagePermission()) {
     return
   }
+  if (!secureCallbackURL()) {
+    return
+  }
+  const mutationWorkspaceId = workspaceId.value
   const popup = callbackPopup()
   if (!popup) {
     notice.value = { tone: 'error', key: 'social.errorPopupBlocked' }
+    return
+  }
+  if (!isolatePopup(popup)) {
+    popup.close()
+    notice.value = { tone: 'error', key: 'social.errorPopupIsolation' }
     return
   }
   connecting.value = provider.provider
@@ -365,10 +460,14 @@ async function connect(provider: SocialProviderCatalogEntry) {
       return
     }
     const authorization = await social.begin(
-      workspaceId.value,
+      mutationWorkspaceId,
       provider.provider,
       discovery,
     )
+    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+      popup.close()
+      return
+    }
     popup.location.assign(authorization.authorization_url)
     selection.value = await waitForSelection(popup)
   } catch (error) {
@@ -383,15 +482,28 @@ async function reconnect(connection: SocialConnection) {
   if (!ensureManagePermission()) {
     return
   }
+  if (!secureCallbackURL()) {
+    return
+  }
+  const mutationWorkspaceId = workspaceId.value
   const popup = callbackPopup()
   if (!popup) {
     notice.value = { tone: 'error', key: 'social.errorPopupBlocked' }
     return
   }
+  if (!isolatePopup(popup)) {
+    popup.close()
+    notice.value = { tone: 'error', key: 'social.errorPopupIsolation' }
+    return
+  }
   reconnecting.value = connection.id
   notice.value = undefined
   try {
-    const authorization = await social.reconnect(workspaceId.value, connection.id)
+    const authorization = await social.reconnect(mutationWorkspaceId, connection.id)
+    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+      popup.close()
+      return
+    }
     popup.location.assign(authorization.authorization_url)
     selection.value = await waitForSelection(popup)
   } catch (error) {
@@ -411,13 +523,17 @@ async function selectResource(remoteId: string) {
     return
   }
   selecting.value = remoteId
+  const mutationWorkspaceId = workspaceId.value
   notice.value = undefined
   try {
-    const connection = await social.selectResource(workspaceId.value, {
+    const connection = await social.selectResource(mutationWorkspaceId, {
       selectionId: active.selection_id,
       remoteId,
     })
-    connections.value = await social.list(workspaceId.value)
+    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+      return
+    }
+    connections.value = await social.list(mutationWorkspaceId)
     selection.value = undefined
     notice.value = {
       tone: 'success',
@@ -436,10 +552,14 @@ async function disconnect(connection: SocialConnection) {
     return
   }
   revoking.value = connection.id
+  const mutationWorkspaceId = workspaceId.value
   notice.value = undefined
   try {
-    await social.revoke(workspaceId.value, connection.id)
-    connections.value = await social.list(workspaceId.value)
+    await social.revoke(mutationWorkspaceId, connection.id)
+    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+      return
+    }
+    connections.value = await social.list(mutationWorkspaceId)
     notice.value = { tone: 'success', key: 'social.disconnected' }
   } catch (error) {
     notice.value = { tone: 'error', key: socialErrorKey(error) }
@@ -459,7 +579,7 @@ async function retry() {
 
 <template>
   <AppState
-    v-if="pending && connections === undefined"
+    v-if="(pending || loadingWorkspace) && connections === undefined"
     kind="loading"
   />
   <AppState
@@ -689,10 +809,13 @@ async function retry() {
                   <span>{{ t('social.discoveryKindLabel') }}</span>
                   <select v-model="discoveryKinds[provider.provider]">
                     <option value="">{{ t('social.chooseDiscoveryKind') }}</option>
-                    <option value="instance_origin">{{ t('social.discoveryKind.instance_origin') }}</option>
-                    <option value="handle">{{ t('social.discoveryKind.handle') }}</option>
-                    <option value="did">{{ t('social.discoveryKind.did') }}</option>
-                    <option value="pds_origin">{{ t('social.discoveryKind.pds_origin') }}</option>
+                    <option
+                      v-for="kind in discoveryKindsForProvider(provider.provider)"
+                      :key="kind"
+                      :value="kind"
+                    >
+                      {{ t(`social.discoveryKind.${kind}`) }}
+                    </option>
                   </select>
                 </label>
                 <label>

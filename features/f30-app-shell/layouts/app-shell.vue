@@ -16,6 +16,7 @@ import {
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
+  useAppWorkspaceTransitionState,
 } from '../components/core/use-app-shell.ts'
 
 const route = useRoute()
@@ -23,6 +24,7 @@ const session = useAppSessionState()
 const bootstrap = useAppBootstrapState()
 const accountArea = useAppAccountAreaState()
 const api = useAppShellApi()
+const workspaceTransition = useAppWorkspaceTransitionState()
 const { t } = useAppShellI18n()
 const menuOpen = ref(false)
 const changingWorkspace = ref(false)
@@ -51,11 +53,13 @@ async function selectWorkspace(event: unknown) {
     return
   }
   changingWorkspace.value = true
+  workspaceTransition.value = workspaceId
   try {
     await api.selectWorkspace(workspaceId)
     session.value = await api.session()
     await navigateTo(route.fullPath)
   } finally {
+    workspaceTransition.value = undefined
     changingWorkspace.value = false
   }
 }

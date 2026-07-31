@@ -92,6 +92,20 @@ export interface SocialDiscoveryInput {
   value: string
 }
 
+const providerDiscoveryKinds: Readonly<Partial<Record<
+  SocialProvider,
+  readonly SocialDiscoveryInputKind[]
+>>> = {
+  mastodon: ['instance_origin'],
+  bluesky: ['handle', 'did', 'pds_origin'],
+}
+
+export function discoveryKindsForProvider(
+  provider: SocialProvider,
+): readonly SocialDiscoveryInputKind[] {
+  return providerDiscoveryKinds[provider] ?? []
+}
+
 export interface SocialResourceCapability {
   resource_type: SocialResourceType
   account_types: SocialAccountType[]
@@ -435,6 +449,17 @@ export function parseSocialDiscoveryInput(value: unknown): SocialDiscoveryInput 
     kind: value.kind as SocialDiscoveryInputKind,
     value: text(value.value, INVALID_AUTHORIZATION),
   }
+}
+
+export function parseProviderDiscoveryInput(
+  provider: SocialProvider,
+  value: unknown,
+): SocialDiscoveryInput {
+  const parsed = parseSocialDiscoveryInput(value)
+  if (!discoveryKindsForProvider(provider).includes(parsed.kind)) {
+    throw new Error(INVALID_AUTHORIZATION)
+  }
+  return parsed
 }
 
 export function parseSocialConnection(value: unknown): SocialConnection {

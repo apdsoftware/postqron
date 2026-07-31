@@ -137,6 +137,42 @@ test('callback exchange forwards state, code, error, and iss to the shared endpo
   )
 })
 
+test('callback URL preserves the authoritative API origin', () => {
+  const crossOrigin = new SocialConnectionsApi('https://api.postqron.test', async () => ({}))
+  assert.equal(
+    crossOrigin.callbackURL('https://app.postqron.test').href,
+    'https://api.postqron.test/api/v1/social-authorizations/callback',
+  )
+  const proxied = new SocialConnectionsApi('/api', async () => ({}))
+  assert.equal(
+    proxied.callbackURL('https://app.postqron.test').origin,
+    'https://app.postqron.test',
+  )
+})
+
+test('dynamic discovery is provider-specific and rejects incompatible kinds', async () => {
+  const api = new SocialConnectionsApi('https://api.postqron.test', async () => ({
+    authorization_url: 'https://provider.example/oauth',
+    expires_at: '2026-07-30T10:10:00.000Z',
+  }))
+  await assert.doesNotReject(() => api.begin('workspace-1', 'mastodon', {
+    kind: 'instance_origin',
+    value: 'https://social.example',
+  }))
+  await assert.doesNotReject(() => api.begin('workspace-1', 'bluesky', {
+    kind: 'pds_origin',
+    value: 'https://pds.example',
+  }))
+  await assert.rejects(() => api.begin('workspace-1', 'mastodon', {
+    kind: 'handle',
+    value: '@alice@example.test',
+  }))
+  await assert.rejects(() => api.begin('workspace-1', 'bluesky', {
+    kind: 'instance_origin',
+    value: 'https://social.example',
+  }))
+})
+
 test('direct callback parsing remains compatible with the JSON callback document', () => {
   const selection = parseSocialCallbackDocument(JSON.stringify({
     selection_id: 'sel-1',

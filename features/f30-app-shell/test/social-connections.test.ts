@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  discoveryKindsForProvider,
   parseSocialBootstrap,
   parseSocialAuthorization,
   parseSocialConnection,
@@ -32,6 +33,12 @@ test('bootstrap availability parses fail-closed provider states', () => {
   assert.equal(bootstrap.catalog.length, 13)
   assert.equal(bootstrap.providers[0]?.status, 'available')
   assert.equal(bootstrap.providers[1]?.status, 'unavailable')
+})
+
+test('dynamic discovery exposes only provider-compatible inputs', () => {
+  assert.deepEqual(discoveryKindsForProvider('mastodon'), ['instance_origin'])
+  assert.deepEqual(discoveryKindsForProvider('bluesky'), ['handle', 'did', 'pds_origin'])
+  assert.deepEqual(discoveryKindsForProvider('facebook_pages'), [])
 })
 
 test('bootstrap rejects an unknown provider or status', () => {

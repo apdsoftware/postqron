@@ -13,6 +13,7 @@ import {
 import {
   immediateScheduleInput,
   submitScheduledDraft,
+  wallClockScheduleInput,
   type SchedulingSubmitClient,
 } from '../components/core/editorial-submit.ts'
 import {
@@ -78,8 +79,67 @@ test('publish now schedules exactly two minutes after the current instant', () =
     {
       local_date_time: '2026-07-30T20:02',
       time_zone: 'Europe/Rome',
+      utc_offset_minutes: 120,
     },
   )
+})
+
+test('publish now keeps the exact occurrence during the repeated DST hour', () => {
+  assert.deepEqual(immediateScheduleInput(
+    new Date('2026-10-25T00:28:00.000Z'),
+    'Europe/Rome',
+  ), {
+    local_date_time: '2026-10-25T02:30',
+    time_zone: 'Europe/Rome',
+    utc_offset_minutes: 120,
+  })
+  assert.deepEqual(immediateScheduleInput(
+    new Date('2026-10-25T01:28:00.000Z'),
+    'Europe/Rome',
+  ), {
+    local_date_time: '2026-10-25T02:30',
+    time_zone: 'Europe/Rome',
+    utc_offset_minutes: 60,
+  })
+})
+
+test('publish now formats midnight as hour zero', () => {
+  assert.deepEqual(immediateScheduleInput(
+    new Date('2026-07-30T23:58:00.000Z'),
+    'UTC',
+  ), {
+    local_date_time: '2026-07-31T00:00',
+    time_zone: 'UTC',
+    utc_offset_minutes: 0,
+  })
+})
+
+test('wall-clock scheduling recalculates seasonal and timezone offsets', () => {
+  assert.deepEqual(wallClockScheduleInput(
+    '2027-07-15T10:00',
+    'Europe/Rome',
+  ), {
+    local_date_time: '2027-07-15T10:00',
+    time_zone: 'Europe/Rome',
+    utc_offset_minutes: 120,
+  })
+  assert.deepEqual(wallClockScheduleInput(
+    '2027-07-15T10:00',
+    'America/New_York',
+  ), {
+    local_date_time: '2027-07-15T10:00',
+    time_zone: 'America/New_York',
+    utc_offset_minutes: -240,
+  })
+  assert.equal(wallClockScheduleInput(
+    '2026-10-25T02:30',
+    'Europe/Rome',
+  ), undefined)
+  assert.equal(wallClockScheduleInput(
+    '2026-10-25T02:30',
+    'Europe/Rome',
+    60,
+  )?.utc_offset_minutes, 60)
 })
 
 test('a new post still uses the F7 schedule operation', async () => {
@@ -172,7 +232,7 @@ test('composer renders capability fields and timezone selects, calendar localize
   assert.doesNotMatch(calendar, /aria-label="Calendar controls"/u)
 })
 
-test('Mastodon and Bluesky remain catalog-only while the central discovery contract is blocked', async () => {
+test('Mastodon and Bluesky use delivered discovery inputs while adapters remain gated', async () => {
   const [page, catalogs] = await Promise.all([
     source('../pages/social-channels.vue'),
     source('../components/core/editorial-catalogs.ts'),
@@ -181,15 +241,17 @@ test('Mastodon and Bluesky remain catalog-only while the central discovery contr
   assert.match(page, /provider\.capabilities\.dynamic_discovery/u)
   assert.match(page, /social\.configuration\.decentralized_blocked/u)
   assert.doesNotMatch(page, /instance_url|app_password/iu)
-  assert.match(catalogs, /secure instance discovery is not available yet/iu)
+  assert.match(catalogs, /central dynamic-discovery contract is delivered/iu)
 })
 
 test('social channels rely on the JSON callback handoff and authoritative workspace permissions', async () => {
   const page = await source('../pages/social-channels.vue')
   assert.match(page, /accountApi\.currentWorkspace\(\)/u)
-  assert.match(page, /role === 'owner' && workspace\.value\?\.status === 'active'/u)
+  assert.match(page, /role === 'owner'\s*&& workspace\.value\?\.status === 'active'/u)
   assert.match(page, /parseSocialCallbackDocument/u)
-  assert.match(page, /windowHandle\.location\.pathname !== '\/api\/v1\/social-authorizations\/callback'/u)
+  assert.match(page, /windowHandle\.location\.pathname !== callbackURL\.pathname/u)
+  assert.match(page, /callback\.origin !== globalThis\.location\.origin/u)
+  assert.match(page, /windowHandle\.opener = null/u)
   assert.match(page, /dynamic_discovery/u)
   assert.match(page, /navigateTo\(appRoute\(locale\.value, 'social-channels'\), \{ replace: true \}\)/u)
 })
