@@ -18,6 +18,30 @@ import (
 	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 )
 
+type metaPinnedTransport interface {
+	http.RoundTripper
+	PinOrigin(context.Context, string) error
+}
+
+var newMetaRepository = func(
+	database *sql.DB,
+) (socialconnections.Repository, error) {
+	return socialconnections.NewPostgresRepository(database)
+}
+
+var newMetaQuota = func(
+	database *sql.DB,
+	clock func() time.Time,
+) (socialconnections.ChannelQuota, error) {
+	return socialconnections.NewPostgresChannelQuota(database, clock)
+}
+
+var newMetaTransport = func() metaPinnedTransport {
+	return newPinnedMetaTransport()
+}
+
+var newMetaAuthenticatedExecutor = socialconnections.NewAuthenticatedExecutor
+
 const (
 	metaFacebookOrigin  = "https://graph.facebook.com"
 	metaInstagramOrigin = "https://graph.instagram.com"
@@ -50,11 +74,11 @@ func productionMetaAutoConfig(
 	if err != nil {
 		return metapublishing.RegistrationConfig{}, err
 	}
-	repository, err := socialconnections.NewPostgresRepository(database)
+	repository, err := newMetaRepository(database)
 	if err != nil {
 		return metapublishing.RegistrationConfig{}, err
 	}
-	quota, err := socialconnections.NewPostgresChannelQuota(database, clock)
+	quota, err := newMetaQuota(database, clock)
 	if err != nil {
 		return metapublishing.RegistrationConfig{}, err
 	}
@@ -191,8 +215,8 @@ func productionMetaAutoConfig(
 	if err != nil {
 		return metapublishing.RegistrationConfig{}, err
 	}
-	transport := newPinnedMetaTransport()
-	executor, err := socialconnections.NewAuthenticatedExecutor(
+	transport := newMetaTransport()
+	executor, err := newMetaAuthenticatedExecutor(
 		socialconnections.AuthenticatedExecutorConfig{
 			Service:         service,
 			Transport:       transport,
