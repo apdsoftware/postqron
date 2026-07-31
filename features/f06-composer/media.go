@@ -486,7 +486,6 @@ func (store *PostgresMediaStore) finalizeDeleteReservation(
 ) error {
 	if err := store.objects.Delete(ctx, objectKey); err != nil &&
 		!errors.Is(err, ErrNotFound) {
-		store.releaseDeleteReservation(ctx, workspaceID, mediaID, reservedAt)
 		return fmt.Errorf("delete composer object: %w", err)
 	}
 	tag, err := store.database.ExecContext(ctx, `
@@ -728,6 +727,14 @@ func (store *PostgresMediaStore) ReconcileLifecycle(
 	ctx context.Context,
 	workspaceID string,
 ) error {
+	var retryErrors []error
+	if err := store.recoverExpiredDeleteReservations(
+		ctx,
+		workspaceID,
+		"",
+	); err != nil {
+		retryErrors = append(retryErrors, err)
+	}
 	rows, err := store.database.QueryContext(ctx, `
 		SELECT id, object_key
 		  FROM f06_composer_media
@@ -741,24 +748,39 @@ func (store *PostgresMediaStore) ReconcileLifecycle(
 		workspaceID,
 	)
 	if err != nil {
-		return fmt.Errorf("list composer media lifecycle retries: %w", err)
+		retryErrors = append(
+			retryErrors,
+			fmt.Errorf("list composer media lifecycle retries: %w", err),
+		)
+		return errors.Join(retryErrors...)
 	}
 	defer rows.Close()
 	links := make([]mediaLifecycleLink, 0)
 	for rows.Next() {
 		var link mediaLifecycleLink
 		if err := rows.Scan(&link.ID, &link.ObjectKey); err != nil {
-			return fmt.Errorf("scan composer media lifecycle retry: %w", err)
+			retryErrors = append(
+				retryErrors,
+				fmt.Errorf("scan composer media lifecycle retry: %w", err),
+			)
+			return errors.Join(retryErrors...)
 		}
 		links = append(links, link)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate composer media lifecycle retries: %w", err)
+		retryErrors = append(
+			retryErrors,
+			fmt.Errorf("iterate composer media lifecycle retries: %w", err),
+		)
+		return errors.Join(retryErrors...)
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close composer media lifecycle retries: %w", err)
+		retryErrors = append(
+			retryErrors,
+			fmt.Errorf("close composer media lifecycle retries: %w", err),
+		)
+		return errors.Join(retryErrors...)
 	}
-	var retryErrors []error
 	for _, link := range links {
 		if err := store.makeTemporary(
 			ctx,

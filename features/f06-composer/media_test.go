@@ -32,6 +32,7 @@ type fakeObjectStore struct {
 	retainErr    error
 	temporaryErr error
 	deleteErr    error
+	deleteApply  bool
 	deleteStart  chan string
 	deleteWait   <-chan struct{}
 }
@@ -143,6 +144,7 @@ func (store *fakeObjectStore) Delete(_ context.Context, key string) error {
 	start := store.deleteStart
 	wait := store.deleteWait
 	deleteErr := store.deleteErr
+	deleteApply := store.deleteApply
 	store.mutex.Unlock()
 	if start != nil {
 		start <- key
@@ -152,7 +154,14 @@ func (store *fakeObjectStore) Delete(_ context.Context, key string) error {
 	}
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
+	if _, found := store.objects[key]; !found {
+		return ErrNotFound
+	}
 	if deleteErr != nil {
+		if deleteApply {
+			delete(store.objects, key)
+			store.deletedKeys = append(store.deletedKeys, key)
+		}
 		return deleteErr
 	}
 	delete(store.objects, key)

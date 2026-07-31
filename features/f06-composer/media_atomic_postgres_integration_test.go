@@ -571,6 +571,147 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 		}
 		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
 	})
+
+	t.Run("ambiguous delete error keeps tombstone closed until periodic recovery", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-ambiguous-periodic")
+		objects, media, _, service := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			9,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-ambiguous-periodic.png",
+		)
+		objects.deleteErr = errors.New("injected ambiguous delete failure")
+		objects.deleteApply = true
+		if err := media.Delete(context.Background(), workspaceID, inspected.ID); err == nil {
+			t.Fatal("delete succeeded after injected ambiguous object error")
+		}
+		assertDeleteReservationState(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			true,
+		)
+		assertObjectExists(t, objects, objectKey, false)
+		if _, err := media.Get(
+			context.Background(),
+			workspaceID,
+			inspected.ID,
+		); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("get after ambiguous delete = %v, want not found", err)
+		}
+		if _, err := media.Download(
+			context.Background(),
+			workspaceID,
+			inspected.ID,
+		); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("download after ambiguous delete = %v, want not found", err)
+		}
+		_, err := service.CreateDraft(context.Background(), CreateDraftCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			Content:     DraftContent{Media: []Media{{ID: inspected.ID}}},
+		})
+		var fieldError *FieldRuleError
+		if !errors.As(err, &fieldError) || fieldError.Code != "media_not_ready" {
+			t.Fatalf("attach after ambiguous delete = %#v", err)
+		}
+		expireDeleteReservation(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			now.Add(-mediaDeleteLease-time.Second),
+		)
+		if err := media.ReconcileLifecycle(context.Background(), workspaceID); err != nil {
+			t.Fatalf("periodic delete recovery after ambiguous error = %v", err)
+		}
+		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
+	})
+
+	t.Run("ambiguous delete error finalizes on retry after lease expiry", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-ambiguous-retry")
+		objects, media, _, _ := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			10,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-ambiguous-retry.png",
+		)
+		objects.deleteErr = errors.New("injected ambiguous delete failure")
+		objects.deleteApply = true
+		if err := media.Delete(context.Background(), workspaceID, inspected.ID); err == nil {
+			t.Fatal("delete succeeded after injected ambiguous object error")
+		}
+		expireDeleteReservation(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			now.Add(-mediaDeleteLease-time.Second),
+		)
+		if err := media.Delete(context.Background(), workspaceID, inspected.ID); err != nil {
+			t.Fatalf("retry delete after ambiguous object error = %v", err)
+		}
+		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
+	})
+
+	t.Run("non-applied delete error retries object deletion after lease expiry", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "delete-not-applied")
+		objects, media, _, _ := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			11,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"delete-not-applied.png",
+		)
+		objects.deleteErr = errors.New("injected delete failure")
+		if err := media.Delete(context.Background(), workspaceID, inspected.ID); err == nil {
+			t.Fatal("delete succeeded after injected object failure")
+		}
+		assertDeleteReservationState(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			true,
+		)
+		assertObjectExists(t, objects, objectKey, true)
+		expireDeleteReservation(
+			t,
+			database,
+			workspaceID,
+			inspected.ID,
+			now.Add(-mediaDeleteLease-time.Second),
+		)
+		objects.deleteErr = nil
+		if err := media.ReconcileLifecycle(context.Background(), workspaceID); err != nil {
+			t.Fatalf("periodic retry after non-applied delete error = %v", err)
+		}
+		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
+	})
 }
 
 func atomicMediaTestService(
@@ -705,6 +846,47 @@ func assertDeletedAtomicMedia(
 	objects.mutex.Unlock()
 	if exists {
 		t.Fatalf("object %q still exists after delete recovery", objectKey)
+	}
+}
+
+func assertDeleteReservationState(
+	t *testing.T,
+	database *sql.DB,
+	workspaceID, mediaID string,
+	expectReservation bool,
+) {
+	t.Helper()
+	var deletingAt sql.NullTime
+	if err := database.QueryRow(`
+		SELECT deleting_at
+		  FROM f06_composer_media
+		 WHERE workspace_id = $1 AND id = $2`,
+		workspaceID,
+		mediaID,
+	).Scan(&deletingAt); err != nil {
+		t.Fatal(err)
+	}
+	if deletingAt.Valid != expectReservation {
+		t.Fatalf(
+			"delete reservation valid = %v, want %v",
+			deletingAt.Valid,
+			expectReservation,
+		)
+	}
+}
+
+func assertObjectExists(
+	t *testing.T,
+	objects *fakeObjectStore,
+	objectKey string,
+	expected bool,
+) {
+	t.Helper()
+	objects.mutex.Lock()
+	_, exists := objects.objects[objectKey]
+	objects.mutex.Unlock()
+	if exists != expected {
+		t.Fatalf("object %q exists = %v, want %v", objectKey, exists, expected)
 	}
 }
 
