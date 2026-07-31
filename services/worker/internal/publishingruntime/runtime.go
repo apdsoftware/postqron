@@ -2,37 +2,101 @@ package publishingruntime
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
+	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
+	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Service is intentionally only F8 wiring. Meta adapters can be registered
-// only by injecting an already configured F5 AuthenticatedExecutor. The
-// default worker registry remains empty and fails closed.
+// Service owns only F8 wiring. Credentials remain behind the injected F5
+// AuthenticatedExecutor boundary.
 type Service struct {
 	engine                 *publishing.Engine
 	notificationDispatcher *metapublishing.NotificationDispatcher
 	pool                   *pgxpool.Pool
 }
 
-type runtimeConfig struct {
-	meta metapublishing.RegistrationConfig
+type ProviderGate struct {
+	Configured     bool
+	ReviewApproved bool
+	AuditVerified  bool
+	QuotaVerified  bool
 }
 
-type Option func(*runtimeConfig)
+func (gate ProviderGate) ready() bool {
+	return gate.Configured && gate.ReviewApproved &&
+		gate.AuditVerified && gate.QuotaVerified
+}
 
-func WithMetaAdapters(config metapublishing.RegistrationConfig) Option {
-	return func(runtime *runtimeConfig) {
-		runtime.meta = config
+type VideoAdapterDependencies struct {
+	Executor                 *socialconnections.AuthenticatedExecutor
+	Media                    videopublishing.MediaSource
+	TikTokVerifiedPullPrefix string
+	F5TrailingSlashPaths     bool
+	TikTok                   ProviderGate
+	YouTube                  ProviderGate
+}
+
+func New(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	videoDependencies ...VideoAdapterDependencies,
+) (*Service, error) {
+	config := runtimeStaticProviderConfig(database)
+	return newService(
+		ctx, database, databaseURL, clock, nil, config,
+		metapublishing.RegistrationConfig{},
+		videoDependencies...,
+	)
+}
+
+// NewWithExecutor is the credential-free F5→F8 worker composition boundary.
+// A nil executor is valid and preserves the default fail-closed registry.
+func NewWithExecutor(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	executor *socialconnections.AuthenticatedExecutor,
+	videoDependencies ...VideoAdapterDependencies,
+) (*Service, error) {
+	metaConfig, err := NewMetaRegistrationConfig(database, clock)
+	if err != nil {
+		return nil, err
 	}
+	var boundary staticproviders.Executor
+	if executor != nil {
+		boundary = executor
+	}
+	if len(videoDependencies) == 1 && videoDependencies[0].Executor == nil {
+		videoDependencies[0].Executor = executor
+	}
+	return newService(
+		ctx,
+		database,
+		databaseURL,
+		clock,
+		boundary,
+		runtimeStaticProviderConfig(database),
+		metaConfig,
+		videoDependencies...,
+	)
 }
 
 func NewMetaRegistrationConfig(
@@ -43,7 +107,9 @@ func NewMetaRegistrationConfig(
 	if err != nil {
 		return metapublishing.RegistrationConfig{}, err
 	}
-	if strings.TrimSpace(os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED")) == "true" {
+	if strings.TrimSpace(
+		os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED"),
+	) == "true" {
 		return metapublishing.RegistrationConfig{}, fmt.Errorf(
 			"%w: social notification delivery requires issue 343",
 			publishing.ErrProviderUnavailable,
@@ -52,12 +118,15 @@ func NewMetaRegistrationConfig(
 	return config, nil
 }
 
-func New(
+func newService(
 	ctx context.Context,
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
-	options ...Option,
+	executor staticproviders.Executor,
+	staticConfig staticproviders.Config,
+	metaConfig metapublishing.RegistrationConfig,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -74,36 +143,12 @@ func New(
 		pool.Close()
 		return nil, err
 	}
-	var config runtimeConfig
-	for _, option := range options {
-		if option != nil {
-			option(&config)
-		}
-	}
-	registry, err := newRuntimeAdapterRegistry(config.meta)
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		executor, staticConfig, metaConfig, videoDependencies...,
+	)
 	if err != nil {
 		pool.Close()
 		return nil, err
-	}
-	var notificationDispatcher *metapublishing.NotificationDispatcher
-	if config.meta.NotificationStore != nil || config.meta.NotificationSender != nil {
-		store, ok := config.meta.NotificationStore.(*metapublishing.PostgresNotificationStore)
-		if !ok || config.meta.NotificationSender == nil {
-			pool.Close()
-			return nil, fmt.Errorf(
-				"%w: incomplete Meta notification dispatcher",
-				publishing.ErrProviderUnavailable,
-			)
-		}
-		notificationDispatcher, err = metapublishing.NewNotificationDispatcher(
-			store,
-			config.meta.NotificationSender,
-			2*time.Minute,
-		)
-		if err != nil {
-			pool.Close()
-			return nil, err
-		}
 	}
 	engine, err := publishing.NewEngine(
 		store,
@@ -123,6 +168,27 @@ func New(
 		pool.Close()
 		return nil, err
 	}
+	var notificationDispatcher *metapublishing.NotificationDispatcher
+	if metaConfig.NotificationStore != nil ||
+		metaConfig.NotificationSender != nil {
+		store, ok := metaConfig.NotificationStore.(*metapublishing.PostgresNotificationStore)
+		if !ok || metaConfig.NotificationSender == nil {
+			pool.Close()
+			return nil, fmt.Errorf(
+				"%w: incomplete Meta notification dispatcher",
+				publishing.ErrProviderUnavailable,
+			)
+		}
+		notificationDispatcher, err = metapublishing.NewNotificationDispatcher(
+			store,
+			metaConfig.NotificationSender,
+			2*time.Minute,
+		)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 	return &Service{
 		engine:                 engine,
 		notificationDispatcher: notificationDispatcher,
@@ -131,13 +197,233 @@ func New(
 }
 
 func newRuntimeAdapterRegistry(
-	config metapublishing.RegistrationConfig,
+	executor staticproviders.Executor,
+	config staticproviders.Config,
+	videoDependencies ...VideoAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
+	return newRuntimeAdapterRegistryWithMeta(
+		executor,
+		config,
+		metapublishing.RegistrationConfig{},
+		videoDependencies...,
+	)
+}
+
+func newRuntimeAdapterRegistryWithMeta(
+	executor staticproviders.Executor,
+	config staticproviders.Config,
+	metaConfig metapublishing.RegistrationConfig,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*publishing.AdapterRegistry, error) {
 	registry := publishing.NewAdapterRegistry()
-	if err := metapublishing.Register(registry, config); err != nil {
+	config.Executor = executor
+	if err := staticproviders.Register(registry, config); err != nil {
+		return nil, fmt.Errorf("register static publishing adapters: %w", err)
+	}
+	if err := registerVideoAdapters(registry, videoDependencies...); err != nil {
+		return nil, err
+	}
+	if err := metapublishing.Register(registry, metaConfig); err != nil {
+		return nil, fmt.Errorf("register Meta publishing adapters: %w", err)
+	}
+	return registry, nil
+}
+
+func runtimeStaticProviderConfig(database *sql.DB) staticproviders.Config {
+	return staticproviders.Config{
+		Targets: postgresConnectionTargets{database: database},
+		Media:   runtimeMediaResolver(),
+		LinkedInVersion: strings.TrimSpace(os.Getenv(
+			"POSTQRON_F05_LINKEDIN_API_VERSION",
+		)),
+		Gates: map[string]staticproviders.Gate{
+			staticproviders.ProviderX:         staticProviderGate("X"),
+			staticproviders.ProviderLinkedIn:  staticProviderGate("LINKEDIN"),
+			staticproviders.ProviderPinterest: staticProviderGate("PINTEREST"),
+			staticproviders.ProviderGoogleBusinessProfile: staticProviderGate(
+				"GOOGLE_BUSINESS_PROFILE",
+			),
+		},
+	}
+}
+
+type postgresConnectionTargets struct {
+	database *sql.DB
+}
+
+func (resolver postgresConnectionTargets) ResolveTarget(
+	ctx context.Context,
+	workspaceID, connectionID string,
+) (staticproviders.ConnectionTarget, error) {
+	if resolver.database == nil {
+		return staticproviders.ConnectionTarget{}, errors.New(
+			"social connection target store is unavailable",
+		)
+	}
+	var (
+		provider string
+		remoteID string
+	)
+	err := resolver.database.QueryRowContext(ctx, `
+		SELECT provider::text, remote_id
+		  FROM f05_social_connections
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND status = 'connected'`,
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(connectionID),
+	).Scan(&provider, &remoteID)
+	if err != nil {
+		return staticproviders.ConnectionTarget{}, fmt.Errorf(
+			"resolve F5 connection target: %w", err,
+		)
+	}
+	return staticproviders.ConnectionTarget{
+		Provider: socialProvider(provider),
+		RemoteID: strings.TrimSpace(remoteID),
+	}, nil
+}
+
+func socialProvider(value string) socialconnections.Provider {
+	return socialconnections.Provider(strings.TrimSpace(value))
+}
+
+type filesystemMediaResolver struct {
+	root string
+}
+
+func runtimeMediaResolver() staticproviders.MediaResolver {
+	root := strings.TrimSpace(os.Getenv("POSTQRON_F08_MEDIA_ROOT"))
+	if root == "" || !filepath.IsAbs(root) {
+		return nil
+	}
+	return filesystemMediaResolver{root: filepath.Clean(root)}
+}
+
+func (resolver filesystemMediaResolver) OpenMedia(
+	_ context.Context,
+	workspaceID, ref string,
+) (staticproviders.ResolvedMedia, error) {
+	if !safeMediaSegment(workspaceID) || !safeMediaSegment(ref) {
+		return staticproviders.ResolvedMedia{}, errors.New(
+			"media reference is invalid",
+		)
+	}
+	target := filepath.Join(resolver.root, workspaceID, ref)
+	expectedParent := filepath.Join(resolver.root, workspaceID)
+	if filepath.Dir(target) != expectedParent {
+		return staticproviders.ResolvedMedia{}, errors.New(
+			"media reference escapes workspace",
+		)
+	}
+	file, err := os.Open(target)
+	if err != nil {
+		return staticproviders.ResolvedMedia{}, err
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, errors.New(
+			"media object is not a regular file",
+		)
+	}
+	hasher := sha256.New()
+	prefix := make([]byte, 512)
+	read, readErr := io.ReadFull(file, prefix)
+	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) &&
+		!errors.Is(readErr, io.EOF) {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, readErr
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, err
+	}
+	if _, err = io.Copy(hasher, file); err != nil {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, err
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return staticproviders.ResolvedMedia{}, err
+	}
+	return staticproviders.ResolvedMedia{
+		Body: file, Size: info.Size(),
+		SHA256:      hex.EncodeToString(hasher.Sum(nil)),
+		ContentType: http.DetectContentType(prefix[:read]),
+	}, nil
+}
+
+func safeMediaSegment(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value != "." && value != ".." &&
+		!strings.ContainsAny(value, `/\`+"\x00")
+}
+
+func staticProviderGate(provider string) staticproviders.Gate {
+	prefix := "POSTQRON_F08_" + provider + "_"
+	return staticproviders.Gate{
+		Enabled:         os.Getenv(prefix+"ENABLED") == "true",
+		ReviewApproved:  os.Getenv(prefix+"REVIEW_APPROVED") == "true",
+		AuditVerified:   os.Getenv(prefix+"RUNTIME_AUDIT_VERIFIED") == "true",
+		QuotaConfigured: os.Getenv(prefix+"QUOTA_CONFIGURED") == "true",
+	}
+}
+
+func NewVideoAdapterRegistry(
+	dependencies ...VideoAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	if err := registerVideoAdapters(registry, dependencies...); err != nil {
 		return nil, err
 	}
 	return registry, nil
+}
+
+func registerVideoAdapters(
+	registry *publishing.AdapterRegistry,
+	dependencies ...VideoAdapterDependencies,
+) error {
+	if len(dependencies) == 0 {
+		return nil
+	}
+	if len(dependencies) != 1 {
+		return errors.New("video adapter dependencies must be supplied once")
+	}
+	config := dependencies[0]
+	if config.TikTok.ready() {
+		if !config.F5TrailingSlashPaths {
+			return errors.New(
+				"TikTok publisher requires F5 trailing-slash path support (issue #342)",
+			)
+		}
+		adapter, err := videopublishing.NewTikTok(
+			config.Executor,
+			videopublishing.TikTokConfig{
+				VerifiedPullURLPrefix: config.TikTokVerifiedPullPrefix,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("configure TikTok publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderTikTok), adapter,
+		); err != nil {
+			return err
+		}
+	}
+	if config.YouTube.ready() {
+		adapter, err := videopublishing.NewYouTube(config.Executor, config.Media)
+		if err != nil {
+			return fmt.Errorf("configure YouTube publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderYouTube), adapter,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {

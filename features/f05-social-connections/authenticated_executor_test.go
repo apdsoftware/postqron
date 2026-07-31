@@ -183,6 +183,161 @@ func TestAuthenticatedExecutorRejectsUnsafeInputBeforeTransport(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedExecutorRejectsNonCanonicalProviderPaths(t *testing.T) {
+	fixture := newServiceFixture(t)
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderInstagramProfessional,
+		"ig-1",
+	)
+	transport := &executorTransport{do: func(*http.Request) (*http.Response, error) {
+		t.Fatal("transport must not be called")
+		return nil, nil
+	}}
+	executor, err := NewAuthenticatedExecutor(AuthenticatedExecutorConfig{
+		Service:   fixture.service,
+		Transport: transport,
+		ResourceServers: map[Provider]string{
+			ProviderInstagramProfessional: "https://graph.example.com",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, providerPath := range []string{
+		"https://evil.example/path/",
+		"https://user:password@evil.example/path/",
+		"//evil.example/path/",
+		"/creator_info//query/",
+		"/creator_info/query//",
+		"/creator_info/./query/",
+		"/creator_info/../query/",
+		"/creator_info/%2e%2e/query/",
+		"/creator_info/%252e%252e/query/",
+		"/creator_info/%2fquery/",
+		"/creator_info/%5cquery/",
+		"/creator_info/%00query/",
+		`/creator_info\query/`,
+	} {
+		t.Run(providerPath, func(t *testing.T) {
+			_, executeErr := executor.Execute(
+				context.Background(),
+				PublishingRequest{
+					WorkspaceID:      "workspace-1",
+					ConnectionID:     connection.ID,
+					ExpectedProvider: ProviderInstagramProfessional,
+					Method:           http.MethodGet,
+					Path:             providerPath,
+				},
+			)
+			if !errors.Is(executeErr, ErrInvalidArgument) {
+				t.Fatalf("path %q error = %v", providerPath, executeErr)
+			}
+		})
+	}
+	if transport.calls.Load() != 0 {
+		t.Fatalf("transport calls = %d", transport.calls.Load())
+	}
+}
+
+func TestAuthenticatedExecutorPreservesTrailingSlashOverTLS(t *testing.T) {
+	const officialPath = "/v2/post/publish/creator_info/query/"
+	received := make(chan string, 1)
+	server := httptest.NewTLSServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			received <- request.URL.RequestURI()
+			if request.Header.Get("Authorization") != "Bearer instagram-token" {
+				t.Error("authorization was not derived inside F5")
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"ok":true}`))
+		},
+	))
+	defer server.Close()
+
+	fixture := newServiceFixture(t)
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderInstagramProfessional,
+		"ig-1",
+	)
+	transport := &executorTransport{do: func(request *http.Request) (*http.Response, error) {
+		forward, err := http.NewRequestWithContext(
+			request.Context(),
+			request.Method,
+			server.URL+request.URL.RequestURI(),
+			request.Body,
+		)
+		if err != nil {
+			return nil, err
+		}
+		forward.Header = request.Header.Clone()
+		return server.Client().Do(forward)
+	}}
+	executor, err := NewAuthenticatedExecutor(AuthenticatedExecutorConfig{
+		Service:   fixture.service,
+		Transport: transport,
+		ResourceServers: map[Provider]string{
+			ProviderInstagramProfessional: "https://graph.example.com",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.Execute(context.Background(), PublishingRequest{
+		WorkspaceID:      "workspace-1",
+		ConnectionID:     connection.ID,
+		ExpectedProvider: ProviderInstagramProfessional,
+		Method:           http.MethodGet,
+		Path:             officialPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := <-received; got != officialPath {
+		t.Fatalf("TLS fixture path = %q, want %q", got, officialPath)
+	}
+	if transport.pinnedOrigin() != "https://graph.example.com" {
+		t.Fatalf("pinned origin = %q", transport.pinnedOrigin())
+	}
+}
+
+func TestAuthenticatedExecutorPreservesTrailingSlashInDynamicSession(
+	t *testing.T,
+) {
+	const officialPath = "/xrpc/app.example.creator_info/query/"
+	fixture := newDynamicServiceFixture(t)
+	executor, err := NewAuthenticatedExecutor(
+		AuthenticatedExecutorConfig{Service: fixture.service},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.Execute(context.Background(), PublishingRequest{
+		WorkspaceID:      "workspace-1",
+		ConnectionID:     fixture.connectionID,
+		ExpectedProvider: ProviderBluesky,
+		Method:           http.MethodGet,
+		Path:             officialPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.adapter.mu.Lock()
+	defer fixture.adapter.mu.Unlock()
+	if len(fixture.adapter.requestPaths) != 1 ||
+		fixture.adapter.requestPaths[0] != officialPath {
+		t.Fatalf("dynamic paths = %#v", fixture.adapter.requestPaths)
+	}
+	if len(fixture.adapter.requestStates) != 1 ||
+		string(fixture.adapter.requestStates[0]) !=
+			"nonce-as-1|nonce-rs-1|dpop-key" {
+		t.Fatal("dynamic request did not use the real bound session")
+	}
+}
+
 func TestAuthenticatedExecutorSnapshotsMutableRequestBeforeTransport(
 	t *testing.T,
 ) {
@@ -1321,6 +1476,8 @@ func TestAuthenticatedExecutorIsNotExposedOverHTTP(t *testing.T) {
 		"/api/v1/workspaces/workspace-1/social-connections/connection-1/execute",
 		"/api/v1/workspaces/workspace-1/social-connections/connection-1/publishing",
 		"/api/v1/workspaces/workspace-1/social-connections/connection-1/media",
+		"/api/v1/workspaces/workspace-1/social-connections/connection-1/linkedin-dms-upload",
+		"/api/v1/workspaces/workspace-1/social-connections/connection-1/linkedin-assets/urn:li:image:abc",
 		"/api/v1/internal/authenticated-executor",
 	} {
 		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {

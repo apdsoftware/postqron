@@ -62,6 +62,33 @@ its no-redirect/DNS-pinned transport, creates a fresh proof (including `ath`
 for resource requests), and returns bounded response data without exposing
 tokens, nonces, proofs, or private keys.
 
+The LinkedIn DMS exception remains wholly inside F5. A dedicated initialize
+operation derives the LinkedIn person/organization owner from the connection,
+constructs and executes the exact relative API request itself, consumes the
+provider response immediately, and returns only a random opaque handle. F5
+stores the handle hash plus workspace/connection/provider binding, immutable
+server-derived expiry, lifecycle state, and an AEAD-encrypted payload
+containing the asset URN and exact signed URL/query. The generic executor
+rejects the whole LinkedIn images endpoint family and every media-create
+payload regardless of query, trailing slash, encoding, alternate path, or
+method. The handle boundary alone may use the exact canonical initialize,
+status, and `/rest/posts` create endpoints.
+
+Upload, asset status, and guarded create accept only that handle. A persisted
+CAS state machine uses expiring leases in the pre-call `uploading` and
+`creating` states, then clears the lease and moves to non-replayable
+`upload_sending` or `create_sending` immediately before the provider call.
+Expired pre-call work is reclaimed with CAS; a restart after a provider call
+returns an ambiguous result without replay. This prevents cross-workspace,
+cross-connection, concurrent, restart, and reuse attacks. The fixed
+`https://www.linkedin.com/dms-uploads/` origin is validated and DNS-pinned,
+while the opaque query is preserved byte-for-byte. Upload accepts only media
+`Content-Type`, derives the bearer inside F5, and streams a size-bounded
+SHA-256-verified body. Status returns only a normalized state; guarded create
+injects the encrypted asset URN server-side and requires `AVAILABLE`. No signed
+URL/query, asset URN, origin, token, provider response, expiry control, or
+session state crosses the F5 public boundary or appears in HTTP/OpenAPI.
+
 Each dynamic request holds a persistent, random lease ID for one connection.
 Nonce updates are saved under that lease, so concurrent or stale completions
 cannot overwrite newer session state. A successful single-use refresh is

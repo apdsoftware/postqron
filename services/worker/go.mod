@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/apdsoftware/postqron/features/f03-auth v0.0.0
 	github.com/apdsoftware/postqron/features/f04-workspaces v0.0.0
+	github.com/apdsoftware/postqron/features/f05-social-connections v0.0.0
 	github.com/apdsoftware/postqron/features/f08-publishing v0.0.0
 	github.com/apdsoftware/postqron/features/f14-email v0.0.0
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0

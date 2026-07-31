@@ -11,6 +11,7 @@ import (
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -66,7 +67,11 @@ func TestProductionMetaBootstrapRegistersReviewedFacebookAndInstagram(t *testing
 			socialconnections.ProviderInstagramProfessional {
 		t.Fatalf("config=%+v", config)
 	}
-	registry, err := newRuntimeAdapterRegistry(config)
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		nil,
+		staticproviders.Config{},
+		config,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +83,7 @@ func TestProductionMetaBootstrapRegistersReviewedFacebookAndInstagram(t *testing
 		t.Fatal(err)
 	}
 	capabilities := publisher.Capabilities()
-	if capabilities.Reconciliation || !capabilities.FailClosedOnAmbiguous ||
+	if capabilities.Reconciliation || !capabilities.AmbiguousFailClosed ||
 		capabilities.MediaFormats == "" {
 		t.Fatalf("capabilities=%+v", capabilities)
 	}
