@@ -85,11 +85,20 @@ func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
+	if err := service.store.MarkProviderCallStarted(
+		ctx,
+		delivery.Message.ID,
+		delivery.LeaseToken,
+		now,
+	); err != nil {
+		return true, fmt.Errorf("record provider call start: %w", err)
+	}
 	receipt, sendErr := service.sender.Send(ctx, delivery.Rendered)
 	if sendErr == nil {
 		if err := service.store.MarkAccepted(
 			ctx,
 			delivery.Message.ID,
+			delivery.LeaseToken,
 			receipt.MessageID,
 			now,
 		); err != nil {
@@ -99,11 +108,15 @@ func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	}
 
 	diagnostic, retryAfter := diagnosticFromError(sendErr, now)
+	if ambiguousProviderOutcome(sendErr) {
+		diagnostic.Retryable = false
+	}
 	if diagnostic.Retryable && delivery.Attempt < delivery.Message.MaxAttempts {
 		next := now.Add(service.retry.Delay(delivery.Attempt, retryAfter))
 		if err := service.store.MarkRetry(
 			ctx,
 			delivery.Message.ID,
+			delivery.LeaseToken,
 			diagnostic,
 			next,
 		); err != nil {
@@ -112,10 +125,28 @@ func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 	diagnostic.Retryable = false
-	if err := service.store.MarkFailed(ctx, delivery.Message.ID, diagnostic); err != nil {
+	if err := service.store.MarkFailed(
+		ctx,
+		delivery.Message.ID,
+		delivery.LeaseToken,
+		diagnostic,
+	); err != nil {
 		return true, fmt.Errorf("record failed email: %w", err)
 	}
 	return true, nil
+}
+
+func ambiguousProviderOutcome(err error) bool {
+	var providerError *MailronixError
+	if !errors.As(err, &providerError) {
+		return false
+	}
+	switch providerError.Code {
+	case "transport_error", "response_read_error", "invalid_response":
+		return true
+	default:
+		return false
+	}
 }
 
 func diagnosticFromError(err error, now time.Time) (Diagnostic, time.Duration) {

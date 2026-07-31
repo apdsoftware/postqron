@@ -85,15 +85,16 @@ type TemplateData struct {
 }
 
 type Message struct {
-	ID              string
-	IdempotencyKey  string
-	Channel         Channel
-	Template        TemplateID
-	TemplateVersion string
-	Recipient       Recipient
-	Data            TemplateData
-	CreatedAt       time.Time
-	MaxAttempts     int
+	ID                string
+	IdempotencyKey    string
+	Channel           Channel
+	Template          TemplateID
+	TemplateVersion   string
+	SourceWorkspaceID string
+	Recipient         Recipient
+	Data              TemplateData
+	CreatedAt         time.Time
+	MaxAttempts       int
 }
 
 type RenderedMessage struct {
@@ -128,6 +129,9 @@ type Delivery struct {
 	NextAttemptAt     time.Time
 	ProviderMessageID string
 	LastDiagnostic    Diagnostic
+	LeaseToken        string
+	LockedUntil       time.Time
+	ProviderCallAt    time.Time
 }
 
 type Diagnostic struct {
@@ -154,9 +158,10 @@ type Sender interface {
 type Store interface {
 	Enqueue(context.Context, Delivery) (EnqueueResult, error)
 	ClaimDue(context.Context, time.Time) (Delivery, bool, error)
-	MarkAccepted(context.Context, string, string, time.Time) error
-	MarkRetry(context.Context, string, Diagnostic, time.Time) error
-	MarkFailed(context.Context, string, Diagnostic) error
+	MarkProviderCallStarted(context.Context, string, string, time.Time) error
+	MarkAccepted(context.Context, string, string, string, time.Time) error
+	MarkRetry(context.Context, string, string, Diagnostic, time.Time) error
+	MarkFailed(context.Context, string, string, Diagnostic) error
 }
 
 var (
@@ -173,6 +178,11 @@ func validateMessage(message Message) error {
 		len(message.IdempotencyKey) > 255 ||
 		!semverPattern.MatchString(message.TemplateVersion) ||
 		message.MaxAttempts < 1 {
+		return ErrInvalidMessage
+	}
+	isSocial := message.Template == TemplateFacebookGroupManual ||
+		message.Template == TemplateInstagramPersonalManual
+	if isSocial != (strings.TrimSpace(message.SourceWorkspaceID) != "") {
 		return ErrInvalidMessage
 	}
 	if message.Channel != ChannelTransactional {

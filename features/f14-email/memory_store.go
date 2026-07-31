@@ -3,6 +3,7 @@ package email
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -35,6 +36,16 @@ func (store *MemoryStore) Enqueue(
 	key := string(delivery.Message.Channel) + ":" + delivery.Message.IdempotencyKey
 	if existingID, exists := store.idempotency[key]; exists {
 		existing := store.deliveries[existingID]
+		if existing.Message.SourceWorkspaceID !=
+			delivery.Message.SourceWorkspaceID ||
+			existing.Rendered.Recipient.ID != delivery.Rendered.Recipient.ID ||
+			existing.Message.Template != delivery.Message.Template ||
+			existing.Message.TemplateVersion !=
+				delivery.Message.TemplateVersion {
+			return EnqueueResult{}, errors.New(
+				"email idempotency binding conflict",
+			)
+		}
 		return EnqueueResult{
 			ID:      existingID,
 			Created: false,
@@ -62,7 +73,12 @@ func (store *MemoryStore) ClaimDue(
 	defer store.mu.Unlock()
 	for _, id := range store.order {
 		delivery := store.deliveries[id]
-		if delivery.State != StatePending && delivery.State != StateRetry {
+		claimable := delivery.State == StatePending ||
+			delivery.State == StateRetry ||
+			(delivery.State == StateSending &&
+				!delivery.LockedUntil.After(now) &&
+				delivery.ProviderCallAt.IsZero())
+		if !claimable || delivery.Attempt >= delivery.Message.MaxAttempts {
 			continue
 		}
 		if delivery.NextAttemptAt.After(now) {
@@ -70,21 +86,48 @@ func (store *MemoryStore) ClaimDue(
 		}
 		delivery.State = StateSending
 		delivery.Attempt++
+		delivery.LeaseToken = fmt.Sprintf(
+			"memory-lease-%s-%d",
+			id,
+			delivery.Attempt,
+		)
+		delivery.LockedUntil = now.Add(2 * time.Minute)
+		delivery.ProviderCallAt = time.Time{}
 		store.deliveries[id] = delivery
 		return cloneDelivery(delivery), true, nil
 	}
 	return Delivery{}, false, nil
 }
 
-func (store *MemoryStore) MarkAccepted(
+func (store *MemoryStore) MarkProviderCallStarted(
 	_ context.Context,
-	id, providerID string,
-	_ time.Time,
+	id, leaseToken string,
+	now time.Time,
 ) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	delivery, ok := store.deliveries[id]
-	if !ok || delivery.State != StateSending || providerID == "" {
+	if !ok || delivery.State != StateSending ||
+		delivery.LeaseToken != leaseToken || leaseToken == "" ||
+		!delivery.LockedUntil.After(now) {
+		return errors.New("delivery provider call lease was lost")
+	}
+	delivery.ProviderCallAt = now
+	store.deliveries[id] = delivery
+	return nil
+}
+
+func (store *MemoryStore) MarkAccepted(
+	_ context.Context,
+	id, leaseToken, providerID string,
+	now time.Time,
+) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delivery, ok := store.deliveries[id]
+	if !ok || delivery.State != StateSending ||
+		delivery.LeaseToken != leaseToken || delivery.ProviderCallAt.IsZero() ||
+		providerID == "" {
 		return errors.New("delivery is not claimable as accepted")
 	}
 	if existing, used := store.providerIDs[providerID]; used && existing != id {
@@ -92,6 +135,10 @@ func (store *MemoryStore) MarkAccepted(
 	}
 	delivery.State = StateAccepted
 	delivery.ProviderMessageID = providerID
+	delivery.LeaseToken = ""
+	delivery.LockedUntil = time.Time{}
+	delivery.ProviderCallAt = time.Time{}
+	delivery.NextAttemptAt = now
 	store.deliveries[id] = delivery
 	store.providerIDs[providerID] = id
 	return nil
@@ -99,36 +146,45 @@ func (store *MemoryStore) MarkAccepted(
 
 func (store *MemoryStore) MarkRetry(
 	_ context.Context,
-	id string,
+	id, leaseToken string,
 	diagnostic Diagnostic,
 	next time.Time,
 ) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	delivery, ok := store.deliveries[id]
-	if !ok || delivery.State != StateSending || next.IsZero() {
+	if !ok || delivery.State != StateSending ||
+		delivery.LeaseToken != leaseToken || delivery.ProviderCallAt.IsZero() ||
+		next.IsZero() {
 		return errors.New("delivery is not claimable for retry")
 	}
 	delivery.State = StateRetry
 	delivery.LastDiagnostic = diagnostic
 	delivery.NextAttemptAt = next
+	delivery.LeaseToken = ""
+	delivery.LockedUntil = time.Time{}
+	delivery.ProviderCallAt = time.Time{}
 	store.deliveries[id] = delivery
 	return nil
 }
 
 func (store *MemoryStore) MarkFailed(
 	_ context.Context,
-	id string,
+	id, leaseToken string,
 	diagnostic Diagnostic,
 ) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	delivery, ok := store.deliveries[id]
-	if !ok || delivery.State != StateSending {
+	if !ok || delivery.State != StateSending ||
+		delivery.LeaseToken != leaseToken || delivery.ProviderCallAt.IsZero() {
 		return errors.New("delivery is not claimable as failed")
 	}
 	delivery.State = StateFailed
 	delivery.LastDiagnostic = diagnostic
+	delivery.LeaseToken = ""
+	delivery.LockedUntil = time.Time{}
+	delivery.ProviderCallAt = time.Time{}
 	store.deliveries[id] = delivery
 	return nil
 }

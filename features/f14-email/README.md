@@ -147,24 +147,40 @@ Il boundary worker per F8/F9 accetta esclusivamente workspace, post, channel,
 provider, recipient ID già risolto, locale, template e idempotency key. F14
 risolve nuovamente l’Owner verificato del workspace e rifiuta ogni mismatch:
 indirizzo email, nome, oggetto e corpo non possono essere forniti da un client o
-dal payload social.
+dal payload social. Lo scope workspace viene scritto atomicamente nello stesso
+insert del delivery e ogni replay idempotente verifica che workspace,
+destinatario, template e versione siano immutati.
 
 `facebook_group_manual_publish` e `instagram_personal_manual_publish` hanno copy
 localizzata e azione specifica per target. Il link porta alla risorsa Postqron;
 testo, media URL, token OAuth e credenziali social non attraversano il comando
 email. L’idempotency key F14 è stabile. Poiché il contratto Mailronix verificato
-non espone webhook, lo stato F8 avanza solo dopo che F14 ha persistito la
-ricevuta sincrona `accepted` del provider. Stati terminali o un `sending`
-ambiguo dopo crash producono permanent failure senza un secondo invio.
+non espone webhook o status lookup, la ricevuta HTTP 202 `queued` viene
+persistita come `accepted` ma resta non-delivered: può infatti rappresentare
+anche un destinatario poi scartato dalle suppression list. F8 non avanza mai a
+`notified` su questa ricevuta. Solo uno stato F14 `delivered` confermato può
+chiudere F8; finché il contratto non offre tale conferma, il percorso live resta
+fail-closed. Stati terminali o un `sending` ambiguo dopo crash producono
+permanent failure senza un secondo invio.
 
 ## Affidabilità e ambiente fake
 
 L’idempotency key è unica nel ledger F14 e il claim SQL usa
-`FOR UPDATE SKIP LOCKED`. Errori 429/500/503, indisponibilità del secret store,
-timeout e trasporto sono riprovabili con backoff limitato; gli errori 4xx
-documentati sono permanenti. Il circuit breaker interrompe temporaneamente gli
-invii dopo errori transitori consecutivi. Diagnostica, indirizzi e credenziali
-sono redatti e il corpo completo non viene scritto nei log.
+`FOR UPDATE SKIP LOCKED`, lease con token/scadenza e transizioni CAS. Un lease
+scaduto è recuperabile se il worker è caduto prima di registrare l’inizio della
+chiamata provider. Dopo tale marcatore, un esito ambiguo non viene mai
+reinviato: senza status lookup resta fail-closed. Risposte definitive
+429/500/503 e indisponibilità prima della chiamata sono riprovabili con backoff
+limitato; timeout, errori di trasporto o risposta illeggibile sono ambigui e
+terminali per impedire doppi invii. Gli errori 4xx documentati sono permanenti.
+Il circuit breaker interrompe temporaneamente gli invii dopo errori transitori.
+Diagnostica, indirizzi e credenziali sono redatti e il corpo completo non viene
+scritto nei log.
+
+I record terminali e le ricevute `accepted` hanno retention esplicita di dodici
+mesi. Il worker elimina delivery ed eventi scaduti (inclusi email, nome,
+oggetto e corpi); la cancellazione privacy per account o workspace rimuove
+immediatamente gli stessi record e le suppression associate all’account.
 
 `FakeSender` è l’unica modalità di sviluppo/CI: conserva i messaggi in memoria e
 rifiuta ogni destinatario che non appartenga ai domini riservati

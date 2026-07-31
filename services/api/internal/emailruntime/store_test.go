@@ -150,7 +150,14 @@ type emailStoreRows struct {
 }
 
 func (*emailStoreRows) Columns() []string {
-	return []string{"id", "state"}
+	return []string{
+		"id",
+		"state",
+		"source_workspace_id",
+		"recipient_id",
+		"template_id",
+		"template_version",
+	}
 }
 
 func (*emailStoreRows) Close() error { return nil }
@@ -162,5 +169,9 @@ func (rows *emailStoreRows) Next(values []driver.Value) error {
 	rows.sent = true
 	values[0] = rows.id
 	values[1] = string(rows.state)
+	values[2] = nil
+	values[3] = "account-1"
+	values[4] = string(email.TemplateAccountVerification)
+	values[5] = "1.0.0"
 	return nil
 }

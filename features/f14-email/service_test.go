@@ -131,6 +131,45 @@ func TestServiceStopsAfterPermanentFailure(t *testing.T) {
 	}
 }
 
+func TestServiceNeverReplaysAmbiguousProviderOutcome(t *testing.T) {
+	store := NewMemoryStore()
+	sender := &scriptedSender{errors: []error{
+		&MailronixError{
+			Code:      "transport_error",
+			Retryable: true,
+			Detail:    "Mailronix did not return a response",
+		},
+	}}
+	service, now := testService(t, store, sender)
+	result, err := service.Enqueue(
+		context.Background(),
+		testMessage(TemplateFacebookGroupManual),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.DispatchOne(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	delivery, _ := store.Delivery(result.ID)
+	if delivery.State != StateFailed ||
+		delivery.LastDiagnostic.Code != "transport_error" ||
+		delivery.LastDiagnostic.Retryable ||
+		len(sender.messages) != 1 {
+		t.Fatalf("ambiguous delivery = %#v calls=%d", delivery, len(sender.messages))
+	}
+	service.now = func() time.Time { return now.Add(time.Hour) }
+	processed, err := service.DispatchOne(context.Background())
+	if err != nil || processed || len(sender.messages) != 1 {
+		t.Fatalf(
+			"ambiguous replay processed=%v calls=%d error=%v",
+			processed,
+			len(sender.messages),
+			err,
+		)
+	}
+}
+
 func TestServiceRedactsVerificationTokenFromDiagnostics(t *testing.T) {
 	for name, detail := range map[string]string{
 		"query_token": "retry https://app.example.test/verify-email?verification_token=abc123&email=persona@example.test",

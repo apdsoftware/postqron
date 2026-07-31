@@ -441,18 +441,19 @@ func TestPostgresNotificationCrashAfterDownstreamEnqueueDoesNotSendTwice(
 			id, idempotency_key, channel, template_id, template_version,
 			recipient_id, recipient_email, recipient_name, subject, preheader,
 			html_body, text_body, locale, state, attempt_count, max_attempts,
-			next_attempt_at, created_at, updated_at
+			next_attempt_at, source_workspace_id, created_at, updated_at
 		) VALUES (
 			$1, $2, 'transactional', 'facebook_group_manual_publish', '1.0.0',
 			$3, $4, 'Meta crash owner', 'Manual action', 'Manual action',
 			'<p>Manual action</p>', 'Manual action', 'fr', 'delivered', 1, 5,
-			$5, $5, $5
+			$5, $6, $5, $5
 		)`,
 		firstEmailID,
 		"social-notification:"+key,
 		accountID,
 		"meta-crash-"+suffix+"@example.test",
 		now,
+		workspaceID,
 	)
 	if err != nil {
 		t.Fatal(err)

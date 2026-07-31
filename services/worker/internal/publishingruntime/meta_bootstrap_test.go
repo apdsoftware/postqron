@@ -11,9 +11,22 @@ import (
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
+	statusnotifications "github.com/apdsoftware/postqron/features/f09-status-notifications"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+type socialEmailGatewayStub struct {
+	receipt statusnotifications.SocialDeliveryReceipt
+}
+
+func (gateway socialEmailGatewayStub) DeliverSocialNotification(
+	context.Context,
+	statusnotifications.SocialNotificationCommand,
+) (statusnotifications.SocialDeliveryReceipt, error) {
+	return gateway.receipt, nil
+}
 
 func TestProductionMetaBootstrapRegistersReviewedFacebookAndInstagram(t *testing.T) {
 	clearMetaBootstrapEnvironment(t)
@@ -132,6 +145,44 @@ func TestProductionMetaBootstrapGatesMissingDependenciesAndIssue343(
 	}
 	if config.NotificationStore == nil || config.NotificationSender == nil {
 		t.Fatalf("notification boundary was not registered: %+v", config)
+	}
+}
+
+func TestMetaNotificationSenderDoesNotTreatQueuedEmailAsDelivered(t *testing.T) {
+	boundary, err := statusnotifications.NewSocialNotificationBoundary(
+		socialEmailGatewayStub{
+			receipt: statusnotifications.SocialDeliveryReceipt{
+				EmailDeliveryID: "email-queued",
+				State:           statusnotifications.SocialDeliveryPending,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emailID, err := (runtimeSocialNotificationSender{boundary: boundary}).
+		DeliverMetaNotification(
+			context.Background(),
+			metapublishing.NotificationDelivery{
+				WorkspaceID:    "workspace-1",
+				PostID:         "post-1",
+				ChannelID:      "channel-1",
+				Provider:       "facebook_groups",
+				RecipientID:    "account-1",
+				Locale:         "en",
+				TemplateID:     "facebook_group_manual_publish",
+				IdempotencyKey: "notification-1",
+			},
+		)
+	var providerError *publishing.ProviderError
+	if emailID != "email-queued" || !errors.As(err, &providerError) ||
+		!providerError.Retryable ||
+		providerError.Code != "notification_email_pending" {
+		t.Fatalf(
+			"queued receipt email=%q error=%#v",
+			emailID,
+			err,
+		)
 	}
 }
 

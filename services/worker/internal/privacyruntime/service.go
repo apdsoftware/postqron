@@ -229,12 +229,18 @@ func (service *Service) finalizeDeletion(
 		}
 	}
 	if job.Scope == "account" {
+		if err := eraseAccountEmailData(
+			ctx,
+			transaction,
+			job.AccountID,
+		); err != nil {
+			return err
+		}
 		anonymous := "deleted:" + job.ID
 		if _, err := transaction.ExecContext(ctx, `
 			UPDATE f06_composer_drafts SET created_by_account_id = $2 WHERE created_by_account_id = $1;
 			UPDATE f07_scheduled_posts SET created_by_account_id = $2 WHERE created_by_account_id = $1;
 			UPDATE f08_publication_dead_letters SET retried_by_account_id = NULL WHERE retried_by_account_id = $1;
-			DELETE FROM f08_meta_notification_outbox WHERE recipient_id = $1;
 			UPDATE f09_manual_retry_outbox SET actor_id = $2 WHERE actor_id = $1;
 			DELETE FROM f09_notification_outbox WHERE account_id = $1;
 			DELETE FROM f04_memberships WHERE account_id = $1;
@@ -295,13 +301,15 @@ func (service *Service) failDeletion(ctx context.Context, requestID, code string
 }
 
 func eraseWorkspace(ctx context.Context, transaction *sql.Tx, workspaceID string) error {
+	if err := eraseWorkspaceEmailData(ctx, transaction, workspaceID); err != nil {
+		return err
+	}
 	queries := []string{
 		`DELETE FROM f09_manual_retry_outbox WHERE workspace_id = $1`,
 		`DELETE FROM f09_notification_outbox WHERE workspace_id = $1`,
 		`DELETE FROM f09_publication_status_events WHERE workspace_id = $1`,
 		`DELETE FROM f09_destination_status WHERE workspace_id = $1`,
 		`DELETE FROM f09_post_status WHERE workspace_id = $1`,
-		`DELETE FROM f08_meta_notification_outbox WHERE workspace_id = $1`,
 		`DELETE FROM f08_publication_dead_letters WHERE job_id IN (SELECT id FROM f08_publication_jobs WHERE workspace_id = $1)`,
 		`DELETE FROM f08_publication_attempts WHERE destination_id IN (SELECT id FROM f08_publication_destinations WHERE workspace_id = $1)`,
 		`DELETE FROM f08_publication_destinations WHERE workspace_id = $1`,
@@ -315,6 +323,55 @@ func eraseWorkspace(ctx context.Context, transaction *sql.Tx, workspaceID string
 		`DELETE FROM f05_resource_selections WHERE workspace_id = $1`,
 		`DELETE FROM f05_oauth_attempts WHERE workspace_id = $1`,
 		`DELETE FROM f04_workspaces WHERE id = $1`,
+	}
+	for _, query := range queries {
+		if _, err := transaction.ExecContext(ctx, query, workspaceID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func eraseAccountEmailData(
+	ctx context.Context,
+	transaction *sql.Tx,
+	accountID string,
+) error {
+	queries := []string{
+		`DELETE FROM f14_email_provider_events
+		  WHERE provider_message_id IN (
+		      SELECT provider_message_id
+		        FROM f14_email_deliveries
+		       WHERE recipient_id = $1
+		         AND provider_message_id IS NOT NULL
+		  )`,
+		`DELETE FROM f08_meta_notification_outbox WHERE recipient_id = $1`,
+		`DELETE FROM f14_email_deliveries WHERE recipient_id = $1`,
+		`DELETE FROM f14_email_suppressions WHERE recipient_id = $1`,
+	}
+	for _, query := range queries {
+		if _, err := transaction.ExecContext(ctx, query, accountID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func eraseWorkspaceEmailData(
+	ctx context.Context,
+	transaction *sql.Tx,
+	workspaceID string,
+) error {
+	queries := []string{
+		`DELETE FROM f14_email_provider_events
+		  WHERE provider_message_id IN (
+		      SELECT provider_message_id
+		        FROM f14_email_deliveries
+		       WHERE source_workspace_id = $1
+		         AND provider_message_id IS NOT NULL
+		  )`,
+		`DELETE FROM f08_meta_notification_outbox WHERE workspace_id = $1`,
+		`DELETE FROM f14_email_deliveries WHERE source_workspace_id = $1`,
 	}
 	for _, query := range queries {
 		if _, err := transaction.ExecContext(ctx, query, workspaceID); err != nil {

@@ -33,7 +33,7 @@ func testRenderer(t *testing.T) *Renderer {
 func testMessage(templateID TemplateID) Message {
 	count := int64(12345)
 	amount := int64(123456)
-	return Message{
+	message := Message{
 		ID: "email_1", IdempotencyKey: "event:1",
 		Channel: ChannelTransactional, Template: templateID,
 		TemplateVersion: "1.0.0",
@@ -50,6 +50,11 @@ func testMessage(templateID TemplateID) Message {
 		CreatedAt:   time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		MaxAttempts: 5,
 	}
+	if templateID == TemplateFacebookGroupManual ||
+		templateID == TemplateInstagramPersonalManual {
+		message.SourceWorkspaceID = "workspace-1"
+	}
+	return message
 }
 
 func TestEveryTemplateRendersAllLocalesWithCompleteAlternatives(t *testing.T) {

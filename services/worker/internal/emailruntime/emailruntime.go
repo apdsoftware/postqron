@@ -134,10 +134,11 @@ func (service *Service) EnqueueSocialNotification(
 	}
 	now := service.clock().UTC()
 	result, err := service.emailService.Enqueue(ctx, email.Message{
-		IdempotencyKey:  "social-notification:" + command.IdempotencyKey,
-		Channel:         email.ChannelTransactional,
-		Template:        template,
-		TemplateVersion: "1.0.0",
+		IdempotencyKey:    "social-notification:" + command.IdempotencyKey,
+		Channel:           email.ChannelTransactional,
+		Template:          template,
+		TemplateVersion:   "1.0.0",
+		SourceWorkspaceID: command.WorkspaceID,
 		Recipient: email.Recipient{
 			ID: recipient.id, Email: recipient.email, Name: recipient.name,
 			Locale: recipient.locale,
@@ -221,32 +222,41 @@ func (service *Service) socialDeliveryState(
 	deliveryID string,
 	now time.Time,
 ) (string, SocialNotificationState, error) {
-	var (
-		state     string
-		updatedAt time.Time
-	)
+	var state string
 	err := service.database.QueryRowContext(ctx, `
-		SELECT state, updated_at
+		SELECT state
 		  FROM f14_email_deliveries
 		 WHERE id = $1`,
 		deliveryID,
-	).Scan(&state, &updatedAt)
+	).Scan(&state)
 	if err != nil {
 		return "", "", fmt.Errorf("read social email delivery: %w", err)
 	}
-	if state == "sending" && !updatedAt.Add(2*time.Minute).After(now) {
+	if state == "sending" {
 		result, updateErr := service.database.ExecContext(ctx, `
 			UPDATE f14_email_deliveries
 			   SET state = 'failed',
-			       last_diagnostic_code = 'ambiguous_delivery',
+			       last_diagnostic_code = CASE
+			           WHEN provider_call_started_at IS NOT NULL
+			           THEN 'ambiguous_delivery'
+			           ELSE 'lease_attempts_exhausted'
+			       END,
 			       last_diagnostic_detail = '',
-			       updated_at = $2
+			       updated_at = $2,
+			       retention_until = $3,
+			       lease_token = NULL,
+			       locked_until = NULL,
+			       provider_call_started_at = NULL
 			 WHERE id = $1
 			   AND state = 'sending'
-			   AND updated_at <= $3`,
+			   AND locked_until <= $2
+			   AND (
+			       provider_call_started_at IS NOT NULL
+			       OR attempt_count >= max_attempts
+			   )`,
 			deliveryID,
 			now,
-			now.Add(-2*time.Minute),
+			now.AddDate(1, 0, 0),
 		)
 		if updateErr != nil {
 			return "", "", fmt.Errorf("reconcile ambiguous social email: %w", updateErr)
@@ -258,8 +268,13 @@ func (service *Service) socialDeliveryState(
 		}
 	}
 	switch state {
-	case "accepted", "delivered":
+	case "delivered":
 		return deliveryID, SocialNotificationDelivered, nil
+	case "accepted":
+		// Mailronix contract 1.0.0 only confirms that the request was queued.
+		// The same 202 response is returned for recipients later discarded by
+		// suppression handling, so accepted must never advance F8 to notified.
+		return deliveryID, SocialNotificationPending, nil
 	case "failed", "bounced", "complained", "suppressed":
 		return deliveryID, SocialNotificationPermanentFailure, nil
 	default:
@@ -271,7 +286,59 @@ func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	if service == nil || service.emailService == nil {
 		return false, errors.New("email runtime service is not configured")
 	}
+	if _, err := service.purgeExpiredDeliveries(ctx, service.clock().UTC()); err != nil {
+		return false, err
+	}
 	return service.emailService.DispatchOne(ctx)
+}
+
+func (service *Service) purgeExpiredDeliveries(
+	ctx context.Context,
+	now time.Time,
+) (int64, error) {
+	transaction, err := service.database.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin expired email purge: %w", err)
+	}
+	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(ctx, `
+		UPDATE f08_meta_notification_outbox AS notification
+		   SET email_delivery_id = NULL
+		  FROM f14_email_deliveries AS delivery
+		 WHERE notification.email_delivery_id = delivery.id
+		   AND delivery.retention_until <= $1`,
+		now,
+	); err != nil {
+		return 0, fmt.Errorf("unlink expired social email: %w", err)
+	}
+	if _, err = transaction.ExecContext(ctx, `
+		DELETE FROM f14_email_provider_events
+		 WHERE provider_message_id IN (
+		     SELECT provider_message_id
+		       FROM f14_email_deliveries
+		      WHERE retention_until <= $1
+		        AND provider_message_id IS NOT NULL
+		 )`,
+		now,
+	); err != nil {
+		return 0, fmt.Errorf("purge expired email events: %w", err)
+	}
+	result, err := transaction.ExecContext(ctx, `
+		DELETE FROM f14_email_deliveries
+		 WHERE retention_until <= $1`,
+		now,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("purge expired email deliveries: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err = transaction.Commit(); err != nil {
+		return 0, fmt.Errorf("commit expired email purge: %w", err)
+	}
+	return count, nil
 }
 
 func loadBrand(appDomain string) (email.Brand, error) {
