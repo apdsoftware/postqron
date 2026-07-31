@@ -45,8 +45,19 @@ for worker_package in ./internal/emailruntime ./internal/privacyruntime; do
   fi
 done
 
+printf '\n=== services/api/internal/emailruntime: PostgreSQL integration ===\n'
+if output=$(go test -race -count=1 -v ./services/api/internal/emailruntime 2>&1); then
+  printf '%s\n' "$output"
+else
+  printf '%s\n' "$output"
+  failed=1
+fi
+if grep -q -- '--- SKIP:' <<<"$output"; then
+  skipped=1
+fi
+
 if (( skipped != 0 )); then
-  echo "At least one feature test was skipped with PostgreSQL configured." >&2
+  echo "At least one PostgreSQL integration test was skipped with PostgreSQL configured." >&2
   failed=1
 fi
 exit "$failed"
