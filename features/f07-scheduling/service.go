@@ -572,6 +572,29 @@ func calendarEntry(post ScheduledPost) CalendarEntry {
 	}
 }
 
+func scheduledPostView(post ScheduledPost) ScheduledPostView {
+	view := ScheduledPostView{
+		ID:                   post.ID,
+		WorkspaceID:          post.WorkspaceID,
+		DraftID:              post.DraftID,
+		ChannelIDs:           append([]string(nil), post.ChannelIDs...),
+		Status:               post.Status,
+		ScheduledForUTC:      post.ScheduledForUTC,
+		ScheduledLocal:       post.ScheduledLocal,
+		TimeZone:             post.TimeZone,
+		UTCOffsetMinutes:     post.UTCOffsetMinutes,
+		Revision:             post.Revision,
+		DuplicatedFromPostID: post.DuplicatedFromPostID,
+		CreatedAt:            post.CreatedAt,
+		UpdatedAt:            post.UpdatedAt,
+	}
+	if post.CancelledAt != nil {
+		cancelledAt := *post.CancelledAt
+		view.CancelledAt = &cancelledAt
+	}
+	return view
+}
+
 func clonePost(post ScheduledPost) ScheduledPost {
 	post.ChannelIDs = append([]string(nil), post.ChannelIDs...)
 	if post.CancelledAt != nil {

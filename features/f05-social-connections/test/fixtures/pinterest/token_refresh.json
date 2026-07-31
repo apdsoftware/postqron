@@ -1,0 +1,10 @@
+{
+  "access_token": "fixture-refreshed-access-token",
+  "refresh_token": "fixture-rotated-refresh-token",
+  "response_type": "refresh_token",
+  "token_type": "bearer",
+  "expires_in": 2592000,
+  "refresh_token_expires_in": 5184000,
+  "refresh_token_expires_at": 1924992000,
+  "scope": "pins:write,boards:read pins:read,boards:write"
+}

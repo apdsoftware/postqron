@@ -1,10 +1,60 @@
 schema_version: 1
 id: scheduling
 kind: api
-version: 0.1.0
+version: 0.2.0
 entrypoint: ./scheduling.go
 dependencies:
   - f06-composer
   - social-connections
 migrations:
   - ./migrations/000001_create_scheduled_posts.sql
+server:
+  routes:
+    - path: /workspaces/{workspace_id}/calendar
+      handler: SchedulingRuntime
+      methods: [GET]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/calendar
+      handler: SchedulingPreflight
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/scheduled-posts
+      handler: SchedulingRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/scheduled-posts
+      handler: SchedulingPreflight
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}
+      handler: SchedulingRuntime
+      methods: [GET, PUT]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}
+      handler: SchedulingPreflight
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}/reschedule
+      handler: SchedulingRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}/reschedule
+      handler: SchedulingPreflight
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}/duplicate
+      handler: SchedulingRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}/duplicate
+      handler: SchedulingPreflight
+      methods: [OPTIONS]
+      visibility: "public"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}/cancel
+      handler: SchedulingRuntime
+      methods: [POST]
+      visibility: "private"
+    - path: /workspaces/{workspace_id}/scheduled-posts/{post_id}/cancel
+      handler: SchedulingPreflight
+      methods: [OPTIONS]
+      visibility: "public"

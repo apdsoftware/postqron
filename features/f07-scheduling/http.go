@@ -17,18 +17,39 @@ type RequestAuthenticator interface {
 type HTTPHandler struct {
 	service       *Service
 	authenticator RequestAuthenticator
+	origins       map[string]struct{}
 }
 
 func NewHTTPHandler(service *Service, authenticator RequestAuthenticator) http.Handler {
-	handler := &HTTPHandler{service: service, authenticator: authenticator}
+	return newSchedulingHTTPHandler(service, authenticator, nil)
+}
+
+func newSchedulingHTTPHandler(
+	service *Service,
+	authenticator RequestAuthenticator,
+	origins map[string]struct{},
+) http.Handler {
+	handler := &HTTPHandler{
+		service:       service,
+		authenticator: authenticator,
+		origins:       origins,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(
 		"GET /api/v1/workspaces/{workspace_id}/calendar",
 		handler.calendar,
 	)
 	mux.HandleFunc(
+		"OPTIONS /api/v1/workspaces/{workspace_id}/calendar",
+		handler.preflight,
+	)
+	mux.HandleFunc(
 		"POST /api/v1/workspaces/{workspace_id}/scheduled-posts",
 		handler.schedule,
+	)
+	mux.HandleFunc(
+		"OPTIONS /api/v1/workspaces/{workspace_id}/scheduled-posts",
+		handler.preflight,
 	)
 	mux.HandleFunc(
 		"GET /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}",
@@ -39,21 +60,40 @@ func NewHTTPHandler(service *Service, authenticator RequestAuthenticator) http.H
 		handler.edit,
 	)
 	mux.HandleFunc(
+		"OPTIONS /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}",
+		handler.preflight,
+	)
+	mux.HandleFunc(
 		"POST /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/reschedule",
 		handler.reschedule,
+	)
+	mux.HandleFunc(
+		"OPTIONS /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/reschedule",
+		handler.preflight,
 	)
 	mux.HandleFunc(
 		"POST /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/duplicate",
 		handler.duplicate,
 	)
 	mux.HandleFunc(
+		"OPTIONS /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/duplicate",
+		handler.preflight,
+	)
+	mux.HandleFunc(
 		"POST /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/cancel",
 		handler.cancel,
+	)
+	mux.HandleFunc(
+		"OPTIONS /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/cancel",
+		handler.preflight,
 	)
 	return mux
 }
 
 func (handler *HTTPHandler) schedule(writer http.ResponseWriter, request *http.Request) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
 	accountID, ok := handler.accountID(writer, request)
 	if !ok {
 		return
@@ -81,7 +121,7 @@ func (handler *HTTPHandler) schedule(writer http.ResponseWriter, request *http.R
 		"Location",
 		"/api/v1/workspaces/"+post.WorkspaceID+"/scheduled-posts/"+post.ID,
 	)
-	writeSchedulingJSON(writer, http.StatusCreated, post)
+	writeSchedulingJSON(writer, http.StatusCreated, scheduledPostView(post))
 }
 
 func (handler *HTTPHandler) getPost(writer http.ResponseWriter, request *http.Request) {
@@ -99,7 +139,7 @@ func (handler *HTTPHandler) getPost(writer http.ResponseWriter, request *http.Re
 		writeSchedulingServiceError(writer, err)
 		return
 	}
-	writeSchedulingJSON(writer, http.StatusOK, post)
+	writeSchedulingJSON(writer, http.StatusOK, scheduledPostView(post))
 }
 
 func (handler *HTTPHandler) calendar(writer http.ResponseWriter, request *http.Request) {
@@ -130,6 +170,9 @@ func (handler *HTTPHandler) calendar(writer http.ResponseWriter, request *http.R
 }
 
 func (handler *HTTPHandler) edit(writer http.ResponseWriter, request *http.Request) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
 	accountID, ok := handler.accountID(writer, request)
 	if !ok {
 		return
@@ -154,10 +197,13 @@ func (handler *HTTPHandler) edit(writer http.ResponseWriter, request *http.Reque
 		writeSchedulingServiceError(writer, err)
 		return
 	}
-	writeSchedulingJSON(writer, http.StatusOK, post)
+	writeSchedulingJSON(writer, http.StatusOK, scheduledPostView(post))
 }
 
 func (handler *HTTPHandler) reschedule(writer http.ResponseWriter, request *http.Request) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
 	accountID, ok := handler.accountID(writer, request)
 	if !ok {
 		return
@@ -183,10 +229,13 @@ func (handler *HTTPHandler) reschedule(writer http.ResponseWriter, request *http
 		writeSchedulingServiceError(writer, err)
 		return
 	}
-	writeSchedulingJSON(writer, http.StatusOK, post)
+	writeSchedulingJSON(writer, http.StatusOK, scheduledPostView(post))
 }
 
 func (handler *HTTPHandler) duplicate(writer http.ResponseWriter, request *http.Request) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
 	accountID, ok := handler.accountID(writer, request)
 	if !ok {
 		return
@@ -216,10 +265,13 @@ func (handler *HTTPHandler) duplicate(writer http.ResponseWriter, request *http.
 		"Location",
 		"/api/v1/workspaces/"+post.WorkspaceID+"/scheduled-posts/"+post.ID,
 	)
-	writeSchedulingJSON(writer, http.StatusCreated, post)
+	writeSchedulingJSON(writer, http.StatusCreated, scheduledPostView(post))
 }
 
 func (handler *HTTPHandler) cancel(writer http.ResponseWriter, request *http.Request) {
+	if !handler.validMutationOrigin(writer, request) {
+		return
+	}
 	accountID, ok := handler.accountID(writer, request)
 	if !ok {
 		return
@@ -240,7 +292,20 @@ func (handler *HTTPHandler) cancel(writer http.ResponseWriter, request *http.Req
 		writeSchedulingServiceError(writer, err)
 		return
 	}
-	writeSchedulingJSON(writer, http.StatusOK, post)
+	writeSchedulingJSON(writer, http.StatusOK, scheduledPostView(post))
+}
+
+func (handler *HTTPHandler) preflight(
+	writer http.ResponseWriter,
+	_ *http.Request,
+) {
+	writer.Header().Set(
+		"Access-Control-Allow-Methods",
+		"GET, POST, PUT, OPTIONS",
+	)
+	writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	writer.Header().Set("Access-Control-Max-Age", "600")
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *HTTPHandler) accountID(
@@ -346,6 +411,13 @@ func writeSchedulingServiceError(writer http.ResponseWriter, err error) {
 		writeSchedulingError(writer, http.StatusConflict, "revision_conflict", nil)
 	case errors.Is(err, ErrImmutable):
 		writeSchedulingError(writer, http.StatusConflict, "scheduled_post_immutable", nil)
+	case errors.Is(err, ErrDependencyUnavailable):
+		writeSchedulingError(
+			writer,
+			http.StatusServiceUnavailable,
+			"scheduling_dependency_unavailable",
+			nil,
+		)
 	case errors.Is(err, ErrInvalidArgument):
 		writeSchedulingError(writer, http.StatusBadRequest, "invalid_request", nil)
 	default:
@@ -360,8 +432,9 @@ func writeSchedulingError(
 	fieldError *FieldError,
 ) {
 	body := map[string]any{
-		"code":    code,
-		"message": http.StatusText(status),
+		"code":      code,
+		"message":   http.StatusText(status),
+		"retryable": status >= http.StatusInternalServerError,
 	}
 	if fieldError != nil {
 		body["field"] = fieldError.Field

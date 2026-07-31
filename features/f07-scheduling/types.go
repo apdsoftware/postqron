@@ -55,6 +55,25 @@ type ScheduledPost struct {
 	CancelledAt          *time.Time `json:"cancelled_at,omitempty"`
 }
 
+// ScheduledPostView is the browser-safe representation. Publication command
+// identifiers and the creating account remain internal implementation details.
+type ScheduledPostView struct {
+	ID                   string     `json:"id"`
+	WorkspaceID          string     `json:"workspace_id"`
+	DraftID              string     `json:"draft_id"`
+	ChannelIDs           []string   `json:"channel_ids"`
+	Status               PostStatus `json:"status"`
+	ScheduledForUTC      time.Time  `json:"scheduled_for_utc"`
+	ScheduledLocal       string     `json:"scheduled_local"`
+	TimeZone             string     `json:"time_zone"`
+	UTCOffsetMinutes     int        `json:"utc_offset_minutes"`
+	Revision             int64      `json:"revision"`
+	DuplicatedFromPostID string     `json:"duplicated_from_post_id,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	CancelledAt          *time.Time `json:"cancelled_at,omitempty"`
+}
+
 // PublicationCommand is the durable hand-off to F8. Generation matches the
 // scheduled-post revision. Consumers must only execute pending commands whose
 // ID is still the post's ActiveCommandID.

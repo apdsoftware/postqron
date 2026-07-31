@@ -26,6 +26,7 @@ func newTestService(t *testing.T) *Service {
 	service, err := NewService(
 		NewMemoryRepository(),
 		authorizerStub{allowed: true},
+		WithCapabilityCatalog(fixtureCatalog(t)),
 		WithClock(func() time.Time {
 			return time.Date(2026, 7, 24, 16, 30, 0, 0, time.FixedZone("local", -4*60*60))
 		}),
@@ -70,10 +71,11 @@ func TestServiceCRUDSavesIncompleteDraftAndUsesOptimisticRevision(t *testing.T) 
 			Text:  "Ready",
 			Media: []Media{image},
 			Destinations: []Destination{{
-				ID:          "instagram",
-				ChannelID:   "ig-1",
-				ChannelType: ChannelInstagramProfessional,
-				Format:      FormatImage,
+				ID:           "image",
+				ChannelID:    "image-1",
+				ChannelType:  "fixture_image_channel",
+				CapabilityID: "fixture:image",
+				Format:       FormatImage,
 			}},
 		},
 	})
@@ -111,6 +113,45 @@ func TestServiceCRUDSavesIncompleteDraftAndUsesOptimisticRevision(t *testing.T) 
 	_, err = service.GetDraft(ctx, "workspace-1", "account-1", created.Draft.ID)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("get after delete error = %v", err)
+	}
+}
+
+func TestServiceAutosaveIsIdempotentAndKeepsRevisionHistory(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t)
+	created, err := service.CreateDraft(ctx, CreateDraftCommand{
+		WorkspaceID: "workspace-1",
+		ActorID:     "account-1",
+		Content:     DraftContent{Text: "first"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := UpdateDraftCommand{
+		WorkspaceID:      "workspace-1",
+		ActorID:          "account-1",
+		DraftID:          created.Draft.ID,
+		ExpectedRevision: 1,
+		AutosaveKey:      "session-1:save-1",
+		Content:          DraftContent{Text: "second"},
+	}
+	first, err := service.UpdateDraft(ctx, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := service.UpdateDraft(ctx, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Draft.Revision != 2 || replayed.Draft.Revision != 2 {
+		t.Fatalf("autosave revisions = %d and %d", first.Draft.Revision, replayed.Draft.Revision)
+	}
+	revisions, err := service.ListDraftRevisions(
+		ctx, "workspace-1", "account-1", created.Draft.ID,
+	)
+	if err != nil || len(revisions) != 2 ||
+		revisions[0].AutosaveKey != command.AutosaveKey {
+		t.Fatalf("revisions = %#v, err = %v", revisions, err)
 	}
 }
 

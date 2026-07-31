@@ -1,0 +1,457 @@
+openapi: 3.1.0
+info:
+  title: Postqron Scheduling API
+  version: 0.2.0
+  description: >-
+    Browser-safe calendar and scheduled-post contract. Draft state and draft
+    validation remain owned by F6. Creation, content/channel edits and
+    duplication fail closed with scheduling_dependency_unavailable until #303
+    publishes its stable runtime boundary.
+security:
+  - sessionCookie: []
+paths:
+  /api/v1/workspaces/{workspace_id}/calendar:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+    get:
+      operationId: listSchedulingCalendar
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: channel_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/PostStatus'
+      responses:
+        '200':
+          description: Half-open UTC calendar range ordered by instant and post id
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CalendarEntry'
+        '400':
+          $ref: '#/components/responses/RequestError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/workspaces/{workspace_id}/scheduled-posts:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+    post:
+      operationId: schedulePost
+      description: >-
+        Atomically creates a scheduled post and its publication command after
+        the F6 draft and selected channels have been validated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [draft_id, channel_ids, scheduled_at]
+              properties:
+                draft_id:
+                  type: string
+                  minLength: 1
+                channel_ids:
+                  $ref: '#/components/schemas/ChannelIDs'
+                scheduled_at:
+                  $ref: '#/components/schemas/ScheduleInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/ScheduledPostCreated'
+        '400':
+          $ref: '#/components/responses/RequestError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/PostID'
+    get:
+      operationId: getScheduledPost
+      responses:
+        '200':
+          $ref: '#/components/responses/ScheduledPostOK'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: editScheduledPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, draft_id, channel_ids]
+              properties:
+                expected_revision:
+                  $ref: '#/components/schemas/Revision'
+                draft_id:
+                  type: string
+                  minLength: 1
+                channel_ids:
+                  $ref: '#/components/schemas/ChannelIDs'
+      responses:
+        '200':
+          $ref: '#/components/responses/ScheduledPostOK'
+        '400':
+          $ref: '#/components/responses/RequestError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/PostID'
+    post:
+      operationId: reschedulePost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, scheduled_at]
+              properties:
+                expected_revision:
+                  $ref: '#/components/schemas/Revision'
+                scheduled_at:
+                  $ref: '#/components/schemas/ScheduleInput'
+      responses:
+        '200':
+          $ref: '#/components/responses/ScheduledPostOK'
+        '400':
+          $ref: '#/components/responses/RequestError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/PostID'
+    post:
+      operationId: duplicateScheduledPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision]
+              properties:
+                expected_revision:
+                  $ref: '#/components/schemas/Revision'
+                scheduled_at:
+                  $ref: '#/components/schemas/ScheduleInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/ScheduledPostCreated'
+        '400':
+          $ref: '#/components/responses/RequestError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/PostID'
+    post:
+      operationId: cancelScheduledPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision]
+              properties:
+                expected_revision:
+                  $ref: '#/components/schemas/Revision'
+      responses:
+        '200':
+          $ref: '#/components/responses/ScheduledPostOK'
+        '400':
+          $ref: '#/components/responses/RequestError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    PostID:
+      name: post_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^post_'
+  schemas:
+    Revision:
+      type: integer
+      format: int64
+      minimum: 1
+    PostStatus:
+      type: string
+      enum: [scheduled, publishing, published, failed, cancelled]
+    ChannelIDs:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+        minLength: 1
+    ScheduleInput:
+      type: object
+      additionalProperties: false
+      required: [local_date_time, time_zone]
+      properties:
+        local_date_time:
+          type: string
+          description: Wall-clock value using YYYY-MM-DDTHH:MM[:SS].
+        time_zone:
+          type: string
+          description: Explicit IANA time-zone identifier.
+        utc_offset_minutes:
+          type: integer
+          minimum: -1080
+          maximum: 1080
+          description: Required only when the wall time is ambiguous at DST fallback.
+    ScheduledPost:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workspace_id
+        - draft_id
+        - channel_ids
+        - status
+        - scheduled_for_utc
+        - scheduled_local
+        - time_zone
+        - utc_offset_minutes
+        - revision
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        draft_id:
+          type: string
+        channel_ids:
+          $ref: '#/components/schemas/ChannelIDs'
+        status:
+          $ref: '#/components/schemas/PostStatus'
+        scheduled_for_utc:
+          type: string
+          format: date-time
+        scheduled_local:
+          type: string
+        time_zone:
+          type: string
+        utc_offset_minutes:
+          type: integer
+        revision:
+          $ref: '#/components/schemas/Revision'
+        duplicated_from_post_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: string
+          format: date-time
+    CalendarEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - post_id
+        - draft_id
+        - channel_ids
+        - status
+        - scheduled_for_utc
+        - scheduled_local
+        - time_zone
+        - utc_offset_minutes
+        - revision
+      properties:
+        post_id:
+          type: string
+        draft_id:
+          type: string
+        channel_ids:
+          $ref: '#/components/schemas/ChannelIDs'
+        status:
+          $ref: '#/components/schemas/PostStatus'
+        scheduled_for_utc:
+          type: string
+          format: date-time
+        scheduled_local:
+          type: string
+        time_zone:
+          type: string
+        utc_offset_minutes:
+          type: integer
+        revision:
+          $ref: '#/components/schemas/Revision'
+    APIError:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retryable:
+          type: boolean
+        field:
+          type: string
+        rule:
+          type: string
+        field_code:
+          type: string
+        field_message:
+          type: string
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/APIError'
+    SessionErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+  responses:
+    ScheduledPostOK:
+      description: Browser-safe scheduled post
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScheduledPost'
+    ScheduledPostCreated:
+      description: Browser-safe scheduled post with a Location header
+      headers:
+        Location:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScheduledPost'
+    RequestError:
+      description: Invalid client request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: Valid workspace session is required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionErrorResponse'
+    Forbidden:
+      description: The selected workspace or request origin is not authorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Scheduled post not found in the selected workspace
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Revision conflict or immutable post state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DependencyUnavailable:
+      description: F6 scheduling validation or draft duplication is not available yet
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

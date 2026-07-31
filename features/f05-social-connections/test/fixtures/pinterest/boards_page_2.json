@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": "222222222222",
+      "name": "Second public board",
+      "privacy": "PUBLIC",
+      "is_ads_only": false
+    },
+    {
+      "id": "223333333333",
+      "name": "Secret board excluded by least privilege",
+      "privacy": "SECRET",
+      "is_ads_only": false
+    }
+  ],
+  "bookmark": null
+}

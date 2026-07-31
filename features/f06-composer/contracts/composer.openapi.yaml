@@ -1,8 +1,33 @@
 openapi: 3.1.0
 info:
-  title: Postqron Composer API
-  version: 0.1.0
+  title: Postqron Composer Runtime API
+  version: 0.2.0
+  description: >
+    Provider-agnostic composer contracts. Provider credentials and storage keys
+    are never returned. Publishing availability is fail-closed and driven by
+    the versioned capability catalog.
+security:
+  - productSession: []
 paths:
+  /api/v1/workspaces/{workspace_id}/composer/capabilities:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+    get:
+      operationId: getComposerCapabilities
+      responses:
+        '200':
+          description: Active capability catalog, including blocker state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityCatalog'
+        '401': {$ref: '#/components/responses/RequestError'}
+        '403': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightComposerCapabilities
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
   /api/v1/workspaces/{workspace_id}/drafts:
     parameters:
       - $ref: '#/components/parameters/WorkspaceID'
@@ -10,7 +35,7 @@ paths:
       operationId: listComposerDrafts
       responses:
         '200':
-          description: Workspace drafts with current validation results
+          description: Workspace drafts with current validation
           content:
             application/json:
               schema:
@@ -19,8 +44,7 @@ paths:
                 properties:
                   drafts:
                     type: array
-                    items:
-                      $ref: '#/components/schemas/DraftView'
+                    items: {$ref: '#/components/schemas/DraftView'}
     post:
       operationId: createComposerDraft
       requestBody:
@@ -32,17 +56,19 @@ paths:
               additionalProperties: false
               required: [content]
               properties:
-                content:
-                  $ref: '#/components/schemas/DraftContent'
+                content: {$ref: '#/components/schemas/DraftContent'}
       responses:
         '201':
-          description: Draft created, whether complete or incomplete
+          description: Saved draft, whether complete or incomplete
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/DraftView'
-        '400':
-          $ref: '#/components/responses/RequestError'
+              schema: {$ref: '#/components/schemas/DraftView'}
+        '400': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightComposerDrafts
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
   /api/v1/workspaces/{workspace_id}/drafts/{draft_id}:
     parameters:
       - $ref: '#/components/parameters/WorkspaceID'
@@ -51,52 +77,72 @@ paths:
       operationId: getComposerDraft
       responses:
         '200':
-          description: Draft with current validation
+          description: Draft and capability-versioned validation
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/DraftView'
-        '404':
-          $ref: '#/components/responses/RequestError'
+              schema: {$ref: '#/components/schemas/DraftView'}
+        '404': {$ref: '#/components/responses/RequestError'}
     put:
-      operationId: updateComposerDraft
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [expected_revision, content]
-              properties:
-                expected_revision:
-                  type: integer
-                  minimum: 1
-                content:
-                  $ref: '#/components/schemas/DraftContent'
+      operationId: replaceComposerDraft
+      requestBody: {$ref: '#/components/requestBodies/SaveDraft'}
       responses:
         '200':
-          description: Updated draft and validation
+          description: Saved revision
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/DraftView'
-        '409':
-          $ref: '#/components/responses/RequestError'
+              schema: {$ref: '#/components/schemas/DraftView'}
+        '409': {$ref: '#/components/responses/RequestError'}
+    patch:
+      operationId: autosaveComposerDraft
+      description: >
+        Optimistic autosave. Reusing autosave_key for the same draft replays
+        the already committed revision instead of creating another revision.
+      requestBody: {$ref: '#/components/requestBodies/SaveDraft'}
+      responses:
+        '200':
+          description: Saved or idempotently replayed revision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DraftView'}
+        '409': {$ref: '#/components/responses/RequestError'}
     delete:
       operationId: deleteComposerDraft
       parameters:
         - name: revision
           in: query
           required: true
-          schema:
-            type: integer
-            minimum: 1
+          schema: {type: integer, minimum: 1}
       responses:
-        '204':
-          description: Draft deleted
-        '409':
-          $ref: '#/components/responses/RequestError'
+        '204': {description: Draft deleted}
+        '409': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightComposerDraft
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
+  /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/DraftID'
+    get:
+      operationId: listComposerDraftRevisions
+      responses:
+        '200':
+          description: Immutable revision history, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revisions]
+                properties:
+                  revisions:
+                    type: array
+                    items: {$ref: '#/components/schemas/DraftRevision'}
+    options:
+      security: []
+      operationId: preflightComposerDraftRevisions
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
   /api/v1/workspaces/{workspace_id}/drafts/{draft_id}/validate:
     parameters:
       - $ref: '#/components/parameters/WorkspaceID'
@@ -105,67 +151,272 @@ paths:
       operationId: validateComposerDraftForScheduling
       responses:
         '200':
-          description: Every destination is valid
+          description: Every destination is valid under the active catalog
           content:
             application/json:
               schema:
                 type: object
                 required: [validation]
                 properties:
-                  validation:
-                    $ref: '#/components/schemas/ValidationReport'
+                  validation: {$ref: '#/components/schemas/ValidationReport'}
         '422':
-          description: Scheduling is blocked by one or more validation errors
+          description: One or more actionable destination errors
           content:
             application/json:
               schema:
                 type: object
                 required: [error, validation]
                 properties:
-                  error:
-                    $ref: '#/components/schemas/APIError'
-                  validation:
-                    $ref: '#/components/schemas/ValidationReport'
+                  error: {$ref: '#/components/schemas/APIError'}
+                  validation: {$ref: '#/components/schemas/ValidationReport'}
+    options:
+      security: []
+      operationId: preflightComposerValidation
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
+  /api/v1/workspaces/{workspace_id}/composer/media:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+    post:
+      operationId: authorizeComposerMediaUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MediaUploadRequest'}
+      responses:
+        '201':
+          description: Workspace/session-bound direct object-store upload authorization
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MediaUpload'}
+        '503': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightComposerMediaUpload
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
+  /api/v1/workspaces/{workspace_id}/composer/media/{media_id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/MediaID'
+    get:
+      operationId: getComposerMedia
+      responses:
+        '200':
+          description: Server-inspected client-safe media metadata
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Media'}
+    delete:
+      operationId: deleteUnattachedComposerMedia
+      responses:
+        '204': {description: Unattached temporary media deleted}
+        '404': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightComposerMedia
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
+  /api/v1/workspaces/{workspace_id}/composer/media/{media_id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/MediaID'
+    post:
+      operationId: completeComposerMediaUpload
+      responses:
+        '200':
+          description: Object-store content inspected and marked ready
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Media'}
+        '400': {$ref: '#/components/responses/RequestError'}
+        '503': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightCompleteComposerMediaUpload
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
+  /api/v1/workspaces/{workspace_id}/composer/media/{media_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceID'
+      - $ref: '#/components/parameters/MediaID'
+    get:
+      operationId: authorizeComposerMediaDownload
+      responses:
+        '200':
+          description: Short-lived signed object-store download authorization
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MediaDownload'}
+        '503': {$ref: '#/components/responses/RequestError'}
+    options:
+      security: []
+      operationId: preflightComposerMediaDownload
+      responses:
+        '204': {$ref: '#/components/responses/Preflight'}
 components:
+  securitySchemes:
+    productSession:
+      type: apiKey
+      in: cookie
+      name: __Host-postqron_session
   parameters:
     WorkspaceID:
       name: workspace_id
       in: path
       required: true
-      schema:
-        type: string
-        minLength: 1
+      schema: {type: string, minLength: 1}
     DraftID:
       name: draft_id
       in: path
       required: true
-      schema:
-        type: string
-        pattern: '^draft_'
+      schema: {type: string, pattern: '^draft_'}
+    MediaID:
+      name: media_id
+      in: path
+      required: true
+      schema: {type: string, pattern: '^media_'}
+  requestBodies:
+    SaveDraft:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [expected_revision, content]
+            properties:
+              expected_revision: {type: integer, minimum: 1}
+              autosave_key: {type: string, minLength: 1, maxLength: 200}
+              content: {$ref: '#/components/schemas/DraftContent'}
   responses:
     RequestError:
-      description: Client-safe request error
+      description: Client-safe error without provider/storage credentials
       content:
         application/json:
           schema:
             type: object
             required: [error]
             properties:
-              error:
-                $ref: '#/components/schemas/APIError'
+              error: {$ref: '#/components/schemas/APIError'}
+    Preflight:
+      description: Credentialed CORS preflight accepted for an exact allowed origin
   schemas:
+    CapabilityCatalog:
+      type: object
+      additionalProperties: false
+      required: [version, status, capabilities]
+      properties:
+        version: {type: string}
+        status: {type: string}
+        blocker: {type: string}
+        capabilities:
+          type: array
+          items: {$ref: '#/components/schemas/ContentCapability'}
+    ContentCapability:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - provider
+        - channel_type
+        - format
+        - available
+        - text
+        - link
+        - media
+        - thread
+      properties:
+        id: {type: string}
+        provider: {type: string}
+        channel_type: {type: string}
+        format:
+          enum: [text, link, image, carousel, video, short_video, thread]
+        available: {type: boolean}
+        unavailable_reason: {type: string}
+        text: {$ref: '#/components/schemas/TextRules'}
+        link: {$ref: '#/components/schemas/LinkRules'}
+        media: {$ref: '#/components/schemas/MediaRules'}
+        thread: {$ref: '#/components/schemas/ThreadRules'}
+        fields:
+          type: array
+          items: {$ref: '#/components/schemas/FieldRules'}
+    TextRules:
+      type: object
+      required: [allowed, required]
+      properties:
+        allowed: {type: boolean}
+        required: {type: boolean}
+        min_characters: {type: integer, minimum: 0}
+        max_characters: {type: integer, minimum: 0}
+    LinkRules:
+      type: object
+      required: [allowed, required]
+      properties:
+        allowed: {type: boolean}
+        required: {type: boolean}
+        maximum_urls: {type: integer, minimum: 0}
+        require_https: {type: boolean}
+        require_public_host: {type: boolean}
+    MediaRules:
+      type: object
+      required: [allowed]
+      properties:
+        allowed: {type: boolean}
+        minimum_items: {type: integer, minimum: 0}
+        maximum_items: {type: integer, minimum: 0}
+        allowed_kinds:
+          type: array
+          items: {enum: [image, video]}
+        allowed_content_types:
+          type: array
+          items: {type: string}
+        maximum_bytes_each: {type: integer, minimum: 0}
+        maximum_bytes_total: {type: integer, minimum: 0}
+        minimum_width: {type: integer, minimum: 0}
+        maximum_width: {type: integer, minimum: 0}
+        minimum_height: {type: integer, minimum: 0}
+        maximum_height: {type: integer, minimum: 0}
+        minimum_aspect_ratio: {type: number, minimum: 0}
+        maximum_aspect_ratio: {type: number, minimum: 0}
+        minimum_duration_seconds: {type: number, minimum: 0}
+        maximum_duration_seconds: {type: number, minimum: 0}
+        allowed_video_codecs:
+          type: array
+          items: {type: string}
+        allowed_audio_codecs:
+          type: array
+          items: {type: string}
+        require_audio: {type: boolean}
+    ThreadRules:
+      type: object
+      required: [allowed, required]
+      properties:
+        allowed: {type: boolean}
+        required: {type: boolean}
+        minimum_items: {type: integer, minimum: 0}
+        maximum_items: {type: integer, minimum: 0}
+        max_item_characters: {type: integer, minimum: 0}
+        max_media_per_item: {type: integer, minimum: 0}
+    FieldRules:
+      type: object
+      required: [name, required]
+      properties:
+        name: {type: string}
+        required: {type: boolean}
+        max_length: {type: integer, minimum: 0}
+        allowed_values:
+          type: array
+          items: {type: string}
     DraftView:
       type: object
-      additionalProperties: false
       required: [draft, validation]
       properties:
-        draft:
-          $ref: '#/components/schemas/Draft'
-        validation:
-          $ref: '#/components/schemas/ValidationReport'
+        draft: {$ref: '#/components/schemas/Draft'}
+        validation: {$ref: '#/components/schemas/ValidationReport'}
     Draft:
       type: object
-      additionalProperties: false
       required:
         - id
         - workspace_id
@@ -175,176 +426,189 @@ components:
         - created_at
         - updated_at
       properties:
-        id:
-          type: string
-        workspace_id:
-          type: string
-        created_by:
-          type: string
-        content:
-          $ref: '#/components/schemas/DraftContent'
-        revision:
-          type: integer
-          minimum: 1
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
+        id: {type: string}
+        workspace_id: {type: string}
+        created_by: {type: string}
+        content: {$ref: '#/components/schemas/DraftContent'}
+        revision: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    DraftRevision:
+      type: object
+      required: [draft_id, revision, content, saved_at]
+      properties:
+        draft_id: {type: string}
+        revision: {type: integer, minimum: 1}
+        content: {$ref: '#/components/schemas/DraftContent'}
+        autosave_key: {type: string}
+        saved_at: {type: string, format: date-time}
     DraftContent:
       type: object
       additionalProperties: false
-      required: [text, media, destinations]
+      required: [text, link, media, thread, destinations]
       properties:
-        text:
-          type: string
+        text: {type: string}
+        link: {type: string}
         media:
           type: array
-          items:
-            $ref: '#/components/schemas/Media'
+          items: {$ref: '#/components/schemas/Media'}
+        thread:
+          type: array
+          items: {$ref: '#/components/schemas/ThreadItem'}
         destinations:
           type: array
-          items:
-            $ref: '#/components/schemas/Destination'
+          items: {$ref: '#/components/schemas/Destination'}
+    Destination:
+      type: object
+      additionalProperties: false
+      required: [id, channel_id, channel_type, capability_id, format]
+      properties:
+        id: {type: string}
+        channel_id: {type: string}
+        channel_type: {type: string}
+        capability_id: {type: string}
+        format:
+          enum: [text, link, image, carousel, video, short_video, thread]
+        text_override: {type: [string, 'null']}
+        link_override: {type: [string, 'null']}
+        media_ids:
+          type: [array, 'null']
+          items: {type: string}
+        thread_override:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/ThreadItem'}
+        fields:
+          type: object
+          additionalProperties: {type: string}
+    ThreadItem:
+      type: object
+      additionalProperties: false
+      required: [text, media_ids]
+      properties:
+        text: {type: string}
+        media_ids:
+          type: array
+          items: {type: string}
     Media:
       type: object
       additionalProperties: false
       required:
         - id
-        - storage_key
         - kind
         - content_type
         - size_bytes
-        - width
-        - height
+        - inspection_status
+        - url
       properties:
-        id:
+        id: {type: string}
+        kind: {enum: [image, video]}
+        content_type: {type: string}
+        size_bytes: {type: integer, minimum: 1}
+        width: {type: integer, minimum: 0}
+        height: {type: integer, minimum: 0}
+        color_space: {type: string}
+        video_codec: {type: string}
+        audio_codec: {type: string}
+        audio_sample_rate: {type: integer, minimum: 0}
+        frames_per_second: {type: number, minimum: 0}
+        video_bitrate: {type: integer, minimum: 0}
+        audio_bitrate: {type: integer, minimum: 0}
+        duration_seconds: {type: number, minimum: 0}
+        has_audio: {type: boolean}
+        has_edit_list: {type: boolean}
+        moov_before_media_data: {type: boolean}
+        inspection_status: {enum: [pending, ready, rejected]}
+        url:
           type: string
-        storage_key:
-          type: string
-        kind:
-          enum: [image, video]
-        content_type:
-          type: string
-        size_bytes:
-          type: integer
-        width:
-          type: integer
-        height:
-          type: integer
-        color_space:
-          type: string
-        video_codec:
-          type: string
-        audio_codec:
-          type: string
-        audio_sample_rate:
-          type: integer
-        frames_per_second:
-          type: number
-        video_bitrate:
-          type: integer
-        audio_bitrate:
-          type: integer
-        duration_seconds:
-          type: number
-        has_audio:
-          type: boolean
-        has_edit_list:
-          type: boolean
-        moov_before_media_data:
-          type: boolean
-    Destination:
+          pattern: '^/api/v1/'
+        expires_at: {type: string, format: date-time}
+    MediaUploadRequest:
       type: object
       additionalProperties: false
-      required: [id, channel_id, channel_type, format]
+      required: [file_name, content_type, size_bytes]
       properties:
-        id:
-          type: string
-        channel_id:
-          type: string
-        channel_type:
-          enum: [facebook_page, instagram_professional]
-        format:
-          enum: [text, image, carousel, reel]
-        text_override:
-          type: [string, 'null']
-        media_ids:
-          type: [array, 'null']
-          items:
-            type: string
+        file_name: {type: string, minLength: 1}
+        content_type: {type: string, minLength: 1}
+        size_bytes: {type: integer, minimum: 1}
+    MediaUpload:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - upload_url
+        - upload_headers
+        - complete_url
+        - expires_at
+        - max_bytes
+      properties:
+        id: {type: string}
+        status: {const: pending}
+        upload_url: {type: string, format: uri}
+        upload_headers:
+          type: object
+          additionalProperties: {type: string}
+        complete_url: {type: string, pattern: '^/api/v1/'}
+        expires_at: {type: string, format: date-time}
+        max_bytes: {type: integer, minimum: 1}
+    MediaDownload:
+      type: object
+      additionalProperties: false
+      required: [url, expires_at]
+      properties:
+        url: {type: string, format: uri}
+        expires_at: {type: string, format: date-time}
     ValidationReport:
       type: object
-      additionalProperties: false
-      required: [valid, errors, destinations]
+      required: [capability_version, valid, errors, destinations]
       properties:
-        valid:
-          type: boolean
+        capability_version: {type: string}
+        valid: {type: boolean}
         errors:
           type: array
-          items:
-            $ref: '#/components/schemas/ValidationError'
+          items: {$ref: '#/components/schemas/ValidationError'}
         destinations:
           type: array
-          items:
-            $ref: '#/components/schemas/DestinationValidation'
+          items: {$ref: '#/components/schemas/DestinationValidation'}
     DestinationValidation:
       type: object
-      additionalProperties: false
       required:
         - destination_id
         - channel_id
         - channel_type
+        - capability_id
         - format
         - valid
         - errors
       properties:
-        destination_id:
-          type: string
-        channel_id:
-          type: string
-        channel_type:
-          enum: [facebook_page, instagram_professional]
-        format:
-          enum: [text, image, carousel, reel]
-        valid:
-          type: boolean
+        destination_id: {type: string}
+        channel_id: {type: string}
+        channel_type: {type: string}
+        capability_id: {type: string}
+        format: {type: string}
+        valid: {type: boolean}
         errors:
           type: array
-          items:
-            $ref: '#/components/schemas/ValidationError'
+          items: {$ref: '#/components/schemas/ValidationError'}
     ValidationError:
       type: object
-      additionalProperties: false
       required: [field, rule, code, message]
       properties:
-        destination_id:
-          type: string
-        field:
-          type: string
-        rule:
-          type: string
-        code:
-          type: string
-        message:
-          type: string
-        details:
-          type: object
-          additionalProperties: true
+        destination_id: {type: string}
+        field: {type: string}
+        rule: {type: string}
+        code: {type: string}
+        message: {type: string}
+        remedy: {type: string}
+        details: {type: object}
     APIError:
       type: object
-      required: [code, message]
+      required: [code, message, retryable]
       properties:
-        code:
-          type: string
-        message:
-          type: string
-        field:
-          type: string
-        rule:
-          type: string
-        field_code:
-          type: string
-        field_message:
-          type: string
+        code: {type: string}
+        message: {type: string}
+        retryable: {type: boolean}
+        field: {type: string}
+        rule: {type: string}
+        field_code: {type: string}
+        field_message: {type: string}

@@ -2,12 +2,13 @@ package composer
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func TestPostgresRepositoryIntegration(t *testing.T) {
@@ -16,12 +17,12 @@ func TestPostgresRepositoryIntegration(t *testing.T) {
 		t.Skip("F06_DATABASE_URL is not configured")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
+	database, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
-	repository, err := NewPostgresRepository(pool)
+	defer database.Close()
+	repository, err := NewPostgresRepository(database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func TestPostgresRepositoryIntegration(t *testing.T) {
 		t.Fatalf("created content must preserve empty arrays: %#v", created.Content)
 	}
 	var mediaType, destinationsType string
-	if err := pool.QueryRow(ctx, `
+	if err := database.QueryRowContext(ctx, `
 		SELECT
 			jsonb_typeof(content -> 'media'),
 			jsonb_typeof(content -> 'destinations')
@@ -71,14 +72,14 @@ func TestPostgresRepositoryIntegration(t *testing.T) {
 
 	created.Content.Text = "second"
 	created.UpdatedAt = created.UpdatedAt.Add(time.Second)
-	updated, err := repository.Update(ctx, created, 1)
+	updated, err := repository.Update(ctx, created, 1, "integration-save-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Revision != 2 || updated.Content.Text != "second" {
 		t.Fatalf("updated = %#v", updated)
 	}
-	if _, err := repository.Update(ctx, updated, 1); !errors.Is(err, ErrConflict) {
+	if _, err := repository.Update(ctx, updated, 1, "integration-save-2"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale update error = %v", err)
 	}
 	list, err := repository.List(ctx, draft.WorkspaceID)

@@ -2,23 +2,24 @@ package scheduling
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type PostgresRepository struct {
-	pool *pgxpool.Pool
+	database *sql.DB
 }
 
-func NewPostgresRepository(pool *pgxpool.Pool) (*PostgresRepository, error) {
-	if pool == nil {
-		return nil, fmt.Errorf("%w: postgres pool is required", ErrInvalidArgument)
+func NewPostgresRepository(database *sql.DB) (*PostgresRepository, error) {
+	if database == nil {
+		return nil, fmt.Errorf("%w: postgres database is required", ErrInvalidArgument)
 	}
-	return &PostgresRepository{pool: pool}, nil
+	return &PostgresRepository{database: database}, nil
 }
 
 func (repository *PostgresRepository) Create(
@@ -29,12 +30,12 @@ func (repository *PostgresRepository) Create(
 	if err := validateAtomicPair(post, command); err != nil {
 		return ScheduledPost{}, err
 	}
-	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("begin schedule transaction: %w", err)
 	}
 	defer func() {
-		_ = transaction.Rollback(ctx)
+		_ = transaction.Rollback()
 	}()
 	if err := insertPost(ctx, transaction, post); err != nil {
 		return ScheduledPost{}, err
@@ -42,13 +43,13 @@ func (repository *PostgresRepository) Create(
 	if err := insertPublicationCommand(ctx, transaction, command); err != nil {
 		return ScheduledPost{}, err
 	}
-	created, err := scanScheduledPost(transaction.QueryRow(ctx, postSelect+`
+	created, err := scanScheduledPost(transaction.QueryRowContext(ctx, postSelect+`
 		WHERE workspace_id = $1 AND id = $2
 	`, post.WorkspaceID, post.ID))
 	if err != nil {
 		return ScheduledPost{}, err
 	}
-	if err := transaction.Commit(ctx); err != nil {
+	if err := transaction.Commit(); err != nil {
 		return ScheduledPost{}, fmt.Errorf("commit schedule transaction: %w", err)
 	}
 	return clonePost(created), nil
@@ -58,7 +59,7 @@ func (repository *PostgresRepository) Get(
 	ctx context.Context,
 	workspaceID, postID string,
 ) (ScheduledPost, error) {
-	return scanScheduledPost(repository.pool.QueryRow(ctx, postSelect+`
+	return scanScheduledPost(repository.database.QueryRowContext(ctx, postSelect+`
 		WHERE workspace_id = $1 AND id = $2
 	`, workspaceID, postID))
 }
@@ -68,7 +69,7 @@ func (repository *PostgresRepository) List(
 	workspaceID string,
 	filter CalendarFilter,
 ) ([]ScheduledPost, error) {
-	rows, err := repository.pool.Query(ctx, postSelect+`
+	rows, err := repository.database.QueryContext(ctx, postSelect+`
 		WHERE workspace_id = $1
 		  AND scheduled_for_utc >= $2
 		  AND scheduled_for_utc < $3
@@ -110,12 +111,12 @@ func (repository *PostgresRepository) Replace(
 	if err := validateAtomicPair(replacement, command); err != nil {
 		return ScheduledPost{}, err
 	}
-	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("begin replace schedule transaction: %w", err)
 	}
 	defer func() {
-		_ = transaction.Rollback(ctx)
+		_ = transaction.Rollback()
 	}()
 	current, err := lockPost(ctx, transaction, replacement.WorkspaceID, replacement.ID)
 	if err != nil {
@@ -141,7 +142,7 @@ func (repository *PostgresRepository) Replace(
 	); err != nil {
 		return ScheduledPost{}, err
 	}
-	tag, err := transaction.Exec(ctx, `
+	result, err := transaction.ExecContext(ctx, `
 		UPDATE f07_scheduled_posts
 		SET draft_id = $4,
 			channel_ids = $5,
@@ -170,13 +171,17 @@ func (repository *PostgresRepository) Replace(
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("replace scheduled post: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
+	rowsAffected, rowsErr := result.RowsAffected()
+	if rowsErr != nil {
+		return ScheduledPost{}, fmt.Errorf("count replaced scheduled posts: %w", rowsErr)
+	}
+	if rowsAffected != 1 {
 		return ScheduledPost{}, ErrConflict
 	}
 	if err := insertPublicationCommand(ctx, transaction, command); err != nil {
 		return ScheduledPost{}, err
 	}
-	if err := transaction.Commit(ctx); err != nil {
+	if err := transaction.Commit(); err != nil {
 		return ScheduledPost{}, fmt.Errorf("commit replace schedule transaction: %w", err)
 	}
 	return clonePost(replacement), nil
@@ -188,12 +193,12 @@ func (repository *PostgresRepository) Cancel(
 	expectedRevision int64,
 	now time.Time,
 ) (ScheduledPost, error) {
-	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("begin cancel schedule transaction: %w", err)
 	}
 	defer func() {
-		_ = transaction.Rollback(ctx)
+		_ = transaction.Rollback()
 	}()
 	current, err := lockPost(ctx, transaction, workspaceID, postID)
 	if err != nil {
@@ -220,7 +225,7 @@ func (repository *PostgresRepository) Cancel(
 	updated.UpdatedAt = now
 	cancelledAt := now
 	updated.CancelledAt = &cancelledAt
-	tag, err := transaction.Exec(ctx, `
+	result, err := transaction.ExecContext(ctx, `
 		UPDATE f07_scheduled_posts
 		SET status = 'cancelled',
 			revision = revision + 1,
@@ -232,10 +237,14 @@ func (repository *PostgresRepository) Cancel(
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("cancel scheduled post: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
+	rowsAffected, rowsErr := result.RowsAffected()
+	if rowsErr != nil {
+		return ScheduledPost{}, fmt.Errorf("count cancelled scheduled posts: %w", rowsErr)
+	}
+	if rowsAffected != 1 {
 		return ScheduledPost{}, ErrConflict
 	}
-	if err := transaction.Commit(ctx); err != nil {
+	if err := transaction.Commit(); err != nil {
 		return ScheduledPost{}, fmt.Errorf("commit cancel schedule transaction: %w", err)
 	}
 	return updated, nil
@@ -251,12 +260,12 @@ func (repository *PostgresRepository) Duplicate(
 	if err := validateAtomicPair(duplicate, command); err != nil {
 		return ScheduledPost{}, err
 	}
-	transaction, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("begin duplicate schedule transaction: %w", err)
 	}
 	defer func() {
-		_ = transaction.Rollback(ctx)
+		_ = transaction.Rollback()
 	}()
 	source, err := lockPost(ctx, transaction, workspaceID, sourcePostID)
 	if err != nil {
@@ -277,7 +286,7 @@ func (repository *PostgresRepository) Duplicate(
 	if err := insertPublicationCommand(ctx, transaction, command); err != nil {
 		return ScheduledPost{}, err
 	}
-	if err := transaction.Commit(ctx); err != nil {
+	if err := transaction.Commit(); err != nil {
 		return ScheduledPost{}, fmt.Errorf("commit duplicate schedule transaction: %w", err)
 	}
 	return clonePost(duplicate), nil
@@ -287,7 +296,7 @@ func (repository *PostgresRepository) GetPublicationCommand(
 	ctx context.Context,
 	workspaceID, commandID string,
 ) (PublicationCommand, error) {
-	return scanPublicationCommand(repository.pool.QueryRow(ctx, commandSelect+`
+	return scanPublicationCommand(repository.database.QueryRowContext(ctx, commandSelect+`
 		WHERE workspace_id = $1 AND id = $2
 	`, workspaceID, commandID))
 }
@@ -296,7 +305,7 @@ func (repository *PostgresRepository) ListPublicationCommands(
 	ctx context.Context,
 	workspaceID, postID string,
 ) ([]PublicationCommand, error) {
-	rows, err := repository.pool.Query(ctx, commandSelect+`
+	rows, err := repository.database.QueryContext(ctx, commandSelect+`
 		WHERE workspace_id = $1 AND post_id = $2
 		ORDER BY generation
 	`, workspaceID, postID)
@@ -355,8 +364,8 @@ const commandSelect = `
 	FROM f07_publication_commands
 `
 
-func insertPost(ctx context.Context, transaction pgx.Tx, post ScheduledPost) error {
-	_, err := transaction.Exec(ctx, `
+func insertPost(ctx context.Context, transaction *sql.Tx, post ScheduledPost) error {
+	_, err := transaction.ExecContext(ctx, `
 		INSERT INTO f07_scheduled_posts (
 			id,
 			workspace_id,
@@ -407,10 +416,10 @@ func insertPost(ctx context.Context, transaction pgx.Tx, post ScheduledPost) err
 
 func insertPublicationCommand(
 	ctx context.Context,
-	transaction pgx.Tx,
+	transaction *sql.Tx,
 	command PublicationCommand,
 ) error {
-	_, err := transaction.Exec(ctx, `
+	_, err := transaction.ExecContext(ctx, `
 		INSERT INTO f07_publication_commands (
 			id,
 			workspace_id,
@@ -448,10 +457,10 @@ func insertPublicationCommand(
 
 func lockPost(
 	ctx context.Context,
-	transaction pgx.Tx,
+	transaction *sql.Tx,
 	workspaceID, postID string,
 ) (ScheduledPost, error) {
-	return scanScheduledPost(transaction.QueryRow(ctx, postSelect+`
+	return scanScheduledPost(transaction.QueryRowContext(ctx, postSelect+`
 		WHERE workspace_id = $1 AND id = $2
 		FOR UPDATE
 	`, workspaceID, postID))
@@ -459,11 +468,11 @@ func lockPost(
 
 func invalidatePostCommand(
 	ctx context.Context,
-	transaction pgx.Tx,
+	transaction *sql.Tx,
 	commandID string,
 	now time.Time,
 ) error {
-	tag, err := transaction.Exec(ctx, `
+	result, err := transaction.ExecContext(ctx, `
 		UPDATE f07_publication_commands
 		SET state = 'invalidated', invalidated_at = $2
 		WHERE id = $1 AND state = 'pending'
@@ -471,7 +480,11 @@ func invalidatePostCommand(
 	if err != nil {
 		return fmt.Errorf("invalidate publication command: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
+	rowsAffected, rowsErr := result.RowsAffected()
+	if rowsErr != nil {
+		return fmt.Errorf("count invalidated publication commands: %w", rowsErr)
+	}
+	if rowsAffected != 1 {
 		return ErrConflict
 	}
 	return nil
@@ -483,11 +496,12 @@ type schedulingRow interface {
 
 func scanScheduledPost(row schedulingRow) (ScheduledPost, error) {
 	var post ScheduledPost
+	var channelIDs postgresTextArray
 	err := row.Scan(
 		&post.ID,
 		&post.WorkspaceID,
 		&post.DraftID,
-		&post.ChannelIDs,
+		&channelIDs,
 		&post.Status,
 		&post.ScheduledForUTC,
 		&post.ScheduledLocal,
@@ -501,23 +515,25 @@ func scanScheduledPost(row schedulingRow) (ScheduledPost, error) {
 		&post.UpdatedAt,
 		&post.CancelledAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ScheduledPost{}, ErrNotFound
 	}
 	if err != nil {
 		return ScheduledPost{}, fmt.Errorf("scan scheduled post: %w", err)
 	}
+	post.ChannelIDs = append([]string(nil), channelIDs...)
 	return post, nil
 }
 
 func scanPublicationCommand(row schedulingRow) (PublicationCommand, error) {
 	var command PublicationCommand
+	var channelIDs postgresTextArray
 	err := row.Scan(
 		&command.ID,
 		&command.WorkspaceID,
 		&command.PostID,
 		&command.DraftID,
-		&command.ChannelIDs,
+		&channelIDs,
 		&command.Generation,
 		&command.ExecuteAtUTC,
 		&command.State,
@@ -525,13 +541,39 @@ func scanPublicationCommand(row schedulingRow) (PublicationCommand, error) {
 		&command.InvalidatedAt,
 		&command.InvalidationKey,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return PublicationCommand{}, ErrNotFound
 	}
 	if err != nil {
 		return PublicationCommand{}, fmt.Errorf("scan publication command: %w", err)
 	}
+	command.ChannelIDs = append([]string(nil), channelIDs...)
 	return command, nil
+}
+
+type postgresTextArray []string
+
+func (array *postgresTextArray) Scan(source any) error {
+	var encoded []byte
+	switch value := source.(type) {
+	case string:
+		encoded = []byte(value)
+	case []byte:
+		encoded = append([]byte(nil), value...)
+	default:
+		return fmt.Errorf("scan postgres text array from %T", source)
+	}
+	var decoded []string
+	if err := pgtype.NewMap().Scan(
+		pgtype.TextArrayOID,
+		pgx.TextFormatCode,
+		encoded,
+		&decoded,
+	); err != nil {
+		return fmt.Errorf("decode postgres text array: %w", err)
+	}
+	*array = append((*array)[:0], decoded...)
+	return nil
 }
 
 func isPostgresConflict(err error) bool {

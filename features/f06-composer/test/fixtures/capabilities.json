@@ -1,0 +1,128 @@
+{
+  "version": "fixture-provider-agnostic-v1",
+  "status": "test_fixture",
+  "capabilities": [
+    {
+      "id": "fixture:text",
+      "provider": "fixture",
+      "channel_type": "fixture_text_channel",
+      "format": "text",
+      "available": true,
+      "text": {"allowed": true, "required": true, "max_characters": 280},
+      "link": {"allowed": true, "maximum_urls": 1, "require_https": true, "require_public_host": true},
+      "media": {"allowed": false},
+      "thread": {"allowed": false}
+    },
+    {
+      "id": "fixture:link",
+      "provider": "fixture",
+      "channel_type": "fixture_link_channel",
+      "format": "link",
+      "available": true,
+      "text": {"allowed": true, "max_characters": 500},
+      "link": {"allowed": true, "required": true, "maximum_urls": 1, "require_https": true, "require_public_host": true},
+      "media": {"allowed": false},
+      "thread": {"allowed": false}
+    },
+    {
+      "id": "fixture:image",
+      "provider": "fixture",
+      "channel_type": "fixture_image_channel",
+      "format": "image",
+      "available": true,
+      "text": {"allowed": true, "max_characters": 2200},
+      "link": {"allowed": false},
+      "media": {
+        "allowed": true,
+        "minimum_items": 1,
+        "maximum_items": 1,
+        "allowed_kinds": ["image"],
+        "allowed_content_types": ["image/jpeg", "image/png"],
+        "maximum_bytes_each": 8388608,
+        "minimum_width": 320
+      },
+      "thread": {"allowed": false}
+    },
+    {
+      "id": "fixture:carousel",
+      "provider": "fixture",
+      "channel_type": "fixture_carousel_channel",
+      "format": "carousel",
+      "available": true,
+      "text": {"allowed": true, "max_characters": 2200},
+      "link": {"allowed": false},
+      "media": {
+        "allowed": true,
+        "minimum_items": 2,
+        "maximum_items": 10,
+        "allowed_kinds": ["image"],
+        "allowed_content_types": ["image/jpeg"],
+        "maximum_bytes_each": 8388608,
+        "maximum_bytes_total": 83886080
+      },
+      "thread": {"allowed": false}
+    },
+    {
+      "id": "fixture:video",
+      "provider": "fixture",
+      "channel_type": "fixture_video_channel",
+      "format": "video",
+      "available": true,
+      "text": {"allowed": true, "max_characters": 5000},
+      "link": {"allowed": false},
+      "media": {
+        "allowed": true,
+        "minimum_items": 1,
+        "maximum_items": 1,
+        "allowed_kinds": ["video"],
+        "allowed_content_types": ["video/mp4"],
+        "maximum_bytes_each": 536870912,
+        "allowed_video_codecs": ["h264"]
+      },
+      "thread": {"allowed": false},
+      "fields": [
+        {"name": "visibility", "required": true, "allowed_values": ["public", "private"]}
+      ]
+    },
+    {
+      "id": "fixture:short_video",
+      "provider": "fixture",
+      "channel_type": "fixture_short_channel",
+      "format": "short_video",
+      "available": true,
+      "text": {"allowed": true, "max_characters": 2200},
+      "link": {"allowed": false},
+      "media": {
+        "allowed": true,
+        "minimum_items": 1,
+        "maximum_items": 1,
+        "allowed_kinds": ["video"],
+        "allowed_content_types": ["video/mp4"],
+        "maximum_bytes_each": 104857600,
+        "minimum_aspect_ratio": 0.5625,
+        "maximum_aspect_ratio": 0.5625,
+        "maximum_duration_seconds": 90,
+        "allowed_video_codecs": ["h264"]
+      },
+      "thread": {"allowed": false}
+    },
+    {
+      "id": "fixture:thread",
+      "provider": "fixture",
+      "channel_type": "fixture_thread_channel",
+      "format": "thread",
+      "available": true,
+      "text": {"allowed": false},
+      "link": {"allowed": false},
+      "media": {"allowed": false},
+      "thread": {
+        "allowed": true,
+        "required": true,
+        "minimum_items": 2,
+        "maximum_items": 25,
+        "max_item_characters": 280,
+        "max_media_per_item": 1
+      }
+    }
+  ]
+}

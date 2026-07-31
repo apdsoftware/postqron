@@ -109,16 +109,7 @@ func (module *Module) Configure(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	adapters := make(map[Provider]Adapter)
-	availability := make(map[Provider]ProviderAvailability)
-	for _, provider := range SupportedProviders {
-		availability[provider] = ProviderAvailability{
-			Provider:           provider,
-			Status:             ProviderUnavailable,
-			ConfigurationState: ProviderNotConfigured,
-			Retryable:          false,
-		}
-	}
+	registry := newRuntimeProviderRegistry()
 
 	var cipher CredentialCipher
 	featureEnabled := providerNeutralRuntimeEnabled(configured)
@@ -140,23 +131,32 @@ func (module *Module) Configure(values map[string]string) error {
 		}
 	}
 	if configured[configMetaEnabled] == "true" && cipher != nil {
-		module.configureFacebook(configured, adapters, availability)
-		module.configureInstagram(configured, adapters, availability)
+		if err := module.configureFacebook(configured, &registry); err != nil {
+			return err
+		}
+		if err := module.configureInstagram(configured, &registry); err != nil {
+			return err
+		}
 	}
-	configureRuntimeProviderFamilies(
+	runtimeRegistry, err := configureRuntimeProviderFamilies(
 		configured,
 		cipher,
-		adapters,
-		availability,
 	)
+	if err != nil {
+		return err
+	}
+	if err := registry.Merge(runtimeRegistry); err != nil {
+		return err
+	}
 	service, err := NewService(Config{
-		Repository:   module.repository,
-		Authorizer:   module.authorizer,
-		Cipher:       cipher,
-		Quota:        module.quota,
-		Adapters:     adapters,
-		Availability: availability,
-		Now:          module.clock,
+		Repository:      module.repository,
+		Authorizer:      module.authorizer,
+		Cipher:          cipher,
+		Quota:           module.quota,
+		Adapters:        registry.staticAdapters,
+		DynamicAdapters: registry.dynamicAdapters,
+		Availability:    registry.availability,
+		Now:             module.clock,
 	})
 	if err != nil {
 		return err
@@ -177,9 +177,8 @@ func (module *Module) Configure(values map[string]string) error {
 
 func (module *Module) configureFacebook(
 	values map[string]string,
-	adapters map[Provider]Adapter,
-	availability map[Provider]ProviderAvailability,
-) {
+	registry *runtimeProviderRegistry,
+) error {
 	if !allPresent(
 		values,
 		configGraphVersion,
@@ -188,21 +187,19 @@ func (module *Module) configureFacebook(
 		configFacebookRedirect,
 		configFacebookConfigID,
 	) {
-		return
+		return nil
 	}
 	if values[configFacebookReviewed] != "true" {
-		availability[ProviderFacebookPages] = unavailableProvider(
+		return registry.SetAvailability(ProviderFacebookPages, unavailableProvider(
 			ProviderFacebookPages,
 			ProviderReviewRequired,
-		)
-		return
+		))
 	}
 	if values[configFacebookAudited] != "true" {
-		availability[ProviderFacebookPages] = unavailableProvider(
+		return registry.SetAvailability(ProviderFacebookPages, unavailableProvider(
 			ProviderFacebookPages,
 			ProviderAuditRequired,
-		)
-		return
+		))
 	}
 	adapter, err := NewMetaAdapter(MetaAdapterConfig{
 		Provider:              ProviderFacebookPages,
@@ -214,21 +211,22 @@ func (module *Module) configureFacebook(
 		SupportsPKCE:          true,
 	})
 	if err != nil {
-		return
+		return nil
 	}
-	adapters[ProviderFacebookPages] = adapter
-	availability[ProviderFacebookPages] = ProviderAvailability{
+	if err := registry.RegisterStatic(ProviderFacebookPages, adapter); err != nil {
+		return err
+	}
+	return registry.SetAvailability(ProviderFacebookPages, ProviderAvailability{
 		Provider:           ProviderFacebookPages,
 		Status:             ProviderAvailable,
 		ConfigurationState: ProviderReady,
-	}
+	})
 }
 
 func (module *Module) configureInstagram(
 	values map[string]string,
-	adapters map[Provider]Adapter,
-	availability map[Provider]ProviderAvailability,
-) {
+	registry *runtimeProviderRegistry,
+) error {
 	if !allPresent(
 		values,
 		configGraphVersion,
@@ -236,21 +234,19 @@ func (module *Module) configureInstagram(
 		configInstagramSecret,
 		configInstagramRedirect,
 	) {
-		return
+		return nil
 	}
 	if values[configInstagramReviewed] != "true" {
-		availability[ProviderInstagramProfessional] = unavailableProvider(
+		return registry.SetAvailability(ProviderInstagramProfessional, unavailableProvider(
 			ProviderInstagramProfessional,
 			ProviderReviewRequired,
-		)
-		return
+		))
 	}
 	if values[configInstagramAudited] != "true" {
-		availability[ProviderInstagramProfessional] = unavailableProvider(
+		return registry.SetAvailability(ProviderInstagramProfessional, unavailableProvider(
 			ProviderInstagramProfessional,
 			ProviderAuditRequired,
-		)
-		return
+		))
 	}
 	adapter, err := NewMetaAdapter(MetaAdapterConfig{
 		Provider:     ProviderInstagramProfessional,
@@ -261,14 +257,16 @@ func (module *Module) configureInstagram(
 		SupportsPKCE: true,
 	})
 	if err != nil {
-		return
+		return nil
 	}
-	adapters[ProviderInstagramProfessional] = adapter
-	availability[ProviderInstagramProfessional] = ProviderAvailability{
+	if err := registry.RegisterStatic(ProviderInstagramProfessional, adapter); err != nil {
+		return err
+	}
+	return registry.SetAvailability(ProviderInstagramProfessional, ProviderAvailability{
 		Provider:           ProviderInstagramProfessional,
 		Status:             ProviderAvailable,
 		ConfigurationState: ProviderReady,
-	}
+	})
 }
 
 func (module *Module) Start(context.Context) error {
