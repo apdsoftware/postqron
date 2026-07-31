@@ -54,7 +54,7 @@ func newPublisher(
 		(provider != socialconnections.ProviderFacebookPages &&
 			provider != socialconnections.ProviderInstagramProfessional &&
 			provider != socialconnections.ProviderThreads) ||
-		!validGraphVersion(graphVersion) {
+		!validPublisherGraphVersion(provider, graphVersion) {
 		return nil, publishing.ErrInvalidArgument
 	}
 	return &Publisher{
@@ -585,7 +585,9 @@ func (publisher *Publisher) execute(
 
 func (publisher *Publisher) graphPath(parts ...string) string {
 	escaped := make([]string, 0, len(parts)+1)
-	escaped = append(escaped, publisher.graphVersion)
+	if version := strings.TrimSpace(publisher.graphVersion); version != "" {
+		escaped = append(escaped, version)
+	}
 	for _, part := range parts {
 		escaped = append(escaped, url.PathEscape(strings.TrimSpace(part)))
 	}
@@ -750,6 +752,17 @@ func validGraphVersion(value string) bool {
 		}
 	}
 	return true
+}
+
+func validPublisherGraphVersion(
+	provider socialconnections.Provider,
+	value string,
+) bool {
+	if provider == socialconnections.ProviderThreads &&
+		strings.TrimSpace(value) == "" {
+		return true
+	}
+	return validGraphVersion(value)
 }
 
 func absoluteHTTPS(value string) bool {
