@@ -5,8 +5,9 @@ package socialconnections
 // nothing until the Meta-family follow-up has official fixtures and review
 // gates.
 func configureMetaExtensionsRuntime(
-	_ runtimeProviderFamilyInput,
-	_ *runtimeProviderFamilyRegistrar,
-) error {
-	return nil
+	_ map[string]string,
+	_ CredentialCipher,
+	_ map[Provider]Adapter,
+	_ map[Provider]ProviderAvailability,
+) {
 }

@@ -33,31 +33,25 @@ func TestRuntimeProviderFamiliesKeepStaticAndDynamicRegistriesSeparate(
 		{
 			name:      "dynamic-only",
 			providers: []Provider{ProviderMastodon},
-			configure: func(
+			dynamic: func(
 				_ runtimeProviderFamilyInput,
-				registrar *runtimeProviderFamilyRegistrar,
-			) error {
-				return registrar.RegisterDynamic(
-					RuntimeDynamicProviderRegistration{
-						Provider:         ProviderMastodon,
-						Adapter:          runtimeDynamicAdapterFixture(),
-						Configured:       true,
-						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
-					},
-					runtimeDynamicProviderAttestations{
-						Enabled:              true,
-						Configured:           true,
-						AuditVerified:        true,
-						SmokeVerified:        true,
-						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
-						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
-					},
-				)
+			) ([]RuntimeDynamicProviderRegistration, error) {
+				return []RuntimeDynamicProviderRegistration{{
+					Provider:         ProviderMastodon,
+					Adapter:          runtimeDynamicAdapterFixture(),
+					Configured:       true,
+					SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+				}}, nil
 			},
 		},
 	}
 
-	registry, err := configureRuntimeProviderFamilies(map[string]string{}, nil)
+	registry, err := configureRuntimeProviderFamilies(map[string]string{
+		"social.mastodon.enabled":                "true",
+		"social.mastodon.runtime_audit_verified": "true",
+		"social.mastodon.runtime_smoke_verified": "true",
+		"social.mastodon.compatibility_version":  RuntimeDynamicProviderCompatibilityVersion,
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,26 +75,15 @@ func TestRuntimeProviderFamiliesRejectUndeclaredDynamicProviders(t *testing.T) {
 		{
 			name:      "undeclared",
 			providers: []Provider{ProviderMastodon},
-			configure: func(
+			dynamic: func(
 				_ runtimeProviderFamilyInput,
-				registrar *runtimeProviderFamilyRegistrar,
-			) error {
-				return registrar.RegisterDynamic(
-					RuntimeDynamicProviderRegistration{
-						Provider:         Provider("fixture"),
-						Adapter:          runtimeDynamicAdapterFixture(),
-						Configured:       true,
-						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
-					},
-					runtimeDynamicProviderAttestations{
-						Enabled:              true,
-						Configured:           true,
-						AuditVerified:        true,
-						SmokeVerified:        true,
-						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
-						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
-					},
-				)
+			) ([]RuntimeDynamicProviderRegistration, error) {
+				return []RuntimeDynamicProviderRegistration{{
+					Provider:         Provider("fixture"),
+					Adapter:          runtimeDynamicAdapterFixture(),
+					Configured:       true,
+					SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+				}}, nil
 			},
 		},
 	}
@@ -119,26 +102,15 @@ func TestRuntimeProviderFamiliesRejectFamilyOwnershipViolations(t *testing.T) {
 		{
 			name:      "decentralized",
 			providers: []Provider{ProviderMastodon},
-			configure: func(
+			dynamic: func(
 				_ runtimeProviderFamilyInput,
-				registrar *runtimeProviderFamilyRegistrar,
-			) error {
-				return registrar.RegisterDynamic(
-					RuntimeDynamicProviderRegistration{
-						Provider:         ProviderBluesky,
-						Adapter:          runtimeDynamicAdapterFixture(),
-						Configured:       true,
-						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
-					},
-					runtimeDynamicProviderAttestations{
-						Enabled:              true,
-						Configured:           true,
-						AuditVerified:        true,
-						SmokeVerified:        true,
-						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
-						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
-					},
-				)
+			) ([]RuntimeDynamicProviderRegistration, error) {
+				return []RuntimeDynamicProviderRegistration{{
+					Provider:         ProviderBluesky,
+					Adapter:          runtimeDynamicAdapterFixture(),
+					Configured:       true,
+					SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+				}}, nil
 			},
 		},
 	}
@@ -157,44 +129,23 @@ func TestRuntimeProviderFamiliesRejectDeterministicDynamicDuplicates(t *testing.
 		{
 			name:      "decentralized",
 			providers: []Provider{ProviderBluesky, ProviderMastodon},
-			configure: func(
+			dynamic: func(
 				_ runtimeProviderFamilyInput,
-				registrar *runtimeProviderFamilyRegistrar,
-			) error {
-				if err := registrar.RegisterDynamic(
-					RuntimeDynamicProviderRegistration{
+			) ([]RuntimeDynamicProviderRegistration, error) {
+				return []RuntimeDynamicProviderRegistration{
+					{
 						Provider:         ProviderMastodon,
 						Adapter:          runtimeDynamicAdapterFixture(),
 						Configured:       true,
 						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
 					},
-					runtimeDynamicProviderAttestations{
-						Enabled:              true,
-						Configured:           true,
-						AuditVerified:        true,
-						SmokeVerified:        true,
-						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
-						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
-					},
-				); err != nil {
-					return err
-				}
-				return registrar.RegisterDynamic(
-					RuntimeDynamicProviderRegistration{
+					{
 						Provider:         ProviderMastodon,
 						Adapter:          runtimeDynamicAdapterFixture(),
 						Configured:       true,
 						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
 					},
-					runtimeDynamicProviderAttestations{
-						Enabled:              true,
-						Configured:           true,
-						AuditVerified:        true,
-						SmokeVerified:        true,
-						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
-						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
-					},
-				)
+				}, nil
 			},
 		},
 	}

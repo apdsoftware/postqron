@@ -10,20 +10,18 @@ import (
 
 const RuntimeDynamicProviderCompatibilityVersion = "f05_dynamic_runtime_v1"
 
+type legacyRuntimeProviderConfigurer func(
+	map[string]string,
+	CredentialCipher,
+	map[Provider]Adapter,
+	map[Provider]ProviderAvailability,
+)
+
 type runtimeProviderFamilyInput struct {
 	Values map[string]string
 	Cipher CredentialCipher
 }
 
-type runtimeProviderFamilyConfigurer func(
-	runtimeProviderFamilyInput,
-	*runtimeProviderFamilyRegistrar,
-) error
-
-// RuntimeDynamicProviderRegistration is the central hook consumed by provider
-// family implementations such as #314. The runtime registry computes
-// availability itself from typed attestations and never trusts a provider to
-// mark itself available/ready directly.
 type RuntimeDynamicProviderRegistration struct {
 	Provider         Provider
 	Adapter          DynamicAdapter
@@ -77,10 +75,15 @@ func (attestations runtimeDynamicProviderAttestations) availability(
 	return entry
 }
 
+type runtimeDynamicProviderHook func(
+	runtimeProviderFamilyInput,
+) ([]RuntimeDynamicProviderRegistration, error)
+
 type runtimeProviderFamily struct {
 	name      string
 	providers []Provider
-	configure runtimeProviderFamilyConfigurer
+	static    legacyRuntimeProviderConfigurer
+	dynamic   runtimeDynamicProviderHook
 }
 
 type runtimeProviderRegistry struct {
@@ -89,44 +92,39 @@ type runtimeProviderRegistry struct {
 	availability    map[Provider]ProviderAvailability
 }
 
-type runtimeProviderFamilyRegistrar struct {
-	family           runtimeProviderFamily
-	registry         runtimeProviderRegistry
-	staticSeen       map[Provider]struct{}
-	dynamicSeen      map[Provider]struct{}
-	availabilitySeen map[Provider]struct{}
-}
+var decentralizedNetworksRuntimeDynamicHook runtimeDynamicProviderHook
 
 var runtimeProviderFamilies = []runtimeProviderFamily{
 	{
 		name:      "meta_extensions",
 		providers: []Provider{ProviderFacebookGroups, ProviderInstagramPersonal, ProviderThreads},
-		configure: configureMetaExtensionsRuntime,
+		static:    configureMetaExtensionsRuntime,
 	},
 	{
 		name:      "x",
 		providers: []Provider{ProviderX},
-		configure: configureXRuntime,
+		static:    configureXRuntime,
 	},
 	{
 		name:      "professional_networks",
 		providers: []Provider{ProviderLinkedIn, ProviderGoogleBusinessProfile},
-		configure: configureProfessionalNetworksRuntime,
+		static:    configureProfessionalNetworksRuntime,
 	},
 	{
 		name:      "pinterest",
 		providers: []Provider{ProviderPinterest},
-		configure: configurePinterestRuntime,
+		static:    configurePinterestRuntime,
 	},
 	{
 		name:      "video_networks",
 		providers: []Provider{ProviderTikTok, ProviderYouTube},
-		configure: configureVideoNetworksRuntime,
+		static:    configureVideoNetworksRuntime,
 	},
 	{
 		name:      "decentralized_networks",
 		providers: []Provider{ProviderBluesky, ProviderMastodon},
-		configure: configureDecentralizedNetworksRuntime,
+		static:    configureDecentralizedNetworksRuntime,
+		dynamic:   configureDecentralizedNetworksDynamicRuntime,
 	},
 }
 
@@ -135,18 +133,6 @@ func newRuntimeProviderRegistry() runtimeProviderRegistry {
 		staticAdapters:  make(map[Provider]Adapter, len(SupportedProviders)),
 		dynamicAdapters: make(map[Provider]DynamicAdapter, len(SupportedProviders)),
 		availability:    make(map[Provider]ProviderAvailability, len(SupportedProviders)),
-	}
-}
-
-func newRuntimeProviderFamilyRegistrar(
-	family runtimeProviderFamily,
-) *runtimeProviderFamilyRegistrar {
-	return &runtimeProviderFamilyRegistrar{
-		family:           family,
-		registry:         newRuntimeProviderRegistry(),
-		staticSeen:       make(map[Provider]struct{}, len(family.providers)),
-		dynamicSeen:      make(map[Provider]struct{}, len(family.providers)),
-		availabilitySeen: make(map[Provider]struct{}, len(family.providers)),
 	}
 }
 
@@ -238,105 +224,6 @@ func (registry *runtimeProviderRegistry) Merge(
 	return nil
 }
 
-func (registrar *runtimeProviderFamilyRegistrar) RegisterStatic(
-	provider Provider,
-	adapter Adapter,
-	availability ProviderAvailability,
-) error {
-	if registrar == nil {
-		return fmt.Errorf("%w: runtime provider family registrar is required", ErrInvalidArgument)
-	}
-	if err := registrar.requireOwnedProvider(provider); err != nil {
-		return err
-	}
-	if _, exists := registrar.staticSeen[provider]; exists {
-		return fmt.Errorf("%w: runtime provider family %q registered duplicate static adapter for %s", ErrInvalidArgument, registrar.family.name, provider)
-	}
-	registrar.staticSeen[provider] = struct{}{}
-	if err := registrar.registry.RegisterStatic(provider, adapter); err != nil {
-		return err
-	}
-	return registrar.setAvailability(provider, availability)
-}
-
-func (registrar *runtimeProviderFamilyRegistrar) RegisterDynamic(
-	registration RuntimeDynamicProviderRegistration,
-	attestations runtimeDynamicProviderAttestations,
-) error {
-	if registrar == nil {
-		return fmt.Errorf("%w: runtime provider family registrar is required", ErrInvalidArgument)
-	}
-	if err := registrar.requireOwnedProvider(registration.Provider); err != nil {
-		return err
-	}
-	if _, exists := registrar.dynamicSeen[registration.Provider]; exists {
-		return fmt.Errorf("%w: runtime provider family %q registered duplicate dynamic adapter for %s", ErrInvalidArgument, registrar.family.name, registration.Provider)
-	}
-	registrar.dynamicSeen[registration.Provider] = struct{}{}
-	if err := registrar.setAvailability(
-		registration.Provider,
-		attestations.availability(registration.Provider),
-	); err != nil {
-		return err
-	}
-	if !attestations.ready() {
-		if attestations.productionClaimed() &&
-			(registration.Adapter == nil || !registration.Configured) {
-			return fmt.Errorf(
-				"%w: runtime dynamic provider %s is production-gated without a configured adapter",
-				ErrInvalidArgument,
-				registration.Provider,
-			)
-		}
-		return nil
-	}
-	return registrar.registry.RegisterDynamic(
-		registration.Provider,
-		registration.Adapter,
-	)
-}
-
-func (registrar *runtimeProviderFamilyRegistrar) SetDynamicAvailability(
-	provider Provider,
-	attestations runtimeDynamicProviderAttestations,
-) error {
-	if registrar == nil {
-		return fmt.Errorf("%w: runtime provider family registrar is required", ErrInvalidArgument)
-	}
-	if err := registrar.requireOwnedProvider(provider); err != nil {
-		return err
-	}
-	return registrar.setAvailability(provider, attestations.availability(provider))
-}
-
-func (registrar *runtimeProviderFamilyRegistrar) setAvailability(
-	provider Provider,
-	availability ProviderAvailability,
-) error {
-	if _, exists := registrar.availabilitySeen[provider]; exists {
-		return fmt.Errorf("%w: runtime provider family %q registered duplicate availability for %s", ErrInvalidArgument, registrar.family.name, provider)
-	}
-	registrar.availabilitySeen[provider] = struct{}{}
-	return registrar.registry.SetAvailability(provider, availability)
-}
-
-func (registrar *runtimeProviderFamilyRegistrar) requireOwnedProvider(
-	provider Provider,
-) error {
-	if !supportedRuntimeProvider(provider) {
-		return fmt.Errorf("%w: undeclared runtime provider %q", ErrInvalidArgument, provider)
-	}
-	if slices.Contains(registrar.family.providers, provider) {
-		return nil
-	}
-	return fmt.Errorf(
-		"%w: runtime provider family %q does not own %s",
-		ErrInvalidArgument,
-		registrar.family.name,
-		provider,
-	)
-}
-
 func configureRuntimeProviderFamilies(
 	values map[string]string,
 	cipher CredentialCipher,
@@ -344,17 +231,15 @@ func configureRuntimeProviderFamilies(
 	registry := newRuntimeProviderRegistry()
 	input := runtimeProviderFamilyInput{Values: values, Cipher: cipher}
 	for _, family := range runtimeProviderFamilies {
-		registrar := newRuntimeProviderFamilyRegistrar(family)
-		if family.configure != nil {
-			if err := family.configure(input, registrar); err != nil {
-				return runtimeProviderRegistry{}, fmt.Errorf(
-					"runtime provider family %q: %w",
-					family.name,
-					err,
-				)
-			}
+		familyRegistry, err := configureRuntimeProviderFamily(family, input)
+		if err != nil {
+			return runtimeProviderRegistry{}, fmt.Errorf(
+				"runtime provider family %q: %w",
+				family.name,
+				err,
+			)
 		}
-		if err := registry.Merge(registrar.registry); err != nil {
+		if err = registry.Merge(familyRegistry); err != nil {
 			return runtimeProviderRegistry{}, fmt.Errorf(
 				"runtime provider family %q: %w",
 				family.name,
@@ -363,6 +248,231 @@ func configureRuntimeProviderFamilies(
 		}
 	}
 	return registry, nil
+}
+
+func configureRuntimeProviderFamily(
+	family runtimeProviderFamily,
+	input runtimeProviderFamilyInput,
+) (runtimeProviderRegistry, error) {
+	registry := newRuntimeProviderRegistry()
+	staticAdapters := make(map[Provider]Adapter)
+	availability := make(map[Provider]ProviderAvailability)
+	if family.static != nil {
+		family.static(input.Values, input.Cipher, staticAdapters, availability)
+	}
+	for _, provider := range sortedStaticProviders(staticAdapters) {
+		if err := requireRuntimeFamilyOwnership(family, provider); err != nil {
+			return runtimeProviderRegistry{}, err
+		}
+		if _, declared := availability[provider]; !declared {
+			return runtimeProviderRegistry{}, fmt.Errorf(
+				"%w: runtime provider family %q registered %s without declaring availability",
+				ErrInvalidArgument,
+				family.name,
+				provider,
+			)
+		}
+		if err := registry.RegisterStatic(provider, staticAdapters[provider]); err != nil {
+			return runtimeProviderRegistry{}, err
+		}
+	}
+	for _, provider := range sortedAvailabilityProviders(availability) {
+		if err := requireRuntimeFamilyOwnership(family, provider); err != nil {
+			return runtimeProviderRegistry{}, err
+		}
+		if err := registry.SetAvailability(provider, availability[provider]); err != nil {
+			return runtimeProviderRegistry{}, err
+		}
+	}
+	if family.dynamic == nil {
+		return registry, nil
+	}
+	if err := configureRuntimeDynamicProviders(
+		&registry,
+		family,
+		input,
+	); err != nil {
+		return runtimeProviderRegistry{}, err
+	}
+	return registry, nil
+}
+
+func configureRuntimeDynamicProviders(
+	registry *runtimeProviderRegistry,
+	family runtimeProviderFamily,
+	input runtimeProviderFamilyInput,
+) error {
+	registrations, err := family.dynamic(input)
+	if err != nil {
+		return err
+	}
+	sort.Slice(registrations, func(left, right int) bool {
+		return registrations[left].Provider < registrations[right].Provider
+	})
+	seen := make(map[Provider]struct{}, len(registrations))
+	for _, registration := range registrations {
+		if err := requireRuntimeFamilyOwnership(family, registration.Provider); err != nil {
+			return err
+		}
+		if _, exists := seen[registration.Provider]; exists {
+			return fmt.Errorf(
+				"%w: runtime provider family %q registered duplicate dynamic adapter for %s",
+				ErrInvalidArgument,
+				family.name,
+				registration.Provider,
+			)
+		}
+		seen[registration.Provider] = struct{}{}
+		attestations := runtimeDynamicProviderAttestationsFor(
+			input.Values,
+			registration,
+		)
+		if err := registry.SetAvailability(
+			registration.Provider,
+			attestations.availability(registration.Provider),
+		); err != nil {
+			return err
+		}
+		if !attestations.ready() {
+			if attestations.productionClaimed() &&
+				(registration.Adapter == nil || !registration.Configured) {
+				return fmt.Errorf(
+					"%w: runtime dynamic provider %s is production-gated without a configured adapter",
+					ErrInvalidArgument,
+					registration.Provider,
+				)
+			}
+			continue
+		}
+		if err := registry.RegisterDynamic(
+			registration.Provider,
+			registration.Adapter,
+		); err != nil {
+			return err
+		}
+	}
+	for _, provider := range family.providers {
+		if _, exists := seen[provider]; exists {
+			continue
+		}
+		attestations := runtimeDynamicProviderGate(input.Values, provider)
+		if !attestations.Enabled {
+			continue
+		}
+		if attestations.productionClaimed() {
+			return fmt.Errorf(
+				"%w: runtime dynamic provider %s is production-gated without a configured adapter hook",
+				ErrInvalidArgument,
+				provider,
+			)
+		}
+		if err := registry.SetAvailability(
+			provider,
+			attestations.availability(provider),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func configureDecentralizedNetworksDynamicRuntime(
+	input runtimeProviderFamilyInput,
+) ([]RuntimeDynamicProviderRegistration, error) {
+	if decentralizedNetworksRuntimeDynamicHook == nil {
+		return nil, nil
+	}
+	return decentralizedNetworksRuntimeDynamicHook(input)
+}
+
+func runtimeDynamicProviderAttestationsFor(
+	values map[string]string,
+	registration RuntimeDynamicProviderRegistration,
+) runtimeDynamicProviderAttestations {
+	attestations := runtimeDynamicProviderGate(values, registration.Provider)
+	attestations.Configured = registration.Configured
+	attestations.SupportedVersion = strings.TrimSpace(
+		registration.SupportedVersion,
+	)
+	return attestations
+}
+
+func runtimeDynamicProviderGate(
+	values map[string]string,
+	provider Provider,
+) runtimeDynamicProviderAttestations {
+	switch provider {
+	case ProviderMastodon:
+		return runtimeDynamicProviderAttestations{
+			Enabled: runtimeProviderValue(
+				values,
+				"social.mastodon.enabled",
+				"POSTQRON_F05_MASTODON_ENABLED",
+			) == "true",
+			AuditVerified: runtimeProviderValue(
+				values,
+				"social.mastodon.runtime_audit_verified",
+				"POSTQRON_F05_MASTODON_RUNTIME_AUDIT_VERIFIED",
+			) == "true",
+			SmokeVerified: runtimeProviderValue(
+				values,
+				"social.mastodon.runtime_smoke_verified",
+				"POSTQRON_F05_MASTODON_RUNTIME_SMOKE_VERIFIED",
+			) == "true",
+			CompatibilityVersion: runtimeProviderValue(
+				values,
+				"social.mastodon.compatibility_version",
+				"POSTQRON_F05_MASTODON_COMPATIBILITY_VERSION",
+			),
+		}
+	case ProviderBluesky:
+		return runtimeDynamicProviderAttestations{
+			Enabled: runtimeProviderValue(
+				values,
+				"social.bluesky.enabled",
+				"POSTQRON_F05_BLUESKY_ENABLED",
+			) == "true",
+			AuditVerified: runtimeProviderValue(
+				values,
+				"social.bluesky.runtime_audit_verified",
+				"POSTQRON_F05_BLUESKY_RUNTIME_AUDIT_VERIFIED",
+			) == "true",
+			SmokeVerified: runtimeProviderValue(
+				values,
+				"social.bluesky.runtime_smoke_verified",
+				"POSTQRON_F05_BLUESKY_RUNTIME_SMOKE_VERIFIED",
+			) == "true",
+			CompatibilityVersion: runtimeProviderValue(
+				values,
+				"social.bluesky.compatibility_version",
+				"POSTQRON_F05_BLUESKY_COMPATIBILITY_VERSION",
+			),
+		}
+	default:
+		return runtimeDynamicProviderAttestations{}
+	}
+}
+
+func requireRuntimeFamilyOwnership(
+	family runtimeProviderFamily,
+	provider Provider,
+) error {
+	if !supportedRuntimeProvider(provider) {
+		return fmt.Errorf(
+			"%w: undeclared runtime provider %q",
+			ErrInvalidArgument,
+			provider,
+		)
+	}
+	if slices.Contains(family.providers, provider) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: runtime provider family %q does not own %s",
+		ErrInvalidArgument,
+		family.name,
+		provider,
+	)
 }
 
 func runtimeProviderValue(

@@ -4,8 +4,9 @@ package socialconnections
 // Business Profile. It intentionally mounts nothing until both adapters have
 // official fixtures and review gates.
 func configureProfessionalNetworksRuntime(
-	_ runtimeProviderFamilyInput,
-	_ *runtimeProviderFamilyRegistrar,
-) error {
-	return nil
+	_ map[string]string,
+	_ CredentialCipher,
+	_ map[Provider]Adapter,
+	_ map[Provider]ProviderAvailability,
+) {
 }

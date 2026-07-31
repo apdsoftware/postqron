@@ -294,9 +294,9 @@ func TestRuntimeProviderExtensionPointsRemainFailClosed(t *testing.T) {
 }
 
 func TestRuntimeDynamicAdaptersPropagateToNewService(t *testing.T) {
-	previous := decentralizedNetworksRuntimeConfigurer
-	t.Cleanup(func() { decentralizedNetworksRuntimeConfigurer = previous })
-	decentralizedNetworksRuntimeConfigurer = func(
+	previous := decentralizedNetworksRuntimeDynamicHook
+	t.Cleanup(func() { decentralizedNetworksRuntimeDynamicHook = previous })
+	decentralizedNetworksRuntimeDynamicHook = func(
 		_ runtimeProviderFamilyInput,
 	) ([]RuntimeDynamicProviderRegistration, error) {
 		return []RuntimeDynamicProviderRegistration{
@@ -368,9 +368,9 @@ func TestRuntimeDynamicProvidersRemainUnavailableWithOnlyCipher(t *testing.T) {
 }
 
 func TestRuntimeDynamicAdapterOwnershipFailsClosed(t *testing.T) {
-	previous := decentralizedNetworksRuntimeConfigurer
-	t.Cleanup(func() { decentralizedNetworksRuntimeConfigurer = previous })
-	decentralizedNetworksRuntimeConfigurer = func(
+	previous := decentralizedNetworksRuntimeDynamicHook
+	t.Cleanup(func() { decentralizedNetworksRuntimeDynamicHook = previous })
+	decentralizedNetworksRuntimeDynamicHook = func(
 		_ runtimeProviderFamilyInput,
 	) ([]RuntimeDynamicProviderRegistration, error) {
 		return []RuntimeDynamicProviderRegistration{
@@ -401,9 +401,9 @@ func TestRuntimeDynamicAdapterOwnershipFailsClosed(t *testing.T) {
 }
 
 func TestRuntimeDynamicAdapterDuplicateRegistrationsFailClosed(t *testing.T) {
-	previous := decentralizedNetworksRuntimeConfigurer
-	t.Cleanup(func() { decentralizedNetworksRuntimeConfigurer = previous })
-	decentralizedNetworksRuntimeConfigurer = func(
+	previous := decentralizedNetworksRuntimeDynamicHook
+	t.Cleanup(func() { decentralizedNetworksRuntimeDynamicHook = previous })
+	decentralizedNetworksRuntimeDynamicHook = func(
 		_ runtimeProviderFamilyInput,
 	) ([]RuntimeDynamicProviderRegistration, error) {
 		return []RuntimeDynamicProviderRegistration{
