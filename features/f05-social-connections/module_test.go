@@ -267,10 +267,10 @@ func TestRuntimeConfigurationUsesExactAuthAllowedOrigins(t *testing.T) {
 }
 
 func TestRuntimeProviderExtensionPointsRemainFailClosed(t *testing.T) {
-	if len(runtimeProviderConfigurers) != 6 {
+	if len(runtimeProviderFamilies) != 6 {
 		t.Fatalf(
-			"runtime provider configurers = %d, want six isolated families",
-			len(runtimeProviderConfigurers),
+			"runtime provider families = %d, want six isolated families",
+			len(runtimeProviderFamilies),
 		)
 	}
 	module := runtimeModuleFixture()
@@ -291,6 +291,101 @@ func TestRuntimeProviderExtensionPointsRemainFailClosed(t *testing.T) {
 			t.Fatalf("unverified runtime extension enabled %#v", entry)
 		}
 	}
+}
+
+func TestRuntimeDynamicAdaptersPropagateToNewService(t *testing.T) {
+	previous := runtimeProviderFamilies
+	t.Cleanup(func() { runtimeProviderFamilies = previous })
+	runtimeProviderFamilies = []runtimeProviderFamily{
+		{
+			name: "decentralized_networks",
+			dynamic: func(
+				_ map[string]string,
+				_ CredentialCipher,
+				adapters map[Provider]DynamicAdapter,
+				availability map[Provider]ProviderAvailability,
+			) {
+				adapters[ProviderMastodon] = runtimeDynamicAdapterFixture()
+				availability[ProviderMastodon] = ProviderAvailability{
+					Status:             ProviderAvailable,
+					ConfigurationState: ProviderReady,
+				}
+			},
+		},
+	}
+	module := runtimeModuleFixture()
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err := module.Configure(map[string]string{
+		configEnabled:     "true",
+		configCipherKeyID: "fixture-key",
+		configCipherKey:   key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if module.service.dynamicAdapters[ProviderMastodon] == nil {
+		t.Fatal("Mastodon dynamic adapter was not propagated to the service")
+	}
+	entry := providerCatalogEntry(
+		t,
+		module.service.Bootstrap(),
+		ProviderMastodon,
+	)
+	if entry.Status != ProviderAvailable ||
+		entry.ConfigurationState != ProviderReady ||
+		!entry.Capabilities.Authorization ||
+		!entry.Capabilities.ResourceSelection ||
+		!entry.Capabilities.DynamicDiscovery ||
+		!entry.Capabilities.AuthenticatedHTTP {
+		t.Fatalf("Mastodon bootstrap entry = %#v", entry)
+	}
+}
+
+func TestRuntimeDynamicAdapterCollisionsFailClosed(t *testing.T) {
+	previous := runtimeProviderFamilies
+	t.Cleanup(func() { runtimeProviderFamilies = previous })
+	runtimeProviderFamilies = []runtimeProviderFamily{
+		{
+			name: "decentralized_networks",
+			dynamic: func(
+				_ map[string]string,
+				_ CredentialCipher,
+				adapters map[Provider]DynamicAdapter,
+				availability map[Provider]ProviderAvailability,
+			) {
+				adapters[ProviderFacebookPages] = runtimeDynamicAdapterFixture()
+				availability[ProviderFacebookPages] = ProviderAvailability{
+					Status:             ProviderAvailable,
+					ConfigurationState: ProviderReady,
+				}
+			},
+		},
+	}
+	module := runtimeModuleFixture()
+	if err := module.Configure(completeMetaRuntimeValues(
+		base64.StdEncoding.EncodeToString(
+			[]byte("0123456789abcdef0123456789abcdef"),
+		),
+	)); !errors.Is(err, ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "cannot mount static and dynamic adapters together") {
+		t.Fatalf("collision error = %v", err)
+	}
+}
+
+func providerCatalogEntry(
+	t *testing.T,
+	bootstrap ClientBootstrap,
+	provider Provider,
+) ProviderCatalogEntry {
+	t.Helper()
+	for _, entry := range bootstrap.Catalog {
+		if entry.Provider == provider {
+			return entry
+		}
+	}
+	t.Fatalf("provider %s not found in bootstrap catalog", provider)
+	return ProviderCatalogEntry{}
 }
 
 func runtimeModuleFixture() *Module {
