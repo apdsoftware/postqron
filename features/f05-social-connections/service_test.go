@@ -3,6 +3,7 @@ package socialconnections
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -276,6 +277,13 @@ type serviceFixture struct {
 	quota      *fakeChannelQuota
 }
 
+type linkedInServiceFixture struct {
+	service    *Service
+	repository *MemoryRepository
+	authorizer *fakeAuthorizer
+	quota      *fakeChannelQuota
+}
+
 func newServiceFixture(t *testing.T) serviceFixture {
 	t.Helper()
 	repository := NewMemoryRepository()
@@ -361,6 +369,50 @@ func newServiceFixture(t *testing.T) serviceFixture {
 		authorizer: authorizer,
 		facebook:   facebook,
 		instagram:  instagram,
+		quota:      quota,
+	}
+}
+
+func newLinkedInServiceFixture(
+	t *testing.T,
+	refreshStatus int,
+	refreshBody string,
+) linkedInServiceFixture {
+	t.Helper()
+	repository := NewMemoryRepository()
+	authorizer := &fakeAuthorizer{permissions: map[Permission]bool{
+		PermissionViewWorkspace:  true,
+		PermissionManageChannels: true,
+	}}
+	cipher, err := NewAESGCMCipher(
+		"test-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quota := newFakeChannelQuota()
+	service, err := NewService(Config{
+		Repository: repository,
+		Authorizer: authorizer,
+		Cipher:     cipher,
+		Quota:      quota,
+		Adapters: map[Provider]Adapter{
+			ProviderLinkedIn: newLinkedInRefreshFailureAdapter(
+				t,
+				refreshStatus,
+				refreshBody,
+			),
+		},
+		Now: func() time.Time { return serviceTestNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return linkedInServiceFixture{
+		service:    service,
+		repository: repository,
+		authorizer: authorizer,
 		quota:      quota,
 	}
 }
@@ -713,6 +765,57 @@ func TestRevocationIsOwnerOnlyWipesTokensAndIsIdempotent(t *testing.T) {
 	}
 	if countEvents(fixture.repository.Events(), EventDisconnected) != 1 {
 		t.Fatalf("events = %#v", fixture.repository.Events())
+	}
+}
+
+func TestLinkedInRefreshAuthenticationFailureMarksReconnectRequired(
+	t *testing.T,
+) {
+	fixture := newLinkedInServiceFixture(
+		t,
+		http.StatusBadRequest,
+		`{"error":"invalid_grant","error_description":"refresh token revoked by member"}`,
+	)
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderLinkedIn,
+		linkedInFixtureMemberID,
+	)
+	expired := serviceTestNow.Add(-time.Minute)
+	stored, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.TokenExpiresAt = &expired
+	stored.Connection.TokenExpiresAt = &expired
+	fixture.repository.mu.Lock()
+	fixture.repository.connections[connection.ID] = stored
+	fixture.repository.mu.Unlock()
+	if _, err = fixture.service.AccessToken(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	); !errors.Is(err, ErrReconnectRequired) {
+		t.Fatalf("LinkedIn AccessToken() error = %v", err)
+	}
+	persisted, err := fixture.repository.GetCredential(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusReconnectRequired ||
+		persisted.ReconnectReason != string(FailureAuthentication) ||
+		len(persisted.AccessTokenCiphertext.Data) != 0 ||
+		len(persisted.RefreshTokenCiphertext.Data) != 0 {
+		t.Fatalf("LinkedIn reconnect state = %#v", persisted)
 	}
 }
 

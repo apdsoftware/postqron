@@ -359,6 +359,59 @@ func TestLinkedInFailureFixtures(t *testing.T) {
 	})
 }
 
+func TestLinkedInRefreshAuthenticationFailuresRedactProviderPayload(
+	t *testing.T,
+) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "invalid_grant",
+			body: `{"error":"invalid_grant","error_description":"refresh token revoked by member"}`,
+		},
+		{
+			name: "invalid_request",
+			body: `{"error":"invalid_request","error_description":"refresh token expired"}`,
+		},
+		{
+			name: "token_message",
+			body: `{"message":"This token was expired and revoked by the provider."}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := newLinkedInRefreshFailureAdapter(
+				t,
+				http.StatusBadRequest,
+				test.body,
+			)
+			credential, err := adapter.Exchange(
+				context.Background(),
+				ExchangeRequest{
+					Code:        "fixture-code",
+					RedirectURL: adapter.Config().RedirectURL,
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = adapter.Refresh(context.Background(), credential)
+			var failure *ProviderFailure
+			if !errors.As(err, &failure) ||
+				failure.Kind != FailureAuthentication ||
+				failure.Cause != nil {
+				t.Fatalf("LinkedIn refresh failure = %#v, err=%v", failure, err)
+			}
+			if strings.Contains(err.Error(), "error_description") ||
+				strings.Contains(err.Error(), "refresh token revoked by member") ||
+				strings.Contains(err.Error(), "refresh token expired") {
+				t.Fatalf("LinkedIn refresh error leaked provider payload: %q", err)
+			}
+		})
+	}
+}
+
 func TestLinkedInRejectsUnsafePaginationLink(t *testing.T) {
 	adapter, err := NewLinkedInAdapter(LinkedInAdapterConfig{
 		ClientID:     "fixture-client",

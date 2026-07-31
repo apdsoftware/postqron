@@ -659,7 +659,7 @@ func (adapter *LinkedInAdapter) requestJSON(
 		}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return classifyLinkedInError(response.StatusCode)
+		return classifyLinkedInError(response.StatusCode, payload)
 	}
 	if err := json.Unmarshal(payload, target); err != nil {
 		return invalidLinkedInResponse("LinkedIn returned malformed JSON")
@@ -667,7 +667,7 @@ func (adapter *LinkedInAdapter) requestJSON(
 	return nil
 }
 
-func classifyLinkedInError(status int) error {
+func classifyLinkedInError(status int, payload []byte) error {
 	failure := &ProviderFailure{
 		Code: "linkedin_http_" + strconv.Itoa(status),
 	}
@@ -675,6 +675,9 @@ func classifyLinkedInError(status int) error {
 	case status == http.StatusTooManyRequests || status >= 500:
 		failure.Kind = FailureTemporary
 		failure.Retryable = true
+	case status == http.StatusBadRequest && linkedInOAuthAuthenticationFailure(payload):
+		failure.Kind = FailureAuthentication
+		failure.Code = "linkedin_authentication_failed"
 	case status == http.StatusUnauthorized:
 		failure.Kind = FailureAuthentication
 	case status == http.StatusForbidden:
@@ -685,6 +688,33 @@ func classifyLinkedInError(status int) error {
 		failure.Kind = FailureInvalidResponse
 	}
 	return failure
+}
+
+func linkedInOAuthAuthenticationFailure(payload []byte) bool {
+	var oauthFailure struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(payload, &oauthFailure)
+	if linkedInOAuthAuthenticationText(oauthFailure.Error) {
+		return true
+	}
+	return linkedInOAuthAuthenticationText(oauthFailure.Message) ||
+		linkedInOAuthAuthenticationText(string(payload))
+}
+
+func linkedInOAuthAuthenticationText(raw string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "" {
+		return false
+	}
+	if normalized == "invalid_grant" || normalized == "invalid_request" {
+		return true
+	}
+	return strings.Contains(normalized, "token") &&
+		(strings.Contains(normalized, "invalid") ||
+			strings.Contains(normalized, "expired") ||
+			strings.Contains(normalized, "revoked"))
 }
 
 func invalidLinkedInResponse(message string) error {
