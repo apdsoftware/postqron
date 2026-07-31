@@ -138,13 +138,18 @@ function socialConnection(status: 'connected' | 'reconnect_required' = 'connecte
 }
 
 async function routeSocialPage(page: Page, role: 'owner' | 'member') {
+  let sessionRole = role
+  let workspaceRole = role
+  let sessionRequests = 0
   let connections = role === 'owner' ? [] as Array<ReturnType<typeof socialConnection>> : [socialConnection('reconnect_required')]
   let beginBody: unknown
 
-  await page.route('**/api/v1/app/session', route =>
-    route.fulfill(json(session(role))))
+  await page.route('**/api/v1/app/session', (route) => {
+    sessionRequests += 1
+    return route.fulfill(json(session(sessionRole)))
+  })
   await page.route('**/api/v1/app/workspaces/current', route =>
-    route.fulfill(json(currentWorkspace(role))))
+    route.fulfill(json(currentWorkspace(workspaceRole))))
   await page.route(
     '**/api/v1/workspaces/workspace-fixture/social-connections/bootstrap',
     route => route.fulfill(json(socialBootstrap())),
@@ -202,6 +207,13 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
 
   return {
     beginBody: () => beginBody,
+    sessionRequests: () => sessionRequests,
+    setSessionRole(nextRole: 'owner' | 'member') {
+      sessionRole = nextRole
+    },
+    setWorkspaceRole(nextRole: 'owner' | 'member') {
+      workspaceRole = nextRole
+    },
   }
 }
 
@@ -1241,6 +1253,97 @@ test('an authoritative Social workspace mismatch terminates in retryable unavail
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
   await expect(page.getByText('Loading your workspace')).toHaveCount(0)
   await expect(page.getByText('A Owner Channel')).toHaveCount(0)
+})
+
+test('an Owner to Member permission change during current reads fails closed without infinite loading', async ({
+  page,
+}) => {
+  await routeSocialPage(page, 'owner')
+  const workspaceRequested = deferred()
+  const releaseWorkspace = deferred()
+  await page.route('**/api/v1/app/workspaces/current', async (route) => {
+    workspaceRequested.resolve()
+    await releaseWorkspace.promise
+    await route.fulfill(json(currentWorkspace('owner')))
+  })
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await workspaceRequested.promise
+  await page.evaluate(() => {
+    const root = document.querySelector('#__nuxt') as HTMLElement & {
+      __vue_app__?: {
+        $nuxt?: { payload: { state: Record<string, unknown> } }
+      }
+    }
+    const payloadState = root.__vue_app__?.$nuxt?.payload.state
+    const key = '$spostqron.app-shell.session'
+    const current = payloadState?.[key] as ReturnType<typeof session> | undefined
+    if (!payloadState || !current) {
+      throw new Error('Nuxt session state is unavailable')
+    }
+    payloadState[key] = {
+      ...current,
+      current_workspace: current.current_workspace
+        ? { ...current.current_workspace, role: 'member' }
+        : undefined,
+      workspaces: current.workspaces.map(workspace => ({
+        ...workspace,
+        role: workspace.id === current.current_workspace?.id ? 'member' : workspace.role,
+      })),
+    }
+  })
+  releaseWorkspace.resolve()
+
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+  await expect(page.locator('.app-provider-catalog')).toHaveCount(0)
+})
+
+test('Social Retry refreshes authoritative session before recovering Owner to Member', async ({
+  page,
+}) => {
+  const fixture = await routeSocialPage(page, 'owner')
+  fixture.setWorkspaceRole('member')
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toBeVisible()
+  const requestsBeforeRetry = fixture.sessionRequests()
+  fixture.setSessionRole('member')
+  await page.getByRole('button', { name: 'Retry' }).click()
+
+  await expect.poll(fixture.sessionRequests).toBeGreaterThan(requestsBeforeRetry)
+  await expect(page.getByText(
+    'Only an Owner on an active workspace can connect, reconnect, select, or revoke channels.',
+  )).toBeVisible()
+  await expect(page.locator('.app-provider-catalog').getByRole('button', { name: 'Connect' }).first()).toBeDisabled()
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toHaveCount(0)
+})
+
+test('an account configuration error without status is unavailable rather than offline', async ({
+  page,
+}) => {
+  await routeSocialPage(page, 'owner')
+  await page.route('**/api/v1/app/workspaces/current', route =>
+    route.fulfill(json({ invalid: 'current workspace' })))
+
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toBeVisible()
+  await expect(page.getByRole('heading', {
+    name: 'You appear to be offline',
+  })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
 })
 
 test('cross-origin F5 callbacks fail closed before OAuth starts', async ({ page }) => {

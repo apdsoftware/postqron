@@ -14,6 +14,10 @@ import {
   localeFromAppPath,
 } from '../components/core/navigation.ts'
 import {
+  appServiceStateFromError,
+  AppApiError,
+} from '../components/core/api.ts'
+import {
   parseSocialCallbackDocument,
   SOCIAL_OAUTH_CALLBACK_PARAMETERS,
   withoutSocialOAuthCallbackParameters,
@@ -76,6 +80,7 @@ const selecting = ref<string>()
 const callbackProcessed = ref(false)
 const loadingWorkspace = ref(true)
 let loadEpoch = 0
+let refreshingAuthoritativeSession = false
 const catalogHeading = ref<{
   focus(): void
   scrollIntoView(options: { behavior: 'smooth', block: 'start' }): void
@@ -84,6 +89,7 @@ const catalogHeading = ref<{
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
 const canManageChannels = computed(() =>
   !workspaceTransition.value
+  && currentPermission() === 'manage'
   && workspace.value?.role === 'owner'
   && workspace.value?.status === 'active')
 
@@ -139,6 +145,14 @@ function contextIsCurrent(
     && !workspaceTransition.value
     && (!requireManagePermission
       || (context.permission === 'manage' && canManageChannels.value))
+}
+
+function contextStillTargetsCurrentWorkspace(
+  context: AsyncWorkspaceContext,
+): boolean {
+  return context.epoch === loadEpoch
+    && context.workspaceId === workspaceId.value
+    && !workspaceTransition.value
 }
 
 function closeActivePopups() {
@@ -205,6 +219,9 @@ function socialErrorKey(error: unknown): AppShellMessageKey {
 }
 
 function socialPageState(error: unknown): 'access-denied' | 'offline' | 'unavailable' {
+  if (error instanceof AppApiError) {
+    return appServiceStateFromError(error)
+  }
   const kind = normalizeSocialApiError(error).kind
   if (kind === 'offline') {
     return 'offline'
@@ -326,10 +343,7 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
       social.list(context.workspaceId),
     ])
     if (!contextIsCurrent(context)) {
-      const mismatchStillTargetsCurrentWorkspace = context.epoch === loadEpoch
-        && context.workspaceId === workspaceId.value
-        && !workspaceTransition.value
-      if (mismatchStillTargetsCurrentWorkspace) {
+      if (contextStillTargetsCurrentWorkspace(context)) {
         throw workspaceContextMismatch()
       }
       return undefined
@@ -352,21 +366,28 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
     }
     return { loaded: true }
   } catch (error) {
+    const authoritativePermissionMismatch = context
+      ? contextStillTargetsCurrentWorkspace(context)
+        && context.permission !== currentPermission()
+      : false
     const isCurrentRequest = context
-      ? contextIsCurrent(context)
+      ? contextStillTargetsCurrentWorkspace(context)
       : requestEpoch === loadEpoch && !workspaceTransition.value
     if (isCurrentRequest) {
       resetWorkspaceSensitiveState()
-      pageState.value = socialPageState(error)
+      pageState.value = socialPageState(
+        authoritativePermissionMismatch ? workspaceContextMismatch() : error,
+      )
       loadingWorkspace.value = false
     }
     return undefined
   }
-}, { server: false, watch: [workspaceId] })
+}, { server: false })
 
 watch(workspaceId, (current, previous) => {
-  if (current !== previous) {
+  if (current !== previous && !refreshingAuthoritativeSession) {
     invalidateWorkspaceSensitiveState()
+    void refresh()
   }
 }, { flush: 'sync' })
 watch(workspaceTransition, (targetWorkspaceId) => {
@@ -760,7 +781,29 @@ function cancelSelection() {
 }
 
 async function retry() {
-  await refresh()
+  if (refreshingAuthoritativeSession) {
+    return
+  }
+  refreshingAuthoritativeSession = true
+  invalidateWorkspaceSensitiveState()
+  const authorityEpoch = loadEpoch
+  session.value = undefined
+  try {
+    const authoritativeSession = await accountApi.session()
+    if (authorityEpoch !== loadEpoch || workspaceTransition.value) {
+      return
+    }
+    session.value = authoritativeSession
+    await refresh()
+  } catch (error) {
+    if (authorityEpoch === loadEpoch && !workspaceTransition.value) {
+      resetWorkspaceSensitiveState()
+      pageState.value = appServiceStateFromError(error)
+      loadingWorkspace.value = false
+    }
+  } finally {
+    refreshingAuthoritativeSession = false
+  }
 }
 </script>
 
