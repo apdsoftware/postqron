@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SocialApiError } from '../components/core/social-api.ts'
-import { parseSocialCallbackDocument } from '../components/core/social-callback.ts'
+import {
+  parseSocialCallbackDocument,
+  withoutSocialOAuthCallbackParameters,
+} from '../components/core/social-callback.ts'
+
+test('callback URL cleanup removes only OAuth response parameters', () => {
+  assert.deepEqual(withoutSocialOAuthCallbackParameters({
+    state: 'secret-state',
+    code: 'secret-code',
+    iss: 'https://issuer.example.test',
+    error: 'access_denied',
+    campaign: 'preserved',
+    filter: ['one', 'two'],
+  }), {
+    campaign: 'preserved',
+    filter: ['one', 'two'],
+  })
+})
 
 test('callback handoff parses the JSON selection document returned by F5', () => {
   const selection = parseSocialCallbackDocument(JSON.stringify({

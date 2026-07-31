@@ -44,8 +44,11 @@ test('the shell always signals transition completion and exposes recovery feedba
     source('../components/core/use-app-shell.ts'),
   ])
   assert.match(layout, /finally \{[\s\S]*workspaceTransitionRevision\.value \+= 1/u)
-  assert.match(layout, /catch \{[\s\S]*const recoveredSession = await api\.session\(\)/u)
-  assert.match(layout, /role="alert"[\s\S]*shell\.workspaceSwitchError/u)
+  assert.match(layout, /serverCommitted = true[\s\S]*api\.selectWorkspace\(previousWorkspaceId\)[\s\S]*const recoveredSession = await api\.session\(\)/u)
+  assert.match(layout, /recoveredSession\.current_workspace\?\.id !== previousWorkspaceId/u)
+  assert.match(layout, /session\.value = undefined[\s\S]*workspaceRecoveryUnavailable\.value = true/u)
+  assert.match(layout, /kind="unavailable"[\s\S]*@retry="retryWorkspaceRecovery"/u)
+  assert.match(layout, /role="alert"[\s\S]*shell\.workspaceSwitch/u)
   assert.match(composable, /postqron\.app-shell\.workspace-transition-revision/u)
 })
 

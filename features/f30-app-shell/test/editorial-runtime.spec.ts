@@ -211,6 +211,7 @@ async function routeWorkspaceSwitchPage(
     aConnectionStatus?: 'connected' | 'reconnect_required'
     failFirstSessionRefresh?: boolean
     failNextSwitch?: boolean
+    failRollback?: boolean
   } = {},
 ) {
   const roles = {
@@ -219,7 +220,9 @@ async function routeWorkspaceSwitchPage(
   } as const
   let activeWorkspace: keyof typeof roles = 'workspace-a'
   let failNextSwitch = options.failNextSwitch ?? false
+  let failFirstSessionRefresh = options.failFirstSessionRefresh ?? false
   let failedSessionRefreshRequests = 0
+  let rollbackAttempts = 0
   const listRequests = { 'workspace-a': 0, 'workspace-b': 0 }
   const names = {
     'workspace-a': 'Workspace A',
@@ -245,6 +248,9 @@ async function routeWorkspaceSwitchPage(
   await page.route('**/api/v1/auth/csrf', route =>
     route.fulfill(json({ csrf_token: 'workspace-switch-csrf' })))
   await page.route('**/api/v1/app/workspaces/select', async route => {
+    const targetWorkspace = (
+      route.request().postDataJSON() as { workspace_id: keyof typeof roles }
+    ).workspace_id
     if (failNextSwitch) {
       failNextSwitch = false
       await route.fulfill({
@@ -259,16 +265,32 @@ async function routeWorkspaceSwitchPage(
       })
       return
     }
-    if (options.failFirstSessionRefresh) {
-      // ofetch retries a failed GET once; fail both attempts belonging to the
-      // first api.session() so the layout's explicit recovery path executes.
-      failedSessionRefreshRequests = 2
-      await route.fulfill(json({ ok: true }))
-      return
+    if (targetWorkspace === 'workspace-a' && activeWorkspace === 'workspace-b') {
+      rollbackAttempts += 1
+      if (options.failRollback) {
+        await route.fulfill({
+          ...json({
+            error: {
+              code: 'workspace_rollback_failed',
+              message: 'The workspace rollback failed.',
+              retryable: true,
+            },
+          }),
+          status: 503,
+        })
+        return
+      }
     }
-    activeWorkspace = (
-      route.request().postDataJSON() as { workspace_id: typeof activeWorkspace }
-    ).workspace_id
+
+    // A successful selection POST commits server state immediately. Any
+    // following session failure must therefore be treated as post-commit.
+    activeWorkspace = targetWorkspace
+    if (failFirstSessionRefresh && targetWorkspace === 'workspace-b') {
+      failFirstSessionRefresh = false
+      // ofetch retries a failed GET once; fail both attempts belonging to the
+      // first api.session() so the layout's explicit rollback path executes.
+      failedSessionRefreshRequests = 2
+    }
     await route.fulfill(json({ ok: true }))
   })
   await page.route('**/api/v1/app/session', async route => {
@@ -331,7 +353,11 @@ async function routeWorkspaceSwitchPage(
       },
     )
   }
-  return { listRequests }
+  return {
+    activeWorkspace: () => activeWorkspace,
+    listRequests,
+    rollbackAttempts: () => rollbackAttempts,
+  }
 }
 
 async function routeComposerPage(page: Page) {
@@ -906,7 +932,7 @@ test('an in-flight reconnect popup closes on transition and stale callback metad
   await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toHaveCount(0)
 })
 
-test('a delayed processCallback response cannot expose workspace A selection under workspace B', async ({
+test('a delayed processCallback response cleans stale callback history and cannot expose workspace A selection under workspace B', async ({
   page,
 }) => {
   await routeWorkspaceSwitchPage(page)
@@ -918,11 +944,12 @@ test('a delayed processCallback response cannot expose workspace A selection und
     await route.fulfill(json(socialSelection('STALE_A_PROCESS_CALLBACK')))
   })
 
-  await page.goto(`${offBaseURL}/en/app/social-channels?state=state-a&code=code-a`)
+  await page.goto(`${offBaseURL}/en/app/social-channels?campaign=kept&state=state-a&code=code-a&iss=https%3A%2F%2Fissuer.example.test&error=access_denied`)
   await callbackRequested.promise
   await page.getByLabel('Current workspace').selectOption('workspace-b')
   releaseCallback.resolve()
 
+  await expect(page).toHaveURL(`${offBaseURL}/en/app/social-channels?campaign=kept`)
   await expect(page.getByText('B Member Channel')).toBeVisible()
   await expect(page.getByText('STALE_A_PROCESS_CALLBACK')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toHaveCount(0)
@@ -1055,7 +1082,7 @@ test('B to A transition discards delayed B reads', async ({ page }) => {
   await expect(page.getByText('B Member Channel')).toHaveCount(0)
 })
 
-test('failed workspace switch restores and refetches the effective old workspace', async ({
+test('a rejected workspace selection keeps and refetches the effective old workspace', async ({
   page,
 }) => {
   const fixture = await routeWorkspaceSwitchPage(page, { failNextSwitch: true })
@@ -1067,14 +1094,16 @@ test('failed workspace switch restores and refetches the effective old workspace
 
   await expect(workspace).toHaveValue('workspace-a')
   await expect(page.getByText(
-    'We could not switch workspaces. The previous workspace has been restored and refreshed.',
+    'We could not switch workspaces. Your current workspace was not changed.',
   )).toBeVisible()
+  expect(fixture.activeWorkspace()).toBe('workspace-a')
+  expect(fixture.rollbackAttempts()).toBe(0)
   await expect(page.getByText('A Owner Channel')).toBeVisible()
   await expect.poll(() => fixture.listRequests['workspace-a']).toBeGreaterThanOrEqual(2)
   await expect(page.getByText('Loading your workspace')).toHaveCount(0)
 })
 
-test('failed session refresh also restores and refetches the still-effective old workspace', async ({
+test('a post-commit session failure explicitly rolls back and verifies workspace A', async ({
   page,
 }) => {
   const fixture = await routeWorkspaceSwitchPage(page, {
@@ -1088,10 +1117,44 @@ test('failed session refresh also restores and refetches the still-effective old
 
   await expect(workspace).toHaveValue('workspace-a')
   await expect(page.getByText(
-    'We could not switch workspaces. The previous workspace has been restored and refreshed.',
+    'The new workspace could not be verified. Your previous workspace was restored and verified.',
   )).toBeVisible()
+  expect(fixture.rollbackAttempts()).toBe(1)
+  expect(fixture.activeWorkspace()).toBe('workspace-a')
   await expect(page.getByText('A Owner Channel')).toBeVisible()
   await expect.poll(() => fixture.listRequests['workspace-a']).toBeGreaterThanOrEqual(2)
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+})
+
+test('a failed rollback removes stale authority and later retry adopts server workspace B', async ({
+  page,
+}) => {
+  const fixture = await routeWorkspaceSwitchPage(page, {
+    failFirstSessionRefresh: true,
+    failRollback: true,
+  })
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+
+  await page.getByLabel('Current workspace').selectOption('workspace-b')
+
+  await expect(page.getByRole('heading', {
+    name: 'This service is temporarily unavailable',
+  })).toBeVisible()
+  expect(fixture.rollbackAttempts()).toBe(1)
+  expect(fixture.activeWorkspace()).toBe('workspace-b')
+  await expect(page.getByText('A Owner Channel')).toHaveCount(0)
+  await expect(page.getByText('B Member Channel')).toHaveCount(0)
+  await expect(page.getByText('Loading your workspace')).toHaveCount(0)
+  await expect(page.getByLabel('Current workspace')).toHaveValue('')
+
+  await page.getByRole('button', { name: 'Retry' }).click()
+
+  await expect(page.getByLabel('Current workspace')).toHaveValue('workspace-b')
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText(
+    'Only an Owner on an active workspace can connect, reconnect, select, or revoke channels.',
+  )).toBeVisible()
   await expect(page.getByText('Loading your workspace')).toHaveCount(0)
 })
 

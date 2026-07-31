@@ -253,5 +253,6 @@ test('social channels rely on the JSON callback handoff and authoritative worksp
   assert.match(page, /callback\.origin !== globalThis\.location\.origin/u)
   assert.match(page, /windowHandle\.opener = null/u)
   assert.match(page, /dynamic_discovery/u)
-  assert.match(page, /navigateTo\(appRoute\(locale\.value, 'social-channels'\), \{ replace: true \}\)/u)
+  assert.match(page, /history\.replaceState\([\s\S]*withoutSocialOAuthCallbackParameters\(route\.query\)/u)
+  assert.match(page, /if \(!contextIsCurrent\(context, true\)\) \{[\s\S]*social\.completeAuthorization/u)
 })

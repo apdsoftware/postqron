@@ -30,7 +30,8 @@ const workspaceTransitionRevision = useAppWorkspaceTransitionRevisionState()
 const { t } = useAppShellI18n()
 const menuOpen = ref(false)
 const changingWorkspace = ref(false)
-const workspaceSwitchError = ref(false)
+const workspaceSwitchNotice = ref<'restored' | 'unchanged'>()
+const workspaceRecoveryUnavailable = ref(false)
 const loggingOut = ref(false)
 const logoutError = ref(false)
 const currentWorkspaceId = computed(() => session.value?.current_workspace?.id ?? '')
@@ -56,25 +57,79 @@ async function selectWorkspace(event: unknown) {
     return
   }
   const previousSession = session.value
+  const previousWorkspaceId = previousSession?.current_workspace?.id ?? ''
+  let serverCommitted = false
   changingWorkspace.value = true
-  workspaceSwitchError.value = false
+  workspaceSwitchNotice.value = undefined
+  workspaceRecoveryUnavailable.value = false
   workspaceTransition.value = workspaceId
   try {
     await api.selectWorkspace(workspaceId)
+    serverCommitted = true
     const refreshedSession = await api.session()
+    if (refreshedSession.current_workspace?.id !== workspaceId) {
+      throw new Error('APP_WORKSPACE_SWITCH_NOT_VERIFIED')
+    }
     session.value = refreshedSession
     await navigateTo(route.fullPath)
   } catch {
-    workspaceSwitchError.value = true
-    try {
-      const recoveredSession = await api.session()
-      session.value = recoveredSession
-    } catch {
+    if (!serverCommitted) {
+      // The target POST did not commit, so the previously verified client
+      // session remains authoritative and no server rollback is necessary.
       session.value = previousSession
+      workspaceSwitchNotice.value = 'unchanged'
+    } else {
+      try {
+        if (!previousWorkspaceId) {
+          throw new Error('APP_WORKSPACE_ROLLBACK_TARGET_UNAVAILABLE')
+        }
+        await api.selectWorkspace(previousWorkspaceId)
+        const recoveredSession = await api.session()
+        if (recoveredSession.current_workspace?.id !== previousWorkspaceId) {
+          throw new Error('APP_WORKSPACE_ROLLBACK_NOT_VERIFIED')
+        }
+        session.value = recoveredSession
+        workspaceSwitchNotice.value = 'restored'
+      } catch {
+        // The server may still be on the new workspace. Remove every cached
+        // source of workspace/role authority until a later session retry.
+        bootstrap.value = undefined
+        accountArea.value = undefined
+        session.value = undefined
+        workspaceSwitchNotice.value = undefined
+        workspaceRecoveryUnavailable.value = true
+      }
     }
   } finally {
-    workspaceTransition.value = undefined
-    workspaceTransitionRevision.value += 1
+    if (!workspaceRecoveryUnavailable.value) {
+      workspaceTransition.value = undefined
+      workspaceTransitionRevision.value += 1
+    }
+    changingWorkspace.value = false
+  }
+}
+
+async function retryWorkspaceRecovery() {
+  if (changingWorkspace.value) {
+    return
+  }
+  changingWorkspace.value = true
+  workspaceTransition.value = 'authoritative-recovery'
+  try {
+    const recoveredSession = await api.session()
+    session.value = recoveredSession
+    workspaceRecoveryUnavailable.value = false
+    await navigateTo(route.fullPath)
+  } catch {
+    bootstrap.value = undefined
+    accountArea.value = undefined
+    session.value = undefined
+    workspaceRecoveryUnavailable.value = true
+  } finally {
+    if (!workspaceRecoveryUnavailable.value) {
+      workspaceTransition.value = undefined
+      workspaceTransitionRevision.value += 1
+    }
     changingWorkspace.value = false
   }
 }
@@ -185,7 +240,7 @@ async function logout() {
           <span>{{ t('shell.workspace') }}</span>
           <select
             :value="currentWorkspaceId"
-            :disabled="changingWorkspace"
+            :disabled="changingWorkspace || workspaceRecoveryUnavailable"
             @change="selectWorkspace"
           >
             <option
@@ -197,11 +252,11 @@ async function logout() {
             </option>
           </select>
           <small
-            v-if="workspaceSwitchError"
+            v-if="workspaceSwitchNotice"
             class="workspace-switcher__error"
             role="alert"
           >
-            {{ t('shell.workspaceSwitchError') }}
+            {{ t(`shell.workspaceSwitch${workspaceSwitchNotice === 'restored' ? 'Restored' : 'Unchanged'}`) }}
           </small>
         </label>
 
@@ -268,7 +323,13 @@ async function logout() {
         class="product-main"
         tabindex="-1"
       >
-        <slot />
+        <AppState
+          v-if="workspaceRecoveryUnavailable"
+          kind="unavailable"
+          action
+          @retry="retryWorkspaceRecovery"
+        />
+        <slot v-else />
       </main>
     </section>
   </div>

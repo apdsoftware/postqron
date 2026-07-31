@@ -11,10 +11,13 @@ import {
   watch,
 } from '#imports'
 import {
-  appRoute,
   localeFromAppPath,
 } from '../components/core/navigation.ts'
-import { parseSocialCallbackDocument } from '../components/core/social-callback.ts'
+import {
+  parseSocialCallbackDocument,
+  SOCIAL_OAUTH_CALLBACK_PARAMETERS,
+  withoutSocialOAuthCallbackParameters,
+} from '../components/core/social-callback.ts'
 import {
   appStateKindFromError,
   useAppSessionState,
@@ -215,6 +218,33 @@ async function processCallback(context: AsyncWorkspaceContext) {
   const code = queryString(route.query.code)
   const issuer = queryString(route.query.iss)
   const providerError = queryString(route.query.error)
+  const hasCallbackParameters = SOCIAL_OAUTH_CALLBACK_PARAMETERS.some(
+    parameter => Object.hasOwn(route.query, parameter),
+  )
+  if (!hasCallbackParameters) {
+    return
+  }
+
+  // Scrub credentials and provider errors before the first awaited operation.
+  // The direct history replacement guarantees removal even if a workspace
+  // transition invalidates this callback while router synchronization runs.
+  if (import.meta.client) {
+    const cleanURL = new globalThis.URL(globalThis.location.href)
+    for (const parameter of SOCIAL_OAUTH_CALLBACK_PARAMETERS) {
+      cleanURL.searchParams.delete(parameter)
+    }
+    globalThis.history.replaceState(
+      globalThis.history.state,
+      '',
+      `${cleanURL.pathname}${cleanURL.search}${cleanURL.hash}`,
+    )
+  }
+  await navigateTo({
+    path: route.path,
+    query: withoutSocialOAuthCallbackParameters(route.query),
+    hash: route.hash,
+  }, { replace: true })
+
   if (!state && !code && !issuer && !providerError) {
     return
   }
@@ -239,13 +269,6 @@ async function processCallback(context: AsyncWorkspaceContext) {
     }
     selection.value = undefined
     notice.value = { tone: 'error', key: socialErrorKey(error) }
-  }
-  if (!contextIsCurrent(context, true)) {
-    return
-  }
-  await navigateTo(appRoute(locale.value, 'social-channels'), { replace: true })
-  if (!contextIsCurrent(context, true)) {
-    return
   }
 }
 

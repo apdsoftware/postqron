@@ -7,6 +7,25 @@ import {
   type SocialSelection,
 } from './social-connections.ts'
 
+export const SOCIAL_OAUTH_CALLBACK_PARAMETERS = [
+  'state',
+  'code',
+  'iss',
+  'error',
+] as const
+
+type QueryValue = string | readonly (string | null)[] | null | undefined
+
+export function withoutSocialOAuthCallbackParameters(
+  query: Readonly<Record<string, QueryValue>>,
+): Record<string, QueryValue> {
+  const cleanQuery = { ...query }
+  for (const parameter of SOCIAL_OAUTH_CALLBACK_PARAMETERS) {
+    delete cleanQuery[parameter]
+  }
+  return cleanQuery
+}
+
 export function parseSocialCallbackDocument(
   value: string,
 ): SocialSelection {
