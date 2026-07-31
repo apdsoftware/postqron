@@ -78,6 +78,10 @@ func credentialedSchedulingCORS(
 		}
 		writer.Header().Set("Access-Control-Allow-Origin", origin)
 		writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		writer.Header().Set(
+			"Access-Control-Expose-Headers",
+			"Location, Idempotency-Replayed",
+		)
 		addSchedulingVaryOrigin(writer.Header())
 		next.ServeHTTP(writer, request)
 	})

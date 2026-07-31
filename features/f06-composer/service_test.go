@@ -221,6 +221,23 @@ func TestServiceAuthorizationFailsClosed(t *testing.T) {
 	}
 }
 
+func TestServiceAuthorizerOutageMapsToDependencyUnavailable(t *testing.T) {
+	service, err := NewService(
+		NewMemoryRepository(),
+		authorizerStub{err: errors.New("authorizer db unavailable")},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.CreateDraft(context.Background(), CreateDraftCommand{
+		WorkspaceID: "workspace-1",
+		ActorID:     "account-1",
+	})
+	if !errors.Is(err, ErrDependencyUnavailable) {
+		t.Fatalf("authorizer outage error = %v", err)
+	}
+}
+
 func TestServiceRejectsAmbiguousContentIdentifiers(t *testing.T) {
 	service := newTestService(t)
 	_, err := service.CreateDraft(context.Background(), CreateDraftCommand{

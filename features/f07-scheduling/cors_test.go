@@ -37,11 +37,14 @@ func TestSchedulingCredentialedCORSAndPreflight(t *testing.T) {
 		response.Header().Get("Access-Control-Allow-Origin") !=
 			"https://postqron.com" ||
 		response.Header().Get("Access-Control-Allow-Credentials") != "true" ||
+		response.Header().Get("Access-Control-Expose-Headers") !=
+			"Location, Idempotency-Replayed" ||
 		!strings.Contains(
 			response.Header().Get("Access-Control-Allow-Methods"),
 			http.MethodPost,
 		) ||
-		response.Header().Get("Access-Control-Allow-Headers") != "Content-Type" ||
+		response.Header().Get("Access-Control-Allow-Headers") !=
+			"Content-Type, Idempotency-Key" ||
 		response.Header().Get("Access-Control-Max-Age") != "600" {
 		t.Fatalf(
 			"preflight status=%d headers=%v body=%q",
@@ -49,6 +52,24 @@ func TestSchedulingCredentialedCORSAndPreflight(t *testing.T) {
 			response.Header(),
 			response.Body.String(),
 		)
+	}
+
+	create := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/workspaces/workspace-1/scheduled-posts",
+		strings.NewReader(`{"draft_id":"draft-1","channel_ids":["channel-1"],`+
+			`"scheduled_at":{"local_date_time":"2026-07-25T10:00:00","time_zone":"UTC"}}`),
+	)
+	create.Header.Set("Origin", "https://postqron.com")
+	create.Header.Set("Content-Type", "application/json")
+	create.Header.Set("Idempotency-Key", "cors-create")
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, create)
+	if createResponse.Code != http.StatusCreated ||
+		createResponse.Header().Get("Location") == "" ||
+		createResponse.Header().Get("Access-Control-Expose-Headers") !=
+			"Location, Idempotency-Replayed" {
+		t.Fatalf("browser create status=%d headers=%v body=%q", createResponse.Code, createResponse.Header(), createResponse.Body.String())
 	}
 }
 

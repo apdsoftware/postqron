@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	composer "github.com/apdsoftware/postqron/features/f06-composer"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 )
 
@@ -18,11 +19,13 @@ const (
 )
 
 type Module struct {
-	database  *sql.DB
-	service   *Service
-	handler   http.Handler
-	preflight http.Handler
-	origins   map[string]struct{}
+	database   *sql.DB
+	clock      func() time.Time
+	repository *PostgresRepository
+	service    *Service
+	handler    http.Handler
+	preflight  http.Handler
+	origins    map[string]struct{}
 }
 
 func NewPostgresModule(
@@ -39,38 +42,49 @@ func NewPostgresModule(
 	if err != nil {
 		return nil, err
 	}
-	origins, err := parseSchedulingAllowedOrigins(
-		os.Getenv("POSTQRON_AUTH_ALLOWED_ORIGINS"),
-	)
-	if err != nil {
-		return nil, err
+	return &Module{
+		database:   database,
+		clock:      clock,
+		repository: repository,
+	}, nil
+}
+
+func (module *Module) Configure(values map[string]string) error {
+	if module == nil || module.database == nil || module.repository == nil {
+		return errors.New("scheduling runtime is not configured")
 	}
-	service, err := NewService(
-		repository,
-		postgresSchedulingAuthorizer{database: database},
-		unavailableContentGateway{},
-		WithClock(clock),
+	origins, err := parseSchedulingAllowedOrigins(
+		strings.TrimSpace(os.Getenv("POSTQRON_AUTH_ALLOWED_ORIGINS")),
 	)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	content := schedulingBoundaryGateway(module.database, module.clock, values)
+	service, err := NewService(
+		module.repository,
+		postgresSchedulingAuthorizer{database: module.database},
+		content,
+		WithClock(module.clock),
+	)
+	if err != nil {
+		return err
 	}
 	handler := newSchedulingHTTPHandler(
 		service,
 		runtimeSchedulingAuthenticator{},
 		origins,
 	)
-	return &Module{
-		database:  database,
-		service:   service,
-		handler:   handler,
-		preflight: credentialedSchedulingCORS(handler, origins),
-		origins:   origins,
-	}, nil
+	module.service = service
+	module.handler = handler
+	module.preflight = credentialedSchedulingCORS(handler, origins)
+	module.origins = origins
+	return nil
 }
 
 func (module *Module) Start(context.Context) error {
 	if module == nil || module.database == nil ||
-		module.service == nil || module.handler == nil || module.preflight == nil {
+		module.repository == nil || module.service == nil ||
+		module.handler == nil || module.preflight == nil {
 		return errors.New("scheduling runtime is not configured")
 	}
 	return nil
@@ -152,9 +166,6 @@ func (authorizer postgresSchedulingAuthorizer) CanManageScheduling(
 	return allowed, nil
 }
 
-// unavailableContentGateway keeps the runtime fail-closed until #303 publishes
-// the stable F6 validation and draft-duplication contract. Calendar, read,
-// reschedule and cancel remain independent and operational.
 type unavailableContentGateway struct{}
 
 func (unavailableContentGateway) ValidateForScheduling(
@@ -163,8 +174,8 @@ func (unavailableContentGateway) ValidateForScheduling(
 	string,
 	string,
 	[]string,
-) error {
-	return ErrDependencyUnavailable
+) (ValidatedDraft, error) {
+	return ValidatedDraft{}, ErrDependencyUnavailable
 }
 
 func (unavailableContentGateway) DuplicateDraft(
@@ -172,6 +183,27 @@ func (unavailableContentGateway) DuplicateDraft(
 	string,
 	string,
 	string,
-) (string, error) {
-	return "", ErrDependencyUnavailable
+	int64,
+	string,
+) (DuplicatedDraft, error) {
+	return DuplicatedDraft{}, ErrDependencyUnavailable
+}
+
+func schedulingBoundaryGateway(
+	database *sql.DB,
+	clock func() time.Time,
+	values map[string]string,
+) ContentGateway {
+	composerModule, err := composer.NewPostgresModule(database, clock)
+	if err != nil {
+		return unavailableContentGateway{}
+	}
+	if err := composerModule.Configure(values); err != nil {
+		return unavailableContentGateway{}
+	}
+	boundary, ok := composerModule.SchedulingBoundary()
+	if !ok {
+		return unavailableContentGateway{}
+	}
+	return newComposerSchedulingGateway(boundary)
 }

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	smithy "github.com/aws/smithy-go"
 )
 
 type fakeObject struct {
@@ -29,6 +31,8 @@ type fakeObjectStore struct {
 	deletedKeys  []string
 	retainCalls  []string
 	tempCalls    []string
+	statErr      error
+	openErr      error
 	retainErr    error
 	temporaryErr error
 	deleteErr    error
@@ -84,6 +88,9 @@ func (store *fakeObjectStore) Stat(
 ) (ObjectInfo, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
+	if store.statErr != nil {
+		return ObjectInfo{}, store.statErr
+	}
 	object, found := store.objects[key]
 	if !found {
 		return ObjectInfo{}, ErrNotFound
@@ -100,6 +107,9 @@ func (store *fakeObjectStore) Open(
 ) (io.ReadCloser, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
+	if store.openErr != nil {
+		return nil, store.openErr
+	}
 	object, found := store.objects[key]
 	if !found {
 		return nil, ErrNotFound
@@ -136,6 +146,21 @@ func (store *fakeObjectStore) MakeTemporary(_ context.Context, key string) error
 	}
 	object.retained = false
 	store.objects[key] = object
+	return nil
+}
+
+func (store *fakeObjectStore) Copy(_ context.Context, sourceKey, destinationKey string) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	object, found := store.objects[sourceKey]
+	if !found {
+		return ErrNotFound
+	}
+	store.objects[destinationKey] = fakeObject{
+		contentType: object.contentType,
+		content:     append([]byte{}, object.content...),
+		retained:    false,
+	}
 	return nil
 }
 
@@ -320,6 +345,25 @@ func TestS3ObjectStoreRequiresHTTPSByDefault(t *testing.T) {
 		strings.Contains(signed.URL, config.SecretAccessKey) ||
 		signed.Headers["Content-Length"] != "64" {
 		t.Fatalf("unsafe signed upload contract: url=%q headers=%v", signed.URL, signed.Headers)
+	}
+}
+
+func TestNormalizeS3MissingObjectError(t *testing.T) {
+	for name, err := range map[string]error{
+		"not found":   &smithy.GenericAPIError{Code: "NotFound", Message: "missing"},
+		"no such key": &smithy.GenericAPIError{Code: "NoSuchKey", Message: "missing"},
+		"404":         &smithy.GenericAPIError{Code: "404", Message: "missing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !errors.Is(normalizeS3MissingObjectError(err), ErrNotFound) {
+				t.Fatalf("normalized error = %v", normalizeS3MissingObjectError(err))
+			}
+		})
+	}
+	if normalized := normalizeS3MissingObjectError(
+		&smithy.GenericAPIError{Code: "InternalError", Message: "outage"},
+	); normalized != nil {
+		t.Fatalf("unexpected normalization = %v", normalized)
 	}
 }
 

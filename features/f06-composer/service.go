@@ -287,7 +287,7 @@ func (service *Service) authorize(
 	}
 	allowed, err := service.authorizer.CanManageContent(ctx, workspaceID, actorID)
 	if err != nil {
-		return fmt.Errorf("authorize content management: %w", err)
+		return ErrDependencyUnavailable
 	}
 	if !allowed {
 		return ErrForbidden

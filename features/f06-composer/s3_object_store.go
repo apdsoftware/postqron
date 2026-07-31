@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithy "github.com/aws/smithy-go"
 )
 
 type S3ObjectStoreConfig struct {
@@ -161,6 +162,9 @@ func (store *S3ObjectStore) Stat(
 		Key:    aws.String(objectKey),
 	})
 	if err != nil {
+		if normalized := normalizeS3MissingObjectError(err); normalized != nil {
+			return ObjectInfo{}, normalized
+		}
 		return ObjectInfo{}, fmt.Errorf("head S3 object: %w", err)
 	}
 	if result.ContentLength == nil || *result.ContentLength < 1 {
@@ -181,6 +185,9 @@ func (store *S3ObjectStore) Open(
 		Key:    aws.String(objectKey),
 	})
 	if err != nil {
+		if normalized := normalizeS3MissingObjectError(err); normalized != nil {
+			return nil, normalized
+		}
 		return nil, fmt.Errorf("get S3 object: %w", err)
 	}
 	return result.Body, nil
@@ -198,6 +205,24 @@ func (store *S3ObjectStore) MakeTemporary(
 	objectKey string,
 ) error {
 	return store.setLifecycleTag(ctx, objectKey, "temporary")
+}
+
+func (store *S3ObjectStore) Copy(
+	ctx context.Context,
+	sourceKey, destinationKey string,
+) error {
+	copySource := url.PathEscape(store.bucket + "/" + sourceKey)
+	_, err := store.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:           aws.String(store.bucket),
+		Key:              aws.String(destinationKey),
+		CopySource:       aws.String(copySource),
+		Tagging:          aws.String("postqron-lifecycle=temporary"),
+		TaggingDirective: types.TaggingDirectiveReplace,
+	})
+	if err != nil {
+		return fmt.Errorf("copy S3 object: %w", err)
+	}
+	return nil
 }
 
 func (store *S3ObjectStore) setLifecycleTag(
@@ -230,4 +255,17 @@ func (store *S3ObjectStore) Delete(
 		return fmt.Errorf("delete S3 object: %w", err)
 	}
 	return nil
+}
+
+func normalizeS3MissingObjectError(err error) error {
+	var apiError smithy.APIError
+	if !errors.As(err, &apiError) {
+		return nil
+	}
+	switch strings.TrimSpace(apiError.ErrorCode()) {
+	case "NoSuchKey", "NotFound", "404":
+		return ErrNotFound
+	default:
+		return nil
+	}
 }
