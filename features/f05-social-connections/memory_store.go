@@ -19,6 +19,7 @@ type MemoryRepository struct {
 	selections     map[string]memorySelection
 	connections    map[string]StoredCredential
 	connectionKey  map[string]string
+	linkedinDMS    map[string]StoredLinkedInDMSGrant
 	events         []Event
 }
 
@@ -29,6 +30,7 @@ func NewMemoryRepository() *MemoryRepository {
 		selections:     make(map[string]memorySelection),
 		connections:    make(map[string]StoredCredential),
 		connectionKey:  make(map[string]string),
+		linkedinDMS:    make(map[string]StoredLinkedInDMSGrant),
 	}
 }
 
@@ -429,6 +431,100 @@ func (repository *MemoryRepository) CompleteSession(
 	return cloneConnection(stored.Connection), nil
 }
 
+func (repository *MemoryRepository) SaveLinkedInDMSGrant(
+	_ context.Context,
+	grant StoredLinkedInDMSGrant,
+) error {
+	if !validStoredLinkedInDMSGrant(grant) {
+		return ErrInvalidArgument
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if _, exists := repository.linkedinDMS[grant.HandleHash]; exists {
+		return ErrInvalidState
+	}
+	connection, exists := repository.connections[grant.ConnectionID]
+	if !exists ||
+		connection.WorkspaceID != grant.WorkspaceID ||
+		connection.Provider != ProviderLinkedIn ||
+		connection.Status != StatusConnected ||
+		grant.Provider != ProviderLinkedIn {
+		return ErrInvalidState
+	}
+	repository.linkedinDMS[grant.HandleHash] = cloneLinkedInDMSGrant(grant)
+	return nil
+}
+
+func (repository *MemoryRepository) GetLinkedInDMSGrant(
+	_ context.Context,
+	workspaceID, connectionID, handleHash string,
+	now time.Time,
+) (StoredLinkedInDMSGrant, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	grant, exists := repository.linkedinDMS[handleHash]
+	if !exists ||
+		grant.WorkspaceID != workspaceID ||
+		grant.ConnectionID != connectionID ||
+		grant.Provider != ProviderLinkedIn {
+		return StoredLinkedInDMSGrant{}, ErrResourceNotFound
+	}
+	if !now.Before(grant.ExpiresAt) {
+		return StoredLinkedInDMSGrant{}, ErrFlowExpired
+	}
+	return cloneLinkedInDMSGrant(grant), nil
+}
+
+func (repository *MemoryRepository) TransitionLinkedInDMSGrant(
+	_ context.Context,
+	command LinkedInDMSGrantTransition,
+) (StoredLinkedInDMSGrant, error) {
+	if !validLinkedInDMSGrantTransition(command) {
+		return StoredLinkedInDMSGrant{}, ErrInvalidArgument
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	grant, exists := repository.linkedinDMS[command.HandleHash]
+	if !exists ||
+		grant.WorkspaceID != command.WorkspaceID ||
+		grant.ConnectionID != command.ConnectionID ||
+		grant.Provider != ProviderLinkedIn {
+		return StoredLinkedInDMSGrant{}, ErrResourceNotFound
+	}
+	if !command.Now.Before(grant.ExpiresAt) &&
+		command.ToState != LinkedInDMSGrantFailed &&
+		command.ToState != LinkedInDMSGrantConsumed {
+		return StoredLinkedInDMSGrant{}, ErrFlowExpired
+	}
+	if grant.State != command.FromState ||
+		grant.LeaseID != command.ExpectedLeaseID {
+		return StoredLinkedInDMSGrant{}, ErrInvalidState
+	}
+	if command.FromState == command.ToState {
+		if grant.LockedUntil == nil ||
+			grant.LockedUntil.After(command.Now) {
+			return StoredLinkedInDMSGrant{}, ErrAuthenticatedRequestInProgress
+		}
+	} else if command.FromState == LinkedInDMSGrantUploading ||
+		command.FromState == LinkedInDMSGrantCreating {
+		if grant.LockedUntil == nil ||
+			!command.Now.Before(*grant.LockedUntil) {
+			return StoredLinkedInDMSGrant{}, ErrAuthenticatedRequestInProgress
+		}
+	}
+	grant.State = command.ToState
+	grant.LeaseID = command.NewLeaseID
+	grant.LockedUntil = cloneTimePointer(command.NewLockedUntil)
+	switch command.ToState {
+	case LinkedInDMSGrantUploaded:
+		grant.UploadedAt = cloneTimePointer(&command.Now)
+	case LinkedInDMSGrantConsumed, LinkedInDMSGrantFailed:
+		grant.ConsumedAt = cloneTimePointer(&command.Now)
+	}
+	repository.linkedinDMS[command.HandleHash] = grant
+	return cloneLinkedInDMSGrant(grant), nil
+}
+
 func (repository *MemoryRepository) ReleaseSession(
 	_ context.Context,
 	workspaceID, connectionID, leaseID string,
@@ -570,6 +666,16 @@ func cloneStoredCredential(stored StoredCredential) StoredCredential {
 	stored.OAuthSessionCiphertext = cloneCiphertext(stored.OAuthSessionCiphertext)
 	stored.SessionLockedUntil = cloneTimePointer(stored.SessionLockedUntil)
 	return stored
+}
+
+func cloneLinkedInDMSGrant(
+	grant StoredLinkedInDMSGrant,
+) StoredLinkedInDMSGrant {
+	grant.EvidenceCiphertext = cloneCiphertext(grant.EvidenceCiphertext)
+	grant.LockedUntil = cloneTimePointer(grant.LockedUntil)
+	grant.UploadedAt = cloneTimePointer(grant.UploadedAt)
+	grant.ConsumedAt = cloneTimePointer(grant.ConsumedAt)
+	return grant
 }
 
 func cloneCiphertext(ciphertext Ciphertext) Ciphertext {
