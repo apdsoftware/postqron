@@ -179,6 +179,12 @@ function socialErrorKey(error: unknown): AppShellMessageKey {
   if (failure.code === 'callback_handoff_unavailable') {
     return 'social.errorCallbackHandoff'
   }
+  // Closing the authorization window is a distinct, non-success outcome: it must
+  // read as its own accessible message and never collapse into the generic
+  // error, so the closed popup can never be mistaken for a completed flow.
+  if (failure.code === 'popup_closed') {
+    return 'social.errorPopupClosed'
+  }
   switch (failure.kind) {
     case 'quota-exceeded':
       return 'social.errorQuota'
