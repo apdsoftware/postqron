@@ -211,6 +211,11 @@ Runtime secret-store/environment keys:
 Values must be injected by the runtime secret store. Do not commit them, expose
 them through bootstrap, or place them in browser configuration.
 
+Production delivery, the complete provider-family inventory, the canonical
+browser callback, deploy-time fail-closed validation, and the external console
+checklist are documented in
+[`docs/operations/social-provider-production.md`](../../docs/operations/social-provider-production.md).
+
 The Facebook adapter requests exactly `pages_show_list`,
 `pages_read_engagement`, and `pages_manage_posts`, and accepts only Pages with
 the `CREATE_CONTENT` task. The Instagram adapter requests exactly

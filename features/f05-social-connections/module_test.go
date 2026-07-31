@@ -1,9 +1,11 @@
 package socialconnections
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -233,6 +235,73 @@ func TestRuntimeBootstrapNeverExposesCipherOrProviderSecrets(t *testing.T) {
 		if strings.Contains(string(payload), secret) {
 			t.Fatalf("bootstrap exposed secret-bearing configuration %q", secret)
 		}
+	}
+}
+
+func TestProductionStyleEnvironmentBootstrapsOnlyReadyProvider(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	callback := "https://postqron.com/app/social-oauth/callback"
+	for name, value := range map[string]string{
+		"POSTQRON_AUTH_ALLOWED_ORIGINS":                "https://postqron.com",
+		"POSTQRON_F05_ENABLED":                         "true",
+		"POSTQRON_F05_CIPHER_KEY_ID":                   "production-key-fixture",
+		"POSTQRON_F05_CIPHER_KEY_BASE64":               key,
+		"POSTQRON_F05_META_ENABLED":                    "false",
+		"POSTQRON_F05_THREADS_ENABLED":                 "false",
+		"POSTQRON_F05_X_ENABLED":                       "true",
+		"POSTQRON_F05_X_CLIENT_ID":                     "production-client-fixture",
+		"POSTQRON_F05_X_CLIENT_SECRET":                 "production-secret-fixture",
+		"POSTQRON_F05_X_REDIRECT_URL":                  callback,
+		"POSTQRON_F05_X_API_ACCESS_APPROVED":           "true",
+		"POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED":        "true",
+		"POSTQRON_F05_X_SMOKE_TEST_VERIFIED":           "true",
+		"POSTQRON_F05_LINKEDIN_ENABLED":                "false",
+		"POSTQRON_F05_PINTEREST_ENABLED":               "false",
+		"POSTQRON_F05_TIKTOK_ENABLED":                  "false",
+		"POSTQRON_F05_YOUTUBE_ENABLED":                 "false",
+		"POSTQRON_F05_GOOGLE_BUSINESS_PROFILE_ENABLED": "false",
+		"POSTQRON_F05_MASTODON_ENABLED":                "false",
+		"POSTQRON_F05_BLUESKY_ENABLED":                 "false",
+	} {
+		t.Setenv(name, value)
+	}
+
+	module := runtimeModuleFixture()
+	if err := module.Configure(map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range module.service.Bootstrap().Catalog {
+		if entry.Provider == ProviderX {
+			if entry.Status != ProviderAvailable ||
+				entry.ConfigurationState != ProviderReady {
+				t.Fatalf("X bootstrap entry = %#v", entry)
+			}
+			continue
+		}
+		if entry.Status != ProviderUnavailable {
+			t.Fatalf("unconfigured provider became available: %#v", entry)
+		}
+	}
+
+	authorization, err := module.service.Begin(
+		context.Background(),
+		BeginRequest{
+			WorkspaceID: "workspace-production-fixture",
+			ActorID:     "owner-production-fixture",
+			Provider:    ProviderX,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerURL, err := url.Parse(authorization.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if providerURL.Query().Get("redirect_uri") != callback {
+		t.Fatalf("redirect_uri = %q", providerURL.Query().Get("redirect_uri"))
 	}
 }
 
