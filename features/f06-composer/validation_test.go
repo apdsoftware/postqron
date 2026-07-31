@@ -1,207 +1,232 @@
 package composer
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestValidateReturnsIndependentDestinationOutcomes(t *testing.T) {
-	image := validImage("shared", "image/png", 1080, 1080)
-	content := DraftContent{
-		Text:  "A shared caption",
-		Media: []Media{image},
-		Destinations: []Destination{
-			{
-				ID:          "facebook",
-				ChannelID:   "page-1",
-				ChannelType: ChannelFacebookPage,
-				Format:      FormatImage,
+func TestValidateCapabilityFixtureCoversEveryContentFamily(t *testing.T) {
+	catalog := fixtureCatalog(t)
+	imageOne := validImage("image-1", "image/jpeg", 1080, 1080)
+	imageTwo := validImage("image-2", "image/jpeg", 1080, 1080)
+	video := validVideo("video-1")
+	tests := []struct {
+		name    string
+		content DraftContent
+	}{
+		{
+			name: "text",
+			content: DraftContent{
+				Text:         "A text post",
+				Destinations: []Destination{fixtureDestination("text")},
 			},
-			{
-				ID:          "instagram",
-				ChannelID:   "ig-1",
-				ChannelType: ChannelInstagramProfessional,
-				Format:      FormatImage,
+		},
+		{
+			name: "link",
+			content: DraftContent{
+				Text:         "A link post",
+				Link:         "https://example.com/post",
+				Destinations: []Destination{fixtureDestination("link")},
+			},
+		},
+		{
+			name: "image",
+			content: DraftContent{
+				Text:         "An image",
+				Media:        []Media{imageOne},
+				Destinations: []Destination{fixtureDestination("image")},
+			},
+		},
+		{
+			name: "carousel",
+			content: DraftContent{
+				Text:         "A carousel",
+				Media:        []Media{imageOne, imageTwo},
+				Destinations: []Destination{fixtureDestination("carousel")},
+			},
+		},
+		{
+			name: "video with capability-specific field",
+			content: DraftContent{
+				Text:  "A video",
+				Media: []Media{video},
+				Destinations: []Destination{func() Destination {
+					destination := fixtureDestination("video")
+					destination.Fields = map[string]string{"visibility": "public"}
+					return destination
+				}()},
+			},
+		},
+		{
+			name: "short video",
+			content: DraftContent{
+				Text:         "A short",
+				Media:        []Media{video},
+				Destinations: []Destination{fixtureDestination("short_video")},
+			},
+		},
+		{
+			name: "thread",
+			content: DraftContent{
+				Thread:       []ThreadItem{{Text: "one"}, {Text: "two"}},
+				Destinations: []Destination{fixtureDestination("thread")},
 			},
 		},
 	}
-
-	report := Validate(content)
-
-	if report.Valid {
-		t.Fatal("shared PNG should be invalid for Instagram")
-	}
-	if len(report.Destinations) != 2 {
-		t.Fatalf("destinations = %d", len(report.Destinations))
-	}
-	if !report.Destinations[0].Valid {
-		t.Fatalf("Facebook errors = %#v", report.Destinations[0].Errors)
-	}
-	if report.Destinations[1].Valid {
-		t.Fatal("Instagram result should be invalid")
-	}
-	assertErrorCode(t, report.Destinations[1].Errors, "image_type_invalid")
-}
-
-func TestValidateSupportsDestinationOverrides(t *testing.T) {
-	png := validImage("facebook-image", "image/png", 1080, 1080)
-	jpeg := validImage("instagram-image", "image/jpeg", 1080, 1080)
-	facebookMedia := []string{png.ID}
-	instagramMedia := []string{jpeg.ID}
-	instagramText := strings.Repeat("x", 2200)
-	content := DraftContent{
-		Text:  strings.Repeat("f", 5000),
-		Media: []Media{png, jpeg},
-		Destinations: []Destination{
-			{
-				ID:          "facebook",
-				ChannelID:   "page-1",
-				ChannelType: ChannelFacebookPage,
-				Format:      FormatImage,
-				MediaIDs:    &facebookMedia,
-			},
-			{
-				ID:           "instagram",
-				ChannelID:    "ig-1",
-				ChannelType:  ChannelInstagramProfessional,
-				Format:       FormatImage,
-				TextOverride: &instagramText,
-				MediaIDs:     &instagramMedia,
-			},
-		},
-	}
-
-	report := Validate(content)
-
-	if !report.Valid {
-		t.Fatalf("report errors = %#v, outcomes = %#v", report.Errors, report.Destinations)
-	}
-}
-
-func TestValidateEnforcesChannelAndFormatRules(t *testing.T) {
-	content := DraftContent{
-		Text: "Instagram cannot publish text-only posts.",
-		Destinations: []Destination{{
-			ID:          "instagram",
-			ChannelID:   "ig-1",
-			ChannelType: ChannelInstagramProfessional,
-			Format:      FormatText,
-		}},
-	}
-
-	report := Validate(content)
-
-	if report.Valid {
-		t.Fatal("Instagram text post should be invalid")
-	}
-	assertErrorCode(t, report.Destinations[0].Errors, "format_unsupported")
-}
-
-func TestValidateFacebookLinkRules(t *testing.T) {
-	for name, text := range map[string]string{
-		"insecure":    "Read http://example.com",
-		"credentials": "Read https://user:secret@example.com/post",
-		"private":     "Read https://192.168.1.20/post",
-		"multiple":    "Read https://example.com and https://example.org",
-	} {
-		t.Run(name, func(t *testing.T) {
-			report := Validate(DraftContent{
-				Text: text,
-				Destinations: []Destination{{
-					ID:          "facebook",
-					ChannelID:   "page-1",
-					ChannelType: ChannelFacebookPage,
-					Format:      FormatText,
-				}},
-			})
-			if report.Valid {
-				t.Fatal("unsafe link should be invalid")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := Validate(test.content, catalog)
+			if !report.Valid {
+				t.Fatalf("valid fixture rejected: %#v", report)
+			}
+			if report.CapabilityVersion != catalog.Version {
+				t.Fatalf("capability version = %q", report.CapabilityVersion)
 			}
 		})
 	}
 }
 
-func TestValidateInstagramCarouselRules(t *testing.T) {
-	first := validImage("first", "image/jpeg", 1080, 1080)
-	second := validImage("second", "image/jpeg", 1080, 1350)
+func TestValidateReturnsIndependentDestinationErrorsWithRemedies(t *testing.T) {
+	catalog := fixtureCatalog(t)
 	content := DraftContent{
-		Text:  "Carousel",
-		Media: []Media{first, second},
-		Destinations: []Destination{{
-			ID:          "instagram",
-			ChannelID:   "ig-1",
-			ChannelType: ChannelInstagramProfessional,
-			Format:      FormatCarousel,
-		}},
-	}
-
-	report := Validate(content)
-
-	if report.Valid {
-		t.Fatal("mixed aspect ratios should be invalid")
-	}
-	assertErrorCode(t, report.Destinations[0].Errors, "carousel_ratio_mismatch")
-}
-
-func TestValidateReelRules(t *testing.T) {
-	reel := validReel("reel")
-	content := DraftContent{
-		Text:  "Valid reel",
-		Media: []Media{reel},
+		Text:  "Shared",
+		Media: []Media{validImage("image", "image/png", 1080, 1080)},
 		Destinations: []Destination{
-			{
-				ID:          "facebook",
-				ChannelID:   "page-1",
-				ChannelType: ChannelFacebookPage,
-				Format:      FormatReel,
-			},
-			{
-				ID:          "instagram",
-				ChannelID:   "ig-1",
-				ChannelType: ChannelInstagramProfessional,
-				Format:      FormatReel,
-			},
+			fixtureDestination("image"),
+			fixtureDestination("carousel"),
 		},
 	}
-	if report := Validate(content); !report.Valid {
-		t.Fatalf("valid reel rejected: %#v", report)
+	report := Validate(content, catalog)
+	if report.Valid || !report.Destinations[0].Valid || report.Destinations[1].Valid {
+		t.Fatalf("destination outcomes = %#v", report.Destinations)
 	}
+	error := report.Destinations[1].Errors[0]
+	if error.DestinationID == "" || error.Field == "" ||
+		error.Rule == "" || error.Remedy == "" {
+		t.Fatalf("error is not actionable: %#v", error)
+	}
+}
 
-	content.Media[0].DurationSeconds = 61
-	content.Media[0].MoovBeforeMediaData = false
-	report := Validate(content)
-	if report.Valid {
-		t.Fatal("invalid reel accepted")
+func TestValidateFailsClosedForUnknownOrUnavailableCapabilities(t *testing.T) {
+	catalog := fixtureCatalog(t)
+	catalog.Capabilities = append(catalog.Capabilities, ContentCapability{
+		ID: "fixture:blocked", Provider: "fixture",
+		ChannelType: "blocked", Format: FormatText,
+		Available: false, UnavailableReason: "external review pending",
+		Text: TextRules{Allowed: true},
+	})
+	for name, destination := range map[string]Destination{
+		"unknown": {
+			ID: "unknown", ChannelID: "channel",
+			ChannelType: "unknown", CapabilityID: "missing", Format: FormatText,
+		},
+		"unavailable": {
+			ID: "blocked", ChannelID: "channel",
+			ChannelType: "blocked", CapabilityID: "fixture:blocked", Format: FormatText,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			report := Validate(DraftContent{
+				Text: "content", Destinations: []Destination{destination},
+			}, catalog)
+			if report.Valid {
+				t.Fatal("fail-closed capability accepted")
+			}
+		})
 	}
-	assertErrorCode(t, report.Destinations[0].Errors, "video_duration_invalid")
-	assertErrorCode(t, report.Destinations[0].Errors, "video_fast_start_required")
+}
+
+func TestValidateLinkAndCapabilitySpecificFieldRules(t *testing.T) {
+	catalog := fixtureCatalog(t)
+	linkDestination := fixtureDestination("link")
+	report := Validate(DraftContent{
+		Link:         "https://192.168.1.2/private",
+		Destinations: []Destination{linkDestination},
+	}, catalog)
+	assertErrorCode(t, report.Destinations[0].Errors, "url_host_not_public")
+
+	videoDestination := fixtureDestination("video")
+	videoDestination.Fields = map[string]string{
+		"visibility": "friends",
+		"undeclared": "value",
+	}
+	report = Validate(DraftContent{
+		Media:        []Media{validVideo("video")},
+		Destinations: []Destination{videoDestination},
+	}, catalog)
+	assertErrorCode(t, report.Destinations[0].Errors, "destination_field_invalid")
+	assertErrorCode(t, report.Destinations[0].Errors, "destination_field_unknown")
 }
 
 func TestValidateCountsNFCUnicodeCodePoints(t *testing.T) {
-	decomposed := strings.Repeat("e\u0301", 2200)
-	content := DraftContent{
-		Text:  decomposed,
-		Media: []Media{validImage("image", "image/jpeg", 1080, 1080)},
-		Destinations: []Destination{{
-			ID:          "instagram",
-			ChannelID:   "ig-1",
-			ChannelType: ChannelInstagramProfessional,
-			Format:      FormatImage,
-		}},
-	}
-
-	if report := Validate(content); !report.Valid {
-		t.Fatalf("NFC caption rejected: %#v", report.Destinations[0].Errors)
+	catalog := fixtureCatalog(t)
+	destination := fixtureDestination("text")
+	report := Validate(DraftContent{
+		Text:         strings.Repeat("e\u0301", 280),
+		Destinations: []Destination{destination},
+	}, catalog)
+	if !report.Valid {
+		t.Fatalf("NFC text rejected: %#v", report.Destinations[0].Errors)
 	}
 }
 
+func TestValidateAcceptsOnlyHTTPOrHTTPSLinks(t *testing.T) {
+	catalog := fixtureCatalog(t)
+	for index := range catalog.Capabilities {
+		if catalog.Capabilities[index].ID == "fixture:link" {
+			catalog.Capabilities[index].Link.RequireHTTPS = false
+		}
+	}
+	httpReport := Validate(DraftContent{
+		Link:         "http://example.com/post",
+		Destinations: []Destination{fixtureDestination("link")},
+	}, catalog)
+	if !httpReport.Valid {
+		t.Fatalf("http link rejected: %#v", httpReport.Destinations[0].Errors)
+	}
+	ftpReport := Validate(DraftContent{
+		Link:         "ftp://example.com/post",
+		Destinations: []Destination{fixtureDestination("link")},
+	}, catalog)
+	assertErrorCode(t, ftpReport.Destinations[0].Errors, "url_scheme_invalid")
+}
+
 func TestValidateRequiresDestination(t *testing.T) {
-	report := Validate(DraftContent{})
+	report := Validate(DraftContent{}, fixtureCatalog(t))
 	if report.Valid || len(report.Errors) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
 	assertErrorCode(t, report.Errors, "destinations_required")
+}
+
+func fixtureCatalog(t *testing.T) CapabilityCatalog {
+	t.Helper()
+	encoded, err := os.ReadFile("test/fixtures/capabilities.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := ParseCapabilityCatalog(string(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog
+}
+
+func fixtureDestination(family string) Destination {
+	format := Format(family)
+	channelFamily := family
+	if family == "short_video" {
+		channelFamily = "short"
+	}
+	return Destination{
+		ID:           "destination-" + family,
+		ChannelID:    "channel-" + family,
+		ChannelType:  ChannelType("fixture_" + channelFamily + "_channel"),
+		CapabilityID: "fixture:" + family,
+		Format:       format,
+	}
 }
 
 func assertErrorCode(t *testing.T, errors []ValidationError, code string) {
@@ -217,34 +242,30 @@ func assertErrorCode(t *testing.T, errors []ValidationError, code string) {
 
 func validImage(id, contentType string, width, height int) Media {
 	return Media{
-		ID:          id,
-		StorageKey:  "workspace/media/" + id,
-		Kind:        MediaImage,
-		ContentType: contentType,
-		SizeBytes:   2 * 1024 * 1024,
-		Width:       width,
-		Height:      height,
-		ColorSpace:  "sRGB",
+		ID:               id,
+		Kind:             MediaImage,
+		ContentType:      contentType,
+		SizeBytes:        2 * 1024 * 1024,
+		Width:            width,
+		Height:           height,
+		InspectionStatus: InspectionReady,
+		URL:              "/api/v1/media/" + id,
 	}
 }
 
-func validReel(id string) Media {
+func validVideo(id string) Media {
 	return Media{
-		ID:                  id,
-		StorageKey:          "workspace/media/" + id,
-		Kind:                MediaVideo,
-		ContentType:         "video/mp4",
-		SizeBytes:           20 * 1024 * 1024,
-		Width:               1080,
-		Height:              1920,
-		VideoCodec:          "h264",
-		AudioCodec:          "aac",
-		AudioSampleRate:     48000,
-		FramesPerSecond:     30,
-		VideoBitrate:        8_000_000,
-		AudioBitrate:        128_000,
-		DurationSeconds:     30,
-		HasAudio:            true,
-		MoovBeforeMediaData: true,
+		ID:               id,
+		Kind:             MediaVideo,
+		ContentType:      "video/mp4",
+		SizeBytes:        20 * 1024 * 1024,
+		Width:            1080,
+		Height:           1920,
+		VideoCodec:       "h264",
+		AudioCodec:       "aac",
+		DurationSeconds:  30,
+		HasAudio:         true,
+		InspectionStatus: InspectionReady,
+		URL:              "/api/v1/media/" + id,
 	}
 }

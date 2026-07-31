@@ -2,45 +2,31 @@ package composer
 
 import (
 	"fmt"
-	"math"
 	"net"
 	"net/url"
-	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
 
-const (
-	maxImageBytes    int64 = 8 * 1024 * 1024
-	maxCarouselBytes int64 = 80 * 1024 * 1024
-	maxReelBytes     int64 = 100 * 1024 * 1024
-	maxVideoBitrate  int64 = 25_000_000
-	maxAudioBitrate  int64 = 128_000
-	minImageRatio          = 4.0 / 5.0
-	maxImageRatio          = 1.91
-	reelRatio              = 9.0 / 16.0
-	ratioTolerance         = 0.001
-)
-
-var absoluteURLPattern = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s]+`)
-
-func Validate(content DraftContent) ValidationReport {
+func Validate(content DraftContent, catalogs ...CapabilityCatalog) ValidationReport {
+	catalog := BlockedCapabilityCatalog()
+	if len(catalogs) > 0 {
+		catalog = cloneCatalog(catalogs[0])
+	}
 	report := ValidationReport{
-		Valid:        true,
-		Errors:       make([]ValidationError, 0),
-		Destinations: make([]DestinationValidation, 0, len(content.Destinations)),
+		CapabilityVersion: catalog.Version,
+		Valid:             true,
+		Errors:            []ValidationError{},
+		Destinations:      make([]DestinationValidation, 0, len(content.Destinations)),
 	}
 	if len(content.Destinations) == 0 {
-		report.Errors = append(report.Errors, newValidationError(
-			"",
-			"destinations",
-			"required",
-			"destinations_required",
+		report.Errors = append(report.Errors, validationError(
+			"", "destinations", "required", "destinations_required",
 			"Select at least one destination.",
-			nil,
+			"Choose one or more connected channels before scheduling.", nil,
 		))
 	}
 
@@ -49,7 +35,7 @@ func Validate(content DraftContent) ValidationReport {
 		mediaByID[media.ID] = media
 	}
 	for _, destination := range content.Destinations {
-		result := validateDestination(content, destination, mediaByID)
+		result := validateDestination(content, destination, mediaByID, catalog)
 		if !result.Valid {
 			report.Valid = false
 		}
@@ -65,45 +51,62 @@ func validateDestination(
 	content DraftContent,
 	destination Destination,
 	mediaByID map[string]Media,
+	catalog CapabilityCatalog,
 ) DestinationValidation {
 	result := DestinationValidation{
 		DestinationID: destination.ID,
 		ChannelID:     destination.ChannelID,
 		ChannelType:   destination.ChannelType,
+		CapabilityID:  destination.CapabilityID,
 		Format:        destination.Format,
 		Valid:         true,
-		Errors:        make([]ValidationError, 0),
+		Errors:        []ValidationError{},
 	}
-	add := func(field, rule, code, message string, details map[string]any) {
-		result.Errors = append(result.Errors, newValidationError(
-			destination.ID,
-			field,
-			rule,
-			code,
-			message,
-			details,
+	add := func(field, rule, code, message, remedy string, details map[string]any) {
+		result.Errors = append(result.Errors, validationError(
+			destination.ID, field, rule, code, message, remedy, details,
 		))
 	}
 
-	if !supportedChannel(destination.ChannelType) {
+	capability, found := catalog.Resolve(destination.CapabilityID)
+	if !found {
 		add(
-			"channel_type",
-			"supported",
-			"channel_unsupported",
-			"The selected channel is not supported.",
-			map[string]any{"actual": destination.ChannelType},
+			"capability_id", "catalog_reference", "capability_unknown",
+			"The selected publishing capability is not in the active catalog.",
+			"Refresh channel capabilities and select an available format.",
+			map[string]any{
+				"capability_id":      destination.CapabilityID,
+				"capability_version": catalog.Version,
+			},
+		)
+		result.Valid = false
+		return result
+	}
+	if !capability.Available {
+		add(
+			"capability_id", "available", "capability_unavailable",
+			"The selected publishing capability is not available.",
+			"Choose an available channel format or wait until its provider prerequisites are complete.",
+			map[string]any{"reason": capability.UnavailableReason},
 		)
 	}
-	if !supportedFormat(destination.ChannelType, destination.Format) {
+	if destination.ChannelType != capability.ChannelType {
 		add(
-			"format",
-			"supported_for_channel",
-			"format_unsupported",
-			"The selected format is not supported by this channel.",
+			"channel_type", "matches_capability", "channel_capability_mismatch",
+			"The selected channel type does not match the capability.",
+			"Refresh the channel and format selection.",
 			map[string]any{
-				"channel_type": destination.ChannelType,
-				"actual":       destination.Format,
+				"actual":   destination.ChannelType,
+				"expected": capability.ChannelType,
 			},
+		)
+	}
+	if destination.Format != capability.Format {
+		add(
+			"format", "matches_capability", "format_capability_mismatch",
+			"The selected format does not match the capability.",
+			"Select the format advertised by the channel capability.",
+			map[string]any{"actual": destination.Format, "expected": capability.Format},
 		)
 	}
 
@@ -112,502 +115,483 @@ func validateDestination(
 		text = *destination.TextOverride
 	}
 	text = norm.NFC.String(text)
-
-	media := content.Media
-	if destination.MediaIDs != nil {
-		media = make([]Media, 0, len(*destination.MediaIDs))
-		for index, mediaID := range *destination.MediaIDs {
-			item, exists := mediaByID[mediaID]
-			if !exists {
-				add(
-					fmt.Sprintf("media_ids[%d]", index),
-					"references_draft_media",
-					"media_not_found",
-					"The selected media does not belong to this draft.",
-					map[string]any{"media_id": mediaID},
-				)
-				continue
-			}
-			media = append(media, item)
-		}
+	link := content.Link
+	if destination.LinkOverride != nil {
+		link = *destination.LinkOverride
 	}
-
-	switch destination.Format {
-	case FormatText:
-		validateTextPost(text, media, add)
-	case FormatImage:
-		validateImagePost(destination.ChannelType, text, media, add)
-	case FormatCarousel:
-		validateCarousel(text, media, add)
-	case FormatReel:
-		validateReel(destination.ChannelType, text, media, add)
+	link = strings.TrimSpace(link)
+	thread := content.Thread
+	if destination.ThreadOverride != nil {
+		thread = *destination.ThreadOverride
 	}
+	media := resolveDestinationMedia(content.Media, destination, mediaByID, add)
 
+	validateText(text, capability.Text, add)
+	validateLink(link, text, capability.Link, add)
+	validateMedia(media, capability.Media, add)
+	validateThread(thread, mediaByID, capability.Thread, add)
+	validateFields(destination.Fields, capability.Fields, add)
 	result.Valid = len(result.Errors) == 0
 	return result
 }
 
-func validateTextPost(
+func resolveDestinationMedia(
+	defaultMedia []Media,
+	destination Destination,
+	mediaByID map[string]Media,
+	add func(string, string, string, string, string, map[string]any),
+) []Media {
+	if destination.MediaIDs == nil {
+		return defaultMedia
+	}
+	media := make([]Media, 0, len(*destination.MediaIDs))
+	seen := make(map[string]struct{}, len(*destination.MediaIDs))
+	for index, rawID := range *destination.MediaIDs {
+		id := strings.TrimSpace(rawID)
+		if _, duplicate := seen[id]; duplicate {
+			add(
+				fmt.Sprintf("media_ids[%d]", index), "unique", "media_reference_duplicate",
+				"A destination cannot reference the same media more than once.",
+				"Remove the duplicate media selection.", map[string]any{"media_id": id},
+			)
+			continue
+		}
+		seen[id] = struct{}{}
+		item, exists := mediaByID[id]
+		if !exists {
+			add(
+				fmt.Sprintf("media_ids[%d]", index), "references_draft_media", "media_not_found",
+				"The selected media does not belong to this draft.",
+				"Upload the media or select an asset already attached to this draft.",
+				map[string]any{"media_id": id},
+			)
+			continue
+		}
+		media = append(media, item)
+	}
+	return media
+}
+
+func validateText(
 	text string,
-	media []Media,
-	add func(string, string, string, string, map[string]any),
+	rules TextRules,
+	add func(string, string, string, string, string, map[string]any),
 ) {
-	validateTextLength(text, 1, 5000, add)
-	if len(media) != 0 {
+	count := utf8.RuneCountInString(norm.NFC.String(text))
+	if !rules.Allowed && count > 0 {
 		add(
-			"media",
-			"none",
-			"media_not_allowed",
-			"A Facebook text/link post cannot include media.",
-			map[string]any{"actual_count": len(media)},
+			"text", "not_allowed", "text_not_allowed",
+			"Text is not supported for this destination.",
+			"Remove the text or choose a format that supports it.", nil,
+		)
+		return
+	}
+	minimum := rules.MinCharacters
+	if rules.Required && minimum < 1 {
+		minimum = 1
+	}
+	if count < minimum {
+		add(
+			"text", "minimum_characters", "text_too_short",
+			"The text is shorter than this destination allows.",
+			"Add text until the minimum length is reached.",
+			map[string]any{"actual": count, "minimum": minimum},
 		)
 	}
-	urls := absoluteURLPattern.FindAllString(text, -1)
-	if len(urls) > 1 {
+	if rules.MaxCharacters > 0 && count > rules.MaxCharacters {
 		add(
-			"text",
-			"maximum_one_url",
-			"too_many_urls",
-			"Text/link posts can contain at most one absolute URL.",
-			map[string]any{"actual_count": len(urls), "maximum": 1},
+			"text", "maximum_characters", "text_too_long",
+			"The text is longer than this destination allows.",
+			"Shorten the text or add a destination-specific override.",
+			map[string]any{"actual": count, "maximum": rules.MaxCharacters},
 		)
-	}
-	for _, rawURL := range urls {
-		validatePublicHTTPSURL(rawURL, add)
 	}
 }
 
-func validatePublicHTTPSURL(
+func validateLink(
+	link, text string,
+	rules LinkRules,
+	add func(string, string, string, string, string, map[string]any),
+) {
+	if !rules.Allowed && link != "" {
+		add(
+			"link", "not_allowed", "link_not_allowed",
+			"A separate link is not supported for this destination.",
+			"Remove the link or choose a capability that accepts links.", nil,
+		)
+		return
+	}
+	if rules.Required && link == "" {
+		add(
+			"link", "required", "link_required",
+			"A link is required for this destination.",
+			"Enter an absolute public URL.", nil,
+		)
+	}
+	urls := make([]string, 0)
+	if link != "" {
+		urls = append(urls, link)
+	}
+	for _, field := range strings.Fields(text) {
+		if parsed, err := url.Parse(field); err == nil && parsed.IsAbs() {
+			urls = append(urls, field)
+		}
+	}
+	if rules.MaximumURLs > 0 && len(urls) > rules.MaximumURLs {
+		add(
+			"link", "maximum_urls", "too_many_urls",
+			"The destination contains more links than its capability allows.",
+			"Remove links or use a destination-specific text override.",
+			map[string]any{"actual": len(urls), "maximum": rules.MaximumURLs},
+		)
+	}
+	for _, rawURL := range urls {
+		validateURL(rawURL, rules, add)
+	}
+}
+
+func validateURL(
 	rawURL string,
-	add func(string, string, string, string, map[string]any),
+	rules LinkRules,
+	add func(string, string, string, string, string, map[string]any),
 ) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.IsAbs() == false || parsed.Hostname() == "" ||
-		!strings.EqualFold(parsed.Scheme, "https") {
+	if err != nil || !parsed.IsAbs() || parsed.Hostname() == "" {
 		add(
-			"text",
-			"absolute_https_url",
-			"url_must_be_https",
-			"Links must be absolute HTTPS URLs.",
+			"link", "absolute_url", "url_invalid",
+			"The link must be an absolute URL.",
+			"Enter a complete URL including its scheme and host.",
 			map[string]any{"url": rawURL},
 		)
 		return
 	}
 	if parsed.User != nil {
 		add(
-			"text",
-			"no_url_credentials",
-			"url_credentials_not_allowed",
+			"link", "no_credentials", "url_credentials_not_allowed",
 			"Links cannot contain credentials.",
-			map[string]any{"url": rawURL},
+			"Remove the username and password from the URL.", nil,
 		)
 	}
-	host := parsed.Hostname()
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		add(
+			"link", "http_https_scheme", "url_scheme_invalid",
+			"The link must use HTTP or HTTPS.",
+			"Use an http:// or https:// URL.", map[string]any{"url": rawURL},
+		)
+		return
+	}
+	if rules.RequireHTTPS && !strings.EqualFold(parsed.Scheme, "https") {
+		add(
+			"link", "https", "url_must_be_https",
+			"The destination requires an HTTPS link.",
+			"Use the HTTPS version of the URL.", map[string]any{"url": rawURL},
+		)
+	}
+	if rules.RequirePublicHost && !publicURLHost(parsed.Hostname()) {
+		add(
+			"link", "public_host", "url_host_not_public",
+			"The link targets a private or local address.",
+			"Use a publicly reachable URL.", map[string]any{"host": parsed.Hostname()},
+		)
+	}
+}
+
+func publicURLHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
+		return false
+	}
+	address := net.ParseIP(host)
+	return address == nil || (address.IsGlobalUnicast() &&
+		!address.IsPrivate() &&
+		!address.IsLoopback() &&
+		!address.IsLinkLocalUnicast() &&
+		!address.IsLinkLocalMulticast() &&
+		!address.IsUnspecified())
+}
+
+func validateMedia(
+	media []Media,
+	rules MediaRules,
+	add func(string, string, string, string, string, map[string]any),
+) {
+	if !rules.Allowed && len(media) > 0 {
 		add(
-			"text",
-			"public_url_host",
-			"url_host_not_public",
-			"Links must use a public host.",
-			map[string]any{"host": host},
+			"media", "not_allowed", "media_not_allowed",
+			"Media is not supported for this destination.",
+			"Remove the media or choose a capability that supports it.", nil,
 		)
 		return
 	}
-	if address := net.ParseIP(host); address != nil &&
-		(!address.IsGlobalUnicast() ||
-			address.IsPrivate() ||
-			address.IsLoopback() ||
-			address.IsLinkLocalUnicast() ||
-			address.IsLinkLocalMulticast() ||
-			address.IsUnspecified()) {
+	if len(media) < rules.MinimumItems {
 		add(
-			"text",
-			"public_url_host",
-			"url_host_not_public",
-			"Links must not target private, loopback, or link-local addresses.",
-			map[string]any{"host": host},
+			"media", "minimum_items", "media_too_few",
+			"The destination does not have enough media items.",
+			"Add media until the minimum is reached.",
+			map[string]any{"actual": len(media), "minimum": rules.MinimumItems},
 		)
 	}
-}
-
-func validateImagePost(
-	channel ChannelType,
-	text string,
-	media []Media,
-	add func(string, string, string, string, map[string]any),
-) {
-	maximumText := 5000
-	if channel == ChannelInstagramProfessional {
-		maximumText = 2200
+	if rules.MaximumItems > 0 && len(media) > rules.MaximumItems {
+		add(
+			"media", "maximum_items", "media_too_many",
+			"The destination has too many media items.",
+			"Remove media or choose a compatible format.",
+			map[string]any{"actual": len(media), "maximum": rules.MaximumItems},
+		)
 	}
-	validateTextLength(text, 0, maximumText, add)
-	if !validateMediaCount(media, 1, 1, add) {
-		return
-	}
-	allowedTypes := map[string]bool{"image/jpeg": true}
-	if channel == ChannelFacebookPage {
-		allowedTypes["image/png"] = true
-	}
-	validateImage(media[0], "media[0]", allowedTypes, add)
-}
-
-func validateCarousel(
-	text string,
-	media []Media,
-	add func(string, string, string, string, map[string]any),
-) {
-	validateTextLength(text, 0, 2200, add)
-	if !validateMediaCount(media, 2, 10, add) {
-		return
-	}
-	var totalSize int64
+	var total int64
 	for index, item := range media {
-		totalSize += item.SizeBytes
-		validateImage(
-			item,
-			fmt.Sprintf("media[%d]", index),
-			map[string]bool{"image/jpeg": true},
-			add,
-		)
-	}
-	if totalSize > maxCarouselBytes {
-		add(
-			"media",
-			"maximum_total_size_bytes",
-			"carousel_too_large",
-			"The carousel exceeds the total size limit.",
-			map[string]any{"actual": totalSize, "maximum": maxCarouselBytes},
-		)
-	}
-	first := media[0]
-	for index := 1; index < len(media); index++ {
-		item := media[index]
-		if first.Width <= 0 || first.Height <= 0 || item.Width <= 0 || item.Height <= 0 {
-			continue
-		}
-		if int64(first.Width)*int64(item.Height) != int64(item.Width)*int64(first.Height) {
+		total += item.SizeBytes
+		field := fmt.Sprintf("media[%d]", index)
+		if item.InspectionStatus != InspectionReady {
 			add(
-				fmt.Sprintf("media[%d].aspect_ratio", index),
-				"same_carousel_ratio",
-				"carousel_ratio_mismatch",
-				"All carousel images must have the same aspect ratio.",
+				field+".inspection_status", "ready", "media_not_inspected",
+				"The media upload has not passed server inspection.",
+				"Wait for inspection or replace the rejected upload.",
+				map[string]any{"actual": item.InspectionStatus},
+			)
+		}
+		if len(rules.AllowedKinds) > 0 && !slices.Contains(rules.AllowedKinds, item.Kind) {
+			add(
+				field+".kind", "allowed_kind", "media_kind_invalid",
+				"The media kind is not supported for this destination.",
+				"Replace it with an allowed media kind.",
+				map[string]any{"actual": item.Kind, "allowed": rules.AllowedKinds},
+			)
+		}
+		contentType := strings.ToLower(item.ContentType)
+		if len(rules.AllowedContentTypes) > 0 &&
+			!containsFold(rules.AllowedContentTypes, contentType) {
+			add(
+				field+".content_type", "allowed_content_type", "media_type_invalid",
+				"The inspected media type is not supported for this destination.",
+				"Upload media using one of the allowed content types.",
+				map[string]any{"actual": contentType, "allowed": rules.AllowedContentTypes},
+			)
+		}
+		validateMediaNumbers(item, field, rules, add)
+	}
+	if rules.MaximumBytesTotal > 0 && total > rules.MaximumBytesTotal {
+		add(
+			"media", "maximum_total_bytes", "media_total_too_large",
+			"The combined media size exceeds the destination capability.",
+			"Reduce the media size or number of items.",
+			map[string]any{"actual": total, "maximum": rules.MaximumBytesTotal},
+		)
+	}
+}
+
+func validateMediaNumbers(
+	item Media,
+	field string,
+	rules MediaRules,
+	add func(string, string, string, string, string, map[string]any),
+) {
+	if item.SizeBytes <= 0 ||
+		(rules.MaximumBytesEach > 0 && item.SizeBytes > rules.MaximumBytesEach) {
+		add(
+			field+".size_bytes", "range", "media_size_invalid",
+			"The inspected media size is outside the allowed range.",
+			"Upload a non-empty file within the advertised size limit.",
+			map[string]any{"actual": item.SizeBytes, "maximum": rules.MaximumBytesEach},
+		)
+	}
+	checkIntegerRange(field+".width", item.Width, rules.MinimumWidth, rules.MaximumWidth, add)
+	checkIntegerRange(field+".height", item.Height, rules.MinimumHeight, rules.MaximumHeight, add)
+	if item.Width > 0 && item.Height > 0 {
+		ratio := float64(item.Width) / float64(item.Height)
+		if (rules.MinimumAspectRatio > 0 && ratio < rules.MinimumAspectRatio) ||
+			(rules.MaximumAspectRatio > 0 && ratio > rules.MaximumAspectRatio) {
+			add(
+				field+".aspect_ratio", "range", "media_aspect_ratio_invalid",
+				"The inspected media aspect ratio is outside the allowed range.",
+				"Crop or replace the media using an advertised aspect ratio.",
 				map[string]any{
-					"expected_width":  first.Width,
-					"expected_height": first.Height,
-					"actual_width":    item.Width,
-					"actual_height":   item.Height,
+					"actual":  ratio,
+					"minimum": rules.MinimumAspectRatio,
+					"maximum": rules.MaximumAspectRatio,
 				},
 			)
 		}
 	}
+	if (rules.MinimumDuration > 0 && item.DurationSeconds < rules.MinimumDuration) ||
+		(rules.MaximumDuration > 0 && item.DurationSeconds > rules.MaximumDuration) {
+		add(
+			field+".duration_seconds", "range", "media_duration_invalid",
+			"The inspected media duration is outside the allowed range.",
+			"Trim or replace the video using the advertised duration.",
+			map[string]any{
+				"actual":  item.DurationSeconds,
+				"minimum": rules.MinimumDuration,
+				"maximum": rules.MaximumDuration,
+			},
+		)
+	}
+	if len(rules.AllowedVideoCodecs) > 0 &&
+		!containsFold(rules.AllowedVideoCodecs, item.VideoCodec) {
+		add(
+			field+".video_codec", "allowed_codec", "video_codec_invalid",
+			"The inspected video codec is not supported.",
+			"Transcode the video to an advertised codec.",
+			map[string]any{"actual": item.VideoCodec, "allowed": rules.AllowedVideoCodecs},
+		)
+	}
+	if rules.RequireAudio && !item.HasAudio {
+		add(
+			field+".has_audio", "required", "audio_required",
+			"This destination requires an audio track.",
+			"Upload a video containing audio.", nil,
+		)
+	}
+	if item.HasAudio && len(rules.AllowedAudioCodecs) > 0 &&
+		!containsFold(rules.AllowedAudioCodecs, item.AudioCodec) {
+		add(
+			field+".audio_codec", "allowed_codec", "audio_codec_invalid",
+			"The inspected audio codec is not supported.",
+			"Transcode audio to an advertised codec.",
+			map[string]any{"actual": item.AudioCodec, "allowed": rules.AllowedAudioCodecs},
+		)
+	}
 }
 
-func validateImage(
-	media Media,
+func checkIntegerRange(
 	field string,
-	allowedTypes map[string]bool,
-	add func(string, string, string, string, map[string]any),
+	actual, minimum, maximum int,
+	add func(string, string, string, string, string, map[string]any),
 ) {
-	if media.Kind != MediaImage {
+	if (minimum > 0 && actual < minimum) || (maximum > 0 && actual > maximum) {
 		add(
-			field+".kind",
-			"image",
-			"media_kind_invalid",
-			"An image is required.",
-			map[string]any{"actual": media.Kind},
+			field, "range", "media_dimension_invalid",
+			"The inspected media dimension is outside the allowed range.",
+			"Resize or replace the media using an advertised dimension.",
+			map[string]any{"actual": actual, "minimum": minimum, "maximum": maximum},
 		)
 	}
-	contentType := strings.ToLower(media.ContentType)
-	if !allowedTypes[contentType] {
-		allowed := make([]string, 0, len(allowedTypes))
-		for value := range allowedTypes {
-			allowed = append(allowed, value)
-		}
-		sort.Strings(allowed)
+}
+
+func validateThread(
+	thread []ThreadItem,
+	mediaByID map[string]Media,
+	rules ThreadRules,
+	add func(string, string, string, string, string, map[string]any),
+) {
+	if !rules.Allowed && len(thread) > 0 {
 		add(
-			field+".content_type",
-			"allowed_image_type",
-			"image_type_invalid",
-			"The image type is not supported for this destination.",
-			map[string]any{"actual": contentType, "allowed": allowed},
-		)
-	}
-	if media.SizeBytes <= 0 || media.SizeBytes > maxImageBytes {
-		add(
-			field+".size_bytes",
-			"range",
-			"image_size_invalid",
-			"Images must be non-empty and no larger than 8 MiB.",
-			map[string]any{"actual": media.SizeBytes, "maximum": maxImageBytes},
-		)
-	}
-	if !strings.EqualFold(media.ColorSpace, "sRGB") {
-		add(
-			field+".color_space",
-			"srgb",
-			"image_color_space_invalid",
-			"Images must use the sRGB color space.",
-			map[string]any{"actual": media.ColorSpace},
-		)
-	}
-	if media.Width < 320 || media.Width > 1440 {
-		add(
-			field+".width",
-			"range",
-			"image_width_invalid",
-			"Image width must be between 320 and 1,440 pixels.",
-			map[string]any{"actual": media.Width, "minimum": 320, "maximum": 1440},
-		)
-	}
-	if media.Height <= 0 {
-		add(
-			field+".height",
-			"positive",
-			"image_height_invalid",
-			"Image height must be positive.",
-			map[string]any{"actual": media.Height},
+			"thread", "not_allowed", "thread_not_allowed",
+			"A thread is not supported for this destination.",
+			"Remove the thread or choose a thread capability.", nil,
 		)
 		return
 	}
-	ratio := float64(media.Width) / float64(media.Height)
-	if ratio < minImageRatio-ratioTolerance || ratio > maxImageRatio+ratioTolerance {
+	minimum := rules.MinimumItems
+	if rules.Required && minimum < 1 {
+		minimum = 1
+	}
+	if len(thread) < minimum {
 		add(
-			field+".aspect_ratio",
-			"range",
-			"image_ratio_invalid",
-			"Image aspect ratio must be between 4:5 and 1.91:1.",
-			map[string]any{
-				"actual":  ratio,
-				"minimum": minImageRatio,
-				"maximum": maxImageRatio,
-			},
+			"thread", "minimum_items", "thread_too_short",
+			"The thread has too few items.",
+			"Add thread items until the minimum is reached.",
+			map[string]any{"actual": len(thread), "minimum": minimum},
 		)
+	}
+	if rules.MaximumItems > 0 && len(thread) > rules.MaximumItems {
+		add(
+			"thread", "maximum_items", "thread_too_long",
+			"The thread has too many items.",
+			"Remove thread items until the advertised limit is met.",
+			map[string]any{"actual": len(thread), "maximum": rules.MaximumItems},
+		)
+	}
+	for index, item := range thread {
+		count := utf8.RuneCountInString(norm.NFC.String(item.Text))
+		if rules.MaxItemCharacters > 0 && count > rules.MaxItemCharacters {
+			add(
+				fmt.Sprintf("thread[%d].text", index), "maximum_characters",
+				"thread_item_text_too_long",
+				"A thread item is longer than the destination allows.",
+				"Shorten that thread item.",
+				map[string]any{"actual": count, "maximum": rules.MaxItemCharacters},
+			)
+		}
+		if rules.MaxMediaPerItem >= 0 && len(item.MediaIDs) > rules.MaxMediaPerItem {
+			add(
+				fmt.Sprintf("thread[%d].media_ids", index), "maximum_items",
+				"thread_item_media_too_many",
+				"A thread item has too many media attachments.",
+				"Remove media from that thread item.",
+				map[string]any{"actual": len(item.MediaIDs), "maximum": rules.MaxMediaPerItem},
+			)
+		}
+		for mediaIndex, mediaID := range item.MediaIDs {
+			if _, found := mediaByID[mediaID]; !found {
+				add(
+					fmt.Sprintf("thread[%d].media_ids[%d]", index, mediaIndex),
+					"references_draft_media", "media_not_found",
+					"The thread references media that is not attached to the draft.",
+					"Upload or attach the referenced media.", map[string]any{"media_id": mediaID},
+				)
+			}
+		}
 	}
 }
 
-func validateReel(
-	channel ChannelType,
-	text string,
-	media []Media,
-	add func(string, string, string, string, map[string]any),
+func validateFields(
+	values map[string]string,
+	rules []FieldRules,
+	add func(string, string, string, string, string, map[string]any),
 ) {
-	maximumText := 5000
-	if channel == ChannelInstagramProfessional {
-		maximumText = 2200
-	}
-	validateTextLength(text, 0, maximumText, add)
-	if !validateMediaCount(media, 1, 1, add) {
-		return
-	}
-	item := media[0]
-	field := "media[0]"
-	checkEqual(add, field+".kind", "video", "media_kind_invalid", item.Kind, MediaVideo)
-	checkEqual(
-		add,
-		field+".content_type",
-		"video/mp4",
-		"video_type_invalid",
-		strings.ToLower(item.ContentType),
-		"video/mp4",
-	)
-	checkEqual(
-		add,
-		field+".video_codec",
-		"h264",
-		"video_codec_invalid",
-		strings.ToLower(item.VideoCodec),
-		"h264",
-	)
-	if item.SizeBytes <= 0 || item.SizeBytes > maxReelBytes {
-		add(
-			field+".size_bytes",
-			"range",
-			"video_size_invalid",
-			"Reels must be non-empty and no larger than 100 MiB.",
-			map[string]any{"actual": item.SizeBytes, "maximum": maxReelBytes},
-		)
-	}
-	if item.HasAudio {
-		checkEqual(
-			add,
-			field+".audio_codec",
-			"aac",
-			"audio_codec_invalid",
-			strings.ToLower(item.AudioCodec),
-			"aac",
-		)
-		if item.AudioSampleRate != 48000 {
+	known := make(map[string]FieldRules, len(rules))
+	for _, rule := range rules {
+		known[rule.Name] = rule
+		value := strings.TrimSpace(values[rule.Name])
+		if rule.Required && value == "" {
 			add(
-				field+".audio_sample_rate",
-				"equals",
-				"audio_sample_rate_invalid",
-				"Reel audio must use a 48 kHz sample rate.",
-				map[string]any{"actual": item.AudioSampleRate, "expected": 48000},
+				"fields."+rule.Name, "required", "destination_field_required",
+				"A destination-specific field is required.",
+				"Complete the field using the capability definition.",
+				map[string]any{"field": rule.Name},
 			)
 		}
-		if item.AudioBitrate <= 0 || item.AudioBitrate > maxAudioBitrate {
+		if rule.MaxLength > 0 && utf8.RuneCountInString(value) > rule.MaxLength {
 			add(
-				field+".audio_bitrate",
-				"range",
-				"audio_bitrate_invalid",
-				"Reel audio bitrate must be at most 128 kbps.",
-				map[string]any{"actual": item.AudioBitrate, "maximum": maxAudioBitrate},
+				"fields."+rule.Name, "maximum_characters", "destination_field_too_long",
+				"A destination-specific field is too long.",
+				"Shorten the value to the advertised limit.",
+				map[string]any{"maximum": rule.MaxLength},
 			)
 		}
-	}
-	if item.FramesPerSecond < 23 || item.FramesPerSecond > 60 {
-		add(
-			field+".frames_per_second",
-			"range",
-			"frame_rate_invalid",
-			"Reel frame rate must be between 23 and 60 fps.",
-			map[string]any{"actual": item.FramesPerSecond, "minimum": 23, "maximum": 60},
-		)
-	}
-	if item.VideoBitrate <= 0 || item.VideoBitrate > maxVideoBitrate {
-		add(
-			field+".video_bitrate",
-			"range",
-			"video_bitrate_invalid",
-			"Reel video bitrate must be at most 25 Mbps.",
-			map[string]any{"actual": item.VideoBitrate, "maximum": maxVideoBitrate},
-		)
-	}
-	if item.Width < 720 || item.Width > 1080 || item.Height < 1280 || item.Height > 1920 {
-		add(
-			field+".resolution",
-			"range",
-			"video_resolution_invalid",
-			"Reel resolution must be between 720×1280 and 1080×1920.",
-			map[string]any{
-				"width": item.Width, "height": item.Height,
-				"minimum_width": 720, "maximum_width": 1080,
-				"minimum_height": 1280, "maximum_height": 1920,
-			},
-		)
-	}
-	if item.Height > 0 {
-		ratio := float64(item.Width) / float64(item.Height)
-		if math.Abs(ratio-reelRatio) > ratioTolerance {
+		if value != "" && len(rule.Allowed) > 0 && !slices.Contains(rule.Allowed, value) {
 			add(
-				field+".aspect_ratio",
-				"equals",
-				"video_ratio_invalid",
-				"Reels must use a 9:16 aspect ratio.",
-				map[string]any{"actual": ratio, "expected": reelRatio},
+				"fields."+rule.Name, "allowed_value", "destination_field_invalid",
+				"A destination-specific field has an unsupported value.",
+				"Choose one of the values advertised by the capability.",
+				map[string]any{"actual": value, "allowed": rule.Allowed},
 			)
 		}
 	}
-	if item.DurationSeconds < 4 || item.DurationSeconds > 60 {
-		add(
-			field+".duration_seconds",
-			"range",
-			"video_duration_invalid",
-			"Reel duration must be between 4 and 60 seconds.",
-			map[string]any{"actual": item.DurationSeconds, "minimum": 4, "maximum": 60},
-		)
-	}
-	if item.HasEditList {
-		add(
-			field+".has_edit_list",
-			"false",
-			"video_edit_list_not_allowed",
-			"Reels cannot contain an edit list.",
-			nil,
-		)
-	}
-	if !item.MoovBeforeMediaData {
-		add(
-			field+".moov_before_media_data",
-			"true",
-			"video_fast_start_required",
-			"The MP4 moov atom must precede media data.",
-			nil,
-		)
+	for name := range values {
+		if _, found := known[name]; !found {
+			add(
+				"fields."+name, "declared_by_capability", "destination_field_unknown",
+				"The destination-specific field is not declared by the capability.",
+				"Remove the field or refresh the capability catalog.", nil,
+			)
+		}
 	}
 }
 
-func validateTextLength(
-	text string,
-	minimum, maximum int,
-	add func(string, string, string, string, map[string]any),
-) {
-	length := utf8.RuneCountInString(norm.NFC.String(text))
-	if length < minimum {
-		add(
-			"text",
-			"minimum_code_points",
-			"text_too_short",
-			"Text is required for this destination.",
-			map[string]any{"actual": length, "minimum": minimum},
-		)
+func containsFold(values []string, candidate string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, candidate) {
+			return true
+		}
 	}
-	if length > maximum {
-		add(
-			"text",
-			"maximum_code_points",
-			"text_too_long",
-			"Text exceeds the limit for this destination.",
-			map[string]any{"actual": length, "maximum": maximum},
-		)
-	}
+	return false
 }
 
-func validateMediaCount(
-	media []Media,
-	minimum, maximum int,
-	add func(string, string, string, string, map[string]any),
-) bool {
-	if len(media) < minimum || len(media) > maximum {
-		add(
-			"media",
-			"count_range",
-			"media_count_invalid",
-			"The number of media items is invalid for this format.",
-			map[string]any{
-				"actual": len(media), "minimum": minimum, "maximum": maximum,
-			},
-		)
-		return false
-	}
-	return true
-}
-
-func checkEqual(
-	add func(string, string, string, string, map[string]any),
-	field, expected, code string,
-	actual, wanted any,
-) {
-	if actual == wanted {
-		return
-	}
-	add(
-		field,
-		"equals",
-		code,
-		fmt.Sprintf("%s must be %s.", field, expected),
-		map[string]any{"actual": actual, "expected": wanted},
-	)
-}
-
-func supportedChannel(channel ChannelType) bool {
-	return channel == ChannelFacebookPage ||
-		channel == ChannelInstagramProfessional
-}
-
-func supportedFormat(channel ChannelType, format Format) bool {
-	switch channel {
-	case ChannelFacebookPage:
-		return format == FormatText || format == FormatImage || format == FormatReel
-	case ChannelInstagramProfessional:
-		return format == FormatImage || format == FormatCarousel || format == FormatReel
-	default:
-		return false
-	}
-}
-
-func newValidationError(
-	destinationID, field, rule, code, message string,
+func validationError(
+	destinationID, field, rule, code, message, remedy string,
 	details map[string]any,
 ) ValidationError {
 	return ValidationError{
@@ -616,6 +600,7 @@ func newValidationError(
 		Rule:          rule,
 		Code:          code,
 		Message:       message,
+		Remedy:        remedy,
 		Details:       details,
 	}
 }
