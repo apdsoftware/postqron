@@ -91,15 +91,13 @@ func NewTikTokAdapter(config TikTokAdapterConfig) (*TikTokAdapter, error) {
 
 func (adapter *TikTokAdapter) Config() OAuthConfig {
 	return OAuthConfig{
-		ClientID:         adapter.clientKey,
-		AuthorizationURL: adapter.authorizationURL,
-		RedirectURL:      adapter.redirectURL,
-		Scopes:           append([]string(nil), tikTokRequiredScopes...),
-		ScopeSeparator:   OAuthScopeSeparatorComma,
-		SupportsPKCE:     false,
-		ExtraParameters: map[string]string{
-			"client_key": adapter.clientKey,
-		},
+		ClientID:            adapter.clientKey,
+		ClientParameterName: OAuthClientParameterClientKey,
+		AuthorizationURL:    adapter.authorizationURL,
+		RedirectURL:         adapter.redirectURL,
+		Scopes:              append([]string(nil), tikTokRequiredScopes...),
+		ScopeSeparator:      OAuthScopeSeparatorComma,
+		SupportsPKCE:        false,
 	}
 }
 

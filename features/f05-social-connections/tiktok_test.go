@@ -107,6 +107,7 @@ func TestTikTokAdapterOfficialOAuthAndLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if query.Get("client_key") != "fixture-client-key" ||
+		query.Get("client_id") != "" ||
 		query.Get("scope") != "video.publish" ||
 		query.Get("state") != "one-time-state" ||
 		query.Get("code_challenge") != "" ||
