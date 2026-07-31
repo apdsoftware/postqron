@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
+	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	featureruntime "github.com/apdsoftware/postqron/packages/runtime"
 	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/apdsoftware/postqron/services/worker/internal/privacyruntime"
@@ -30,7 +31,7 @@ var newWorkspaceRuntimeService = func(
 	return workspaces.NewRuntimeServiceWithClock(repository, clock)
 }
 
-var newPublishingRuntimeService = publishingruntime.New
+var newPublishingRuntimeService = publishingruntime.NewWithExecutor
 
 type workspaceOnboardingRuntime interface {
 	ConsumeOnboardingRequired(
@@ -77,6 +78,30 @@ func NewRuntime(
 	logger *slog.Logger,
 	videoDependencies publishingruntime.VideoAdapterDependencies,
 ) (*Runner, error) {
+	executor, err := publishingruntime.NewF5AuthenticatedExecutor(database, clock)
+	if err != nil {
+		return nil, err
+	}
+	return NewRuntimeWithExecutor(
+		features, database, databaseURL, appDomain, interval, clock,
+		logger, executor, videoDependencies,
+	)
+}
+
+// NewRuntimeWithExecutor is the testable F5→F8 composition seam. Production
+// calls NewRuntime, which constructs the public F5 AuthenticatedExecutor from
+// fail-closed worker configuration.
+func NewRuntimeWithExecutor(
+	features []featureruntime.Feature,
+	database *sql.DB,
+	databaseURL string,
+	appDomain string,
+	interval time.Duration,
+	clock func() time.Time,
+	logger *slog.Logger,
+	executor *socialconnections.AuthenticatedExecutor,
+	videoDependencies ...publishingruntime.VideoAdapterDependencies,
+) (*Runner, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -101,7 +126,8 @@ func NewRuntime(
 		database,
 		databaseURL,
 		clock,
-		videoDependencies,
+		executor,
+		videoDependencies...,
 	)
 	if err != nil {
 		return nil, err
@@ -124,10 +150,11 @@ func configurePublishingRuntime(
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
-	videoDependencies publishingruntime.VideoAdapterDependencies,
+	executor *socialconnections.AuthenticatedExecutor,
+	videoDependencies ...publishingruntime.VideoAdapterDependencies,
 ) (*publishingruntime.Service, error) {
 	return newPublishingRuntimeService(
-		ctx, database, databaseURL, clock, videoDependencies,
+		ctx, database, databaseURL, clock, executor, videoDependencies...,
 	)
 }
 

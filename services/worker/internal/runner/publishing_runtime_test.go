@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"strings"
@@ -48,6 +49,52 @@ func TestTickLogsF8FailureWithoutDisablingOtherFeatureDiscovery(t *testing.T) {
 	}
 }
 
+func TestRealRunnerCompositionAcceptsValidGatesOnlyWithF5Executor(
+	t *testing.T,
+) {
+	t.Chdir("../../../..")
+	t.Setenv("POSTQRON_ENV", "test")
+	for _, key := range []string{
+		"POSTQRON_F08_X_ENABLED",
+		"POSTQRON_F08_X_REVIEW_APPROVED",
+		"POSTQRON_F08_X_RUNTIME_AUDIT_VERIFIED",
+		"POSTQRON_F08_X_QUOTA_CONFIGURED",
+	} {
+		t.Setenv(key, "true")
+	}
+	mediaRoot := t.TempDir()
+	t.Setenv("POSTQRON_F08_MEDIA_ROOT", mediaRoot)
+	database, _ := openRunnerTestDatabase(t)
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	if _, err := NewRuntimeWithExecutor(
+		nil, database, "postgres://worker:worker@127.0.0.1/postqron",
+		"example.test", time.Second, time.Now, logger, nil,
+	); err == nil {
+		t.Fatal("valid gates without F5 executor must fail closed")
+	}
+	t.Setenv("POSTQRON_F05_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_CIPHER_KEY_ID", "worker-test-key")
+	t.Setenv(
+		"POSTQRON_F05_CIPHER_KEY_BASE64",
+		base64.StdEncoding.EncodeToString(
+			[]byte("0123456789abcdef0123456789abcdef"),
+		),
+	)
+	t.Setenv("POSTQRON_F05_X_RESOURCE_SERVER", "https://api.x.com")
+	worker, err := NewRuntime(
+		nil, database, "postgres://worker:worker@127.0.0.1/postqron",
+		"example.test", time.Second, time.Now, logger,
+		publishingruntime.VideoAdapterDependencies{},
+	)
+	if err != nil {
+		t.Fatalf("compose gated runner: %v", err)
+	}
+	t.Cleanup(worker.Close)
+	if worker.publishing == nil || worker.closePublishing == nil {
+		t.Fatal("real runner did not mount the gated F8 runtime")
+	}
+}
+
 func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 	previous := newPublishingRuntimeService
 	t.Cleanup(func() { newPublishingRuntimeService = previous })
@@ -58,6 +105,7 @@ func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 		_ *sql.DB,
 		_ string,
 		_ func() time.Time,
+		_ *socialconnections.AuthenticatedExecutor,
 		dependencies ...publishingruntime.VideoAdapterDependencies,
 	) (*publishingruntime.Service, error) {
 		registry, err := publishingruntime.NewVideoAdapterRegistry(dependencies...)
@@ -82,6 +130,7 @@ func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 		&sql.DB{},
 		"postgres://bootstrap.invalid/postqron",
 		time.Now,
+		&socialconnections.AuthenticatedExecutor{},
 		publishingruntime.VideoAdapterDependencies{
 			Executor:                 &socialconnections.AuthenticatedExecutor{},
 			Media:                    bootstrapMediaSource{},
