@@ -486,7 +486,10 @@ func TestPostgresNotificationCrashAfterDownstreamEnqueueDoesNotSendTwice(
 	sender.mu.Lock()
 	if state != "delivered" || storedEmailID != firstEmailID ||
 		len(sender.emailIDs) != 1 || sender.calls != 2 ||
-		!retentionUntil.Equal(notificationRetentionUntil(now)) {
+		!equalAtPostgresPrecision(
+			retentionUntil,
+			notificationRetentionUntil(now),
+		) {
 		t.Fatalf(
 			"state=%q email=%q unique=%d calls=%d retention=%s",
 			state,
@@ -552,8 +555,11 @@ func TestPostgresNotificationCrashAfterDownstreamEnqueueDoesNotSendTwice(
 		t.Fatal(err)
 	}
 	if permanentState != "permanent_failure" ||
-		!permanentFailedAt.Equal(now) ||
-		!permanentRetention.Equal(notificationRetentionUntil(now)) {
+		!equalAtPostgresPrecision(permanentFailedAt, now) ||
+		!equalAtPostgresPrecision(
+			permanentRetention,
+			notificationRetentionUntil(now),
+		) {
 		t.Fatalf(
 			"permanent state=%q failed=%s retention=%s",
 			permanentState,
@@ -561,4 +567,12 @@ func TestPostgresNotificationCrashAfterDownstreamEnqueueDoesNotSendTwice(
 			permanentRetention,
 		)
 	}
+}
+
+func equalAtPostgresPrecision(got, want time.Time) bool {
+	delta := got.Sub(want)
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta < time.Microsecond
 }
