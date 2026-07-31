@@ -134,6 +134,55 @@ func TestReconciliationTimeoutReconcilesBeforeRetryPublish(t *testing.T) {
 	}
 }
 
+func TestAmbiguousFailClosedAdapterNeverReplaysMutation(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
+	store := NewMemoryStore()
+	provider := newFakeProvider()
+	provider.capabilities.NativeIdempotency = false
+	provider.capabilities.Reconciliation = false
+	provider.capabilities.AmbiguousFailClosed = true
+	provider.Fail("channel-video", &ProviderError{
+		Code: "upload_outcome_ambiguous", Retryable: true, Ambiguous: true,
+	})
+	engine := newTestEngine(
+		t, store, provider, &now,
+		&fakeGate{current: true},
+		&fakeAuthorizer{allowed: true},
+	)
+	result := enqueueTestJob(t, ctx, engine, now, []DestinationInput{
+		testDestination("channel-video", "youtube", 2),
+	})
+
+	if processed, err := engine.DispatchOne(ctx); err != nil || !processed {
+		t.Fatalf("first dispatch processed=%v error=%v", processed, err)
+	}
+	job, err := engine.GetJob(ctx, "workspace-1", result.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := job.Destinations[0]
+	if first.Status != DestinationRetryWait || !first.NeedsReconciliation {
+		t.Fatalf("first destination=%#v", first)
+	}
+	now = first.NextAttemptAt
+	if processed, err := engine.DispatchOne(ctx); err != nil || !processed {
+		t.Fatalf("fail-closed dispatch processed=%v error=%v", processed, err)
+	}
+	job, err = engine.GetJob(ctx, "workspace-1", result.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := job.Destinations[0]
+	if final.Status != DestinationDeadLetter || provider.Calls() != 1 ||
+		provider.ReconcileCalls() != 0 {
+		t.Fatalf(
+			"destination=%#v publish_calls=%d reconcile_calls=%d",
+			final, provider.Calls(), provider.ReconcileCalls(),
+		)
+	}
+}
+
 func TestHealthyMultiStepProgressDoesNotConsumeFailureBudget(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)

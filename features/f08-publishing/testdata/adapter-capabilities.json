@@ -6,6 +6,7 @@
       "mode": "auto",
       "native_idempotency": true,
       "reconciliation": false,
+      "ambiguous_fail_closed": false,
       "multi_step": false,
       "remote_permalink": true,
       "notification_idempotency": false
@@ -18,6 +19,20 @@
       "mode": "auto",
       "native_idempotency": false,
       "reconciliation": true,
+      "ambiguous_fail_closed": false,
+      "multi_step": true,
+      "remote_permalink": true,
+      "notification_idempotency": false
+    }
+  },
+  {
+    "provider": "fail_closed_fixture",
+    "capabilities": {
+      "version": "fixture-v1",
+      "mode": "auto",
+      "native_idempotency": false,
+      "reconciliation": false,
+      "ambiguous_fail_closed": true,
       "multi_step": true,
       "remote_permalink": true,
       "notification_idempotency": false
@@ -30,6 +45,7 @@
       "mode": "notification",
       "native_idempotency": false,
       "reconciliation": false,
+      "ambiguous_fail_closed": false,
       "multi_step": false,
       "remote_permalink": false,
       "notification_idempotency": true

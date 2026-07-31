@@ -11,9 +11,11 @@ executes one immutable F5/F6 destination snapshot at a time.
 - PostgreSQL claims use `FOR UPDATE SKIP LOCKED`, a durable lease token, and an
   attempt ledger. An expired claim is reclaimable after a worker crash.
 - Every provider request receives the persisted destination idempotency key.
-  Registration requires native idempotency or deterministic reconciliation.
-  A lease-expired `publishing` claim is marked ambiguous: reconciliation runs
-  first when declared; a native-idempotent adapter replays the same key.
+  Registration requires native idempotency, deterministic reconciliation, or
+  explicit ambiguous-fail-closed behavior. A lease-expired `publishing` claim
+  is marked ambiguous: reconciliation runs first when declared; a
+  native-idempotent adapter replays the same key; a fail-closed adapter enters
+  the DLQ without replay.
 - Multi-step media/video adapters perform at most one remote side effect per
   call. F8 persists the checkpoint before the next step. Successful progress
   compensates the claim's failure-attempt budget.
@@ -44,11 +46,24 @@ injects implementations of:
 
 The immutable destination payload is prepared from a validated F6 revision.
 
-The default runtime registry is deliberately empty and fail-closed. Issue
-[#329](https://github.com/apdsoftware/postqron/issues/329) owns the F5→F8
-credential boundary and official publishing adapters for the D2 matrix. Until
-that dependency lands, F8 provides the durable engine and adapter contract but
-does not claim that any social provider is runtime-publishable.
+The runtime contains official TikTok Direct Post and YouTube Shorts adapters.
+They call providers only through F5 `AuthenticatedExecutor`, with an explicit
+`ExpectedProvider` on every request. Registration remains fail-closed unless
+configuration, provider review, runtime audit, and quota verification gates
+are all true. TikTok additionally requires a verified immutable pull prefix
+and explicit F5 trailing-slash support. The latter is tracked by #342; PR #339
+must not be approved until #342 is integrated into its base and this branch is
+rebased. The default registry therefore remains empty.
+
+TikTok checkpoints creator capability discovery, Direct Post initialization,
+and asynchronous status. Its three official API paths preserve their required
+trailing slash. It uses a verified, immutable HTTPS pull URL so the
+upload capability URL never crosses the F5 boundary. YouTube checkpoints
+channel capability, a local `multipart/related` upload through F5, and
+asynchronous processing. TikTok reconciles only from a durable `publish_id`.
+YouTube does not claim deterministic reconciliation for a pre-ID multipart
+outcome; it declares the F8 ambiguous-fail-closed capability, which prevents
+all blind upload replay.
 
 ## Verification
 

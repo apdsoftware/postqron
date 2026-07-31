@@ -30,6 +30,8 @@ var newWorkspaceRuntimeService = func(
 	return workspaces.NewRuntimeServiceWithClock(repository, clock)
 }
 
+var newPublishingRuntimeService = publishingruntime.New
+
 type workspaceOnboardingRuntime interface {
 	ConsumeOnboardingRequired(
 		context.Context,
@@ -73,6 +75,7 @@ func NewRuntime(
 	interval time.Duration,
 	clock func() time.Time,
 	logger *slog.Logger,
+	videoDependencies publishingruntime.VideoAdapterDependencies,
 ) (*Runner, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -93,11 +96,12 @@ func NewRuntime(
 	if err != nil {
 		return nil, err
 	}
-	publishingService, err := publishingruntime.New(
+	publishingService, err := configurePublishingRuntime(
 		context.Background(),
 		database,
 		databaseURL,
 		clock,
+		videoDependencies,
 	)
 	if err != nil {
 		return nil, err
@@ -113,6 +117,18 @@ func NewRuntime(
 		publishing:      publishingService,
 		closePublishing: publishingService.Close,
 	}, nil
+}
+
+func configurePublishingRuntime(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	videoDependencies publishingruntime.VideoAdapterDependencies,
+) (*publishingruntime.Service, error) {
+	return newPublishingRuntimeService(
+		ctx, database, databaseURL, clock, videoDependencies,
+	)
 }
 
 func (r *Runner) Run(ctx context.Context) {
