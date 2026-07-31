@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -703,7 +705,9 @@ func mustBlueskyRKey(
 	idempotencyKey, createdAt string,
 ) string {
 	t.Helper()
-	value, err := blueskyRKey(idempotencyKey, createdAt)
+	value, err := blueskyRKey(
+		idempotencyKey, "did:plc:fixture123", createdAt,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,9 +743,16 @@ func TestBlueskyDeterministicRKeyIsOfficialTID(t *testing.T) {
 	if later <= first {
 		t.Fatalf("TID is not monotonic: later=%q first=%q", later, first)
 	}
-	if tidTimestampMicros(t, first) !=
-		time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC).UnixMicro() {
-		t.Fatalf("TID %q does not encode createdAt", first)
+	createdAtMicros := time.Date(
+		2026, 7, 30, 12, 0, 0, 0, time.UTC,
+	).UnixMicro()
+	logicalMicros := tidTimestampMicros(t, first)
+	if logicalMicros < createdAtMicros ||
+		logicalMicros-createdAtMicros >= (1<<20)+(1<<10) {
+		t.Fatalf(
+			"TID %q logical timestamp=%d createdAt=%d",
+			first, logicalMicros, createdAtMicros,
+		)
 	}
 }
 
@@ -820,6 +831,37 @@ func TestMastodonAllowsMediaOnlyAndEnforcesOfficialCapabilities(t *testing.T) {
 		Visibility: "public", Media: []media{image},
 	}, capability); err == nil {
 		t.Fatal("image above matrix limit accepted")
+	}
+}
+
+func TestMastodonOfficialAudioCapabilitiesAreFilteredNotRejected(t *testing.T) {
+	fixture := loadOfficialFixtures(t)
+	capability, err := decodeMastodonCapabilities(fixture.Mastodon.Instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(capability.MIMETypes, "image/png") ||
+		!containsString(capability.MIMETypes, "video/mp4") {
+		t.Fatalf("publishable MIME types=%v", capability.MIMETypes)
+	}
+	for _, contentType := range capability.MIMETypes {
+		if strings.HasPrefix(contentType, "audio/") {
+			t.Fatalf("audio type %q was not filtered", contentType)
+		}
+	}
+	audioOnly := validMastodonCapabilities()
+	audioOnly.MIMETypes = filterMastodonMIMETypes(
+		[]string{"audio/mpeg", "audio/ogg"},
+	)
+	if err = validateMastodonPayload(mastodonPayload{
+		Text: "text remains publishable", Visibility: "public",
+	}, audioOnly); err != nil {
+		t.Fatalf("text-only payload with audio-only instance=%v", err)
+	}
+	if err = validateMastodonPayload(mastodonPayload{
+		Visibility: "public", Media: []media{validFixtureMedia()},
+	}, audioOnly); err == nil {
+		t.Fatal("image accepted after required image format was filtered out")
 	}
 }
 
@@ -981,4 +1023,170 @@ func tidTimestampMicros(t *testing.T, value string) int64 {
 		decoded = decoded<<5 | uint64(index)
 	}
 	return int64(decoded >> 10)
+}
+
+func TestBlueskyTIDSpecificCollisionAndSameInstantCardinality(t *testing.T) {
+	const (
+		repository = "did:plc:fixture123"
+		createdAt  = "2026-07-30T12:00:00Z"
+	)
+	key1 := "publish_" + strings.Repeat("0", 60) + "001d"
+	key2 := "publish_" + strings.Repeat("0", 60) + "0033"
+	first, err := blueskyRKey(key1, repository, createdAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := blueskyRKey(key2, repository, createdAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("known collision retained TID %q", first)
+	}
+
+	const total = 10_000
+	seen := make(map[string]struct{}, total)
+	ordered := make([]string, 0, total)
+	physical := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC).UnixMicro()
+	for sequence := 0; sequence < total; sequence++ {
+		key := "publish_" + fmt.Sprintf("%064x", sequence)
+		tid, keyErr := blueskyRKey(key, repository, createdAt)
+		if keyErr != nil {
+			t.Fatal(keyErr)
+		}
+		if _, duplicate := seen[tid]; duplicate {
+			t.Fatalf("duplicate TID %q at sequence %d", tid, sequence)
+		}
+		logical := tidTimestampMicros(t, tid)
+		if logical < physical ||
+			logical-physical >= (1<<20)+(1<<10) {
+			t.Fatalf("TID %q escaped logical timestamp window", tid)
+		}
+		seen[tid] = struct{}{}
+		ordered = append(ordered, tid)
+	}
+	for index := 1; index < len(ordered); index++ {
+		if ordered[index] <= ordered[index-1] {
+			t.Fatalf("same-instant TID stream is not monotonic at %d", index)
+		}
+	}
+	sorted := slices.Clone(ordered)
+	slices.Sort(sorted)
+	if !slices.Equal(sorted, ordered) {
+		t.Fatal("TID lexical ordering does not match generation sequence")
+	}
+	next, err := blueskyRKey(
+		"publish_"+strings.Repeat("f", 64),
+		repository,
+		"2026-07-30T12:00:02Z",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next <= ordered[len(ordered)-1] {
+		t.Fatalf("later physical timestamp %q <= same-instant max %q",
+			next, ordered[len(ordered)-1])
+	}
+	otherDestination, err := blueskyRKey(
+		key1, "did:plc:otherdestination", createdAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherDestination == first {
+		t.Fatal("destination was not bound into deterministic TID")
+	}
+}
+
+func TestBlueskyFormerTIDCollisionPublishesDistinctRecordsOnce(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		creates = make(map[string]int)
+	)
+	executor := executorFunc(func(
+		_ context.Context,
+		request socialconnections.PublishingRequest,
+	) (socialconnections.PublishingResponse, error) {
+		if request.Method != http.MethodPost ||
+			request.Path != blueskyCreatePath {
+			t.Fatalf("unexpected provider request %s %s",
+				request.Method, request.Path)
+		}
+		var input struct {
+			Repository string `json:"repo"`
+			RKey       string `json:"rkey"`
+		}
+		if json.Unmarshal(request.Body, &input) != nil {
+			t.Fatal("invalid createRecord body")
+		}
+		uri := blueskyURI(input.Repository, input.RKey)
+		mu.Lock()
+		creates[uri]++
+		mu.Unlock()
+		return socialconnections.PublishingResponse{
+			StatusCode: http.StatusOK,
+			Body: mustJSON(t, blueskyRecordEnvelope{
+				URI: uri, CID: "bafyreicollisionfixture",
+			}),
+		}, nil
+	})
+	adapter := newBlueskyForTest(executor, nil)
+	keys := []string{
+		"publish_" + strings.Repeat("0", 60) + "001d",
+		"publish_" + strings.Repeat("0", 60) + "0033",
+	}
+	requests := make([]publishing.PublishRequest, len(keys))
+	for index, key := range keys {
+		requests[index] = publishing.PublishRequest{
+			WorkspaceID: "workspace", ConnectionID: "connection",
+			Payload: mustJSON(t, blueskyPayload{
+				Repository: "did:plc:fixture123",
+				Text:       fmt.Sprintf("collision fixture %d", index),
+				CreatedAt:  "2026-07-30T12:00:00Z",
+			}),
+			IdempotencyKey: key,
+		}
+		progress, err := adapter.Publish(context.Background(), requests[index])
+		if err != nil {
+			t.Fatal(err)
+		}
+		requests[index].Checkpoint = progress.Checkpoint
+	}
+	var group sync.WaitGroup
+	results := make(chan publishing.PublishResult, len(requests))
+	failures := make(chan error, len(requests))
+	for _, request := range requests {
+		group.Add(1)
+		go func(request publishing.PublishRequest) {
+			defer group.Done()
+			result, err := adapter.Publish(context.Background(), request)
+			results <- result
+			failures <- err
+		}(request)
+	}
+	group.Wait()
+	close(results)
+	close(failures)
+	for err := range failures {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	remoteIDs := make(map[string]struct{}, len(requests))
+	for result := range results {
+		if !result.Complete {
+			t.Fatalf("incomplete result=%+v", result)
+		}
+		remoteIDs[result.RemoteID] = struct{}{}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(remoteIDs) != 2 || len(creates) != 2 {
+		t.Fatalf("remote IDs=%v creates=%v", remoteIDs, creates)
+	}
+	for uri, count := range creates {
+		if count != 1 {
+			t.Fatalf("URI %q created %d times", uri, count)
+		}
+	}
 }

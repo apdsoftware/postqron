@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -137,6 +139,7 @@ func (adapter *Bluesky) Publish(
 		}
 		state.RKey, err = blueskyRKey(
 			request.IdempotencyKey,
+			payload.Repository,
 			payload.CreatedAt,
 		)
 		if err != nil {
@@ -435,6 +438,7 @@ func (adapter *Bluesky) input(
 	if state.Step != "" {
 		expectedRKey, keyErr := blueskyRKey(
 			request.IdempotencyKey,
+			payload.Repository,
 			payload.CreatedAt,
 		)
 		if keyErr != nil {
@@ -591,7 +595,7 @@ func blueskyProgress(
 }
 
 func blueskyRKey(
-	idempotencyKey, createdAt string,
+	idempotencyKey, repository, createdAt string,
 ) (string, error) {
 	if !publishingKeyPattern.MatchString(idempotencyKey) {
 		return "", permanent(
@@ -606,19 +610,49 @@ func blueskyRKey(
 			"Bluesky created_at is invalid.",
 		)
 	}
+	if !atDIDPattern.MatchString(repository) {
+		return "", permanent(
+			"invalid_bluesky_payload",
+			"Bluesky repository is invalid.",
+		)
+	}
 	microseconds := timestamp.UTC().UnixMicro()
-	digest := sha256.Sum256([]byte(idempotencyKey))
-	if microseconds < 0 || uint64(microseconds) >= uint64(1)<<53 {
+	keyMaterial, decodeErr := hex.DecodeString(
+		strings.TrimPrefix(idempotencyKey, "publish_"),
+	)
+	if decodeErr != nil || len(keyMaterial) != sha256.Size {
+		return "", permanent(
+			"invalid_bluesky_idempotency",
+			"Bluesky idempotency key is invalid.",
+		)
+	}
+	// A TID has only ten clock bits. Use a deterministic 30-bit logical
+	// sequence: the high 20 bits advance the physical createdAt by at most
+	// 1.048575 seconds and the low ten bits are the AT clock identifier. F8
+	// keys are already SHA-256 digests, so taking 30 digest bits preserves
+	// their entropy without collapsing them through a second 10-bit hash.
+	// A small destination-derived logical offset binds the generator to the
+	// repository while preserving the sequence order for that destination.
+	sequence := uint64(
+		binary.BigEndian.Uint32(keyMaterial[sha256.Size-4:]) &
+			((1 << 30) - 1),
+	)
+	destinationDigest := sha256.Sum256([]byte(repository))
+	destinationOffset := uint64(
+		binary.BigEndian.Uint16(destinationDigest[:2]) & ((1 << 10) - 1),
+	)
+	logicalMicroseconds := microseconds +
+		int64(sequence>>10) +
+		int64(destinationOffset)
+	if logicalMicroseconds < 0 ||
+		uint64(logicalMicroseconds) >= uint64(1)<<53 {
 		return "", permanent(
 			"invalid_bluesky_payload",
 			"Bluesky created_at cannot be represented as an AT Protocol TID.",
 		)
 	}
-	// AT Protocol reserves ten low bits for a clock identifier. Hashing the
-	// immutable F8 key keeps retries stable while the high bits remain the
-	// actual createdAt timestamp, preserving chronological TID ordering.
-	clockID := uint64(digest[0])<<2 | uint64(digest[1]>>6)
-	value := uint64(microseconds)<<10 | clockID
+	clockID := sequence & ((1 << 10) - 1)
+	value := uint64(logicalMicroseconds)<<10 | clockID
 	const alphabet = "234567abcdefghijklmnopqrstuvwxyz"
 	encoded := [13]byte{}
 	for index := len(encoded) - 1; index >= 0; index-- {

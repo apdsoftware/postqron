@@ -475,9 +475,8 @@ func decodeMastodonCapabilities(
 		CharactersReservedPerURL: envelope.Configuration.Statuses.CharactersReservedPerURL,
 		MaxAttachments:           envelope.Configuration.Statuses.MaxMediaAttachments,
 		DescriptionLimit:         envelope.Configuration.MediaAttachments.DescriptionLimit,
-		MIMETypes: append(
-			[]string(nil),
-			envelope.Configuration.MediaAttachments.SupportedMIMETypes...,
+		MIMETypes: filterMastodonMIMETypes(
+			envelope.Configuration.MediaAttachments.SupportedMIMETypes,
 		),
 		ImageBytes:          envelope.Configuration.MediaAttachments.ImageSizeLimit,
 		ImageMatrixLimit:    envelope.Configuration.MediaAttachments.ImageMatrixLimit,
@@ -567,17 +566,35 @@ func validMastodonCapabilityDocument(value mastodonCapabilities) bool {
 		value.MaxAttachments < 0 || value.MaxAttachments > 16 ||
 		value.DescriptionLimit <= 0 || value.ImageBytes <= 0 ||
 		value.ImageMatrixLimit <= 0 || value.VideoBytes <= 0 ||
-		value.VideoMatrixLimit <= 0 || value.VideoFrameRateLimit <= 0 ||
-		len(value.MIMETypes) == 0 {
+		value.VideoMatrixLimit <= 0 || value.VideoFrameRateLimit <= 0 {
 		return false
 	}
-	for _, contentType := range value.MIMETypes {
-		if !strings.HasPrefix(contentType, "image/") &&
-			!strings.HasPrefix(contentType, "video/") {
-			return false
-		}
-	}
 	return true
+}
+
+var mastodonSupportedMIMETypes = map[string]struct{}{
+	"image/jpeg": {},
+	"image/png":  {},
+	"image/gif":  {},
+	"image/webp": {},
+	"video/mp4":  {},
+	"video/webm": {},
+}
+
+func filterMastodonMIMETypes(values []string) []string {
+	filtered := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, contentType := range values {
+		if _, supported := mastodonSupportedMIMETypes[contentType]; !supported {
+			continue
+		}
+		if _, duplicate := seen[contentType]; duplicate {
+			continue
+		}
+		seen[contentType] = struct{}{}
+		filtered = append(filtered, contentType)
+	}
+	return filtered
 }
 
 func (adapter *Mastodon) multipartMedia(

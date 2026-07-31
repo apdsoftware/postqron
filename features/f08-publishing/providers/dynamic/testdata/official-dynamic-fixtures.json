@@ -8,7 +8,7 @@
           "max_media_attachments": 4
         },
         "media_attachments": {
-          "supported_mime_types": ["image/png", "image/jpeg", "video/mp4"],
+          "supported_mime_types": ["image/png", "audio/mpeg", "image/jpeg", "video/mp4", "audio/ogg"],
           "description_limit": 1500,
           "image_size_limit": 16777216,
           "image_matrix_limit": 16777216,
