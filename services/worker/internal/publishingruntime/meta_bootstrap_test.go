@@ -24,6 +24,8 @@ import (
 
 type allowMetaChannelQuota struct{}
 
+var threadsBootstrapNow = time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+
 func (allowMetaChannelQuota) ReserveChannel(
 	context.Context,
 	string,
@@ -170,7 +172,7 @@ func connectThreadsFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	now := threadsBootstrapNow
 	workspaceID = "workspace-threads-bootstrap"
 	connectionID = "connection-threads-bootstrap"
 	remoteID := "123456789"
@@ -367,7 +369,8 @@ func TestProductionMetaBootstrapRegistersReviewedThreads(t *testing.T) {
 		"worker-meta-test",
 		key,
 	)
-	config, err := NewMetaRegistrationConfig(nil, time.Now)
+	clock := func() time.Time { return threadsBootstrapNow }
+	config, err := NewMetaRegistrationConfig(nil, clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,6 +400,9 @@ func TestProductionMetaBootstrapRegistersReviewedThreads(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, ok := publisher.(*metapublishing.Publisher); !ok {
+		t.Fatalf("publisher type=%T", publisher)
 	}
 	request := publishing.PublishRequest{
 		WorkspaceID:    workspaceID,
@@ -456,6 +462,14 @@ func TestProductionMetaBootstrapRegistersReviewedThreads(t *testing.T) {
 				index,
 				request.URL.Host,
 				request.URL.RequestURI(),
+			)
+		}
+		if request.Header.Get("Authorization") !=
+			"Bearer threads-access-token" {
+			t.Fatalf(
+				"request %d authorization=%q",
+				index,
+				request.Header.Get("Authorization"),
 			)
 		}
 	}
