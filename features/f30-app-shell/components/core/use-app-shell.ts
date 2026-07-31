@@ -92,6 +92,13 @@ export function useAppWorkspaceTransitionState() {
   )
 }
 
+export function useAppWorkspaceTransitionRevisionState() {
+  return useState<number>(
+    'postqron.app-shell.workspace-transition-revision',
+    () => 0,
+  )
+}
+
 export function useAppShellApi(): AppShellApi {
   const config = useRuntimeConfig()
   const requestFetch = useRequestFetch()

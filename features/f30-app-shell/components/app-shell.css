@@ -450,6 +450,13 @@
   font-weight: var(--pq-font-weight-bold);
 }
 
+.workspace-switcher__error {
+  color: var(--pq-color-danger);
+  font-size: var(--pq-font-size-xs);
+  font-weight: var(--pq-font-weight-semibold);
+  line-height: 1.3;
+}
+
 .product-sidebar > .product-sidebar__primary:hover {
   color: var(--pq-color-brand);
   background: color-mix(in srgb, white 90%, var(--pq-color-brand-subtle));

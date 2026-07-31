@@ -16,6 +16,7 @@ import {
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
+  useAppWorkspaceTransitionRevisionState,
   useAppWorkspaceTransitionState,
 } from '../components/core/use-app-shell.ts'
 
@@ -25,9 +26,11 @@ const bootstrap = useAppBootstrapState()
 const accountArea = useAppAccountAreaState()
 const api = useAppShellApi()
 const workspaceTransition = useAppWorkspaceTransitionState()
+const workspaceTransitionRevision = useAppWorkspaceTransitionRevisionState()
 const { t } = useAppShellI18n()
 const menuOpen = ref(false)
 const changingWorkspace = ref(false)
+const workspaceSwitchError = ref(false)
 const loggingOut = ref(false)
 const logoutError = ref(false)
 const currentWorkspaceId = computed(() => session.value?.current_workspace?.id ?? '')
@@ -52,14 +55,26 @@ async function selectWorkspace(event: unknown) {
   if (!workspaceId || workspaceId === currentWorkspaceId.value) {
     return
   }
+  const previousSession = session.value
   changingWorkspace.value = true
+  workspaceSwitchError.value = false
   workspaceTransition.value = workspaceId
   try {
     await api.selectWorkspace(workspaceId)
-    session.value = await api.session()
+    const refreshedSession = await api.session()
+    session.value = refreshedSession
     await navigateTo(route.fullPath)
+  } catch {
+    workspaceSwitchError.value = true
+    try {
+      const recoveredSession = await api.session()
+      session.value = recoveredSession
+    } catch {
+      session.value = previousSession
+    }
   } finally {
     workspaceTransition.value = undefined
+    workspaceTransitionRevision.value += 1
     changingWorkspace.value = false
   }
 }
@@ -181,6 +196,13 @@ async function logout() {
               {{ workspace.name }}
             </option>
           </select>
+          <small
+            v-if="workspaceSwitchError"
+            class="workspace-switcher__error"
+            role="alert"
+          >
+            {{ t('shell.workspaceSwitchError') }}
+          </small>
         </label>
 
         <div

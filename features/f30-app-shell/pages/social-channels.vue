@@ -20,6 +20,7 @@ import {
   useAppSessionState,
   useAppShellApi,
   useAppShellI18n,
+  useAppWorkspaceTransitionRevisionState,
   useAppWorkspaceTransitionState,
   useSocialConnectionsApi,
 } from '../components/core/use-app-shell.ts'
@@ -47,6 +48,7 @@ const accountApi = useAppShellApi()
 const social = useSocialConnectionsApi()
 const session = useAppSessionState()
 const workspaceTransition = useAppWorkspaceTransitionState()
+const workspaceTransitionRevision = useAppWorkspaceTransitionRevisionState()
 const { t, locale: uiLocale } = useAppShellI18n()
 const locale = computed(() => localeFromAppPath(route.fullPath))
 
@@ -94,6 +96,55 @@ type CallbackPopupHandle = {
     } | null
   }
   opener: unknown
+}
+
+type AsyncWorkspaceContext = Readonly<{
+  epoch: number
+  permission: 'manage' | 'read-only'
+  workspaceId: string
+}>
+
+const activePopups = new Set<CallbackPopupHandle>()
+
+function currentPermission(): AsyncWorkspaceContext['permission'] {
+  return session.value?.current_workspace?.role === 'owner'
+    ? 'manage'
+    : 'read-only'
+}
+
+function captureAsyncContext(): AsyncWorkspaceContext | undefined {
+  const currentWorkspaceId = workspaceId.value
+  if (!currentWorkspaceId) {
+    return undefined
+  }
+  return {
+    epoch: loadEpoch,
+    permission: currentPermission(),
+    workspaceId: currentWorkspaceId,
+  }
+}
+
+function contextIsCurrent(
+  context: AsyncWorkspaceContext,
+  requireManagePermission = false,
+): boolean {
+  return context.epoch === loadEpoch
+    && context.workspaceId === workspaceId.value
+    && context.permission === currentPermission()
+    && !workspaceTransition.value
+    && (!requireManagePermission
+      || (context.permission === 'manage' && canManageChannels.value))
+}
+
+function closeActivePopups() {
+  for (const popup of activePopups) {
+    try {
+      popup.close()
+    } catch {
+      // The context guard still prevents any continuation from changing UI.
+    }
+  }
+  activePopups.clear()
 }
 
 useHead(computed(() => ({
@@ -159,7 +210,7 @@ function socialPageState(error: unknown): 'access-denied' | 'offline' | 'unavail
   return appStateKindFromError(error)
 }
 
-async function processCallback() {
+async function processCallback(context: AsyncWorkspaceContext) {
   const state = queryString(route.query.state)
   const code = queryString(route.query.code)
   const issuer = queryString(route.query.iss)
@@ -167,19 +218,34 @@ async function processCallback() {
   if (!state && !code && !issuer && !providerError) {
     return
   }
+  if (!contextIsCurrent(context, true)) {
+    return
+  }
   try {
-    selection.value = await social.completeAuthorization({
+    const callbackSelection = await social.completeAuthorization({
       state,
       code,
       error: providerError,
       iss: issuer,
     })
+    if (!contextIsCurrent(context, true)) {
+      return
+    }
+    selection.value = callbackSelection
     notice.value = undefined
   } catch (error) {
+    if (!contextIsCurrent(context, true)) {
+      return
+    }
     selection.value = undefined
     notice.value = { tone: 'error', key: socialErrorKey(error) }
-  } finally {
-    await navigateTo(appRoute(locale.value, 'social-channels'), { replace: true })
+  }
+  if (!contextIsCurrent(context, true)) {
+    return
+  }
+  await navigateTo(appRoute(locale.value, 'social-channels'), { replace: true })
+  if (!contextIsCurrent(context, true)) {
+    return
   }
 }
 
@@ -199,36 +265,35 @@ function resetWorkspaceSensitiveState() {
   loadingWorkspace.value = true
 }
 
-watch(workspaceId, (current, previous) => {
-  if (current !== previous) {
-    loadEpoch += 1
-    resetWorkspaceSensitiveState()
-  }
-}, { flush: 'sync' })
-watch(workspaceTransition, (targetWorkspaceId) => {
-  if (targetWorkspaceId && targetWorkspaceId !== workspaceId.value) {
-    loadEpoch += 1
-    resetWorkspaceSensitiveState()
-  }
-}, { flush: 'sync' })
+function invalidateWorkspaceSensitiveState() {
+  loadEpoch += 1
+  closeActivePopups()
+  resetWorkspaceSensitiveState()
+}
 
 const { pending, refresh } = useAsyncData('postqron-social-channels', async () => {
-  let epoch = ++loadEpoch
+  const requestEpoch = ++loadEpoch
+  let context: AsyncWorkspaceContext | undefined
   try {
     if (!session.value) {
-      session.value = await accountApi.session()
-      epoch = ++loadEpoch
+      const currentSession = await accountApi.session()
+      if (requestEpoch !== loadEpoch || workspaceTransition.value) {
+        return undefined
+      }
+      session.value = currentSession
     }
-    const requestedWorkspaceId = workspaceId.value
-    if (!requestedWorkspaceId) {
+    context = captureAsyncContext()
+    if (!context) {
       throw new Error('SOCIAL_WORKSPACE_UNAVAILABLE')
     }
     const [currentWorkspace, currentBootstrap, currentConnections] = await Promise.all([
       accountApi.currentWorkspace(),
-      social.bootstrap(requestedWorkspaceId),
-      social.list(requestedWorkspaceId),
+      social.bootstrap(context.workspaceId),
+      social.list(context.workspaceId),
     ])
-    if (epoch !== loadEpoch || requestedWorkspaceId !== workspaceId.value) {
+    if (!contextIsCurrent(context)
+      || currentWorkspace.id !== context.workspaceId
+      || (currentWorkspace.role === 'owner' ? 'manage' : 'read-only') !== context.permission) {
       return undefined
     }
     workspace.value = currentWorkspace
@@ -238,11 +303,17 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
     loadingWorkspace.value = false
     if (!callbackProcessed.value) {
       callbackProcessed.value = true
-      await processCallback()
+      await processCallback(context)
+      if (!contextIsCurrent(context)) {
+        return undefined
+      }
     }
     return { loaded: true }
   } catch (error) {
-    if (epoch === loadEpoch) {
+    const isCurrentRequest = context
+      ? contextIsCurrent(context)
+      : requestEpoch === loadEpoch && !workspaceTransition.value
+    if (isCurrentRequest) {
       resetWorkspaceSensitiveState()
       pageState.value = socialPageState(error)
       loadingWorkspace.value = false
@@ -250,6 +321,21 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
     return undefined
   }
 }, { server: false, watch: [workspaceId] })
+
+watch(workspaceId, (current, previous) => {
+  if (current !== previous) {
+    invalidateWorkspaceSensitiveState()
+  }
+}, { flush: 'sync' })
+watch(workspaceTransition, (targetWorkspaceId) => {
+  if (targetWorkspaceId && targetWorkspaceId !== workspaceId.value) {
+    invalidateWorkspaceSensitiveState()
+  }
+}, { flush: 'sync' })
+watch(workspaceTransitionRevision, () => {
+  invalidateWorkspaceSensitiveState()
+  void refresh()
+}, { flush: 'sync' })
 
 function ensureManagePermission(): boolean {
   if (canManageChannels.value) {
@@ -369,7 +455,10 @@ function isCrossOriginSecurityError(error: unknown): error is { name: string } {
     && error.name === 'SecurityError'
 }
 
-async function waitForSelection(windowHandle: CallbackPopupHandle): Promise<SocialSelection> {
+async function waitForSelection(
+  windowHandle: CallbackPopupHandle,
+  context: AsyncWorkspaceContext,
+): Promise<SocialSelection> {
   const callbackURL = secureCallbackURL()
   if (!callbackURL) {
     throw normalizeSocialApiError({
@@ -383,6 +472,12 @@ async function waitForSelection(windowHandle: CallbackPopupHandle): Promise<Soci
   return await new Promise((resolve, reject) => {
     const deadline = Date.now() + 120_000
     const timer = globalThis.setInterval(() => {
+      if (!contextIsCurrent(context, true)) {
+        globalThis.clearInterval(timer)
+        windowHandle.close()
+        reject(new Error('SOCIAL_ASYNC_CONTEXT_STALE'))
+        return
+      }
       if (windowHandle.closed) {
         globalThis.clearInterval(timer)
         reject(normalizeSocialApiError({
@@ -440,7 +535,10 @@ async function connect(provider: SocialProviderCatalogEntry) {
   if (!secureCallbackURL()) {
     return
   }
-  const mutationWorkspaceId = workspaceId.value
+  const context = captureAsyncContext()
+  if (!context || !contextIsCurrent(context, true)) {
+    return
+  }
   const popup = callbackPopup()
   if (!popup) {
     notice.value = { tone: 'error', key: 'social.errorPopupBlocked' }
@@ -451,6 +549,7 @@ async function connect(provider: SocialProviderCatalogEntry) {
     notice.value = { tone: 'error', key: 'social.errorPopupIsolation' }
     return
   }
+  activePopups.add(popup)
   connecting.value = provider.provider
   notice.value = undefined
   try {
@@ -460,21 +559,31 @@ async function connect(provider: SocialProviderCatalogEntry) {
       return
     }
     const authorization = await social.begin(
-      mutationWorkspaceId,
+      context.workspaceId,
       provider.provider,
       discovery,
     )
-    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+    if (!contextIsCurrent(context, true)) {
       popup.close()
       return
     }
     popup.location.assign(authorization.authorization_url)
-    selection.value = await waitForSelection(popup)
+    const popupSelection = await waitForSelection(popup, context)
+    if (!contextIsCurrent(context, true)) {
+      popup.close()
+      return
+    }
+    selection.value = popupSelection
   } catch (error) {
     popup.close()
-    notice.value = { tone: 'error', key: socialErrorKey(error) }
+    if (contextIsCurrent(context, true)) {
+      notice.value = { tone: 'error', key: socialErrorKey(error) }
+    }
   } finally {
-    connecting.value = undefined
+    activePopups.delete(popup)
+    if (contextIsCurrent(context, true)) {
+      connecting.value = undefined
+    }
   }
 }
 
@@ -485,7 +594,10 @@ async function reconnect(connection: SocialConnection) {
   if (!secureCallbackURL()) {
     return
   }
-  const mutationWorkspaceId = workspaceId.value
+  const context = captureAsyncContext()
+  if (!context || !contextIsCurrent(context, true)) {
+    return
+  }
   const popup = callbackPopup()
   if (!popup) {
     notice.value = { tone: 'error', key: 'social.errorPopupBlocked' }
@@ -496,21 +608,32 @@ async function reconnect(connection: SocialConnection) {
     notice.value = { tone: 'error', key: 'social.errorPopupIsolation' }
     return
   }
+  activePopups.add(popup)
   reconnecting.value = connection.id
   notice.value = undefined
   try {
-    const authorization = await social.reconnect(mutationWorkspaceId, connection.id)
-    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+    const authorization = await social.reconnect(context.workspaceId, connection.id)
+    if (!contextIsCurrent(context, true)) {
       popup.close()
       return
     }
     popup.location.assign(authorization.authorization_url)
-    selection.value = await waitForSelection(popup)
+    const popupSelection = await waitForSelection(popup, context)
+    if (!contextIsCurrent(context, true)) {
+      popup.close()
+      return
+    }
+    selection.value = popupSelection
   } catch (error) {
     popup.close()
-    notice.value = { tone: 'error', key: socialErrorKey(error) }
+    if (contextIsCurrent(context, true)) {
+      notice.value = { tone: 'error', key: socialErrorKey(error) }
+    }
   } finally {
-    reconnecting.value = undefined
+    activePopups.delete(popup)
+    if (contextIsCurrent(context, true)) {
+      reconnecting.value = undefined
+    }
   }
 }
 
@@ -522,18 +645,25 @@ async function selectResource(remoteId: string) {
   if (!active) {
     return
   }
+  const context = captureAsyncContext()
+  if (!context || !contextIsCurrent(context, true)) {
+    return
+  }
   selecting.value = remoteId
-  const mutationWorkspaceId = workspaceId.value
   notice.value = undefined
   try {
-    const connection = await social.selectResource(mutationWorkspaceId, {
+    const connection = await social.selectResource(context.workspaceId, {
       selectionId: active.selection_id,
       remoteId,
     })
-    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+    if (!contextIsCurrent(context, true)) {
       return
     }
-    connections.value = await social.list(mutationWorkspaceId)
+    const currentConnections = await social.list(context.workspaceId)
+    if (!contextIsCurrent(context, true)) {
+      return
+    }
+    connections.value = currentConnections
     selection.value = undefined
     notice.value = {
       tone: 'success',
@@ -541,9 +671,13 @@ async function selectResource(remoteId: string) {
       params: { name: connection.display_name },
     }
   } catch (error) {
-    notice.value = { tone: 'error', key: socialErrorKey(error) }
+    if (contextIsCurrent(context, true)) {
+      notice.value = { tone: 'error', key: socialErrorKey(error) }
+    }
   } finally {
-    selecting.value = undefined
+    if (contextIsCurrent(context, true)) {
+      selecting.value = undefined
+    }
   }
 }
 
@@ -551,20 +685,31 @@ async function disconnect(connection: SocialConnection) {
   if (!ensureManagePermission()) {
     return
   }
+  const context = captureAsyncContext()
+  if (!context || !contextIsCurrent(context, true)) {
+    return
+  }
   revoking.value = connection.id
-  const mutationWorkspaceId = workspaceId.value
   notice.value = undefined
   try {
-    await social.revoke(mutationWorkspaceId, connection.id)
-    if (mutationWorkspaceId !== workspaceId.value || !canManageChannels.value) {
+    await social.revoke(context.workspaceId, connection.id)
+    if (!contextIsCurrent(context, true)) {
       return
     }
-    connections.value = await social.list(mutationWorkspaceId)
+    const currentConnections = await social.list(context.workspaceId)
+    if (!contextIsCurrent(context, true)) {
+      return
+    }
+    connections.value = currentConnections
     notice.value = { tone: 'success', key: 'social.disconnected' }
   } catch (error) {
-    notice.value = { tone: 'error', key: socialErrorKey(error) }
+    if (contextIsCurrent(context, true)) {
+      notice.value = { tone: 'error', key: socialErrorKey(error) }
+    }
   } finally {
-    revoking.value = undefined
+    if (contextIsCurrent(context, true)) {
+      revoking.value = undefined
+    }
   }
 }
 
