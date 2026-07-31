@@ -21,6 +21,7 @@ import (
 const (
 	metaFacebookOrigin  = "https://graph.facebook.com"
 	metaInstagramOrigin = "https://graph.instagram.com"
+	metaThreadsOrigin   = "https://graph.threads.net"
 )
 
 func productionMetaAutoConfig(
@@ -29,11 +30,6 @@ func productionMetaAutoConfig(
 ) (metapublishing.RegistrationConfig, error) {
 	if exactTrue("POSTQRON_F08_META_AUTO_ENABLED") == false {
 		return metapublishing.RegistrationConfig{}, nil
-	}
-	if exactTrue("POSTQRON_F08_THREADS_ENABLED") {
-		return metapublishing.RegistrationConfig{}, errors.New(
-			"Threads publishing is unavailable until F5 PR #316 is integrated",
-		)
 	}
 	if !exactTrue("POSTQRON_F05_ENABLED") ||
 		!exactTrue("POSTQRON_F05_META_ENABLED") {
@@ -132,6 +128,53 @@ func productionMetaAutoConfig(
 			socialconnections.ProviderInstagramProfessional,
 		)
 	}
+	if exactTrue("POSTQRON_F08_THREADS_ENABLED") {
+		if !allPresent(
+			map[string]string{
+				"POSTQRON_F05_THREADS_CLIENT_ID": strings.TrimSpace(
+					os.Getenv("POSTQRON_F05_THREADS_CLIENT_ID"),
+				),
+				"POSTQRON_F05_THREADS_CLIENT_SECRET": strings.TrimSpace(
+					os.Getenv("POSTQRON_F05_THREADS_CLIENT_SECRET"),
+				),
+				"POSTQRON_F05_THREADS_REDIRECT_URL": strings.TrimSpace(
+					os.Getenv("POSTQRON_F05_THREADS_REDIRECT_URL"),
+				),
+			},
+			"POSTQRON_F05_THREADS_CLIENT_ID",
+			"POSTQRON_F05_THREADS_CLIENT_SECRET",
+			"POSTQRON_F05_THREADS_REDIRECT_URL",
+		) || !exactTrue("POSTQRON_F05_THREADS_ENABLED") {
+			return metapublishing.RegistrationConfig{}, errors.New(
+				"Threads publishing requires the verified F5 adapter configuration",
+			)
+		}
+		if !exactTrue("POSTQRON_F05_THREADS_APP_REVIEW_APPROVED") ||
+			!exactTrue("POSTQRON_F05_THREADS_RUNTIME_AUDIT_VERIFIED") {
+			return metapublishing.RegistrationConfig{}, errors.New(
+				"Threads publishing requires F5 review and audit gates",
+			)
+		}
+		adapter, adapterErr := socialconnections.NewThreadsAdapter(
+			socialconnections.ThreadsAdapterConfig{
+				ClientID: strings.TrimSpace(
+					os.Getenv("POSTQRON_F05_THREADS_CLIENT_ID"),
+				),
+				ClientSecret: strings.TrimSpace(
+					os.Getenv("POSTQRON_F05_THREADS_CLIENT_SECRET"),
+				),
+				RedirectURL: strings.TrimSpace(
+					os.Getenv("POSTQRON_F05_THREADS_REDIRECT_URL"),
+				),
+			},
+		)
+		if adapterErr != nil {
+			return metapublishing.RegistrationConfig{}, adapterErr
+		}
+		adapters[socialconnections.ProviderThreads] = adapter
+		origins[socialconnections.ProviderThreads] = metaThreadsOrigin
+		providers = append(providers, socialconnections.ProviderThreads)
+	}
 	if len(providers) == 0 {
 		return metapublishing.RegistrationConfig{}, errors.New(
 			"Meta auto publishing gate enabled without an approved provider",
@@ -161,14 +204,24 @@ func productionMetaAutoConfig(
 		return metapublishing.RegistrationConfig{}, err
 	}
 	return metapublishing.RegistrationConfig{
-		Executor:      executor,
-		GraphVersion:  graphVersion,
-		AutoProviders: providers,
+		Executor:            executor,
+		GraphVersion:        graphVersion,
+		ThreadsGraphVersion: graphVersion,
+		AutoProviders:       providers,
 	}, nil
 }
 
 func exactTrue(key string) bool {
 	return strings.TrimSpace(os.Getenv(key)) == "true"
+}
+
+func allPresent(values map[string]string, keys ...string) bool {
+	for _, key := range keys {
+		if strings.TrimSpace(values[key]) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 type denySocialMutation struct{}

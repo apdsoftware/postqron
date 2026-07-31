@@ -116,6 +116,65 @@ func TestProductionMetaBootstrapRegistersReviewedFacebookAndInstagram(t *testing
 	}
 }
 
+func TestProductionMetaBootstrapRegistersReviewedThreads(t *testing.T) {
+	clearMetaBootstrapEnvironment(t)
+	t.Setenv("POSTQRON_F08_META_AUTO_ENABLED", "true")
+	t.Setenv("POSTQRON_F08_THREADS_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_META_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_META_GRAPH_VERSION", "v25.0")
+	t.Setenv("POSTQRON_F05_CIPHER_KEY_ID", "worker-meta-test")
+	t.Setenv(
+		"POSTQRON_F05_CIPHER_KEY_BASE64",
+		base64.StdEncoding.EncodeToString(
+			[]byte("0123456789abcdef0123456789abcdef"),
+		),
+	)
+	t.Setenv("POSTQRON_F05_THREADS_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_THREADS_CLIENT_ID", "threads-client")
+	t.Setenv("POSTQRON_F05_THREADS_CLIENT_SECRET", "threads-secret")
+	t.Setenv(
+		"POSTQRON_F05_THREADS_REDIRECT_URL",
+		"https://api.example.test/api/v1/social-authorizations/callback",
+	)
+	t.Setenv("POSTQRON_F05_THREADS_APP_REVIEW_APPROVED", "true")
+	t.Setenv("POSTQRON_F05_THREADS_RUNTIME_AUDIT_VERIFIED", "true")
+
+	database, err := sql.Open(
+		"pgx",
+		"postgres://unused:unused@127.0.0.1:1/unused?sslmode=disable",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	config, err := NewMetaRegistrationConfig(database, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Executor == nil || config.GraphVersion != "v25.0" ||
+		config.ThreadsGraphVersion != "v25.0" ||
+		len(config.AutoProviders) != 1 ||
+		config.AutoProviders[0] != socialconnections.ProviderThreads {
+		t.Fatalf("config=%+v", config)
+	}
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		nil,
+		staticproviders.Config{},
+		config,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = registry.ResolvePublisher(
+		context.Background(),
+		string(socialconnections.ProviderThreads),
+	); err != nil {
+		t.Fatalf("Threads resolution=%v", err)
+	}
+}
+
 func TestProductionMetaBootstrapGatesMissingDependenciesAndIssue343(
 	t *testing.T,
 ) {
@@ -303,10 +362,20 @@ func TestNotificationAuditPurgesWhenDeliveryGateIsDisabled(t *testing.T) {
 	}
 }
 
-func TestProductionMetaBootstrapRejectsThreadsUntilPR316(t *testing.T) {
+func TestProductionMetaBootstrapRejectsThreadsWithoutVerifiedF5Adapter(t *testing.T) {
 	clearMetaBootstrapEnvironment(t)
 	t.Setenv("POSTQRON_F08_META_AUTO_ENABLED", "true")
 	t.Setenv("POSTQRON_F08_THREADS_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_META_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_META_GRAPH_VERSION", "v25.0")
+	t.Setenv("POSTQRON_F05_CIPHER_KEY_ID", "worker-meta-test")
+	t.Setenv(
+		"POSTQRON_F05_CIPHER_KEY_BASE64",
+		base64.StdEncoding.EncodeToString(
+			[]byte("0123456789abcdef0123456789abcdef"),
+		),
+	)
 	database, err := sql.Open(
 		"pgx",
 		"postgres://unused:unused@127.0.0.1:1/unused?sslmode=disable",
@@ -317,7 +386,10 @@ func TestProductionMetaBootstrapRejectsThreadsUntilPR316(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	config, err := NewMetaRegistrationConfig(database, time.Now)
-	if err == nil || !strings.Contains(err.Error(), "PR #316") {
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"verified F5 adapter configuration",
+	) {
 		t.Fatalf("Threads dependency config=%+v error=%v", config, err)
 	}
 	if config.Executor != nil || len(config.AutoProviders) != 0 {
@@ -349,6 +421,12 @@ func clearMetaBootstrapEnvironment(t *testing.T) {
 		"POSTQRON_F05_INSTAGRAM_REDIRECT_URL",
 		"POSTQRON_F05_INSTAGRAM_APP_REVIEW_APPROVED",
 		"POSTQRON_F05_INSTAGRAM_RUNTIME_AUDIT_VERIFIED",
+		"POSTQRON_F05_THREADS_ENABLED",
+		"POSTQRON_F05_THREADS_CLIENT_ID",
+		"POSTQRON_F05_THREADS_CLIENT_SECRET",
+		"POSTQRON_F05_THREADS_REDIRECT_URL",
+		"POSTQRON_F05_THREADS_APP_REVIEW_APPROVED",
+		"POSTQRON_F05_THREADS_RUNTIME_AUDIT_VERIFIED",
 	} {
 		t.Setenv(key, "")
 	}
