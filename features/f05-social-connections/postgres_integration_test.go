@@ -200,7 +200,7 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 		SELECT count(*)
 		FROM f05_social_outbox
 		WHERE connection_id = $1
-			AND type = $2`,
+			AND event_type = $2`,
 		connection.ID,
 		EventReconnectRequired,
 	).Scan(&eventCount); err != nil {
