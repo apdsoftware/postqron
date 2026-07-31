@@ -22,7 +22,6 @@ const (
 	xOAuthTokenPath           = "/2/oauth2/token"
 	xOAuthRevokePath          = "/2/oauth2/revoke"
 	xAuthenticatedUserPath    = "/2/users/me"
-	xOAuthScopeParameter      = "tweet.read tweet.write users.read offline.access"
 	maxXResponseBytes         = 1 << 20
 )
 
@@ -132,12 +131,9 @@ func (adapter *XAdapter) Config() OAuthConfig {
 		ClientID:         adapter.clientID,
 		AuthorizationURL: adapter.authorizationURL,
 		RedirectURL:      adapter.redirectURL,
-		// The provider-agnostic URL builder owns the scope parameter and joins
-		// entries with commas for Meta compatibility. X requires one
-		// space-delimited OAuth scope value, so it is deliberately represented
-		// as one atomic parameter here.
-		Scopes:       []string{xOAuthScopeParameter},
-		SupportsPKCE: true,
+		Scopes:           append([]string(nil), xRequiredScopes...),
+		ScopeSeparator:   OAuthScopeSeparatorSpace,
+		SupportsPKCE:     true,
 	}
 }
 
@@ -575,7 +571,7 @@ func validateXUser(profile xUserResponse) error {
 }
 
 func xCredentialScopes() []string {
-	return []string{xOAuthScopeParameter}
+	return append([]string(nil), xRequiredScopes...)
 }
 
 func stableXErrorCode(value string) string {

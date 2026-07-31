@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -112,7 +113,8 @@ func TestXAdapterOfficialOAuthLifecycle(t *testing.T) {
 	config := adapter.Config()
 	if config.AuthorizationURL != xOfficialAuthorizationURL ||
 		!config.SupportsPKCE ||
-		!slices.Equal(config.Scopes, []string{xOAuthScopeParameter}) {
+		config.ScopeSeparator != OAuthScopeSeparatorSpace ||
+		!slices.Equal(config.Scopes, xRequiredScopes) {
 		t.Fatalf("OAuth config = %#v", config)
 	}
 	capabilities := adapter.AdapterCapabilities()
@@ -138,7 +140,7 @@ func TestXAdapterOfficialOAuthLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	query := parsedAuthorizationURL.Query()
-	if query.Get("scope") != xOAuthScopeParameter ||
+	if query.Get("scope") != strings.Join(xRequiredScopes, " ") ||
 		query.Get("state") != "fixture-state" ||
 		query.Get("code_challenge_method") != "S256" ||
 		query.Get("code_challenge") == "" ||
@@ -159,7 +161,7 @@ func TestXAdapterOfficialOAuthLifecycle(t *testing.T) {
 		grant.RefreshToken != "fixture-x-refresh-token" ||
 		grant.ExpiresAt == nil ||
 		!grant.ExpiresAt.Equal(xFixtureNow.Add(2*time.Hour)) ||
-		!slices.Equal(grant.Scopes, []string{xOAuthScopeParameter}) {
+		!slices.Equal(grant.Scopes, xRequiredScopes) {
 		t.Fatalf("exchange credential = %#v", grant)
 	}
 	resources, err := adapter.Discover(context.Background(), grant)
@@ -240,7 +242,7 @@ func TestXGrantScopesAreValidatedAsAnIndividualSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(credential.Scopes, []string{xOAuthScopeParameter}) {
+	if !slices.Equal(credential.Scopes, xRequiredScopes) {
 		t.Fatalf("canonical stored scopes = %v", credential.Scopes)
 	}
 }

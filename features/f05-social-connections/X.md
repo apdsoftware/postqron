@@ -20,18 +20,13 @@ hours and no refresh token is issued. Media upload is outside #310, so
 `media.write` is not requested. Any future X media implementation must review
 and version that scope change in its own F6/F8 work.
 
-The provider-agnostic F5 authorization URL builder currently joins
-`OAuthConfig.Scopes` with commas for Meta compatibility. X requires the OAuth
-`scope` parameter to be space-delimited. Until the central builder gains a
-provider-neutral delimiter contract, the X adapter supplies the exact
-space-delimited value as one atomic `OAuthConfig.Scopes` entry. This is an
-encoding workaround at the builder boundary only: every token response is
-split with OAuth whitespace rules and validated as an individual, order-
-independent set containing exactly the four scopes above. Missing, duplicate,
-or additional scopes fail closed. Persisted scope metadata remains the
-canonical atomic value so the current F5 refresh validator checks the same
-grant without weakening validation. The provider-neutral replacement is
-tracked in #318.
+The provider-neutral F5 OAuth contract now represents each requested grant as
+its own `OAuthConfig.Scopes` entry and uses
+`ScopeSeparator: OAuthScopeSeparatorSpace` for X. The outbound OAuth `scope`
+parameter is therefore serialized exactly as the official X flow requires,
+while token responses are still split with OAuth whitespace rules and
+validated as an order-independent set containing exactly the four scopes
+above. Missing, duplicate, or additional scopes fail closed.
 
 The server performs these official operations:
 
@@ -68,16 +63,12 @@ below is a real credential.
 | `POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after fixture and security audit |
 | `POSTQRON_F05_X_SMOKE_TEST_VERIFIED` | Exact `true` only after an authorized environment smoke test |
 
-The shared F5 encryption key and global F5 runtime gate from the #302
-foundation must also be valid. In the current foundation that global gate is
-still named `POSTQRON_F05_META_ENABLED`; X therefore requires it to be exact
-`true` until the central F5 bootstrap is made provider-neutral. This adapter
-does not broaden that out-of-scope central contract; #318 tracks the central
-follow-up. Missing credentials keep X `not_configured`; missing access approval
-reports `review_required`; missing audit or smoke verification reports
-`audit_required`. Only the complete set mounts the adapter and exposes real
-authorization, PKCE, resource-selection, refresh, and remote-revocation
-capabilities.
+The shared F5 encryption key and provider-neutral runtime gate from the #302
+foundation must also be valid. Missing credentials keep X `not_configured`;
+missing access approval reports `review_required`; missing audit or smoke
+verification reports `audit_required`. Only the complete set mounts the
+adapter and exposes real authorization, PKCE, resource-selection, refresh,
+and remote-revocation capabilities.
 
 ## Offline verification
 
