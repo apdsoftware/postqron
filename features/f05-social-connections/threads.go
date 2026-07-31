@@ -213,6 +213,7 @@ func (adapter *ThreadsAdapter) Exchange(
 		ctx,
 		long.AccessToken,
 		shortUserID,
+		false,
 	); err != nil {
 		return Credential{}, err
 	}
@@ -290,6 +291,7 @@ func (adapter *ThreadsAdapter) Refresh(
 		ctx,
 		response.AccessToken,
 		"",
+		false,
 	); err != nil {
 		return Credential{}, err
 	}
@@ -333,7 +335,12 @@ func (adapter *ThreadsAdapter) Verify(
 	if strings.TrimSpace(profile.Username) == "" {
 		return invalidThreadsResponse("Threads verification response is incomplete")
 	}
-	return nil
+	return adapter.verifyGrantedToken(
+		ctx,
+		credential.AccessToken,
+		remoteID,
+		true,
+	)
 }
 
 func (*ThreadsAdapter) Revoke(
@@ -349,6 +356,7 @@ func (*ThreadsAdapter) Revoke(
 func (adapter *ThreadsAdapter) verifyGrantedToken(
 	ctx context.Context,
 	userAccessToken, expectedUserID string,
+	exactGrant bool,
 ) error {
 	appValues := url.Values{
 		"grant_type":    {"client_credentials"},
@@ -394,13 +402,33 @@ func (adapter *ThreadsAdapter) verifyGrantedToken(
 			Code: "threads_token_invalid",
 		}
 	}
-	if err := validateScopes(
-		threadsRequiredScopes,
-		debug.Data.Scopes,
-	); err != nil {
+	if err := validateThreadsScopes(debug.Data.Scopes, exactGrant); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateThreadsScopes(scopes []string, exactGrant bool) error {
+	normalized := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			continue
+		}
+		normalized[scope] = struct{}{}
+	}
+	for _, scope := range threadsRequiredScopes {
+		if _, ok := normalized[scope]; !ok {
+			return &ProviderFailure{
+				Kind: FailurePermissionMissing,
+				Code: "threads_required_scope_missing",
+			}
+		}
+	}
+	if exactGrant && len(normalized) != len(threadsRequiredScopes) {
 		return &ProviderFailure{
 			Kind: FailurePermissionMissing,
-			Code: "threads_required_scope_missing",
+			Code: "threads_required_scope_mismatch",
 		}
 	}
 	return nil

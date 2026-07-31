@@ -566,6 +566,142 @@ func TestThreadsTokenDebuggerRejectsMissingPublishingPermission(t *testing.T) {
 	}
 }
 
+func TestThreadsVerifyFailsClosedWhenPublishingScopeIsPartiallyRevoked(
+	t *testing.T,
+) {
+	var publishingRevoked atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		switch request.URL.Path {
+		case "/oauth/access_token":
+			switch request.URL.Query().Get("grant_type") {
+			case "authorization_code":
+				writeThreadsJSON(t, response, map[string]any{
+					"access_token": "short-token",
+					"user_id":      "123456789",
+				})
+			case "client_credentials":
+				writeThreadsJSON(t, response, map[string]any{
+					"access_token": "app-token",
+				})
+			default:
+				http.Error(response, "unexpected grant", http.StatusBadRequest)
+			}
+		case "/access_token":
+			writeThreadsJSON(t, response, map[string]any{
+				"access_token": "long-token",
+				"expires_in":   5_184_000,
+			})
+		case "/debug_token":
+			scopes := append([]string(nil), threadsRequiredScopes...)
+			if publishingRevoked.Load() {
+				scopes = []string{"threads_basic"}
+			}
+			writeThreadsJSON(t, response, map[string]any{
+				"data": map[string]any{
+					"app_id":   "threads-client",
+					"is_valid": true,
+					"scopes":   scopes,
+					"user_id":  "123456789",
+				},
+			})
+		case "/me":
+			writeThreadsJSON(t, response, map[string]any{
+				"id":       "123456789",
+				"username": "postqron",
+				"name":     "Postqron",
+			})
+		case "/123456789":
+			writeThreadsJSON(t, response, map[string]any{
+				"id":       "123456789",
+				"username": "postqron",
+			})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	adapter := newThreadsFixtureAdapter(t, server)
+	repository := NewMemoryRepository()
+	cipher, err := NewAESGCMCipher(
+		"threads-fixture-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(Config{
+		Repository: repository,
+		Authorizer: &fakeAuthorizer{permissions: map[Permission]bool{
+			PermissionViewWorkspace:  true,
+			PermissionManageChannels: true,
+		}},
+		Cipher: cipher,
+		Quota:  newFakeChannelQuota(),
+		Adapters: map[Provider]Adapter{
+			ProviderThreads: adapter,
+		},
+		Availability: map[Provider]ProviderAvailability{
+			ProviderThreads: {
+				Provider:           ProviderThreads,
+				Status:             ProviderAvailable,
+				ConfigurationState: ProviderReady,
+			},
+		},
+		Now: func() time.Time { return threadsTestNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, state := beginThreadsAuthorization(t, service)
+	selection, err := service.Callback(context.Background(), CallbackRequest{
+		State: state,
+		Code:  "selection-code",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := service.Select(context.Background(), SelectRequest{
+		WorkspaceID: "workspace-threads",
+		ActorID:     "owner-threads",
+		SelectionID: selection.ID,
+		RemoteID:    "123456789",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	publishingRevoked.Store(true)
+	if err = service.Verify(
+		context.Background(),
+		"workspace-threads",
+		connection.ID,
+	); !errors.Is(err, ErrReconnectRequired) {
+		t.Fatalf("Verify() error = %v", err)
+	}
+	stored, err := repository.GetCredential(
+		context.Background(),
+		"workspace-threads",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != StatusReconnectRequired ||
+		stored.ReconnectReason != string(FailurePermissionMissing) ||
+		len(stored.AccessTokenCiphertext.Data) != 0 ||
+		len(stored.RefreshTokenCiphertext.Data) != 0 {
+		t.Fatalf("reconnect state = %#v", stored)
+	}
+	if countEvents(repository.Events(), EventReconnectRequired) != 1 {
+		t.Fatalf("events = %#v", repository.Events())
+	}
+}
+
 func TestThreadsTransportErrorsNeverExposeSecretsOrTokens(t *testing.T) {
 	client := &http.Client{Transport: threadsRoundTripperFunc(func(
 		request *http.Request,
