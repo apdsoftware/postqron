@@ -28,9 +28,12 @@ func (repository *PostgresRepository) CreateAttempt(
 		INSERT INTO f05_oauth_attempts (
 			id, state_hash, workspace_id, actor_account_id, provider,
 			pkce_verifier_key_id, pkce_verifier_ciphertext,
+			oauth_state_key_id, oauth_state_ciphertext,
+			oauth_issuer, oauth_resource_server, oauth_subject,
 			created_at, expires_at, consumed_at
 		) VALUES (
-			$1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10
+			$1, $2, $3, $4, $5, NULLIF($6, ''), $7,
+			NULLIF($8, ''), $9, $10, $11, $12, $13, $14, $15
 		)`,
 		attempt.ID,
 		attempt.StateHash,
@@ -39,6 +42,11 @@ func (repository *PostgresRepository) CreateAttempt(
 		attempt.Provider,
 		attempt.PKCEVerifierCiphertext.KeyID,
 		nullBytes(attempt.PKCEVerifierCiphertext.Data),
+		attempt.OAuthStateCiphertext.KeyID,
+		nullBytes(attempt.OAuthStateCiphertext.Data),
+		attempt.Binding.Issuer,
+		attempt.Binding.ResourceServer,
+		attempt.Binding.Subject,
 		attempt.CreatedAt,
 		attempt.ExpiresAt,
 		attempt.ConsumedAt,
@@ -59,13 +67,15 @@ func (repository *PostgresRepository) ConsumeAttempt(
 	}
 	defer transaction.Rollback()
 	var attempt OAuthAttempt
-	var keyID sql.NullString
-	var ciphertext []byte
+	var keyID, stateKeyID sql.NullString
+	var ciphertext, stateCiphertext []byte
 	var consumed sql.NullTime
 	err = transaction.QueryRowContext(ctx, `
 		SELECT
 			id, state_hash, workspace_id, actor_account_id, provider,
 			pkce_verifier_key_id, pkce_verifier_ciphertext,
+			oauth_state_key_id, oauth_state_ciphertext,
+			oauth_issuer, oauth_resource_server, oauth_subject,
 			created_at, expires_at, consumed_at
 		FROM f05_oauth_attempts
 		WHERE state_hash = $1
@@ -79,6 +89,11 @@ func (repository *PostgresRepository) ConsumeAttempt(
 		&attempt.Provider,
 		&keyID,
 		&ciphertext,
+		&stateKeyID,
+		&stateCiphertext,
+		&attempt.Binding.Issuer,
+		&attempt.Binding.ResourceServer,
+		&attempt.Binding.Subject,
 		&attempt.CreatedAt,
 		&attempt.ExpiresAt,
 		&consumed,
@@ -98,6 +113,10 @@ func (repository *PostgresRepository) ConsumeAttempt(
 	attempt.PKCEVerifierCiphertext = Ciphertext{
 		KeyID: keyID.String,
 		Data:  append([]byte(nil), ciphertext...),
+	}
+	attempt.OAuthStateCiphertext = Ciphertext{
+		KeyID: stateKeyID.String,
+		Data:  append([]byte(nil), stateCiphertext...),
 	}
 	attempt.ConsumedAt = cloneTimePointer(&now)
 	if _, err = transaction.ExecContext(ctx, `
@@ -150,10 +169,14 @@ func (repository *PostgresRepository) SaveSelection(
 				display_name, handle, picture_url, scopes,
 				access_token_key_id, access_token_ciphertext,
 				refresh_token_key_id, refresh_token_ciphertext,
-				token_expires_at
+				oauth_session_key_id, oauth_session_ciphertext,
+				oauth_issuer, oauth_resource_server, oauth_subject,
+				refresh_token_mode, token_expires_at
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8,
-				$9, $10, NULLIF($11, ''), $12, $13
+				$9, $10, NULLIF($11, ''), $12,
+				NULLIF($13, ''), $14, $15, $16, $17,
+				COALESCE(NULLIF($18, ''), 'reusable'), $19
 			)`,
 			selection.ID,
 			resource.Candidate.RemoteID,
@@ -167,6 +190,12 @@ func (repository *PostgresRepository) SaveSelection(
 			resource.AccessTokenCiphertext.Data,
 			resource.RefreshTokenCiphertext.KeyID,
 			nullBytes(resource.RefreshTokenCiphertext.Data),
+			resource.OAuthSessionCiphertext.KeyID,
+			nullBytes(resource.OAuthSessionCiphertext.Data),
+			resource.Binding.Issuer,
+			resource.Binding.ResourceServer,
+			resource.Binding.Subject,
+			resource.RefreshTokenMode,
 			resource.TokenExpiresAt,
 		); err != nil {
 			return err
@@ -274,7 +303,10 @@ func (repository *PostgresRepository) Connect(
 				remote_id, resource_type, account_type, display_name, handle,
 				picture_url, scopes, access_token_key_id,
 				access_token_ciphertext, refresh_token_key_id,
-				refresh_token_ciphertext, token_expires_at, selected_at
+				refresh_token_ciphertext,
+				oauth_session_key_id, oauth_session_ciphertext,
+				oauth_issuer, oauth_resource_server, oauth_subject,
+				refresh_token_mode, token_expires_at, selected_at
 			FROM f05_selection_resources
 			WHERE selection_id = $1 AND remote_id = $2
 			FOR UPDATE`,
@@ -320,8 +352,14 @@ func (repository *PostgresRepository) Connect(
 				access_token_key_id = $8, access_token_ciphertext = $9,
 				refresh_token_key_id = NULLIF($10, ''),
 				refresh_token_ciphertext = $11, token_expires_at = $12,
-				refresh_locked_until = NULL, last_verified_at = $13,
-				connected_by_actor_id = $14, updated_at = $13,
+				oauth_session_key_id = NULLIF($13, ''),
+				oauth_session_ciphertext = $14, oauth_issuer = $15,
+				oauth_resource_server = $16, oauth_subject = $17,
+				refresh_token_mode = $18,
+				refresh_locked_until = NULL, session_locked_until = NULL,
+				session_lock_id = NULL, session_refreshing = false,
+				last_verified_at = $19,
+				connected_by_actor_id = $20, updated_at = $19,
 				revoked_at = NULL
 			WHERE id = $1`,
 			existing.ID,
@@ -336,6 +374,12 @@ func (repository *PostgresRepository) Connect(
 			resource.RefreshTokenCiphertext.KeyID,
 			nullBytes(resource.RefreshTokenCiphertext.Data),
 			resource.TokenExpiresAt,
+			resource.OAuthSessionCiphertext.KeyID,
+			nullBytes(resource.OAuthSessionCiphertext.Data),
+			resource.Binding.Issuer,
+			resource.Binding.ResourceServer,
+			resource.Binding.Subject,
+			normalizedRefreshTokenMode(resource.RefreshTokenMode),
 			command.Now,
 			command.ActorID,
 		)
@@ -350,12 +394,15 @@ func (repository *PostgresRepository) Connect(
 				account_type, display_name, handle, picture_url, scopes,
 				status, access_token_key_id, access_token_ciphertext,
 				refresh_token_key_id, refresh_token_ciphertext,
-				token_expires_at, last_verified_at, connected_by_actor_id,
-				created_at, updated_at
+				oauth_session_key_id, oauth_session_ciphertext,
+				oauth_issuer, oauth_resource_server, oauth_subject,
+				refresh_token_mode, token_expires_at, last_verified_at,
+				connected_by_actor_id, created_at, updated_at
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				'connected', $11, $12, NULLIF($13, ''), $14, $15,
-				$16, $17, $16, $16
+				'connected', $11, $12, NULLIF($13, ''), $14,
+				NULLIF($15, ''), $16, $17, $18, $19, $20,
+				$21, $22, $23, $22, $22
 			)`,
 			command.NewConnectionID,
 			command.WorkspaceID,
@@ -371,6 +418,12 @@ func (repository *PostgresRepository) Connect(
 			resource.AccessTokenCiphertext.Data,
 			resource.RefreshTokenCiphertext.KeyID,
 			nullBytes(resource.RefreshTokenCiphertext.Data),
+			resource.OAuthSessionCiphertext.KeyID,
+			nullBytes(resource.OAuthSessionCiphertext.Data),
+			resource.Binding.Issuer,
+			resource.Binding.ResourceServer,
+			resource.Binding.Subject,
+			normalizedRefreshTokenMode(resource.RefreshTokenMode),
 			resource.TokenExpiresAt,
 			command.Now,
 			command.ActorID,
@@ -594,6 +647,362 @@ func (repository *PostgresRepository) ReleaseRefresh(
 	return requireAffected(result)
 }
 
+func (repository *PostgresRepository) ClaimSession(
+	ctx context.Context,
+	workspaceID, connectionID string,
+	now, refreshAt time.Time,
+	lockTTL time.Duration,
+) (StoredCredential, bool, error) {
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted,
+	})
+	if err != nil {
+		return StoredCredential{}, false, err
+	}
+	defer transaction.Rollback()
+	stored, exists, err := selectCredential(
+		transaction.QueryRowContext(ctx, credentialSelect+`
+			WHERE workspace_id = $1 AND id = $2
+			FOR UPDATE`,
+			workspaceID,
+			connectionID,
+		),
+	)
+	if err != nil {
+		return StoredCredential{}, false, err
+	}
+	if !exists {
+		return StoredCredential{}, false, ErrResourceNotFound
+	}
+	if stored.Status == StatusReconnectRequired {
+		return StoredCredential{}, false, ErrReconnectRequired
+	}
+	if stored.Status == StatusRevoked {
+		return StoredCredential{}, false, ErrConnectionRevoked
+	}
+	if stored.SessionLockedUntil != nil {
+		if stored.SessionLockedUntil.After(now) {
+			return stored, false, ErrAuthenticatedRequestInProgress
+		}
+		if stored.SessionRefreshing &&
+			stored.RefreshTokenMode == RefreshTokenSingleUse {
+			return stored, false, ErrRefreshOutcomeUnknown
+		}
+	}
+	needsRefresh := stored.TokenExpiresAt != nil &&
+		!stored.TokenExpiresAt.After(refreshAt)
+	leaseID, err := randomOpaqueID(18)
+	if err != nil {
+		return StoredCredential{}, false, err
+	}
+	lockedUntil := now.Add(lockTTL)
+	if _, err = transaction.ExecContext(ctx, `
+		UPDATE f05_social_connections
+		SET
+			session_locked_until = $2,
+			session_lock_id = $3,
+			session_refreshing = $4
+		WHERE id = $1`,
+		connectionID,
+		lockedUntil,
+		leaseID,
+		needsRefresh,
+	); err != nil {
+		return StoredCredential{}, false, err
+	}
+	if err = transaction.Commit(); err != nil {
+		return StoredCredential{}, false, err
+	}
+	stored.SessionLockedUntil = &lockedUntil
+	stored.SessionLeaseID = leaseID
+	stored.SessionRefreshing = needsRefresh
+	return stored, needsRefresh, nil
+}
+
+func (repository *PostgresRepository) CompleteSession(
+	ctx context.Context,
+	command SessionCommand,
+) (Connection, error) {
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+	})
+	if err != nil {
+		return Connection{}, err
+	}
+	defer transaction.Rollback()
+	var scopes []byte
+	if command.UpdateCredential {
+		scopes, err = json.Marshal(command.Scopes)
+		if err != nil {
+			return Connection{}, err
+		}
+	}
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE f05_social_connections
+		SET
+			oauth_session_key_id = $3,
+			oauth_session_ciphertext = $4,
+			access_token_key_id = CASE WHEN $5
+				THEN $6 ELSE access_token_key_id END,
+			access_token_ciphertext = CASE WHEN $5
+				THEN $7 ELSE access_token_ciphertext END,
+			refresh_token_key_id = CASE WHEN $5
+				THEN NULLIF($8, '') ELSE refresh_token_key_id END,
+			refresh_token_ciphertext = CASE WHEN $5
+				THEN $9 ELSE refresh_token_ciphertext END,
+			scopes = CASE WHEN $5 THEN $10::jsonb ELSE scopes END,
+			token_expires_at = CASE WHEN $5 THEN $11 ELSE token_expires_at END,
+			last_verified_at = $12,
+			session_locked_until = NULL,
+			session_lock_id = NULL,
+			session_refreshing = false,
+			updated_at = $13
+		WHERE id = $1 AND status = 'connected'
+			AND session_lock_id = $2`,
+		command.ConnectionID,
+		command.SessionLeaseID,
+		command.OAuthSessionCiphertext.KeyID,
+		command.OAuthSessionCiphertext.Data,
+		command.UpdateCredential,
+		command.AccessTokenCiphertext.KeyID,
+		command.AccessTokenCiphertext.Data,
+		command.RefreshTokenCiphertext.KeyID,
+		nullBytes(command.RefreshTokenCiphertext.Data),
+		nullBytes(scopes),
+		command.ExpiresAt,
+		command.VerifiedAt,
+		command.Now,
+	)
+	if err != nil {
+		return Connection{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return Connection{}, err
+	}
+	if affected != 1 {
+		return Connection{}, ErrAuthenticatedRequestInProgress
+	}
+	if command.Event != nil {
+		if err = insertEvent(ctx, transaction, *command.Event); err != nil {
+			return Connection{}, err
+		}
+	}
+	connection, exists, err := selectConnectionByID(
+		ctx,
+		transaction,
+		command.ConnectionID,
+	)
+	if err != nil {
+		return Connection{}, err
+	}
+	if !exists {
+		return Connection{}, ErrResourceNotFound
+	}
+	if err = transaction.Commit(); err != nil {
+		return Connection{}, err
+	}
+	return connection, nil
+}
+
+func (repository *PostgresRepository) ReleaseSession(
+	ctx context.Context,
+	workspaceID, connectionID, leaseID string,
+) error {
+	result, err := repository.database.ExecContext(ctx, `
+		UPDATE f05_social_connections
+		SET
+			session_locked_until = NULL,
+			session_lock_id = NULL,
+			session_refreshing = false
+		WHERE workspace_id = $1 AND id = $2 AND session_lock_id = $3`,
+		workspaceID,
+		connectionID,
+		leaseID,
+	)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result)
+}
+
+func (repository *PostgresRepository) SaveLinkedInDMSGrant(
+	ctx context.Context,
+	grant StoredLinkedInDMSGrant,
+) error {
+	if !validStoredLinkedInDMSGrant(grant) {
+		return ErrInvalidArgument
+	}
+	result, err := repository.database.ExecContext(ctx, `
+		INSERT INTO f05_linkedin_dms_grants (
+			handle_hash, workspace_id, connection_id, provider,
+			evidence_key_id, evidence_ciphertext, state, lease_id,
+			locked_until, created_at, expires_at, uploaded_at, consumed_at
+		)
+		SELECT
+			$1, $2, connection.id, 'linkedin',
+			$4, $5, 'registered', '', NULL, $6, $7, NULL, NULL
+		FROM f05_social_connections connection
+		WHERE connection.id = $3
+		  AND connection.workspace_id = $2
+		  AND connection.provider = 'linkedin'
+		  AND connection.status = 'connected'`,
+		grant.HandleHash,
+		grant.WorkspaceID,
+		grant.ConnectionID,
+		grant.EvidenceCiphertext.KeyID,
+		grant.EvidenceCiphertext.Data,
+		grant.CreatedAt,
+		grant.ExpiresAt,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrInvalidState
+	}
+	return nil
+}
+
+func (repository *PostgresRepository) GetLinkedInDMSGrant(
+	ctx context.Context,
+	workspaceID, connectionID, handleHash string,
+	now time.Time,
+) (StoredLinkedInDMSGrant, error) {
+	grant, exists, err := selectLinkedInDMSGrant(
+		repository.database.QueryRowContext(ctx, `
+			SELECT
+				handle_hash, workspace_id, connection_id, provider,
+				evidence_key_id, evidence_ciphertext, state, lease_id,
+				locked_until, created_at, expires_at, uploaded_at, consumed_at
+			FROM f05_linkedin_dms_grants
+			WHERE handle_hash = $1
+			  AND workspace_id = $2
+			  AND connection_id = $3`,
+			handleHash,
+			workspaceID,
+			connectionID,
+		),
+	)
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	if !exists {
+		return StoredLinkedInDMSGrant{}, ErrResourceNotFound
+	}
+	if !now.Before(grant.ExpiresAt) {
+		return StoredLinkedInDMSGrant{}, ErrFlowExpired
+	}
+	return grant, nil
+}
+
+func (repository *PostgresRepository) TransitionLinkedInDMSGrant(
+	ctx context.Context,
+	command LinkedInDMSGrantTransition,
+) (StoredLinkedInDMSGrant, error) {
+	if !validLinkedInDMSGrantTransition(command) {
+		return StoredLinkedInDMSGrant{}, ErrInvalidArgument
+	}
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+	})
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	defer transaction.Rollback()
+	grant, exists, err := selectLinkedInDMSGrant(
+		transaction.QueryRowContext(ctx, `
+			SELECT
+				handle_hash, workspace_id, connection_id, provider,
+				evidence_key_id, evidence_ciphertext, state, lease_id,
+				locked_until, created_at, expires_at, uploaded_at, consumed_at
+			FROM f05_linkedin_dms_grants
+			WHERE handle_hash = $1
+			  AND workspace_id = $2
+			  AND connection_id = $3
+			FOR UPDATE`,
+			command.HandleHash,
+			command.WorkspaceID,
+			command.ConnectionID,
+		),
+	)
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	if !exists {
+		return StoredLinkedInDMSGrant{}, ErrResourceNotFound
+	}
+	if !command.Now.Before(grant.ExpiresAt) &&
+		command.ToState != LinkedInDMSGrantFailed &&
+		command.ToState != LinkedInDMSGrantConsumed {
+		return StoredLinkedInDMSGrant{}, ErrFlowExpired
+	}
+	if grant.State != command.FromState ||
+		grant.LeaseID != command.ExpectedLeaseID {
+		return StoredLinkedInDMSGrant{}, ErrInvalidState
+	}
+	if command.FromState == command.ToState {
+		if grant.LockedUntil == nil ||
+			grant.LockedUntil.After(command.Now) {
+			return StoredLinkedInDMSGrant{}, ErrAuthenticatedRequestInProgress
+		}
+	} else if command.FromState == LinkedInDMSGrantUploading ||
+		command.FromState == LinkedInDMSGrantCreating {
+		if grant.LockedUntil == nil ||
+			!command.Now.Before(*grant.LockedUntil) {
+			return StoredLinkedInDMSGrant{}, ErrAuthenticatedRequestInProgress
+		}
+	}
+	if _, err = transaction.ExecContext(ctx, `
+		UPDATE f05_linkedin_dms_grants
+		SET
+			state = $2,
+			lease_id = $3,
+			locked_until = $4,
+			uploaded_at = CASE
+				WHEN $2 = 'uploaded' THEN $5
+				ELSE uploaded_at
+			END,
+			consumed_at = CASE
+				WHEN $2 IN ('consumed', 'failed') THEN $5
+				ELSE consumed_at
+			END
+		WHERE handle_hash = $1`,
+		command.HandleHash,
+		command.ToState,
+		command.NewLeaseID,
+		command.NewLockedUntil,
+		command.Now,
+	); err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	grant, exists, err = selectLinkedInDMSGrant(
+		transaction.QueryRowContext(ctx, `
+			SELECT
+				handle_hash, workspace_id, connection_id, provider,
+				evidence_key_id, evidence_ciphertext, state, lease_id,
+				locked_until, created_at, expires_at, uploaded_at, consumed_at
+			FROM f05_linkedin_dms_grants
+			WHERE handle_hash = $1`,
+			command.HandleHash,
+		),
+	)
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	if !exists {
+		return StoredLinkedInDMSGrant{}, ErrInvalidState
+	}
+	if err = transaction.Commit(); err != nil {
+		return StoredLinkedInDMSGrant{}, err
+	}
+	return grant, nil
+}
+
 func (repository *PostgresRepository) MarkReconnectRequired(
 	ctx context.Context,
 	workspaceID, connectionID, reason string,
@@ -634,6 +1043,9 @@ func (repository *PostgresRepository) MarkReconnectRequired(
 			access_token_key_id = NULL, access_token_ciphertext = NULL,
 			refresh_token_key_id = NULL, refresh_token_ciphertext = NULL,
 			token_expires_at = NULL, refresh_locked_until = NULL,
+			oauth_session_key_id = NULL, oauth_session_ciphertext = NULL,
+			session_locked_until = NULL, session_lock_id = NULL,
+			session_refreshing = false,
 			updated_at = $3
 		WHERE id = $1`,
 		connectionID,
@@ -692,6 +1104,9 @@ func (repository *PostgresRepository) Revoke(
 			access_token_key_id = NULL, access_token_ciphertext = NULL,
 			refresh_token_key_id = NULL, refresh_token_ciphertext = NULL,
 			token_expires_at = NULL, refresh_locked_until = NULL,
+			oauth_session_key_id = NULL, oauth_session_ciphertext = NULL,
+			session_locked_until = NULL, session_lock_id = NULL,
+			session_refreshing = false,
 			revoked_at = $2, updated_at = $2
 		WHERE id = $1`,
 		connectionID,
@@ -712,13 +1127,55 @@ func (repository *PostgresRepository) Revoke(
 	return connection, true, nil
 }
 
+func selectLinkedInDMSGrant(
+	scanner rowScanner,
+) (StoredLinkedInDMSGrant, bool, error) {
+	var grant StoredLinkedInDMSGrant
+	var lockedUntil, uploadedAt, consumedAt sql.NullTime
+	err := scanner.Scan(
+		&grant.HandleHash,
+		&grant.WorkspaceID,
+		&grant.ConnectionID,
+		&grant.Provider,
+		&grant.EvidenceCiphertext.KeyID,
+		&grant.EvidenceCiphertext.Data,
+		&grant.State,
+		&grant.LeaseID,
+		&lockedUntil,
+		&grant.CreatedAt,
+		&grant.ExpiresAt,
+		&uploadedAt,
+		&consumedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoredLinkedInDMSGrant{}, false, nil
+	}
+	if err != nil {
+		return StoredLinkedInDMSGrant{}, false, err
+	}
+	if uploadedAt.Valid {
+		grant.UploadedAt = cloneTimePointer(&uploadedAt.Time)
+	}
+	if lockedUntil.Valid {
+		grant.LockedUntil = cloneTimePointer(&lockedUntil.Time)
+	}
+	if consumedAt.Valid {
+		grant.ConsumedAt = cloneTimePointer(&consumedAt.Time)
+	}
+	return grant, true, nil
+}
+
 const credentialSelect = `
 	SELECT
 		id, workspace_id, provider, remote_id, resource_type, account_type,
 		display_name, handle, picture_url, scopes, status, reconnect_reason,
 		access_token_key_id, access_token_ciphertext,
 		refresh_token_key_id, refresh_token_ciphertext,
-		token_expires_at, refresh_locked_until, last_verified_at,
+		oauth_session_key_id, oauth_session_ciphertext,
+		oauth_issuer, oauth_resource_server, oauth_subject,
+		refresh_token_mode, token_expires_at, refresh_locked_until,
+		session_locked_until, session_lock_id, session_refreshing,
+		last_verified_at,
 		connected_by_actor_id, created_at, updated_at, revoked_at
 	FROM f05_social_connections
 `
@@ -730,9 +1187,9 @@ type rowScanner interface {
 func selectCredential(scanner rowScanner) (StoredCredential, bool, error) {
 	var stored StoredCredential
 	var scopes []byte
-	var accessKey, refreshKey sql.NullString
-	var accessCiphertext, refreshCiphertext []byte
-	var tokenExpires, refreshLocked, verified, revoked sql.NullTime
+	var accessKey, refreshKey, sessionKey, sessionLeaseID sql.NullString
+	var accessCiphertext, refreshCiphertext, sessionCiphertext []byte
+	var tokenExpires, refreshLocked, sessionLocked, verified, revoked sql.NullTime
 	err := scanner.Scan(
 		&stored.ID,
 		&stored.WorkspaceID,
@@ -750,8 +1207,17 @@ func selectCredential(scanner rowScanner) (StoredCredential, bool, error) {
 		&accessCiphertext,
 		&refreshKey,
 		&refreshCiphertext,
+		&sessionKey,
+		&sessionCiphertext,
+		&stored.Binding.Issuer,
+		&stored.Binding.ResourceServer,
+		&stored.Binding.Subject,
+		&stored.RefreshTokenMode,
 		&tokenExpires,
 		&refreshLocked,
+		&sessionLocked,
+		&sessionLeaseID,
+		&stored.SessionRefreshing,
 		&verified,
 		&stored.ConnectedByActorID,
 		&stored.CreatedAt,
@@ -775,8 +1241,14 @@ func selectCredential(scanner rowScanner) (StoredCredential, bool, error) {
 		KeyID: refreshKey.String,
 		Data:  append([]byte(nil), refreshCiphertext...),
 	}
+	stored.OAuthSessionCiphertext = Ciphertext{
+		KeyID: sessionKey.String,
+		Data:  append([]byte(nil), sessionCiphertext...),
+	}
 	stored.TokenExpiresAt = nullableTimePointer(tokenExpires)
 	stored.RefreshLockedUntil = nullableTimePointer(refreshLocked)
+	stored.SessionLockedUntil = nullableTimePointer(sessionLocked)
+	stored.SessionLeaseID = sessionLeaseID.String
 	stored.LastVerifiedAt = nullableTimePointer(verified)
 	stored.RevokedAt = nullableTimePointer(revoked)
 	return stored, true, nil
@@ -787,8 +1259,8 @@ func selectSelectionResource(
 ) (StoredResource, sql.NullTime, error) {
 	var resource StoredResource
 	var scopes []byte
-	var refreshKey sql.NullString
-	var refreshCiphertext []byte
+	var refreshKey, sessionKey sql.NullString
+	var refreshCiphertext, sessionCiphertext []byte
 	var tokenExpires, selectedAt sql.NullTime
 	err := scanner.Scan(
 		&resource.Candidate.RemoteID,
@@ -802,6 +1274,12 @@ func selectSelectionResource(
 		&resource.AccessTokenCiphertext.Data,
 		&refreshKey,
 		&refreshCiphertext,
+		&sessionKey,
+		&sessionCiphertext,
+		&resource.Binding.Issuer,
+		&resource.Binding.ResourceServer,
+		&resource.Binding.Subject,
+		&resource.RefreshTokenMode,
 		&tokenExpires,
 		&selectedAt,
 	)
@@ -814,6 +1292,10 @@ func selectSelectionResource(
 	resource.RefreshTokenCiphertext = Ciphertext{
 		KeyID: refreshKey.String,
 		Data:  append([]byte(nil), refreshCiphertext...),
+	}
+	resource.OAuthSessionCiphertext = Ciphertext{
+		KeyID: sessionKey.String,
+		Data:  append([]byte(nil), sessionCiphertext...),
 	}
 	resource.TokenExpiresAt = nullableTimePointer(tokenExpires)
 	return resource, selectedAt, nil
@@ -870,6 +1352,13 @@ func nullBytes(value []byte) any {
 		return nil
 	}
 	return value
+}
+
+func normalizedRefreshTokenMode(mode RefreshTokenMode) RefreshTokenMode {
+	if mode == "" {
+		return RefreshTokenReusable
+	}
+	return mode
 }
 
 func requireAffected(result sql.Result) error {

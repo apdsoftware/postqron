@@ -26,10 +26,77 @@ Owner to name one exact remote resource before a connection exists. OAuth
 state is one-time, and PKCE is applied when the configured Meta flow supports
 it.
 
+`OAuthConfig.Scopes` always contains one entry per requested grant.
+`ScopeSeparator` controls only serialization of the outbound OAuth `scope`
+parameter: the zero value remains comma-delimited for exact compatibility with
+the existing Meta adapters, while `OAuthScopeSeparatorSpace` supports the
+individual scope sets used by X, LinkedIn, and Google.
+
 Access and refresh tokens are AES-256-GCM ciphertexts with random nonces,
 external key identifiers, and workspace/provider/resource-bound additional
 authenticated data. Plaintext tokens are never returned by list operations,
 events, API contracts, or persistence models.
+
+Dynamic OAuth providers use the optional `DynamicAdapter` contract. Public
+`Begin` accepts only a typed discovery value (`instance_origin`, `handle`,
+`did`, or `pds_origin`); reconnect never accepts a browser-supplied binding and
+derives it from the existing connection. The adapter returns opaque attempt
+and session state which F5 encrypts with issuer/resource/subject-bound AAD.
+PAR `request_uri`, PKCE material, DPoP private keys, Authorization Server and
+Resource Server nonces, and provider client credentials therefore remain
+encrypted and are never serialized by the API.
+
+Callback `iss`, discovered issuer/resource server (PDS), and token `sub` are
+canonicalized and compared exactly. Bluesky configuration is rejected unless
+it declares PAR, DPoP, issuer and subject binding, a single-use refresh-token
+mode, redirect rejection, per-request DNS validation/dial pinning, and bounded
+responses. Password and app-password variants do not exist in the contract.
+
+`Service.AuthenticatedRequest` is an internal service-to-service boundary; it
+has no HTTP route or OpenAPI operation. Callers provide only a relative path,
+bounded body, and non-authentication headers. Absolute or scheme-relative
+URLs, path traversal, encoded separators, and caller-controlled
+`Authorization`, `DPoP`, `Host`, or `Cookie` headers are rejected before an
+adapter is called. The adapter owns the bound resource-server origin, applies
+its no-redirect/DNS-pinned transport, creates a fresh proof (including `ath`
+for resource requests), and returns bounded response data without exposing
+tokens, nonces, proofs, or private keys.
+
+The LinkedIn DMS exception remains wholly inside F5. A dedicated initialize
+operation derives the LinkedIn person/organization owner from the connection,
+constructs and executes the exact relative API request itself, consumes the
+provider response immediately, and returns only a random opaque handle. F5
+stores the handle hash plus workspace/connection/provider binding, immutable
+server-derived expiry, lifecycle state, and an AEAD-encrypted payload
+containing the asset URN and exact signed URL/query. The generic executor
+rejects the whole LinkedIn images endpoint family and every media-create
+payload regardless of query, trailing slash, encoding, alternate path, or
+method. The handle boundary alone may use the exact canonical initialize,
+status, and `/rest/posts` create endpoints.
+
+Upload, asset status, and guarded create accept only that handle. A persisted
+CAS state machine uses expiring leases in the pre-call `uploading` and
+`creating` states, then clears the lease and moves to non-replayable
+`upload_sending` or `create_sending` immediately before the provider call.
+Expired pre-call work is reclaimed with CAS; a restart after a provider call
+returns an ambiguous result without replay. This prevents cross-workspace,
+cross-connection, concurrent, restart, and reuse attacks. The fixed
+`https://www.linkedin.com/dms-uploads/` origin is validated and DNS-pinned,
+while the opaque query is preserved byte-for-byte. Upload accepts only media
+`Content-Type`, derives the bearer inside F5, and streams a size-bounded
+SHA-256-verified body. Status returns only a normalized state; guarded create
+injects the encrypted asset URN server-side and requires `AVAILABLE`. No signed
+URL/query, asset URN, origin, token, provider response, expiry control, or
+session state crosses the F5 public boundary or appears in HTTP/OpenAPI.
+
+Each dynamic request holds a persistent, random lease ID for one connection.
+Nonce updates are saved under that lease, so concurrent or stale completions
+cannot overwrite newer session state. A successful single-use refresh is
+atomically persisted with the rotated refresh token and Authorization Server
+nonce before the Resource Server request starts. If the process dies after the
+refresh request may have consumed the token but before that commit, the
+`session_refreshing` marker survives lease expiry; the old token is never
+retried and the connection moves fail-closed to `reconnect_required`.
 
 Only `channels.manage` may start, select, reconnect, or revoke a channel.
 Workspace members with `workspace.view` can list safe connection state. Every
@@ -46,6 +113,9 @@ The authenticated runtime exposes:
 - explicit resource selection;
 - explicit reconnect start;
 - local revocation, plus provider revocation when it is safe for the grant.
+
+Providers may instead declare remote revocation as required; a remote failure
+then leaves local credentials and quota intact.
 
 All private routes read the account established by the shared API session
 middleware. The callback does not trust a browser identity: it consumes the
@@ -78,10 +148,17 @@ Provider availability is fail-closed. The binary `status` is `available` only
 when a verified adapter is mounted. The client-safe `configuration_state`
 distinguishes `not_configured`, `review_required`, `audit_required`, and
 `ready`; it never identifies which credential or secret is absent. Meta is
-`ready` only when the global flag is exactly `true`, the relevant App Review
+`ready` only when its provider flag is exactly `true`, the relevant App Review
 and runtime-audit flags are exactly `true`, its complete configuration is
 valid, and the external encryption key is a valid 32-byte key. Listing and
 local revocation remain usable when a provider is unavailable.
+
+The shared credential cipher is gated by exact
+`POSTQRON_F05_ENABLED=true`, independently of any provider family. For a safe
+rolling migration, an absent provider-neutral gate falls back to exact
+`POSTQRON_F05_META_ENABLED=true`; once `POSTQRON_F05_ENABLED` is present, its
+value is authoritative. The legacy flag remains the independent Meta adapter
+gate, so enabling the shared runtime cannot accidentally enable Meta.
 
 `providers` remains a two-entry Meta compatibility projection for the F30
 client shipped before #302. New clients consume `catalog`, whose version is
@@ -102,7 +179,8 @@ Runtime secret-store/environment keys:
 | Variable | Purpose |
 | --- | --- |
 | `POSTQRON_AUTH_ALLOWED_ORIGINS` | Comma-separated exact web origins allowed to make credentialed F5 requests, for example `https://postqron.com`; invalid or unlisted origins fail closed. |
-| `POSTQRON_F05_META_ENABLED` | Global fail-closed flag; only exact `true` enables adapters. |
+| `POSTQRON_F05_ENABLED` | Provider-neutral cipher/runtime gate; only exact `true` enables shared credential encryption. When absent, the legacy Meta gate supplies a migration-safe fallback. |
+| `POSTQRON_F05_META_ENABLED` | Meta adapter gate and legacy cipher fallback; only exact `true` enables Meta. |
 | `POSTQRON_F05_META_GRAPH_VERSION` | Explicit supported version such as `v25.0`. |
 | `POSTQRON_F05_CIPHER_KEY_ID` | External encryption-key identifier. |
 | `POSTQRON_F05_CIPHER_KEY_BASE64` | Base64-encoded 32-byte AES key. |
@@ -131,6 +209,15 @@ The preserved Meta adapter and fixtures are anchored to the official
 and [Instagram API with Instagram Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/)
 documentation. The runtime requires an explicit Graph version so a provider
 version change cannot happen silently.
+
+The dynamic contract is anchored to the official
+[Mastodon OAuth documentation](https://docs.joinmastodon.org/spec/oauth/),
+[AT Protocol OAuth profile](https://atproto.com/specs/oauth),
+[RFC 9449 DPoP](https://datatracker.ietf.org/doc/html/rfc9449),
+[RFC 9126 PAR](https://datatracker.ietf.org/doc/html/rfc9126),
+[RFC 9207 issuer identification](https://datatracker.ietf.org/doc/html/rfc9207),
+[RFC 8414 authorization-server metadata](https://datatracker.ietf.org/doc/html/rfc8414),
+and [RFC 7009 revocation](https://datatracker.ietf.org/doc/html/rfc7009).
 
 Before a new resource (or a previously revoked resource) is persisted, the
 service sends an atomic `channels +1` command to F10 using a server-generated

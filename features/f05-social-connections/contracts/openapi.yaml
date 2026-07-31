@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Postqron social connections API
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Provider-agnostic, Owner-controlled authorization, explicit resource
     selection, connection state, reconnection, and revocation. The bootstrap
@@ -9,7 +9,9 @@ info:
     adapter remain fail-closed. Token material is never part of this API.
     Browser responses use credentialed CORS for exact origins from
     POSTQRON_AUTH_ALLOWED_ORIGINS; mutation requests require an allowed Origin
-    and public OPTIONS operations serve preflight.
+    and public OPTIONS operations serve preflight. DPoP-authenticated provider
+    requests are an internal service boundary and are intentionally not
+    mounted as an HTTP endpoint.
 paths:
   /api/v1/workspaces/{workspace_id}/social-connections/bootstrap:
     get:
@@ -60,6 +62,8 @@ paths:
               properties:
                 provider:
                   $ref: "#/components/schemas/Provider"
+                discovery:
+                  $ref: "#/components/schemas/DiscoveryInput"
       responses:
         "201":
           description: One-time authorization created
@@ -103,6 +107,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: iss
+          in: query
+          description: >
+            Authorization Server issuer identifier. Required and compared
+            exactly after canonicalization when the provider profile mandates
+            RFC 9207 issuer identification.
+          schema:
+            type: string
+            format: uri
       responses:
         "200":
           description: Safe resource metadata awaiting explicit selection
@@ -241,6 +254,10 @@ paths:
     delete:
       operationId: revokeSocialConnection
       summary: Revoke locally, delete credentials, and revoke remotely when safe
+      description: >
+        Providers configured with remote-required revocation fail closed:
+        local credentials and quota remain unchanged unless remote revocation
+        succeeds.
       security:
         - session: []
       parameters:
@@ -257,6 +274,12 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "502":
+          description: Required remote revocation failed; local state is intact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           $ref: "#/components/responses/Error"
     options:
@@ -388,6 +411,11 @@ components:
         - resource_selection
         - token_refresh
         - remote_revocation
+        - dynamic_discovery
+        - par
+        - dpop
+        - access_token_hash
+        - authenticated_http
       properties:
         authorization:
           type: boolean
@@ -399,6 +427,35 @@ components:
           type: boolean
         remote_revocation:
           type: boolean
+        dynamic_discovery:
+          type: boolean
+        par:
+          type: boolean
+        dpop:
+          type: boolean
+        access_token_hash:
+          type: boolean
+          description: DPoP resource proofs include the access-token ath claim.
+        authenticated_http:
+          type: boolean
+          description: >
+            Available only to trusted server-side consumers; no public route
+            exposes access tokens, DPoP proofs, nonces, or private keys.
+    DiscoveryInput:
+      type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          enum: [instance_origin, handle, did, pds_origin]
+        value:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: >
+            Provider identifier used only for HTTPS/DNS-pinned discovery.
+            Passwords and app-passwords are not accepted.
     ResourceCapability:
       type: object
       additionalProperties: false

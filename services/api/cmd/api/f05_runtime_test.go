@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 func TestSocialConnectionsFactoryMountsRuntimeRoutes(t *testing.T) {
 	for _, key := range []string{
+		"POSTQRON_F05_ENABLED",
 		"POSTQRON_F05_META_ENABLED",
 		"POSTQRON_F05_META_GRAPH_VERSION",
 		"POSTQRON_F05_CIPHER_KEY_ID",
@@ -36,6 +38,14 @@ func TestSocialConnectionsFactoryMountsRuntimeRoutes(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	t.Setenv("POSTQRON_AUTH_ALLOWED_ORIGINS", "https://postqron.com")
+	t.Setenv("POSTQRON_F05_ENABLED", "true")
+	t.Setenv("POSTQRON_F05_CIPHER_KEY_ID", "runtime-fixture-key")
+	t.Setenv(
+		"POSTQRON_F05_CIPHER_KEY_BASE64",
+		base64.StdEncoding.EncodeToString(
+			[]byte("0123456789abcdef0123456789abcdef"),
+		),
+	)
 
 	database, err := openDatabase(
 		"postgres://unused:unused@127.0.0.1:1/unused?sslmode=disable",

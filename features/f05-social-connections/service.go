@@ -35,6 +35,7 @@ type Config struct {
 	Cipher           CredentialCipher
 	Quota            ChannelQuota
 	Adapters         map[Provider]Adapter
+	DynamicAdapters  map[Provider]DynamicAdapter
 	Availability     map[Provider]ProviderAvailability
 	Now              func() time.Time
 	AuthorizationTTL time.Duration
@@ -49,6 +50,7 @@ type Service struct {
 	cipher           CredentialCipher
 	quota            ChannelQuota
 	adapters         map[Provider]Adapter
+	dynamicAdapters  map[Provider]DynamicAdapter
 	availability     map[Provider]ProviderAvailability
 	now              func() time.Time
 	authorizationTTL time.Duration
@@ -65,12 +67,21 @@ func NewService(config Config) (*Service, error) {
 		)
 	}
 	adapters := make(map[Provider]Adapter, len(SupportedProviders))
+	dynamicAdapters := make(map[Provider]DynamicAdapter, len(SupportedProviders))
 	availability := make(
 		map[Provider]ProviderAvailability,
 		len(SupportedProviders),
 	)
 	for _, provider := range SupportedProviders {
 		adapter := config.Adapters[provider]
+		dynamicAdapter := config.DynamicAdapters[provider]
+		if adapter != nil && dynamicAdapter != nil {
+			return nil, fmt.Errorf(
+				"%w: %s cannot mount static and dynamic adapters together",
+				ErrInvalidArgument,
+				provider,
+			)
+		}
 		providerAvailability, declared := config.Availability[provider]
 		if !declared {
 			providerAvailability = ProviderAvailability{
@@ -79,7 +90,7 @@ func NewService(config Config) (*Service, error) {
 				ConfigurationState: ProviderNotConfigured,
 				Retryable:          false,
 			}
-			if adapter != nil {
+			if adapter != nil || dynamicAdapter != nil {
 				providerAvailability.Status = ProviderAvailable
 				providerAvailability.ConfigurationState = ProviderReady
 			}
@@ -106,7 +117,24 @@ func NewService(config Config) (*Service, error) {
 			}
 			adapters[provider] = adapter
 		}
-		if adapters[provider] == nil {
+		if dynamicAdapter != nil &&
+			providerAvailability.Status == ProviderAvailable &&
+			providerAvailability.ConfigurationState == ProviderReady {
+			if config.Cipher == nil {
+				return nil, fmt.Errorf(
+					"%w: credential cipher is required for configured adapters",
+					ErrInvalidArgument,
+				)
+			}
+			if err := validateDynamicOAuthConfig(
+				provider,
+				dynamicAdapter.DynamicConfig(),
+			); err != nil {
+				return nil, err
+			}
+			dynamicAdapters[provider] = dynamicAdapter
+		}
+		if adapters[provider] == nil && dynamicAdapters[provider] == nil {
 			providerAvailability.Status = ProviderUnavailable
 			providerAvailability.Retryable = false
 			if providerAvailability.ConfigurationState == ProviderReady {
@@ -140,6 +168,7 @@ func NewService(config Config) (*Service, error) {
 		cipher:           config.Cipher,
 		quota:            config.Quota,
 		adapters:         adapters,
+		dynamicAdapters:  dynamicAdapters,
 		availability:     availability,
 		now:              config.Now,
 		authorizationTTL: config.AuthorizationTTL,
@@ -167,13 +196,17 @@ func (service *Service) Bootstrap() ClientBootstrap {
 	}
 	for _, provider := range SupportedProviders {
 		availability := service.availability[provider]
+		capabilities := adapterCapabilities(service.adapters[provider])
+		if dynamic := service.dynamicAdapters[provider]; dynamic != nil {
+			capabilities = dynamicAdapterCapabilities(dynamic.DynamicConfig())
+		}
 		bootstrap.Catalog = append(bootstrap.Catalog, ProviderCatalogEntry{
 			Provider:           provider,
 			Status:             availability.Status,
 			ConfigurationState: availability.ConfigurationState,
 			Retryable:          availability.Retryable,
 			Resources:          providerResources(provider),
-			Capabilities:       adapterCapabilities(service.adapters[provider]),
+			Capabilities:       capabilities,
 		})
 	}
 	return bootstrap
@@ -203,9 +236,10 @@ func (service *Service) Begin(
 		return Authorization{}, fmt.Errorf("%w: workspace and actor are required", ErrInvalidArgument)
 	}
 	adapter, err := service.availableAdapter(request.Provider)
-	if err != nil {
+	dynamicAdapter, dynamicErr := service.availableDynamicAdapter(request.Provider)
+	if err != nil && dynamicErr != nil {
 		if slices.Contains(SupportedProviders, request.Provider) {
-			return Authorization{}, err
+			return Authorization{}, providerAvailabilityError(err, dynamicErr)
 		}
 		return Authorization{}, ErrUnsupportedProvider
 	}
@@ -216,6 +250,16 @@ func (service *Service) Begin(
 		PermissionManageChannels,
 	); err != nil {
 		return Authorization{}, err
+	}
+	if dynamicAdapter != nil {
+		return service.beginDynamic(ctx, request, dynamicAdapter)
+	}
+	if request.Discovery != (DiscoveryInput{}) ||
+		request.previousBinding != (OAuthBinding{}) {
+		return Authorization{}, fmt.Errorf(
+			"%w: provider does not accept dynamic discovery",
+			ErrInvalidArgument,
+		)
 	}
 
 	attemptID, err := randomOpaqueID(18)
@@ -280,6 +324,9 @@ func (service *Service) Callback(
 	}
 	if strings.TrimSpace(request.Code) == "" {
 		return Selection{}, fmt.Errorf("%w: authorization code is required", ErrInvalidArgument)
+	}
+	if dynamicAdapter := service.dynamicAdapters[attempt.Provider]; dynamicAdapter != nil {
+		return service.callbackDynamic(ctx, request, attempt, dynamicAdapter, now)
 	}
 	adapter, err := service.availableAdapter(attempt.Provider)
 	if err != nil {
@@ -495,9 +542,10 @@ func (service *Service) BeginReconnect(
 		return Authorization{}, ErrResourceAlreadyUsed
 	}
 	return service.Begin(ctx, BeginRequest{
-		WorkspaceID: request.WorkspaceID,
-		ActorID:     request.ActorID,
-		Provider:    stored.Provider,
+		WorkspaceID:     request.WorkspaceID,
+		ActorID:         request.ActorID,
+		Provider:        stored.Provider,
+		previousBinding: stored.Binding,
 	})
 }
 
@@ -523,6 +571,17 @@ func (service *Service) AccessToken(
 	ctx context.Context,
 	workspaceID, connectionID string,
 ) (string, error) {
+	storedBeforeClaim, err := service.repository.GetCredential(
+		ctx,
+		workspaceID,
+		connectionID,
+	)
+	if err != nil {
+		return "", err
+	}
+	if service.dynamicAdapters[storedBeforeClaim.Provider] != nil {
+		return "", ErrAuthenticatedRequestRequired
+	}
 	now := service.now().UTC()
 	stored, claimed, err := service.repository.ClaimRefresh(
 		ctx,
@@ -625,6 +684,9 @@ func (service *Service) Verify(
 	if stored.Status == StatusRevoked {
 		return ErrConnectionRevoked
 	}
+	if dynamic := service.dynamicAdapters[stored.Provider]; dynamic != nil {
+		return ErrAuthenticatedRequestRequired
+	}
 	adapter, availabilityErr := service.availableAdapter(stored.Provider)
 	if availabilityErr != nil {
 		return availabilityErr
@@ -669,18 +731,78 @@ func (service *Service) Revoke(
 	}
 	providerRevoked := false
 	adapter := service.adapters[stored.Provider]
+	dynamicAdapter := service.dynamicAdapters[stored.Provider]
+	dynamicLeaseClaimed := false
+	var remoteErr error
+	if stored.Status != StatusRevoked && dynamicAdapter != nil {
+		claimed, _, claimErr := service.repository.ClaimSession(
+			ctx,
+			workspaceID,
+			connectionID,
+			service.now().UTC(),
+			time.Time{},
+			service.refreshLockTTL,
+		)
+		if claimErr == nil {
+			stored = claimed
+			dynamicLeaseClaimed = true
+		} else if errors.Is(claimErr, ErrRefreshOutcomeUnknown) {
+			remoteErr = claimErr
+		} else {
+			return RevocationResult{}, claimErr
+		}
+	}
+	revocationPolicy := RevocationBestEffort
+	if dynamicAdapter != nil {
+		revocationPolicy = dynamicAdapter.DynamicConfig().RevocationPolicy
+	} else if reporter, ok := adapter.(AdapterRevocationPolicyReporter); ok {
+		revocationPolicy = reporter.RevocationPolicy()
+	}
 	if stored.Status != StatusRevoked &&
 		adapter != nil &&
 		service.cipher != nil &&
 		len(stored.AccessTokenCiphertext.Data) > 0 {
 		credential, openErr := service.openCredential(stored)
 		if openErr == nil {
-			providerRevoked = adapter.Revoke(
+			remoteErr = adapter.Revoke(
 				ctx,
 				stored.RemoteID,
 				credential,
-			) == nil
+			)
+			providerRevoked = remoteErr == nil
+		} else {
+			remoteErr = openErr
 		}
+	}
+	if stored.Status != StatusRevoked &&
+		dynamicAdapter != nil &&
+		remoteErr == nil &&
+		service.cipher != nil &&
+		len(stored.AccessTokenCiphertext.Data) > 0 {
+		session, openErr := service.openDynamicSession(stored)
+		if openErr != nil {
+			remoteErr = openErr
+		} else {
+			remoteErr = dynamicAdapter.RevokeDynamic(ctx, session)
+			providerRevoked = remoteErr == nil
+		}
+	}
+	if revocationPolicy == RevocationRemoteRequired &&
+		stored.Status != StatusRevoked &&
+		(!providerRevoked || remoteErr != nil) {
+		if dynamicLeaseClaimed {
+			_ = service.repository.ReleaseSession(
+				ctx,
+				workspaceID,
+				connectionID,
+				stored.SessionLeaseID,
+			)
+		}
+		return RevocationResult{}, fmt.Errorf(
+			"%w: %v",
+			ErrRemoteRevocationRequired,
+			remoteErr,
+		)
 	}
 	event, err := service.newEvent(
 		EventDisconnected,
@@ -692,6 +814,14 @@ func (service *Service) Revoke(
 		"",
 	)
 	if err != nil {
+		if dynamicLeaseClaimed {
+			_ = service.repository.ReleaseSession(
+				ctx,
+				workspaceID,
+				connectionID,
+				stored.SessionLeaseID,
+			)
+		}
 		return RevocationResult{}, err
 	}
 	connection, _, err := service.repository.Revoke(
@@ -702,6 +832,14 @@ func (service *Service) Revoke(
 		event,
 	)
 	if err != nil {
+		if dynamicLeaseClaimed {
+			_ = service.repository.ReleaseSession(
+				ctx,
+				workspaceID,
+				connectionID,
+				stored.SessionLeaseID,
+			)
+		}
 		return RevocationResult{}, err
 	}
 	decision, quotaErr := service.quota.ReleaseChannel(
@@ -903,7 +1041,7 @@ func buildAuthorizationURL(
 	query.Set("client_id", config.ClientID)
 	query.Set("redirect_uri", config.RedirectURL)
 	query.Set("response_type", "code")
-	query.Set("scope", strings.Join(config.Scopes, ","))
+	query.Set("scope", strings.Join(config.Scopes, oauthScopeSeparator(config)))
 	query.Set("state", state)
 	if config.SupportsPKCE {
 		query.Set("code_challenge", pkceChallenge(verifier))
@@ -928,6 +1066,15 @@ func validateOAuthConfig(provider Provider, config OAuthConfig) error {
 	}
 	if err := validateRequestedScopes(provider, config.Scopes); err != nil {
 		return err
+	}
+	switch config.ScopeSeparator {
+	case "", OAuthScopeSeparatorComma, OAuthScopeSeparatorSpace:
+	default:
+		return fmt.Errorf(
+			"%w: %s adapter uses an unsupported OAuth scope separator",
+			ErrInvalidArgument,
+			provider,
+		)
 	}
 	reserved := []string{
 		"client_id",
@@ -1000,6 +1147,13 @@ func validateRequestedScopes(provider Provider, scopes []string) error {
 				provider,
 			)
 		}
+		if len(strings.Fields(scope)) != 1 {
+			return fmt.Errorf(
+				"%w: %s adapter must represent scopes as individual entries",
+				ErrInvalidArgument,
+				provider,
+			)
+		}
 		if _, duplicate := seen[scope]; duplicate {
 			return fmt.Errorf(
 				"%w: %s adapter requests duplicate scope %s",
@@ -1023,6 +1177,13 @@ func validateRequestedScopes(provider Provider, scopes []string) error {
 		}
 	}
 	return nil
+}
+
+func oauthScopeSeparator(config OAuthConfig) string {
+	if config.ScopeSeparator == OAuthScopeSeparatorSpace {
+		return string(OAuthScopeSeparatorSpace)
+	}
+	return string(OAuthScopeSeparatorComma)
 }
 
 func isReconnectFailure(kind ProviderFailureKind) bool {
