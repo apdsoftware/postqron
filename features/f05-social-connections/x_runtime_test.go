@@ -423,74 +423,13 @@ func TestXFirstSmokeCanaryRejectsUnsafeConfiguration(t *testing.T) {
 func TestXFirstSmokeCanaryCompletesAuditedConnectAndCleanupWithoutPublishing(
 	t *testing.T,
 ) {
-	repository := NewMemoryRepository()
-	authorizer := &fakeAuthorizer{permissions: map[Permission]bool{
-		PermissionViewWorkspace:  true,
-		PermissionManageChannels: true,
-	}}
-	cipher, err := NewAESGCMCipher(
-		"fixture-key",
-		[]byte("0123456789abcdef0123456789abcdef"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
 	expiresAt := serviceTestNow.Add(time.Hour)
-	adapter := &fakeAdapter{
-		config: OAuthConfig{
-			ClientID:         "fixture-x-client",
-			AuthorizationURL: xOfficialAuthorizationURL,
-			RedirectURL:      "https://postqron.com/app/social-oauth/callback",
-			Scopes:           append([]string(nil), xRequiredScopes...),
-			ScopeSeparator:   OAuthScopeSeparatorSpace,
-			SupportsPKCE:     true,
-		},
-		grant: Credential{
-			AccessToken:  "fixture-x-access-token",
-			RefreshToken: "fixture-x-refresh-token",
-			ExpiresAt:    &expiresAt,
-			Scopes:       append([]string(nil), xRequiredScopes...),
-		},
-		resources: []DiscoveredResource{
-			{
-				Candidate: Candidate{
-					RemoteID:     "x-profile-1",
-					ResourceType: ResourceXProfile,
-					AccountType:  AccountTypeProfile,
-					DisplayName:  "Canary profile",
-				},
-				Credential: Credential{
-					AccessToken:  "fixture-x-access-token",
-					RefreshToken: "fixture-x-refresh-token",
-					ExpiresAt:    &expiresAt,
-					Scopes:       append([]string(nil), xRequiredScopes...),
-				},
-			},
-		},
-	}
-	service, err := NewService(Config{
-		Repository: repository,
-		Authorizer: authorizer,
-		Cipher:     cipher,
-		Quota:      newFakeChannelQuota(),
-		Availability: map[Provider]ProviderAvailability{
-			ProviderX: unavailableProvider(ProviderX, ProviderAuditRequired),
-		},
-		Now: func() time.Time { return serviceTestNow },
-		firstSmokeAdapters: map[Provider]Adapter{
-			ProviderX: adapter,
-		},
-		firstSmokeCanaries: map[Provider]firstSmokeCanary{
-			ProviderX: {
-				WorkspaceID:    "workspace-1",
-				ActorAccountID: "owner-1",
-				ExpiresAt:      expiresAt,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := newXFirstSmokeServiceFixture(
+		t,
+		func() time.Time { return serviceTestNow },
+		expiresAt,
+	)
+	service := fixture.service
 	selection := authorizeAndDiscover(t, service, ProviderX)
 	connection, err := service.Select(context.Background(), SelectRequest{
 		WorkspaceID: "workspace-1",
@@ -520,11 +459,310 @@ func TestXFirstSmokeCanaryCompletesAuditedConnectAndCleanupWithoutPublishing(
 	if !result.ProviderRevoked || result.Connection.Status != StatusRevoked {
 		t.Fatalf("canary revoke result = %#v", result)
 	}
-	if countEvents(repository.Events(), EventConnected) != 1 ||
-		countEvents(repository.Events(), EventDisconnected) != 1 {
-		t.Fatalf("canary audit events = %#v", repository.Events())
+	if countEvents(fixture.repository.Events(), EventConnected) != 1 ||
+		countEvents(fixture.repository.Events(), EventDisconnected) != 1 {
+		t.Fatalf("canary audit events = %#v", fixture.repository.Events())
 	}
-	if len(repository.attempts) != 1 {
-		t.Fatalf("canary OAuth attempts = %d, want 1", len(repository.attempts))
+	if len(fixture.repository.attempts) != 1 {
+		t.Fatalf("canary OAuth attempts = %d, want 1", len(fixture.repository.attempts))
+	}
+}
+
+func TestConfigureXFirstSmokeCanaryRetainsExpiredAdapterForCleanup(t *testing.T) {
+	cipher, err := NewAESGCMCipher(
+		"fixture-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := serviceTestNow.Add(-time.Minute)
+	adapter, canary, err := configureXFirstSmokeCanary(
+		xFirstSmokeRuntimeValues(expiresAt),
+		cipher,
+		serviceTestNow,
+	)
+	if err != nil {
+		t.Fatalf("expired canary runtime configuration = %v", err)
+	}
+	if adapter == nil || canary.ExpiresAt != expiresAt {
+		t.Fatalf("expired cleanup adapter = %T, policy = %#v", adapter, canary)
+	}
+}
+
+func TestXExpiredFirstSmokeCanaryDoesNotFailModuleConfigure(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	now := serviceTestNow
+	expiresAt := now.Add(time.Minute)
+	module := runtimeModuleFixture()
+	module.clock = func() time.Time { return now }
+	values := xFirstSmokeRuntimeValues(expiresAt)
+	values[configCipherKey] = key
+	if err := module.Configure(values); err != nil {
+		t.Fatalf("Configure() before canary expiry = %v", err)
+	}
+	now = expiresAt.Add(time.Minute)
+	if err := module.Configure(values); err != nil {
+		t.Fatalf("Configure() after canary expiry = %v", err)
+	}
+	if module.service.adapters[ProviderX] != nil ||
+		module.service.firstSmokeAdapters[ProviderX] == nil {
+		t.Fatalf(
+			"expired module adapters: normal=%T cleanup=%T",
+			module.service.adapters[ProviderX],
+			module.service.firstSmokeAdapters[ProviderX],
+		)
+	}
+	bootstrap, err := module.service.BootstrapForWorkspace(
+		context.Background(),
+		"workspace-1",
+		"owner-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := providerCatalogEntry(t, bootstrap, ProviderX)
+	if entry.Status != ProviderUnavailable ||
+		entry.ConfigurationState != ProviderAuditRequired {
+		t.Fatalf("expired module X entry = %#v", entry)
+	}
+	if _, err = module.service.Begin(context.Background(), BeginRequest{
+		WorkspaceID: "workspace-1",
+		ActorID:     "owner-1",
+		Provider:    ProviderX,
+	}); !errors.Is(err, ErrProviderAuditRequired) {
+		t.Fatalf("expired module Begin() error = %v", err)
+	}
+}
+
+func TestXFirstSmokeCanaryCatalogRequiresChannelManager(t *testing.T) {
+	expiresAt := serviceTestNow.Add(time.Hour)
+	fixture := newXFirstSmokeServiceFixture(
+		t,
+		func() time.Time { return serviceTestNow },
+		expiresAt,
+	)
+	fixture.authorizer.permissions[PermissionManageChannels] = false
+	bootstrap, err := fixture.service.BootstrapForWorkspace(
+		context.Background(),
+		"workspace-1",
+		"owner-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := providerCatalogEntry(t, bootstrap, ProviderX)
+	if entry.Status != ProviderUnavailable ||
+		entry.ConfigurationState != ProviderAuditRequired ||
+		entry.Capabilities != (AdapterCapabilities{}) {
+		t.Fatalf("view-only canary X entry = %#v", entry)
+	}
+}
+
+func TestXExpiredFirstSmokeCanaryRestartBlocksFlowsAndPreservesCleanup(
+	t *testing.T,
+) {
+	now := serviceTestNow
+	expiresAt := now.Add(time.Hour)
+	fixture := newXFirstSmokeServiceFixture(
+		t,
+		func() time.Time { return now },
+		expiresAt,
+	)
+	_, pendingState := beginAuthorization(t, fixture.service, ProviderX)
+	pendingSelection := authorizeAndDiscover(t, fixture.service, ProviderX)
+	connection := connectResource(
+		t,
+		fixture.service,
+		ProviderX,
+		"x-profile-1",
+	)
+
+	now = expiresAt.Add(time.Minute)
+	restarted := fixture.restart(t, func() time.Time { return now })
+	if restarted.adapters[ProviderX] != nil ||
+		restarted.firstSmokeAdapters[ProviderX] == nil {
+		t.Fatalf(
+			"restarted adapters: normal=%T cleanup=%T",
+			restarted.adapters[ProviderX],
+			restarted.firstSmokeAdapters[ProviderX],
+		)
+	}
+	bootstrap, err := restarted.BootstrapForWorkspace(
+		context.Background(),
+		"workspace-1",
+		"owner-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := providerCatalogEntry(t, bootstrap, ProviderX)
+	if entry.Status != ProviderUnavailable ||
+		entry.ConfigurationState != ProviderAuditRequired ||
+		entry.Capabilities != (AdapterCapabilities{}) {
+		t.Fatalf("restarted expired X entry = %#v", entry)
+	}
+	if _, err = restarted.Begin(context.Background(), BeginRequest{
+		WorkspaceID: "workspace-1",
+		ActorID:     "owner-1",
+		Provider:    ProviderX,
+	}); !errors.Is(err, ErrProviderAuditRequired) {
+		t.Fatalf("restarted Begin() error = %v", err)
+	}
+	if _, err = restarted.Callback(context.Background(), CallbackRequest{
+		State: pendingState,
+		Code:  "provider-code",
+	}); !errors.Is(err, ErrProviderAuditRequired) {
+		t.Fatalf("restarted Callback() error = %v", err)
+	}
+	if _, err = restarted.Select(context.Background(), SelectRequest{
+		WorkspaceID: "workspace-1",
+		ActorID:     "owner-1",
+		SelectionID: pendingSelection.ID,
+		RemoteID:    "x-profile-1",
+	}); !errors.Is(err, ErrProviderAuditRequired) {
+		t.Fatalf("restarted Select() error = %v", err)
+	}
+	if _, err = restarted.AccessToken(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	); !errors.Is(err, ErrProviderAuditRequired) {
+		t.Fatalf("restarted AccessToken() error = %v", err)
+	}
+	result, err := restarted.Revoke(
+		context.Background(),
+		"workspace-1",
+		"owner-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ProviderRevoked || result.Connection.Status != StatusRevoked {
+		t.Fatalf("restarted cleanup result = %#v", result)
+	}
+}
+
+type xFirstSmokeServiceFixture struct {
+	service    *Service
+	repository *MemoryRepository
+	authorizer *fakeAuthorizer
+	cipher     CredentialCipher
+	quota      *fakeChannelQuota
+	adapter    *fakeAdapter
+	expiresAt  time.Time
+}
+
+func newXFirstSmokeServiceFixture(
+	t *testing.T,
+	now func() time.Time,
+	expiresAt time.Time,
+) *xFirstSmokeServiceFixture {
+	t.Helper()
+	cipher, err := NewAESGCMCipher(
+		"fixture-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenExpiresAt := expiresAt.Add(time.Hour)
+	fixture := &xFirstSmokeServiceFixture{
+		repository: NewMemoryRepository(),
+		authorizer: &fakeAuthorizer{permissions: map[Permission]bool{
+			PermissionViewWorkspace:  true,
+			PermissionManageChannels: true,
+		}},
+		cipher:    cipher,
+		quota:     newFakeChannelQuota(),
+		expiresAt: expiresAt,
+		adapter: &fakeAdapter{
+			config: OAuthConfig{
+				ClientID:         "fixture-x-client",
+				AuthorizationURL: xOfficialAuthorizationURL,
+				RedirectURL:      "https://postqron.com/app/social-oauth/callback",
+				Scopes:           append([]string(nil), xRequiredScopes...),
+				ScopeSeparator:   OAuthScopeSeparatorSpace,
+				SupportsPKCE:     true,
+			},
+			grant: Credential{
+				AccessToken:  "fixture-x-access-token",
+				RefreshToken: "fixture-x-refresh-token",
+				ExpiresAt:    &tokenExpiresAt,
+				Scopes:       append([]string(nil), xRequiredScopes...),
+			},
+			resources: []DiscoveredResource{
+				{
+					Candidate: Candidate{
+						RemoteID:     "x-profile-1",
+						ResourceType: ResourceXProfile,
+						AccountType:  AccountTypeProfile,
+						DisplayName:  "Canary profile",
+					},
+					Credential: Credential{
+						AccessToken:  "fixture-x-access-token",
+						RefreshToken: "fixture-x-refresh-token",
+						ExpiresAt:    &tokenExpiresAt,
+						Scopes:       append([]string(nil), xRequiredScopes...),
+					},
+				},
+			},
+		},
+	}
+	fixture.service = fixture.restart(t, now)
+	return fixture
+}
+
+func (fixture *xFirstSmokeServiceFixture) restart(
+	t *testing.T,
+	now func() time.Time,
+) *Service {
+	t.Helper()
+	service, err := NewService(Config{
+		Repository: fixture.repository,
+		Authorizer: fixture.authorizer,
+		Cipher:     fixture.cipher,
+		Quota:      fixture.quota,
+		Availability: map[Provider]ProviderAvailability{
+			ProviderX: unavailableProvider(ProviderX, ProviderAuditRequired),
+		},
+		Now:              now,
+		AuthorizationTTL: 2 * time.Hour,
+		SelectionTTL:     2 * time.Hour,
+		firstSmokeAdapters: map[Provider]Adapter{
+			ProviderX: fixture.adapter,
+		},
+		firstSmokeCanaries: map[Provider]firstSmokeCanary{
+			ProviderX: {
+				WorkspaceID:    "workspace-1",
+				ActorAccountID: "owner-1",
+				ExpiresAt:      fixture.expiresAt,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("restart service: %v", err)
+	}
+	return service
+}
+
+func xFirstSmokeRuntimeValues(expiresAt time.Time) map[string]string {
+	return map[string]string{
+		configEnabled:          "true",
+		configCipherKeyID:      "fixture-key",
+		configXEnabled:         "true",
+		configXClientID:        "fixture-x-client",
+		configXClientSecret:    "fixture-x-client-secret",
+		configXRedirectURL:     "https://postqron.com/app/social-oauth/callback",
+		configXAccessApproved:  "true",
+		configXAuditVerified:   "true",
+		configXSmokeVerified:   "false",
+		configXCanaryEnabled:   "true",
+		configXCanaryWorkspace: "workspace-1",
+		configXCanaryActor:     "owner-1",
+		configXCanaryExpires:   expiresAt.Format(time.RFC3339),
 	}
 }

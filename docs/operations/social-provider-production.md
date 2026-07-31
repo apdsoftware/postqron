@@ -236,9 +236,11 @@ work is complete. The release workflow then:
 The first release uses the canary variables above and keeps
 `POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false`. X remains `audit_required` in the
 global catalog. Only the exact canary workspace and actor see X as available
-and may create an OAuth attempt before expiry; a mismatched or expired request
-is rejected. The attempt persists provider, workspace, actor, and timestamps,
-and connect/disconnect actions use the existing F5 event audit trail. F8 token
+while that actor still has Owner-equivalent channel-management permission, and
+may create an OAuth attempt before expiry. A mismatched, demoted, or expired
+request receives the normal `audit_required` catalog and cannot begin. The
+attempt persists provider, workspace, actor, and timestamps, and
+connect/disconnect actions use the existing F5 event audit trail. F8 token
 access/publishing remains unavailable until the normal smoke gate is true.
 
 The authorized canary Owner must then perform the real smoke test:
@@ -259,8 +261,11 @@ The authorized canary Owner must then perform the real smoke test:
 If any step fails, leave `POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false`, capture
 non-secret diagnostics privately, disconnect any created test channel, and let
 the canary expire. Expiry closes begin/callback/selection automatically;
-disconnect cleanup remains possible. Clear/disable the four canary variables
-before a later release.
+disconnect cleanup remains possible. An API restart with the expired runtime
+stays healthy and retains the X adapter only for cleanup/revocation; it does
+not mount normal X or reopen catalog, OAuth, selection, or token access. Deploy
+validation still rejects that expired timestamp for any new release. Clear or
+disable the four canary variables before a later release.
 
 Only after every step succeeds may an authorized operator set
 `POSTQRON_F05_X_SMOKE_TEST_VERIFIED=true`, set

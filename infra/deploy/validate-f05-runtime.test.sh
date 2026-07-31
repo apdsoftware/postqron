@@ -13,10 +13,12 @@ trap 'rm -rf "$temporary_dir"' EXIT
 cipher_key=$(printf '0123456789abcdef0123456789abcdef' | openssl base64 -A)
 callback=https://postqron.com/app/social-oauth/callback
 if canary_expires_at=$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null); then
+  canary_expired_at=$(date -u -d '-1 hour' '+%Y-%m-%dT%H:%M:%SZ')
   canary_too_long_at=$(date -u -d '+3 hours' '+%Y-%m-%dT%H:%M:%SZ')
   :
 else
   canary_expires_at=$(date -j -u -v+1H '+%Y-%m-%dT%H:%M:%SZ')
+  canary_expired_at=$(date -j -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')
   canary_too_long_at=$(date -j -u -v+3H '+%Y-%m-%dT%H:%M:%SZ')
 fi
 
@@ -283,6 +285,15 @@ sed -i.bak \
 expect_failure overlong-canary \
   "no more than two hours away" \
   "$overlong_canary"
+
+expired_canary="$temporary_dir/x-expired-canary.env"
+cp "$first_smoke_canary" "$expired_canary"
+sed -i.bak \
+  "s/$canary_expires_at/$canary_expired_at/" \
+  "$expired_canary"
+expect_failure expired-canary \
+  "must be in the future" \
+  "$expired_canary"
 
 partial="$temporary_dir/partial.env"
 write_base "$partial"

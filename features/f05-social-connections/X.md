@@ -76,8 +76,11 @@ and remote-revocation capabilities.
 
 The first-smoke canary does not change the global `audit_required` state. It
 mounts a separate adapter usable only by the exact workspace/actor before the
-short expiry. OAuth attempts and connect/disconnect actions retain their normal
-database audit evidence, while token access for publishing remains blocked.
+short expiry and only while that actor retains channel-management permission.
+OAuth attempts and connect/disconnect actions retain their normal database
+audit evidence, while token access for publishing remains blocked. A restart
+after expiry retains the adapter only for cleanup/revocation and keeps all new
+OAuth and token access closed.
 After a real successful smoke, remove the canary and set the normal smoke gate
 in a separately reviewed release. A verified gate and canary cannot coexist.
 

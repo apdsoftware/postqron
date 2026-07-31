@@ -132,10 +132,9 @@ func configureXFirstSmokeCanary(
 		expiresValue,
 	)
 	if err != nil || !strings.HasSuffix(expiresValue, "Z") ||
-		!expiresAt.After(now.UTC()) ||
 		expiresAt.After(now.UTC().Add(firstSmokeCanaryMaxTTL)) {
 		return nil, firstSmokeCanary{}, fmt.Errorf(
-			"%w: X first-smoke canary expiry must be UTC and within two hours",
+			"%w: X first-smoke canary expiry must be UTC and, while active, within two hours",
 			ErrInvalidArgument,
 		)
 	}

@@ -164,7 +164,8 @@ func NewService(config Config) (*Service, error) {
 				providerAvailability.ConfigurationState != ProviderAuditRequired ||
 				strings.TrimSpace(firstSmokePolicy.WorkspaceID) == "" ||
 				strings.TrimSpace(firstSmokePolicy.ActorAccountID) == "" ||
-				!firstSmokePolicy.ExpiresAt.After(configuredAt) ||
+				firstSmokePolicy.ExpiresAt.IsZero() ||
+				firstSmokePolicy.ExpiresAt.Location() != time.UTC ||
 				firstSmokePolicy.ExpiresAt.After(
 					configuredAt.Add(firstSmokeCanaryMaxTTL),
 				) {
@@ -278,6 +279,17 @@ func (service *Service) BootstrapForWorkspace(
 		)
 		if adapter == nil {
 			continue
+		}
+		if err := service.authorizer.Authorize(
+			ctx,
+			workspaceID,
+			actorID,
+			PermissionManageChannels,
+		); err != nil {
+			// Normal catalog discovery requires only view permission. A canary
+			// override is privileged and therefore stays hidden unless the exact
+			// configured actor is still an Owner-equivalent channel manager.
+			return bootstrap, nil
 		}
 		bootstrap.Catalog[index].Status = ProviderAvailable
 		bootstrap.Catalog[index].ConfigurationState = ProviderReady
