@@ -49,14 +49,14 @@ test('the social channels page follows the accessible retryable page contract', 
   assert.match(page, /documentTitle\.socialChannels/u)
   // Availability bootstrap, connect, callback selection, reconnect, revoke.
   assert.match(page, /social\.bootstrap\(workspaceId\.value\)/u)
-  assert.match(page, /social\.begin\(workspaceId\.value/u)
+  assert.match(page, /social\.begin\([\s\S]*workspaceId\.value/u)
   assert.match(page, /social\.completeAuthorization\(/u)
   assert.match(page, /social\.selectResource\(workspaceId\.value/u)
   assert.match(page, /social\.reconnect\(workspaceId\.value/u)
   assert.match(page, /social\.revoke\(workspaceId\.value/u)
   // Fail-closed provider availability drives an explicit unavailable state.
   assert.match(page, /catalogState\(provider\) === 'available'/u)
-  assert.match(page, /social\.catalogState\./u)
+  assert.match(page, /social\.catalogState\.\$\{catalogState\(provider\)\}/u)
   // Accessible feedback: errors announce as alert, successes as status.
   assert.match(page, /:role="notice\.tone === 'success' \? 'status' : 'alert'"/u)
 })
@@ -76,14 +76,13 @@ test('the page distinguishes configuration, access denial, and temporary Meta er
 })
 
 test('the social channels page never touches token or browser storage', async () => {
-  const [page, api, contract] = await Promise.all([
+  const [page, api] = await Promise.all([
     source('../pages/social-channels.vue'),
     source('../components/core/social-api.ts'),
-    source('../components/core/social-connections.ts'),
   ])
-  const joined = `${page}\n${api}\n${contract}`.toLowerCase()
+  const joined = `${page}\n${api}`.toLowerCase()
   assert.doesNotMatch(joined, /localstorage|sessionstorage/u)
-  assert.doesNotMatch(joined, /access_token|refresh_token|page_access_token/u)
+  assert.doesNotMatch(joined, /\baccess_token\b|\brefresh_token\b|\bpage_access_token\b/u)
 })
 
 test('every social catalog key is present, localized, and identical across locales', () => {

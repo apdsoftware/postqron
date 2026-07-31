@@ -2,13 +2,18 @@
 import {
   computed,
   definePageMeta,
+  navigateTo,
   nextTick,
   ref,
   useAsyncData,
   useHead,
   useRoute,
 } from '#imports'
-import { localeFromAppPath } from '../components/core/navigation.ts'
+import {
+  appRoute,
+  localeFromAppPath,
+} from '../components/core/navigation.ts'
+import { parseSocialCallbackDocument } from '../components/core/social-callback.ts'
 import {
   appStateKindFromError,
   useAppSessionState,
@@ -21,6 +26,8 @@ import { normalizeSocialApiError } from '../components/core/social-api.ts'
 import type {
   SocialBootstrap,
   SocialConnection,
+  SocialDiscoveryInput,
+  SocialDiscoveryInputKind,
   SocialProviderCatalogEntry,
   SocialProvider,
   SocialSelection,
@@ -35,16 +42,20 @@ const accountApi = useAppShellApi()
 const social = useSocialConnectionsApi()
 const session = useAppSessionState()
 const { t, locale: uiLocale } = useAppShellI18n()
+const locale = computed(() => localeFromAppPath(route.fullPath))
 
 const bootstrap = ref<SocialBootstrap>()
 const connections = ref<SocialConnection[]>()
 const selection = ref<SocialSelection>()
+const workspace = ref<Awaited<ReturnType<typeof accountApi.currentWorkspace>>>()
 const pageState = ref<'access-denied' | 'offline' | 'unavailable'>()
 const notice = ref<{
   tone: 'error' | 'success'
   key: AppShellMessageKey
   params?: Readonly<Record<string, string>>
 }>()
+const discoveryKinds = ref<Partial<Record<SocialProvider, SocialDiscoveryInputKind>>>({})
+const discoveryValues = ref<Partial<Record<SocialProvider, string>>>({})
 const connecting = ref<SocialProvider>()
 const reconnecting = ref<string>()
 const revoking = ref<string>()
@@ -56,6 +67,8 @@ const catalogHeading = ref<{
 }>()
 
 const workspaceId = computed(() => session.value?.current_workspace?.id ?? '')
+const canManageChannels = computed(() =>
+  workspace.value?.role === 'owner' && workspace.value?.status === 'active')
 
 useHead(computed(() => ({
   title: t('documentTitle.socialChannels'),
@@ -68,7 +81,11 @@ function queryString(value: unknown): string {
 // Every failure maps to a stable, retry-aware, fail-closed message. A code the
 // runtime has not declared collapses to the generic error, never to success.
 function socialErrorKey(error: unknown): AppShellMessageKey {
-  switch (normalizeSocialApiError(error).kind) {
+  const failure = normalizeSocialApiError(error)
+  if (failure.code === 'callback_handoff_unavailable') {
+    return 'social.errorCallbackHandoff'
+  }
+  switch (failure.kind) {
     case 'quota-exceeded':
       return 'social.errorQuota'
     case 'quota-unavailable':
@@ -119,8 +136,9 @@ function socialPageState(error: unknown): 'access-denied' | 'offline' | 'unavail
 async function processCallback() {
   const state = queryString(route.query.state)
   const code = queryString(route.query.code)
+  const issuer = queryString(route.query.iss)
   const providerError = queryString(route.query.error)
-  if (!state && !code && !providerError) {
+  if (!state && !code && !issuer && !providerError) {
     return
   }
   try {
@@ -128,11 +146,14 @@ async function processCallback() {
       state,
       code,
       error: providerError,
+      iss: issuer,
     })
     notice.value = undefined
   } catch (error) {
     selection.value = undefined
     notice.value = { tone: 'error', key: socialErrorKey(error) }
+  } finally {
+    await navigateTo(appRoute(locale.value, 'social-channels'), { replace: true })
   }
 }
 
@@ -141,8 +162,14 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
     if (!session.value) {
       session.value = await accountApi.session()
     }
-    bootstrap.value = await social.bootstrap(workspaceId.value)
-    connections.value = await social.list(workspaceId.value)
+    const [currentWorkspace, currentBootstrap, currentConnections] = await Promise.all([
+      accountApi.currentWorkspace(),
+      social.bootstrap(workspaceId.value),
+      social.list(workspaceId.value),
+    ])
+    workspace.value = currentWorkspace
+    bootstrap.value = currentBootstrap
+    connections.value = currentConnections
     pageState.value = undefined
     if (!callbackProcessed.value) {
       callbackProcessed.value = true
@@ -155,6 +182,14 @@ const { pending, refresh } = useAsyncData('postqron-social-channels', async () =
     return undefined
   }
 }, { server: false })
+
+function ensureManagePermission(): boolean {
+  if (canManageChannels.value) {
+    return true
+  }
+  notice.value = { tone: 'error', key: 'social.errorForbidden' }
+  return false
+}
 
 function reasonKey(connection: SocialConnection): AppShellMessageKey {
   return connection.reconnect_reason
@@ -203,20 +238,118 @@ function configurationMessage(provider: SocialProviderCatalogEntry): string {
   return t(`social.configuration.${provider.configuration_state}`)
 }
 
+function popupFeatures(): string {
+  return [
+    'popup=yes',
+    'width=560',
+    'height=720',
+    'resizable=yes',
+    'scrollbars=yes',
+  ].join(',')
+}
+
+function callbackPopup(): Window | null {
+  if (!import.meta.client) {
+    return null
+  }
+  return globalThis.open('', 'postqron-social-authorization', popupFeatures())
+}
+
+function discoveryInput(
+  provider: SocialProviderCatalogEntry,
+): SocialDiscoveryInput | undefined {
+  if (!provider.capabilities.dynamic_discovery) {
+    return undefined
+  }
+  const kind = discoveryKinds.value[provider.provider]
+  const value = discoveryValues.value[provider.provider]?.trim()
+  if (!kind || !value) {
+    notice.value = { tone: 'error', key: 'social.errorDiscoveryRequired' }
+    return undefined
+  }
+  return { kind, value }
+}
+
+async function waitForSelection(windowHandle: Window): Promise<SocialSelection> {
+  return await new Promise((resolve, reject) => {
+    const deadline = Date.now() + 120_000
+    const timer = globalThis.setInterval(() => {
+      if (windowHandle.closed) {
+        globalThis.clearInterval(timer)
+        reject(normalizeSocialApiError({
+          data: {
+            code: 'popup_closed',
+            message: 'The social authorization window was closed.',
+            retryable: false,
+          },
+        }))
+        return
+      }
+      if (Date.now() > deadline) {
+        globalThis.clearInterval(timer)
+        windowHandle.close()
+        reject(normalizeSocialApiError({
+          data: {
+            code: 'callback_handoff_unavailable',
+            message: 'The callback response could not be handed back to the UI securely.',
+            retryable: false,
+          },
+        }))
+        return
+      }
+      try {
+        if (windowHandle.location.origin !== globalThis.location.origin
+          || windowHandle.location.pathname !== '/api/v1/social-authorizations/callback') {
+          return
+        }
+        const selectionDocument = windowHandle.document.body?.textContent ?? ''
+        const parsed = parseSocialCallbackDocument(selectionDocument)
+        globalThis.clearInterval(timer)
+        windowHandle.close()
+        resolve(parsed)
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'SecurityError') {
+          return
+        }
+        globalThis.clearInterval(timer)
+        windowHandle.close()
+        reject(error)
+      }
+    }, 250)
+  })
+}
+
 function openCatalog() {
   catalogHeading.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   void nextTick(() => catalogHeading.value?.focus())
 }
 
-async function connect(provider: SocialProvider) {
-  connecting.value = provider
+async function connect(provider: SocialProviderCatalogEntry) {
+  if (!ensureManagePermission()) {
+    return
+  }
+  const popup = callbackPopup()
+  if (!popup) {
+    notice.value = { tone: 'error', key: 'social.errorPopupBlocked' }
+    return
+  }
+  connecting.value = provider.provider
   notice.value = undefined
   try {
-    const authorization = await social.begin(workspaceId.value, provider)
-    if (import.meta.client) {
-      globalThis.location.assign(authorization.authorization_url)
+    const discovery = discoveryInput(provider)
+    if (provider.capabilities.dynamic_discovery && !discovery) {
+      popup.close()
+      return
     }
+    const authorization = await social.begin(
+      workspaceId.value,
+      provider.provider,
+      discovery,
+    )
+    popup.location.assign(authorization.authorization_url)
+    selection.value = await waitForSelection(popup)
   } catch (error) {
+    popup.close()
     notice.value = { tone: 'error', key: socialErrorKey(error) }
   } finally {
     connecting.value = undefined
@@ -224,14 +357,22 @@ async function connect(provider: SocialProvider) {
 }
 
 async function reconnect(connection: SocialConnection) {
+  if (!ensureManagePermission()) {
+    return
+  }
+  const popup = callbackPopup()
+  if (!popup) {
+    notice.value = { tone: 'error', key: 'social.errorPopupBlocked' }
+    return
+  }
   reconnecting.value = connection.id
   notice.value = undefined
   try {
     const authorization = await social.reconnect(workspaceId.value, connection.id)
-    if (import.meta.client) {
-      globalThis.location.assign(authorization.authorization_url)
-    }
+    popup.location.assign(authorization.authorization_url)
+    selection.value = await waitForSelection(popup)
   } catch (error) {
+    popup.close()
     notice.value = { tone: 'error', key: socialErrorKey(error) }
   } finally {
     reconnecting.value = undefined
@@ -239,6 +380,9 @@ async function reconnect(connection: SocialConnection) {
 }
 
 async function selectResource(remoteId: string) {
+  if (!ensureManagePermission()) {
+    return
+  }
   const active = selection.value
   if (!active) {
     return
@@ -265,6 +409,9 @@ async function selectResource(remoteId: string) {
 }
 
 async function disconnect(connection: SocialConnection) {
+  if (!ensureManagePermission()) {
+    return
+  }
   revoking.value = connection.id
   notice.value = undefined
   try {
@@ -285,9 +432,6 @@ function cancelSelection() {
 async function retry() {
   await refresh()
 }
-
-// Only expose what belongs to the current locale's app routes.
-const locale = computed(() => localeFromAppPath(route.fullPath))
 </script>
 
 <template>
@@ -331,6 +475,12 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
     <p class="app-inline-note">
       {{ t('social.requirementsNote') }}
     </p>
+    <p
+      v-if="!canManageChannels"
+      class="app-inline-note"
+    >
+      {{ t('social.manageRestricted') }}
+    </p>
 
     <p
       v-if="notice"
@@ -369,7 +519,7 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
             <button
               class="pq-button"
               type="button"
-              :disabled="selecting === resource.remote_id"
+              :disabled="!canManageChannels || selecting === resource.remote_id"
               @click="selectResource(resource.remote_id)"
             >
               {{ selecting === resource.remote_id ? t('social.selecting') : t('social.select') }}
@@ -437,7 +587,7 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
                 v-if="connection.status === 'reconnect_required'"
                 class="pq-button"
                 type="button"
-                :disabled="reconnecting === connection.id"
+                :disabled="!canManageChannels || reconnecting === connection.id"
                 @click="reconnect(connection)"
               >
                 {{ reconnecting === connection.id ? t('social.reconnecting') : t('social.reconnect') }}
@@ -445,7 +595,7 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
               <button
                 class="pq-button pq-button--secondary"
                 type="button"
-                :disabled="revoking === connection.id"
+                :disabled="!canManageChannels || revoking === connection.id"
                 @click="disconnect(connection)"
               >
                 {{ revoking === connection.id ? t('social.disconnecting') : t('social.disconnect') }}
@@ -502,13 +652,38 @@ const locale = computed(() => localeFromAppPath(route.fullPath))
                 v-if="catalogState(provider) === 'available'"
                 class="pq-button"
                 type="button"
-                :disabled="connecting === provider.provider"
-                @click="connect(provider.provider)"
+                :disabled="!canManageChannels || connecting === provider.provider"
+                @click="connect(provider)"
               >
                 {{ connecting === provider.provider ? t('social.connecting') : t('social.connect') }}
               </button>
+              <fieldset
+                v-if="catalogState(provider) === 'available' && provider.capabilities.dynamic_discovery"
+                class="composer-provider-fields"
+              >
+                <legend>{{ t('social.discoveryLegend') }}</legend>
+                <label>
+                  <span>{{ t('social.discoveryKindLabel') }}</span>
+                  <select v-model="discoveryKinds[provider.provider]">
+                    <option value="">{{ t('social.chooseDiscoveryKind') }}</option>
+                    <option value="instance_origin">{{ t('social.discoveryKind.instance_origin') }}</option>
+                    <option value="handle">{{ t('social.discoveryKind.handle') }}</option>
+                    <option value="did">{{ t('social.discoveryKind.did') }}</option>
+                    <option value="pds_origin">{{ t('social.discoveryKind.pds_origin') }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>{{ t('social.discoveryValueLabel') }}</span>
+                  <input
+                    v-model="discoveryValues[provider.provider]"
+                    type="text"
+                    :placeholder="t('social.discoveryValuePlaceholder')"
+                  >
+                </label>
+                <small>{{ t('social.discoveryHelp') }}</small>
+              </fieldset>
               <span
-                v-else
+                v-if="catalogState(provider) !== 'available'"
                 class="app-field__help"
               >
                 {{ configurationMessage(provider) }}

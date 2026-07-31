@@ -90,6 +90,11 @@ export function socialBootstrapFixture(): SocialBootstrap {
         })),
         capabilities: {
           authorization: ready,
+          authenticated_http: ready,
+          access_token_hash: ready,
+          dpop: false,
+          dynamic_discovery: provider === 'mastodon' || provider === 'bluesky',
+          par: false,
           pkce: ready,
           resource_selection: ready,
           token_refresh: false,

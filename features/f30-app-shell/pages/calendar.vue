@@ -11,6 +11,11 @@ import {
 } from '#imports'
 import type { AppShellMessageKey } from '../components/core/catalogs.ts'
 import {
+  filterEntriesForVisibleMonth,
+  localCalendarDayKey,
+  paddedMonthRange,
+} from '../components/core/calendar-range.ts'
+import {
   SCHEDULING_STATUSES,
   type CalendarEntry,
   type DraftView,
@@ -67,22 +72,13 @@ const notice = ref<{ key: AppShellMessageKey, tone: 'error' | 'success' }>()
 const busyPost = ref<string>()
 const rescheduling = ref<CalendarEntry>()
 const rescheduleDateTime = ref('')
+const rescheduleTimeZone = ref('')
 const rescheduleOffset = ref('')
 
 useHead(computed(() => ({ title: t('documentTitle.calendar') })))
 
 const range = computed(() => {
-  const from = new Date(Date.UTC(
-    visibleMonth.value.getUTCFullYear(),
-    visibleMonth.value.getUTCMonth(),
-    1,
-  ))
-  const until = new Date(Date.UTC(
-    visibleMonth.value.getUTCFullYear(),
-    visibleMonth.value.getUTCMonth() + 1,
-    1,
-  ))
-  return { from: from.toISOString(), until: until.toISOString() }
+  return paddedMonthRange(visibleMonth.value)
 })
 
 function stateFromError(
@@ -137,7 +133,7 @@ const { pending, refresh } = useAsyncData('postqron-calendar', async () => {
   }
 }, { server: false })
 
-watch([range, channelFilter, statusFilter, workspaceId], () => void refresh())
+watch([range, channelFilter, statusFilter, timezone, workspaceId], () => void refresh())
 
 const monthLabel = computed(() => new Intl.DateTimeFormat(uiLocale.value, {
   month: 'long',
@@ -150,6 +146,11 @@ const calendarCells = computed(() => {
   const mondayOffset = (first.getUTCDay() + 6) % 7
   const start = new Date(first)
   start.setUTCDate(start.getUTCDate() - mondayOffset)
+  const monthEntries = filterEntriesForVisibleMonth(
+    entries.value ?? [],
+    visibleMonth.value,
+    timezone.value,
+  )
   return Array.from({ length: 42 }, (_, index) => {
     const date = new Date(start)
     date.setUTCDate(start.getUTCDate() + index)
@@ -158,12 +159,15 @@ const calendarCells = computed(() => {
       date,
       day,
       currentMonth: date.getUTCMonth() === visibleMonth.value.getUTCMonth(),
-      entries: (entries.value ?? []).filter(entry =>
-        dateKey(entry.scheduled_for_utc) === day,
+      entries: monthEntries.filter(entry =>
+        localCalendarDayKey(entry.scheduled_for_utc, timezone.value) === day,
       ),
     }
   })
 })
+
+const visibleEntries = computed(() =>
+  filterEntriesForVisibleMonth(entries.value ?? [], visibleMonth.value, timezone.value))
 
 const weekDays = computed(() => {
   const monday = new Date(Date.UTC(2026, 6, 27))
@@ -176,19 +180,6 @@ const weekDays = computed(() => {
     }).format(date)
   })
 })
-
-function dateKey(value: string): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    day: '2-digit',
-    month: '2-digit',
-    timeZone: timezone.value,
-    year: 'numeric',
-  })
-  const parts = Object.fromEntries(
-    formatter.formatToParts(new Date(value)).map(part => [part.type, part.value]),
-  )
-  return `${parts.year}-${parts.month}-${parts.day}`
-}
 
 function formatInstant(value: string): string {
   try {
@@ -260,7 +251,7 @@ function shiftMonth(amount: number) {
 }
 
 function canMutate(entry: CalendarEntry): boolean {
-  return entry.status === 'scheduled' || entry.status === 'failed'
+  return entry.status === 'scheduled'
 }
 
 async function edit(entry: CalendarEntry) {
@@ -289,11 +280,12 @@ async function duplicate(entry: CalendarEntry) {
 function openReschedule(entry: CalendarEntry) {
   rescheduling.value = entry
   rescheduleDateTime.value = entry.scheduled_local.slice(0, 16)
+  rescheduleTimeZone.value = entry.time_zone
   rescheduleOffset.value = String(entry.utc_offset_minutes)
 }
 
 function scheduleInput(): ScheduleInput | undefined {
-  if (!rescheduling.value || !rescheduleDateTime.value || !timezone.value.trim()) {
+  if (!rescheduling.value || !rescheduleDateTime.value || !rescheduleTimeZone.value.trim()) {
     notice.value = { tone: 'error', key: 'composer.scheduleRequired' }
     return undefined
   }
@@ -304,7 +296,7 @@ function scheduleInput(): ScheduleInput | undefined {
   }
   return {
     local_date_time: rescheduleDateTime.value,
-    time_zone: timezone.value.trim(),
+    time_zone: rescheduleTimeZone.value.trim(),
     ...(offset ? { utc_offset_minutes: Number(offset) } : {}),
   }
 }
@@ -491,6 +483,18 @@ async function cancel(entry: CalendarEntry) {
         >
       </label>
       <label>
+        <span>{{ t('composer.timezoneLabel') }}</span>
+        <select v-model="rescheduleTimeZone">
+          <option
+            v-for="zone in timezoneOptions"
+            :key="zone"
+            :value="zone"
+          >
+            {{ zone }}
+          </option>
+        </select>
+      </label>
+      <label>
         <span>{{ t('composer.offsetLabel') }}</span>
         <input
           v-model="rescheduleOffset"
@@ -519,7 +523,7 @@ async function cancel(entry: CalendarEntry) {
     </article>
 
     <article
-      v-if="(entries?.length ?? 0) === 0"
+      v-if="visibleEntries.length === 0"
       class="app-card calendar-empty"
     >
       <span class="app-card__eyebrow">{{ t('calendar.emptyEyebrow') }}</span>
@@ -558,6 +562,7 @@ async function cancel(entry: CalendarEntry) {
             :key="entry.post_id"
           >
             <button
+              v-if="canMutate(entry)"
               type="button"
               @click="edit(entry)"
             >
@@ -565,6 +570,14 @@ async function cancel(entry: CalendarEntry) {
               <strong>{{ draftText(entry.draft_id) }}</strong>
               <small>{{ t(`calendar.status.${entry.status}`) }}</small>
             </button>
+            <div
+              v-else
+              class="calendar-grid__entry"
+            >
+              <span>{{ formatTime(entry.scheduled_for_utc) }}</span>
+              <strong>{{ draftText(entry.draft_id) }}</strong>
+              <small>{{ t(`calendar.status.${entry.status}`) }}</small>
+            </div>
           </li>
         </ul>
       </section>
@@ -575,7 +588,7 @@ async function cancel(entry: CalendarEntry) {
       class="calendar-list"
     >
       <li
-        v-for="entry in entries"
+        v-for="entry in visibleEntries"
         :key="entry.post_id"
         class="app-card"
       >
@@ -609,6 +622,12 @@ async function cancel(entry: CalendarEntry) {
             </p>
           </li>
         </ul>
+        <p
+          v-if="!canMutate(entry)"
+          class="app-inline-note"
+        >
+          {{ t('calendar.readOnly') }}
+        </p>
         <div class="calendar-actions">
           <button
             v-if="canMutate(entry)"

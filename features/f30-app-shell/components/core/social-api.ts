@@ -11,12 +11,14 @@ import {
   parseSocialAuthorization,
   parseSocialBootstrap,
   parseSocialConnection,
+  parseSocialDiscoveryInput,
   parseSocialConnections,
   parseSocialRevocation,
   parseSocialSelection,
   type SocialAuthorization,
   type SocialBootstrap,
   type SocialConnection,
+  type SocialDiscoveryInput,
   type SocialProvider,
   type SocialRevocation,
   type SocialSelection,
@@ -127,9 +129,11 @@ const kindByCode: Readonly<Record<string, SocialApiErrorKind>> = {
   invalid_oauth_state: 'invalid-state',
   provider_denied: 'provider-denied',
   no_publishable_resources: 'no-resources',
+  popup_closed: 'invalid',
   resource_not_found: 'not-found',
   unauthenticated: 'session',
   invalid_request: 'invalid',
+  callback_handoff_unavailable: 'unavailable',
 }
 
 export function normalizeSocialApiError(error: unknown): SocialApiError {
@@ -232,12 +236,20 @@ export class SocialConnectionsApi {
   async begin(
     workspaceId: string,
     provider: SocialProvider,
+    discovery?: SocialDiscoveryInput,
   ): Promise<SocialAuthorization> {
     const workspace = requireWorkspace(workspaceId)
+    const body: {
+      discovery?: SocialDiscoveryInput
+      provider: SocialProvider
+    } = { provider }
+    if (discovery) {
+      body.discovery = parseSocialDiscoveryInput(discovery)
+    }
     return this.#parse(
       await this.#request(
         `/api/v1/workspaces/${workspace}/social-authorizations`,
-        { method: 'POST', body: { provider } },
+        { method: 'POST', body },
       ),
       parseSocialAuthorization,
     )
@@ -247,6 +259,7 @@ export class SocialConnectionsApi {
     state: string
     code: string
     error: string
+    iss?: string
   }): Promise<SocialSelection> {
     const query = new URLSearchParams()
     for (const [key, value] of Object.entries(parameters)) {

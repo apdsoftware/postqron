@@ -26,6 +26,11 @@ export type SocialConfigurationState =
   | 'audit_required'
   | 'ready'
 export type SocialPublishingMode = 'auto' | 'notification'
+export type SocialDiscoveryInputKind =
+  | 'instance_origin'
+  | 'handle'
+  | 'did'
+  | 'pds_origin'
 export type SocialResourceType =
   | 'facebook_page'
   | 'facebook_group'
@@ -71,10 +76,20 @@ export interface SocialProviderAvailability {
 
 export interface SocialAdapterCapabilities {
   authorization: boolean
+  authenticated_http: boolean
+  access_token_hash: boolean
+  dpop: boolean
+  dynamic_discovery: boolean
+  par: boolean
   pkce: boolean
   resource_selection: boolean
   token_refresh: boolean
   remote_revocation: boolean
+}
+
+export interface SocialDiscoveryInput {
+  kind: SocialDiscoveryInputKind
+  value: string
 }
 
 export interface SocialResourceCapability {
@@ -175,6 +190,12 @@ const configurationStates = new Set<SocialConfigurationState>([
   'ready',
 ])
 const publishingModes = new Set<SocialPublishingMode>(['auto', 'notification'])
+const discoveryKinds = new Set<SocialDiscoveryInputKind>([
+  'instance_origin',
+  'handle',
+  'did',
+  'pds_origin',
+])
 const connectionStatuses = new Set<SocialConnectionStatus>([
   'connected',
   'reconnect_required',
@@ -297,6 +318,11 @@ function parseAdapterCapabilities(value: unknown): SocialAdapterCapabilities {
   }
   const names = [
     'authorization',
+    'authenticated_http',
+    'access_token_hash',
+    'dpop',
+    'dynamic_discovery',
+    'par',
     'pkce',
     'resource_selection',
     'token_refresh',
@@ -307,6 +333,11 @@ function parseAdapterCapabilities(value: unknown): SocialAdapterCapabilities {
   }
   return {
     authorization: value.authorization as boolean,
+    authenticated_http: value.authenticated_http as boolean,
+    access_token_hash: value.access_token_hash as boolean,
+    dpop: value.dpop as boolean,
+    dynamic_discovery: value.dynamic_discovery as boolean,
+    par: value.par as boolean,
     pkce: value.pkce as boolean,
     resource_selection: value.resource_selection as boolean,
     token_refresh: value.token_refresh as boolean,
@@ -392,6 +423,17 @@ export function parseSocialSelection(value: unknown): SocialSelection {
     provider: value.provider as SocialProvider,
     resources: value.resources.map(parseSocialCandidate),
     expires_at: isoDateTime(value.expires_at, INVALID_SELECTION),
+  }
+}
+
+export function parseSocialDiscoveryInput(value: unknown): SocialDiscoveryInput {
+  if (!isRecord(value)
+    || !discoveryKinds.has(value.kind as SocialDiscoveryInputKind)) {
+    throw new Error(INVALID_AUTHORIZATION)
+  }
+  return {
+    kind: value.kind as SocialDiscoveryInputKind,
+    value: text(value.value, INVALID_AUTHORIZATION),
   }
 }
 

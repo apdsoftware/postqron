@@ -29,10 +29,15 @@ import {
   applyDestinationCapability,
   setDestinationField,
 } from '../components/core/editorial-form.ts'
+import { aggregateThreadConstraints } from '../components/core/editorial-thread.ts'
 import {
   immediateScheduleInput,
   submitScheduledDraft,
 } from '../components/core/editorial-submit.ts'
+import {
+  localizedValidationField,
+  localizedValidationMessage,
+} from '../components/core/editorial-validation.ts'
 import {
   appRoute,
   localeFromAppPath,
@@ -209,6 +214,28 @@ const activeConnections = computed(() =>
   (connections.value ?? []).filter(connection => connection.status === 'connected'),
 )
 
+const selectedCapabilities = computed(() =>
+  content.value.destinations
+    .map(destination =>
+      (capabilityCatalog.value?.capabilities ?? []).find(
+        capability => capability.id === destination.capability_id,
+      ))
+    .filter((capability): capability is ContentCapability => Boolean(capability)),
+)
+
+const threadConstraints = computed(() =>
+  aggregateThreadConstraints(selectedCapabilities.value))
+
+const threadVisible = computed(() =>
+  Boolean(threadConstraints.value) || content.value.thread.length > 0)
+
+const threadValidationErrors = computed(() =>
+  validationErrors().filter(error => error.field.startsWith('thread[')))
+
+const canAddThreadItem = computed(() =>
+  threadConstraints.value?.maximumItems === undefined
+  || content.value.thread.length < threadConstraints.value.maximumItems)
+
 function capabilitiesFor(connection: SocialConnection): ContentCapability[] {
   return (capabilityCatalog.value?.capabilities ?? [])
     .filter(capability =>
@@ -285,6 +312,53 @@ function updateProviderField(
   if (destination) {
     setDestinationField(destination, name, value)
   }
+}
+
+function addThreadItem() {
+  if (!canAddThreadItem.value) {
+    return
+  }
+  content.value.thread.push({ text: '', media_ids: [] })
+}
+
+function removeThreadItem(index: number) {
+  const minimum = threadConstraints.value?.minimumItems ?? 0
+  if (content.value.thread.length <= minimum) {
+    return
+  }
+  content.value.thread.splice(index, 1)
+}
+
+function toggleThreadMedia(
+  index: number,
+  mediaId: string,
+  selected: boolean,
+) {
+  const item = content.value.thread[index]
+  if (!item) {
+    return
+  }
+  if (!selected) {
+    item.media_ids = item.media_ids.filter(id => id !== mediaId)
+    return
+  }
+  if (item.media_ids.includes(mediaId)) {
+    return
+  }
+  if (threadConstraints.value?.maxMediaPerItem !== undefined
+    && item.media_ids.length >= threadConstraints.value.maxMediaPerItem) {
+    return
+  }
+  item.media_ids = [...item.media_ids, mediaId]
+}
+
+function threadMediaDisabled(index: number, mediaId: string): boolean {
+  const item = content.value.thread[index]
+  if (!item || item.media_ids.includes(mediaId)) {
+    return false
+  }
+  return threadConstraints.value?.maxMediaPerItem !== undefined
+    && item.media_ids.length >= threadConstraints.value.maxMediaPerItem
 }
 
 async function performPersist(autosave: boolean): Promise<DraftView | undefined> {
@@ -497,6 +571,14 @@ function validationErrors(destinationId?: string) {
       .flatMap(destination => destination.errors),
   ].filter(error => !destinationId || !error.destination_id || error.destination_id === destinationId)
 }
+
+function validationField(error: { field: string }): string {
+  return localizedValidationField(error.field, t)
+}
+
+function validationMessage(error: Parameters<typeof localizedValidationMessage>[0]): string {
+  return localizedValidationMessage(error, t)
+}
 </script>
 
 <template>
@@ -625,124 +707,239 @@ function validationErrors(destinationId?: string) {
           </ul>
         </article>
 
+        <article
+          v-if="threadVisible"
+          class="app-card"
+        >
+          <div class="app-card__header">
+            <span class="app-card__eyebrow">{{ t('composer.threadEyebrow') }}</span>
+            <h2>{{ t('composer.threadTitle') }}</h2>
+          </div>
+          <p>{{ t('composer.threadDescription') }}</p>
+          <fieldset
+            class="composer-thread"
+            :disabled="!threadConstraints"
+          >
+            <legend>{{ t('composer.threadLegend') }}</legend>
+            <p class="app-inline-note">
+              {{ t('composer.threadLimits', {
+                minimum: threadConstraints?.minimumItems ?? 0,
+                maximum: threadConstraints?.maximumItems ?? '∞',
+                characters: threadConstraints?.maxItemCharacters ?? '∞',
+                media: threadConstraints?.maxMediaPerItem ?? '∞',
+              }) }}
+            </p>
+            <p
+              v-if="content.thread.length === 0"
+              class="app-inline-note"
+            >
+              {{ t('composer.threadEmpty') }}
+            </p>
+            <ol class="composer-thread-list">
+              <li
+                v-for="(item, index) in content.thread"
+                :key="`thread-${index}`"
+                class="composer-thread-item"
+              >
+                <div class="composer-thread-item__header">
+                  <h3>{{ t('composer.threadItemTitle', { count: index + 1 }) }}</h3>
+                  <button
+                    class="pq-button pq-button--secondary"
+                    type="button"
+                    :disabled="!threadConstraints || content.thread.length <= threadConstraints.minimumItems"
+                    @click="removeThreadItem(index)"
+                  >
+                    {{ t('composer.removeThreadItem') }}
+                  </button>
+                </div>
+                <label>
+                  <span>{{ t('composer.threadTextLabel') }}</span>
+                  <textarea
+                    v-model="item.text"
+                    rows="4"
+                    :maxlength="threadConstraints?.maxItemCharacters"
+                    :placeholder="t('composer.threadTextPlaceholder')"
+                  />
+                </label>
+                <fieldset
+                  class="composer-thread-media"
+                  role="group"
+                >
+                  <legend>{{ t('composer.threadMediaLegend') }}</legend>
+                  <p
+                    v-if="content.media.length === 0"
+                    class="app-inline-note"
+                  >
+                    {{ t('composer.threadMediaEmpty') }}
+                  </p>
+                  <template v-else>
+                    <label
+                      v-for="media in content.media"
+                      :key="media.id"
+                      class="composer-thread-media__option"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="item.media_ids.includes(media.id)"
+                        :disabled="threadMediaDisabled(index, media.id)"
+                        @change="toggleThreadMedia(index, media.id, ($event.target as HTMLInputElement).checked)"
+                      >
+                      <span>
+                        <strong>{{ media.content_type }}</strong>
+                        <small>{{ Math.ceil(media.size_bytes / 1024) }} KB</small>
+                      </span>
+                    </label>
+                  </template>
+                </fieldset>
+              </li>
+            </ol>
+            <button
+              class="pq-button pq-button--secondary"
+              type="button"
+              :disabled="!threadConstraints || !canAddThreadItem"
+              @click="addThreadItem"
+            >
+              {{ t('composer.addThreadItem') }}
+            </button>
+          </fieldset>
+          <ul
+            v-if="threadValidationErrors.length"
+            class="composer-validation"
+            role="alert"
+          >
+            <li
+              v-for="error in threadValidationErrors"
+              :key="`${error.code}-${error.field}`"
+            >
+              <strong>{{ validationField(error) }}:</strong> {{ validationMessage(error) }}
+              <span v-if="error.remedy">{{ error.remedy }}</span>
+            </li>
+          </ul>
+        </article>
+
         <article class="app-card">
           <div class="app-card__header">
             <span class="app-card__eyebrow">{{ t('composer.destinationsEyebrow') }}</span>
             <h2>{{ t('composer.destinationsTitle') }}</h2>
           </div>
           <p>{{ t('composer.destinationsDescription') }}</p>
-          <ul class="composer-destinations">
-            <li
-              v-for="connection in activeConnections"
-              :key="connection.id"
-            >
-              <label class="composer-destination-toggle">
-                <input
-                  type="checkbox"
-                  :checked="Boolean(selectedDestination(connection.id))"
-                  :disabled="capabilitiesFor(connection).length === 0"
-                  @change="toggleDestination(connection, ($event.target as HTMLInputElement).checked)"
-                >
-                <span>
-                  <strong>{{ connection.display_name }}</strong>
-                  <small>
-                    {{ t(`social.provider.${connection.provider}`) }}
-                    <template v-if="connection.handle"> · @{{ connection.handle }}</template>
-                  </small>
-                </span>
-              </label>
-
-              <div
-                v-if="selectedDestination(connection.id)"
-                class="composer-personalization"
+          <fieldset class="composer-destination-fieldset">
+            <legend>{{ t('composer.destinationsLegend') }}</legend>
+            <ul class="composer-destinations">
+              <li
+                v-for="connection in activeConnections"
+                :key="connection.id"
               >
-                <label>
-                  <span>{{ t('composer.formatLabel') }}</span>
-                  <select
-                    :value="selectedDestination(connection.id)?.capability_id"
-                    @change="changeCapability(connection, ($event.target as HTMLSelectElement).value)"
+                <label class="composer-destination-toggle">
+                  <input
+                    type="checkbox"
+                    :checked="Boolean(selectedDestination(connection.id))"
+                    :disabled="capabilitiesFor(connection).length === 0"
+                    @change="toggleDestination(connection, ($event.target as HTMLInputElement).checked)"
                   >
-                    <option
-                      v-for="capability in capabilitiesFor(connection)"
-                      :key="capability.id"
-                      :value="capability.id"
-                    >
-                      {{ t(`composer.format.${capability.format}`) }}
-                    </option>
-                  </select>
+                  <span>
+                    <strong>{{ connection.display_name }}</strong>
+                    <small>
+                      {{ t(`social.provider.${connection.provider}`) }}
+                      <template v-if="connection.handle"> · @{{ connection.handle }}</template>
+                    </small>
+                  </span>
                 </label>
-                <fieldset
-                  v-if="(selectedCapability(connection)?.fields?.length ?? 0) > 0"
-                  class="composer-provider-fields"
+
+                <div
+                  v-if="selectedDestination(connection.id)"
+                  class="composer-personalization"
+                  role="group"
+                  :aria-label="connection.display_name"
                 >
-                  <legend>{{ t('composer.providerFieldsLegend') }}</legend>
-                  <label
-                    v-for="field in selectedCapability(connection)?.fields ?? []"
-                    :key="field.name"
-                  >
-                    <span>
-                      {{ field.name }}
-                      <template v-if="field.required">{{ t('composer.requiredField') }}</template>
-                    </span>
+                  <label>
+                    <span>{{ t('composer.formatLabel') }}</span>
                     <select
-                      v-if="field.allowed_values?.length"
-                      :value="selectedDestination(connection.id)?.fields?.[field.name] ?? ''"
-                      :required="field.required"
-                      @change="updateProviderField(connection.id, field.name, ($event.target as HTMLSelectElement).value)"
+                      :value="selectedDestination(connection.id)?.capability_id"
+                      @change="changeCapability(connection, ($event.target as HTMLSelectElement).value)"
                     >
-                      <option value="">{{ t('composer.chooseFieldValue') }}</option>
                       <option
-                        v-for="value in field.allowed_values"
-                        :key="value"
-                        :value="value"
+                        v-for="capability in capabilitiesFor(connection)"
+                        :key="capability.id"
+                        :value="capability.id"
                       >
-                        {{ value }}
+                        {{ t(`composer.format.${capability.format}`) }}
                       </option>
                     </select>
-                    <input
-                      v-else
-                      type="text"
-                      :value="selectedDestination(connection.id)?.fields?.[field.name] ?? ''"
-                      :required="field.required"
-                      :maxlength="field.max_length"
-                      @input="updateProviderField(connection.id, field.name, ($event.target as HTMLInputElement).value)"
-                    >
-                    <small v-if="field.max_length">
-                      {{ t('composer.maxCharacters', { count: field.max_length }) }}
-                    </small>
                   </label>
-                </fieldset>
-                <label>
-                  <span>{{ t('composer.personalizationLabel') }}</span>
-                  <textarea
-                    :value="selectedDestination(connection.id)?.text_override ?? ''"
-                    rows="3"
-                    :placeholder="t('composer.personalizationPlaceholder')"
-                    @input="personalize(connection.id, ($event.target as HTMLTextAreaElement).value)"
-                  />
-                </label>
-                <ul
-                  v-if="validationErrors(selectedDestination(connection.id)?.id).length"
-                  class="composer-validation"
-                  role="alert"
-                >
-                  <li
-                    v-for="error in validationErrors(selectedDestination(connection.id)?.id)"
-                    :key="`${error.code}-${error.field}`"
+                  <fieldset
+                    v-if="(selectedCapability(connection)?.fields?.length ?? 0) > 0"
+                    class="composer-provider-fields"
                   >
-                    <strong>{{ error.field }}:</strong> {{ error.message }}
-                    <span v-if="error.remedy">{{ error.remedy }}</span>
-                  </li>
-                </ul>
-              </div>
-              <p
-                v-else-if="capabilitiesFor(connection).length === 0"
-                class="app-inline-note"
-              >
-                {{ t('composer.destinationUnavailable') }}
-              </p>
-            </li>
-          </ul>
+                    <legend>{{ t('composer.providerFieldsLegend') }}</legend>
+                    <label
+                      v-for="field in selectedCapability(connection)?.fields ?? []"
+                      :key="field.name"
+                    >
+                      <span>
+                        {{ field.name }}
+                        <template v-if="field.required">{{ t('composer.requiredField') }}</template>
+                      </span>
+                      <select
+                        v-if="field.allowed_values?.length"
+                        :value="selectedDestination(connection.id)?.fields?.[field.name] ?? ''"
+                        :required="field.required"
+                        @change="updateProviderField(connection.id, field.name, ($event.target as HTMLSelectElement).value)"
+                      >
+                        <option value="">{{ t('composer.chooseFieldValue') }}</option>
+                        <option
+                          v-for="value in field.allowed_values"
+                          :key="value"
+                          :value="value"
+                        >
+                          {{ value }}
+                        </option>
+                      </select>
+                      <input
+                        v-else
+                        type="text"
+                        :value="selectedDestination(connection.id)?.fields?.[field.name] ?? ''"
+                        :required="field.required"
+                        :maxlength="field.max_length"
+                        @input="updateProviderField(connection.id, field.name, ($event.target as HTMLInputElement).value)"
+                      >
+                      <small v-if="field.max_length">
+                        {{ t('composer.maxCharacters', { count: field.max_length }) }}
+                      </small>
+                    </label>
+                  </fieldset>
+                  <label>
+                    <span>{{ t('composer.personalizationLabel') }}</span>
+                    <textarea
+                      :value="selectedDestination(connection.id)?.text_override ?? ''"
+                      rows="3"
+                      :placeholder="t('composer.personalizationPlaceholder')"
+                      @input="personalize(connection.id, ($event.target as HTMLTextAreaElement).value)"
+                    />
+                  </label>
+                  <ul
+                    v-if="validationErrors(selectedDestination(connection.id)?.id).length"
+                    class="composer-validation"
+                    role="alert"
+                  >
+                    <li
+                      v-for="error in validationErrors(selectedDestination(connection.id)?.id)"
+                      :key="`${error.code}-${error.field}`"
+                    >
+                      <strong>{{ validationField(error) }}:</strong> {{ validationMessage(error) }}
+                      <span v-if="error.remedy">{{ error.remedy }}</span>
+                    </li>
+                  </ul>
+                </div>
+                <p
+                  v-else-if="capabilitiesFor(connection).length === 0"
+                  class="app-inline-note"
+                >
+                  {{ t('composer.destinationUnavailable') }}
+                </p>
+              </li>
+            </ul>
+          </fieldset>
         </article>
       </div>
 
