@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type authenticatorStub struct {
@@ -46,14 +47,17 @@ func TestHTTPScheduleCalendarRescheduleAndCancel(t *testing.T) {
 			createdResponse.Body.String(),
 		)
 	}
-	var created ScheduledPost
+	var created ScheduledPostView
 	if err := json.Unmarshal(createdResponse.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
 	if created.ID == "" ||
-		created.ActiveCommandID == "" ||
 		!strings.HasSuffix(createdResponse.Header().Get("Location"), created.ID) {
 		t.Fatalf("created = %#v headers=%v", created, createdResponse.Header())
+	}
+	if strings.Contains(createdResponse.Body.String(), "active_command_id") ||
+		strings.Contains(createdResponse.Body.String(), "created_by") {
+		t.Fatalf("browser response exposed internal fields: %s", createdResponse.Body.String())
 	}
 
 	calendarResponse := performSchedulingRequest(
@@ -157,6 +161,45 @@ func TestHTTPRequiresAuthentication(t *testing.T) {
 	)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHTTPReturnsClientSafeDependencyUnavailable(t *testing.T) {
+	service, err := NewService(
+		NewMemoryRepository(),
+		authorizerStub{allowed: true},
+		unavailableContentGateway{},
+		WithClock(func() time.Time { return testNow }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHTTPHandler(service, authenticatorStub{accountID: "account-1"})
+	response := performSchedulingRequest(
+		handler,
+		http.MethodPost,
+		"/api/v1/workspaces/workspace-1/scheduled-posts",
+		`{
+			"draft_id":"draft-1",
+			"channel_ids":["channel-1"],
+			"scheduled_at":{
+				"local_date_time":"2026-07-25T10:00:00",
+				"time_zone":"UTC"
+			}
+		}`,
+	)
+	if response.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(
+			response.Body.String(),
+			`"code":"scheduling_dependency_unavailable"`,
+		) ||
+		!strings.Contains(response.Body.String(), `"retryable":true`) ||
+		strings.Contains(response.Body.String(), "validate draft") {
+		t.Fatalf(
+			"dependency response=%d body=%s",
+			response.Code,
+			response.Body.String(),
+		)
 	}
 }
 

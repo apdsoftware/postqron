@@ -3,12 +3,13 @@ package scheduling
 import "errors"
 
 var (
-	ErrInvalidArgument = errors.New("invalid scheduling argument")
-	ErrUnauthenticated = errors.New("authentication required")
-	ErrForbidden       = errors.New("operation forbidden")
-	ErrNotFound        = errors.New("scheduled post not found")
-	ErrConflict        = errors.New("scheduled post revision conflict")
-	ErrImmutable       = errors.New("scheduled post can no longer be changed")
+	ErrInvalidArgument       = errors.New("invalid scheduling argument")
+	ErrUnauthenticated       = errors.New("authentication required")
+	ErrForbidden             = errors.New("operation forbidden")
+	ErrNotFound              = errors.New("scheduled post not found")
+	ErrConflict              = errors.New("scheduled post revision conflict")
+	ErrImmutable             = errors.New("scheduled post can no longer be changed")
+	ErrDependencyUnavailable = errors.New("scheduling dependency unavailable")
 )
 
 type FieldError struct {

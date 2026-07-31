@@ -38,6 +38,12 @@ func TestAPIDockerfilePreservesCustomRuntimeFactories(t *testing.T) {
 	}
 	if !strings.Contains(
 		dockerfile,
+		"COPY features/f07-scheduling/go.mod features/f07-scheduling/go.sum features/f07-scheduling/",
+	) {
+		t.Fatal("API Dockerfile must copy f07 module files for the scheduling runtime factory")
+	}
+	if !strings.Contains(
+		dockerfile,
 		"COPY features/f31-admin-console/go.mod features/f31-admin-console/",
 	) {
 		t.Fatal("API Dockerfile must copy f31 go.mod so the runtime API can resolve admin-console")

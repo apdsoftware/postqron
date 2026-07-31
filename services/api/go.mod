@@ -6,6 +6,7 @@ require (
 	github.com/apdsoftware/postqron/features/f03-auth v0.0.0
 	github.com/apdsoftware/postqron/features/f04-workspaces v0.0.0
 	github.com/apdsoftware/postqron/features/f05-social-connections v0.0.0
+	github.com/apdsoftware/postqron/features/f07-scheduling v0.0.0
 	github.com/apdsoftware/postqron/features/f06-composer v0.0.0
 	github.com/apdsoftware/postqron/features/f10-entitlements v0.0.0
 	github.com/apdsoftware/postqron/features/f12-account-privacy v0.0.0
@@ -53,6 +54,7 @@ replace github.com/apdsoftware/postqron/features/f04-workspaces => ../../feature
 
 replace github.com/apdsoftware/postqron/features/f05-social-connections => ../../features/f05-social-connections
 
+replace github.com/apdsoftware/postqron/features/f07-scheduling => ../../features/f07-scheduling
 replace github.com/apdsoftware/postqron/features/f06-composer => ../../features/f06-composer
 
 replace github.com/apdsoftware/postqron/features/f10-entitlements => ../../features/f10-entitlements

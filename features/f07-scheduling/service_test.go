@@ -207,6 +207,16 @@ func TestScheduleEditRescheduleDuplicateAndCancelInvalidateCommands(t *testing.T
 		duplicateCommands[0].State != CommandPending {
 		t.Fatalf("duplicate commands = %#v, err = %v", duplicateCommands, err)
 	}
+	for _, command := range append(commands, duplicateCommands...) {
+		want := fmt.Sprintf("%s:%d", command.PostID, command.Generation)
+		if command.InvalidationKey != want {
+			t.Fatalf(
+				"command idempotency key = %q, want %q",
+				command.InvalidationKey,
+				want,
+			)
+		}
+	}
 	if len(content.validatedDraft) != 3 {
 		t.Fatalf("validated drafts = %#v", content.validatedDraft)
 	}

@@ -30,6 +30,7 @@ func TestRuntimeDiscoveryIncludesServicesSideAdapters(t *testing.T) {
 	for _, featureID := range []string{
 		"auth",
 		"workspaces",
+		"scheduling",
 		"f10-entitlements",
 		"account-privacy-runtime",
 		"app-shell",
