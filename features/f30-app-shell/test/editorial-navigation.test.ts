@@ -36,11 +36,31 @@ test('publish and calendar are localized private routes in every locale', async 
   assert.match(manifest, /- scheduling/u)
 })
 
-test('the authenticated shell exposes Publish, Calendar, and the global New post CTA', async () => {
+test('the authenticated shell exposes Publish, Calendar, and the sidebar New post CTA', async () => {
   const layout = await source('../layouts/app-shell.vue')
   assert.match(layout, /key: 'publish', href: appRoute\(locale\.value, 'publish'\)/u)
   assert.match(layout, /key: 'calendar', href: appRoute\(locale\.value, 'calendar'\)/u)
-  assert.match(layout, /class="pq-button product-topbar__primary"[\s\S]*shell\.newPost/u)
+  // The single New post CTA lives in the sidebar; it must still route to Publish.
+  assert.match(layout, /class="product-sidebar__primary"[\s\S]*'publish'[\s\S]*shell\.newPost/u)
+})
+
+test('the authenticated topbar drops the duplicate New post CTA and language switcher', async () => {
+  const layout = await source('../layouts/app-shell.vue')
+  // F30/#367: the topbar must not duplicate the sidebar New post CTA.
+  assert.doesNotMatch(layout, /product-topbar__primary/u)
+  // Language stays a Profile preference only; no topbar language switcher.
+  assert.doesNotMatch(layout, /PostqronLanguageSwitcher/u)
+  // The workspace-actions extension slot is preserved as an empty container.
+  assert.match(layout, /data-postqron-slot="workspace-actions"/u)
+})
+
+test('the Profile page remains the sole language preference control', async () => {
+  const profile = await source('../pages/profile.vue')
+  // The locale field renders as an editable select bound to the profile model.
+  assert.match(profile, /t\('profile\.locale'\)/u)
+  assert.match(profile, /<select[\s\S]*v-model="localeValue"[\s\S]*localeChoices/u)
+  // Saving the profile persists the chosen locale through the account API.
+  assert.match(profile, /api\.updateProfile\(\{[\s\S]*locale: localeValue\.value/u)
 })
 
 test('composer and calendar expose real loading, empty, access, offline, retry, and mutation states', async () => {

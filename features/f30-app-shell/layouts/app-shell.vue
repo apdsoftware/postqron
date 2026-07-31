@@ -269,16 +269,7 @@ async function logout() {
         <div
           class="product-topbar__actions"
           data-postqron-slot="workspace-actions"
-        >
-          <NuxtLink
-            class="pq-button product-topbar__primary"
-            :to="appRoute(locale, 'publish')"
-          >
-            <span aria-hidden="true">＋</span>
-            {{ t('shell.newPost') }}
-          </NuxtLink>
-          <PostqronLanguageSwitcher />
-        </div>
+        />
 
         <details class="profile-menu">
           <summary
