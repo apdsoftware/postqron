@@ -1,6 +1,7 @@
 package publishing
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
@@ -160,6 +161,18 @@ type PublishRequest struct {
 	Payload        json.RawMessage
 	Checkpoint     json.RawMessage
 	IdempotencyKey string
+	TIDAllocator   MonotonicTIDAllocator
+}
+
+// MonotonicTIDAllocator durably allocates an idempotent, strictly increasing
+// AT Protocol TID within a provider repository namespace.
+type MonotonicTIDAllocator interface {
+	AllocateMonotonicTID(
+		context.Context,
+		string,
+		string,
+		int64,
+	) (uint64, error)
 }
 
 type PublishResult struct {
@@ -186,6 +199,7 @@ type ReconcileRequest struct {
 	Payload        json.RawMessage
 	Checkpoint     json.RawMessage
 	IdempotencyKey string
+	TIDAllocator   MonotonicTIDAllocator
 }
 
 type ReconcileResult struct {

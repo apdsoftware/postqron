@@ -3,12 +3,142 @@ package publishing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestPostgresMonotonicTIDAllocatorCASAndRestart(t *testing.T) {
+	databaseURL := os.Getenv("F08_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("F08_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store, err := NewPostgresStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	repository := "did:plc:postgres" + strings.ReplaceAll(suffix, ".", "")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx,
+			"DELETE FROM f08_bluesky_tid_allocations WHERE repository = $1",
+			repository)
+		_, _ = pool.Exec(ctx,
+			"DELETE FROM f08_bluesky_tid_namespaces WHERE repository = $1",
+			repository)
+	})
+	physical := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC).UnixMicro()
+	exactCollisionKeys := []string{
+		"publish_c89c98f88e44e5bbd531ed13d967f34619c5fc0e6fe4711c7c517f3b2473308f",
+		"publish_8292a09311bfe2e4ca21ac76822f570371c77db6c8cb034fe53189d0e473308f",
+	}
+	first, err := store.AllocateMonotonicTID(
+		ctx, repository, exactCollisionKeys[0], physical,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AllocateMonotonicTID(
+		ctx, repository, exactCollisionKeys[1], physical,
+	)
+	if err != nil || second != first+1 {
+		t.Fatalf("collision allocation first=%d second=%d error=%v",
+			first, second, err)
+	}
+
+	// Reconstructing the store simulates a worker process restart. The
+	// idempotency mapping must be read from PostgreSQL, not process memory.
+	restarted, err := NewPostgresStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := restarted.AllocateMonotonicTID(
+		ctx, repository, exactCollisionKeys[0], physical,
+	)
+	if err != nil || replayed != first {
+		t.Fatalf("restart replay=%d first=%d error=%v", replayed, first, err)
+	}
+
+	const concurrent = 128
+	realServiceKeys := make([]string, 0, concurrent)
+	for index := 0; index < concurrent; index++ {
+		realServiceKeys = append(realServiceKeys, destinationIdempotencyKey(
+			fmt.Sprintf("command-cas-%d", index),
+			"channel-bluesky",
+			1,
+			strings.Repeat("c", 64),
+		))
+	}
+	start := make(chan struct{})
+	values := make(chan uint64, concurrent)
+	failures := make(chan error, concurrent)
+	var group sync.WaitGroup
+	for _, key := range realServiceKeys {
+		group.Add(1)
+		go func(key string) {
+			defer group.Done()
+			<-start
+			value, allocateErr := restarted.AllocateMonotonicTID(
+				ctx, repository, key, physical,
+			)
+			values <- value
+			failures <- allocateErr
+		}(key)
+	}
+	close(start)
+	group.Wait()
+	close(values)
+	close(failures)
+	for allocateErr := range failures {
+		if allocateErr != nil {
+			t.Fatal(allocateErr)
+		}
+	}
+	ordered := make([]uint64, 0, concurrent)
+	seen := make(map[uint64]struct{}, concurrent)
+	for value := range values {
+		if _, duplicate := seen[value]; duplicate {
+			t.Fatalf("duplicate PostgreSQL CAS allocation %d", value)
+		}
+		seen[value] = struct{}{}
+		ordered = append(ordered, value)
+	}
+	slices.Sort(ordered)
+	for index := 1; index < len(ordered); index++ {
+		if ordered[index] != ordered[index-1]+1 {
+			t.Fatalf("non-monotonic CAS sequence at %d: %d then %d",
+				index, ordered[index-1], ordered[index])
+		}
+	}
+	later, err := restarted.AllocateMonotonicTID(
+		ctx,
+		repository,
+		destinationIdempotencyKey(
+			"command-physical-later",
+			"channel-bluesky",
+			1,
+			strings.Repeat("c", 64),
+		),
+		physical+1,
+	)
+	if err != nil || later <= ordered[len(ordered)-1] ||
+		int64(later>>10) < physical+1 {
+		t.Fatalf("later=%d previous=%d error=%v",
+			later, ordered[len(ordered)-1], err)
+	}
+}
 
 func TestPostgresStorePersistsLeaseRemoteIDAndDeadLetter(t *testing.T) {
 	databaseURL := os.Getenv("F08_DATABASE_URL")

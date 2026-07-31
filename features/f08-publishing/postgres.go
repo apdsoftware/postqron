@@ -24,6 +24,87 @@ func NewPostgresStore(pool *pgxpool.Pool) (*PostgresStore, error) {
 	return &PostgresStore{pool: pool}, nil
 }
 
+func (store *PostgresStore) AllocateMonotonicTID(
+	ctx context.Context,
+	namespace, idempotencyKey string,
+	physicalMicroseconds int64,
+) (uint64, error) {
+	floor, err := monotonicTIDFloor(
+		namespace, idempotencyKey, physicalMicroseconds,
+	)
+	if err != nil {
+		return 0, err
+	}
+	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("begin Bluesky TID allocation: %w", err)
+	}
+	defer func() {
+		_ = transaction.Rollback(ctx)
+	}()
+	if _, err = transaction.Exec(ctx, `
+		INSERT INTO f08_bluesky_tid_namespaces (repository, last_tid)
+		VALUES ($1, -1)
+		ON CONFLICT (repository) DO NOTHING
+	`, strings.TrimSpace(namespace)); err != nil {
+		return 0, fmt.Errorf("initialize Bluesky TID namespace: %w", err)
+	}
+	var last int64
+	if err = transaction.QueryRow(ctx, `
+		SELECT last_tid
+		  FROM f08_bluesky_tid_namespaces
+		 WHERE repository = $1
+		 FOR UPDATE
+	`, strings.TrimSpace(namespace)).Scan(&last); err != nil {
+		return 0, fmt.Errorf("lock Bluesky TID namespace: %w", err)
+	}
+	var existing int64
+	err = transaction.QueryRow(ctx, `
+		SELECT tid
+		  FROM f08_bluesky_tid_allocations
+		 WHERE repository = $1
+		   AND idempotency_key = $2
+	`, strings.TrimSpace(namespace), strings.TrimSpace(idempotencyKey)).
+		Scan(&existing)
+	if err == nil {
+		if commitErr := transaction.Commit(ctx); commitErr != nil {
+			return 0, fmt.Errorf("commit idempotent Bluesky TID allocation: %w", commitErr)
+		}
+		return uint64(existing), nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("read Bluesky TID allocation: %w", err)
+	}
+	value := floor
+	if last >= 0 && value <= uint64(last) {
+		if uint64(last) == maxSignedTID {
+			return 0, fmt.Errorf("%w: Bluesky TID namespace exhausted", ErrConflict)
+		}
+		value = uint64(last) + 1
+	}
+	if _, err = transaction.Exec(ctx, `
+		INSERT INTO f08_bluesky_tid_allocations (
+			repository, idempotency_key, tid
+		)
+		VALUES ($1, $2, $3)
+	`, strings.TrimSpace(namespace), strings.TrimSpace(idempotencyKey),
+		int64(value)); err != nil {
+		return 0, mapPostgresError("insert Bluesky TID allocation", err)
+	}
+	if _, err = transaction.Exec(ctx, `
+		UPDATE f08_bluesky_tid_namespaces
+		   SET last_tid = $2,
+		       updated_at = now()
+		 WHERE repository = $1
+	`, strings.TrimSpace(namespace), int64(value)); err != nil {
+		return 0, fmt.Errorf("advance Bluesky TID namespace: %w", err)
+	}
+	if err = transaction.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit Bluesky TID allocation: %w", err)
+	}
+	return value, nil
+}
+
 func (store *PostgresStore) Enqueue(
 	ctx context.Context,
 	job Job,

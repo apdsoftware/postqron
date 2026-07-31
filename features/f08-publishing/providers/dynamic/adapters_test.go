@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -705,8 +704,13 @@ func mustBlueskyRKey(
 	idempotencyKey, createdAt string,
 ) string {
 	t.Helper()
+	allocator := publishing.NewMemoryStore()
 	value, err := blueskyRKey(
-		idempotencyKey, "did:plc:fixture123", createdAt,
+		context.Background(),
+		allocator,
+		"did:plc:fixture123",
+		createdAt,
+		idempotencyKey,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -724,22 +728,45 @@ func TestCanonicalReconciliationQueryIsRelativeAndEncoded(t *testing.T) {
 }
 
 func TestBlueskyDeterministicRKeyIsOfficialTID(t *testing.T) {
+	allocator := publishing.NewMemoryStore()
 	key := "publish_" + strings.Repeat("e", 64)
-	first := mustBlueskyRKey(t, key, "2026-07-30T12:00:00Z")
-	second := mustBlueskyRKey(t, key, "2026-07-30T12:00:00Z")
+	first, err := blueskyRKey(
+		context.Background(), allocator, "did:plc:fixture123",
+		"2026-07-30T12:00:00Z", key,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := blueskyRKey(
+		context.Background(), allocator, "did:plc:fixture123",
+		"2026-07-30T12:00:00Z", key,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if first != second || !atTIDPattern.MatchString(first) ||
 		len(first) != 13 {
 		t.Fatalf("deterministic TID first=%q second=%q", first, second)
 	}
-	different := mustBlueskyRKey(
-		t,
-		"publish_"+strings.Repeat("f", 64),
+	different, err := blueskyRKey(
+		context.Background(), allocator, "did:plc:fixture123",
 		"2026-07-30T12:00:00Z",
+		"publish_"+strings.Repeat("f", 64),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if different == first {
 		t.Fatalf("different idempotency keys produced TID %q", first)
 	}
-	later := mustBlueskyRKey(t, key, "2026-07-30T12:00:00.000001Z")
+	later, err := blueskyRKey(
+		context.Background(), allocator, "did:plc:fixture123",
+		"2026-07-30T12:00:00.000001Z",
+		"publish_"+strings.Repeat("d", 64),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if later <= first {
 		t.Fatalf("TID is not monotonic: later=%q first=%q", later, first)
 	}
@@ -747,8 +774,7 @@ func TestBlueskyDeterministicRKeyIsOfficialTID(t *testing.T) {
 		2026, 7, 30, 12, 0, 0, 0, time.UTC,
 	).UnixMicro()
 	logicalMicros := tidTimestampMicros(t, first)
-	if logicalMicros < createdAtMicros ||
-		logicalMicros-createdAtMicros >= (1<<20)+(1<<10) {
+	if logicalMicros != createdAtMicros {
 		t.Fatalf(
 			"TID %q logical timestamp=%d createdAt=%d",
 			first, logicalMicros, createdAtMicros,
@@ -1025,79 +1051,6 @@ func tidTimestampMicros(t *testing.T, value string) int64 {
 	return int64(decoded >> 10)
 }
 
-func TestBlueskyTIDSpecificCollisionAndSameInstantCardinality(t *testing.T) {
-	const (
-		repository = "did:plc:fixture123"
-		createdAt  = "2026-07-30T12:00:00Z"
-	)
-	key1 := "publish_" + strings.Repeat("0", 60) + "001d"
-	key2 := "publish_" + strings.Repeat("0", 60) + "0033"
-	first, err := blueskyRKey(key1, repository, createdAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := blueskyRKey(key2, repository, createdAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == second {
-		t.Fatalf("known collision retained TID %q", first)
-	}
-
-	const total = 10_000
-	seen := make(map[string]struct{}, total)
-	ordered := make([]string, 0, total)
-	physical := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC).UnixMicro()
-	for sequence := 0; sequence < total; sequence++ {
-		key := "publish_" + fmt.Sprintf("%064x", sequence)
-		tid, keyErr := blueskyRKey(key, repository, createdAt)
-		if keyErr != nil {
-			t.Fatal(keyErr)
-		}
-		if _, duplicate := seen[tid]; duplicate {
-			t.Fatalf("duplicate TID %q at sequence %d", tid, sequence)
-		}
-		logical := tidTimestampMicros(t, tid)
-		if logical < physical ||
-			logical-physical >= (1<<20)+(1<<10) {
-			t.Fatalf("TID %q escaped logical timestamp window", tid)
-		}
-		seen[tid] = struct{}{}
-		ordered = append(ordered, tid)
-	}
-	for index := 1; index < len(ordered); index++ {
-		if ordered[index] <= ordered[index-1] {
-			t.Fatalf("same-instant TID stream is not monotonic at %d", index)
-		}
-	}
-	sorted := slices.Clone(ordered)
-	slices.Sort(sorted)
-	if !slices.Equal(sorted, ordered) {
-		t.Fatal("TID lexical ordering does not match generation sequence")
-	}
-	next, err := blueskyRKey(
-		"publish_"+strings.Repeat("f", 64),
-		repository,
-		"2026-07-30T12:00:02Z",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if next <= ordered[len(ordered)-1] {
-		t.Fatalf("later physical timestamp %q <= same-instant max %q",
-			next, ordered[len(ordered)-1])
-	}
-	otherDestination, err := blueskyRKey(
-		key1, "did:plc:otherdestination", createdAt,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if otherDestination == first {
-		t.Fatal("destination was not bound into deterministic TID")
-	}
-}
-
 func TestBlueskyFormerTIDCollisionPublishesDistinctRecordsOnce(t *testing.T) {
 	var (
 		mu      sync.Mutex
@@ -1132,8 +1085,8 @@ func TestBlueskyFormerTIDCollisionPublishesDistinctRecordsOnce(t *testing.T) {
 	})
 	adapter := newBlueskyForTest(executor, nil)
 	keys := []string{
-		"publish_" + strings.Repeat("0", 60) + "001d",
-		"publish_" + strings.Repeat("0", 60) + "0033",
+		"publish_c89c98f88e44e5bbd531ed13d967f34619c5fc0e6fe4711c7c517f3b2473308f",
+		"publish_8292a09311bfe2e4ca21ac76822f570371c77db6c8cb034fe53189d0e473308f",
 	}
 	requests := make([]publishing.PublishRequest, len(keys))
 	for index, key := range keys {
@@ -1188,5 +1141,66 @@ func TestBlueskyFormerTIDCollisionPublishesDistinctRecordsOnce(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("URI %q created %d times", uri, count)
 		}
+	}
+}
+
+func TestBlueskyTIDAllocationSurvivesCrashBeforeCheckpoint(t *testing.T) {
+	allocator := publishing.NewMemoryStore()
+	var creates atomic.Int32
+	executor := executorFunc(func(
+		_ context.Context,
+		request socialconnections.PublishingRequest,
+	) (socialconnections.PublishingResponse, error) {
+		creates.Add(1)
+		var input struct {
+			Repository string `json:"repo"`
+			RKey       string `json:"rkey"`
+		}
+		if json.Unmarshal(request.Body, &input) != nil {
+			return socialconnections.PublishingResponse{},
+				errors.New("invalid createRecord body")
+		}
+		return socialconnections.PublishingResponse{
+			StatusCode: http.StatusOK,
+			Body: mustJSON(t, blueskyRecordEnvelope{
+				URI: blueskyURI(input.Repository, input.RKey),
+				CID: "bafyreicrashallocation",
+			}),
+		}, nil
+	})
+	request := publishing.PublishRequest{
+		WorkspaceID: "workspace", ConnectionID: "connection",
+		Payload: mustJSON(t, blueskyPayload{
+			Repository: "did:plc:fixture123",
+			Text:       "crash after allocation",
+			CreatedAt:  "2026-07-30T12:00:00Z",
+		}),
+		IdempotencyKey: "publish_" + strings.Repeat("7", 64),
+	}
+	firstProcess := newBlueskyForTest(executor, nil)
+	firstProcess.allocator = allocator
+	beforeCrash, err := firstProcess.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creates.Load() != 0 {
+		t.Fatal("createRecord ran before the allocated TID checkpoint")
+	}
+
+	secondProcess := newBlueskyForTest(executor, nil)
+	secondProcess.allocator = allocator
+	afterRestart, err := secondProcess.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(beforeCrash.Checkpoint, afterRestart.Checkpoint) {
+		t.Fatalf("checkpoint changed after restart: %s != %s",
+			beforeCrash.Checkpoint, afterRestart.Checkpoint)
+	}
+	request.Checkpoint = afterRestart.Checkpoint
+	complete, err := secondProcess.Publish(context.Background(), request)
+	if err != nil || !complete.Complete || creates.Load() != 1 {
+		t.Fatalf("complete=%+v creates=%d error=%v",
+			complete, creates.Load(), err)
 	}
 }

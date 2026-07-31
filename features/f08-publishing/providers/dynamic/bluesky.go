@@ -3,9 +3,6 @@ package dynamic
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -30,9 +27,10 @@ const (
 )
 
 type Bluesky struct {
-	executor authenticatedExecutor
-	media    MediaSource
-	identity ConnectionIdentityResolver
+	executor  authenticatedExecutor
+	media     MediaSource
+	identity  ConnectionIdentityResolver
+	allocator publishing.MonotonicTIDAllocator
 }
 
 func NewBluesky(
@@ -58,6 +56,7 @@ func newBlueskyForTest(
 		) (string, error) {
 			return "did:plc:fixture123", nil
 		}),
+		allocator: publishing.NewMemoryStore(),
 	}
 }
 
@@ -122,6 +121,17 @@ func (adapter *Bluesky) Publish(
 	); err != nil {
 		return publishing.PublishResult{}, err
 	}
+	if state.Step != "" {
+		if err = adapter.verifyRKey(
+			ctx,
+			adapter.tidAllocator(request),
+			payload,
+			request.IdempotencyKey,
+			state.RKey,
+		); err != nil {
+			return publishing.PublishResult{}, err
+		}
+	}
 	switch state.Step {
 	case "":
 		if !publishingKeyPattern.MatchString(request.IdempotencyKey) {
@@ -138,9 +148,11 @@ func (adapter *Bluesky) Publish(
 			return publishing.PublishResult{}, validationErr
 		}
 		state.RKey, err = blueskyRKey(
-			request.IdempotencyKey,
+			ctx,
+			adapter.tidAllocator(request),
 			payload.Repository,
 			payload.CreatedAt,
+			request.IdempotencyKey,
 		)
 		if err != nil {
 			return publishing.PublishResult{}, err
@@ -213,6 +225,22 @@ func (adapter *Bluesky) Reconcile(
 	if err != nil {
 		return publishing.ReconcileResult{}, err
 	}
+	if err = adapter.authorizeRepository(
+		ctx, request.WorkspaceID, request.ConnectionID, &payload,
+	); err != nil {
+		return publishing.ReconcileResult{}, err
+	}
+	if state.Step != "" {
+		if err = adapter.verifyRKey(
+			ctx,
+			adapter.reconcileTIDAllocator(request),
+			payload,
+			request.IdempotencyKey,
+			state.RKey,
+		); err != nil {
+			return publishing.ReconcileResult{}, err
+		}
+	}
 	if state.Step == "media_upload_pending" {
 		return publishing.ReconcileResult{
 			State:      publishing.ReconciliationUnknown,
@@ -223,11 +251,6 @@ func (adapter *Bluesky) Reconcile(
 		return publishing.ReconcileResult{
 			State: publishing.ReconciliationNotFound,
 		}, nil
-	}
-	if err = adapter.authorizeRepository(
-		ctx, request.WorkspaceID, request.ConnectionID, &payload,
-	); err != nil {
-		return publishing.ReconcileResult{}, err
 	}
 	values := url.Values{
 		"repo":       {payload.Repository},
@@ -436,15 +459,7 @@ func (adapter *Bluesky) input(
 		)
 	}
 	if state.Step != "" {
-		expectedRKey, keyErr := blueskyRKey(
-			request.IdempotencyKey,
-			payload.Repository,
-			payload.CreatedAt,
-		)
-		if keyErr != nil {
-			return payload, state, keyErr
-		}
-		if state.RKey != expectedRKey ||
+		if !publishingKeyPattern.MatchString(request.IdempotencyKey) ||
 			!atTIDPattern.MatchString(state.RKey) ||
 			!sameBlueskyCapabilities(
 				state.Capabilities,
@@ -595,7 +610,9 @@ func blueskyProgress(
 }
 
 func blueskyRKey(
-	idempotencyKey, repository, createdAt string,
+	ctx context.Context,
+	allocator publishing.MonotonicTIDAllocator,
+	repository, createdAt, idempotencyKey string,
 ) (string, error) {
 	if !publishingKeyPattern.MatchString(idempotencyKey) {
 		return "", permanent(
@@ -610,49 +627,38 @@ func blueskyRKey(
 			"Bluesky created_at is invalid.",
 		)
 	}
-	if !atDIDPattern.MatchString(repository) {
+	if !atDIDPattern.MatchString(repository) || allocator == nil {
 		return "", permanent(
 			"invalid_bluesky_payload",
 			"Bluesky repository is invalid.",
 		)
 	}
 	microseconds := timestamp.UTC().UnixMicro()
-	keyMaterial, decodeErr := hex.DecodeString(
-		strings.TrimPrefix(idempotencyKey, "publish_"),
+	value, allocationErr := allocator.AllocateMonotonicTID(
+		ctx, repository, idempotencyKey, microseconds,
 	)
-	if decodeErr != nil || len(keyMaterial) != sha256.Size {
-		return "", permanent(
-			"invalid_bluesky_idempotency",
-			"Bluesky idempotency key is invalid.",
+	if allocationErr != nil {
+		return "", temporary(
+			"bluesky_tid_allocation_unavailable",
+			"Bluesky record identifier could not be allocated.",
 		)
 	}
-	// A TID has only ten clock bits. Use a deterministic 30-bit logical
-	// sequence: the high 20 bits advance the physical createdAt by at most
-	// 1.048575 seconds and the low ten bits are the AT clock identifier. F8
-	// keys are already SHA-256 digests, so taking 30 digest bits preserves
-	// their entropy without collapsing them through a second 10-bit hash.
-	// A small destination-derived logical offset binds the generator to the
-	// repository while preserving the sequence order for that destination.
-	sequence := uint64(
-		binary.BigEndian.Uint32(keyMaterial[sha256.Size-4:]) &
-			((1 << 30) - 1),
-	)
-	destinationDigest := sha256.Sum256([]byte(repository))
-	destinationOffset := uint64(
-		binary.BigEndian.Uint16(destinationDigest[:2]) & ((1 << 10) - 1),
-	)
-	logicalMicroseconds := microseconds +
-		int64(sequence>>10) +
-		int64(destinationOffset)
-	if logicalMicroseconds < 0 ||
-		uint64(logicalMicroseconds) >= uint64(1)<<53 {
+	if value >= uint64(1)<<63 || int64(value>>10) < microseconds {
 		return "", permanent(
-			"invalid_bluesky_payload",
-			"Bluesky created_at cannot be represented as an AT Protocol TID.",
+			"invalid_bluesky_tid_allocation",
+			"Bluesky record identifier allocation is invalid.",
 		)
 	}
-	clockID := sequence & ((1 << 10) - 1)
-	value := uint64(logicalMicroseconds)<<10 | clockID
+	return encodeBlueskyTID(value)
+}
+
+func encodeBlueskyTID(value uint64) (string, error) {
+	if value >= uint64(1)<<63 {
+		return "", permanent(
+			"invalid_bluesky_tid_allocation",
+			"Bluesky record identifier allocation is invalid.",
+		)
+	}
 	const alphabet = "234567abcdefghijklmnopqrstuvwxyz"
 	encoded := [13]byte{}
 	for index := len(encoded) - 1; index >= 0; index-- {
@@ -667,6 +673,49 @@ func blueskyRKey(
 		)
 	}
 	return result, nil
+}
+
+func (adapter *Bluesky) tidAllocator(
+	request publishing.PublishRequest,
+) publishing.MonotonicTIDAllocator {
+	if request.TIDAllocator != nil {
+		return request.TIDAllocator
+	}
+	return adapter.allocator
+}
+
+func (adapter *Bluesky) reconcileTIDAllocator(
+	request publishing.ReconcileRequest,
+) publishing.MonotonicTIDAllocator {
+	if request.TIDAllocator != nil {
+		return request.TIDAllocator
+	}
+	return adapter.allocator
+}
+
+func (adapter *Bluesky) verifyRKey(
+	ctx context.Context,
+	allocator publishing.MonotonicTIDAllocator,
+	payload blueskyPayload,
+	idempotencyKey, checkpointRKey string,
+) error {
+	expected, err := blueskyRKey(
+		ctx,
+		allocator,
+		payload.Repository,
+		payload.CreatedAt,
+		idempotencyKey,
+	)
+	if err != nil {
+		return err
+	}
+	if checkpointRKey != expected {
+		return permanent(
+			"invalid_bluesky_checkpoint",
+			"Bluesky checkpoint does not match the durable TID allocation.",
+		)
+	}
+	return nil
 }
 
 func blueskyURI(repository, rkey string) string {
