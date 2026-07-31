@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type PostgresRepository struct {
@@ -475,6 +476,201 @@ func (repository *PostgresRepository) GetRevision(
 		return DraftRevision{}, fmt.Errorf("decode composer revision: %w", err)
 	}
 	return result, nil
+}
+
+func (repository *PostgresRepository) ReserveDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+	now time.Time,
+) (duplicateOperation, bool, error) {
+	inserted, err := repository.database.ExecContext(ctx, `
+		INSERT INTO f06_composer_duplicate_operations (
+			workspace_id, idempotency_key, source_draft_id, source_revision,
+			created_by_account_id, status, lease_generation, locked_until, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, 'pending', 1, $6, $7, $7)
+		ON CONFLICT (workspace_id, idempotency_key) DO NOTHING`,
+		operation.WorkspaceID,
+		operation.IdempotencyKey,
+		operation.SourceDraftID,
+		operation.SourceRevision,
+		operation.CreatedByAccount,
+		now.UTC().Add(duplicateOperationLease),
+		now.UTC(),
+	)
+	if err != nil {
+		return duplicateOperation{}, false, fmt.Errorf("reserve composer duplicate operation: %w", err)
+	}
+	owned := false
+	if affected, _ := inserted.RowsAffected(); affected == 1 {
+		owned = true
+	}
+	var stored duplicateOperation
+	var lockedUntil sql.NullTime
+	err = repository.database.QueryRowContext(ctx, `
+		SELECT workspace_id, idempotency_key, source_draft_id, source_revision,
+		       created_by_account_id, status, COALESCE(clone_draft_id, ''),
+		       COALESCE(clone_draft_revision, 0), lease_generation,
+		       locked_until,
+		       created_at, updated_at
+		  FROM f06_composer_duplicate_operations
+		 WHERE workspace_id = $1
+		   AND idempotency_key = $2`,
+		operation.WorkspaceID,
+		operation.IdempotencyKey,
+	).Scan(
+		&stored.WorkspaceID,
+		&stored.IdempotencyKey,
+		&stored.SourceDraftID,
+		&stored.SourceRevision,
+		&stored.CreatedByAccount,
+		&stored.Status,
+		&stored.CloneDraftID,
+		&stored.CloneDraftRevision,
+		&stored.LeaseGeneration,
+		&lockedUntil,
+		&stored.CreatedAt,
+		&stored.UpdatedAt,
+	)
+	if err != nil {
+		return duplicateOperation{}, false, fmt.Errorf("read composer duplicate operation: %w", err)
+	}
+	if stored.SourceDraftID != operation.SourceDraftID ||
+		stored.SourceRevision != operation.SourceRevision ||
+		stored.CreatedByAccount != operation.CreatedByAccount {
+		return duplicateOperation{}, false, ErrConflict
+	}
+	if lockedUntil.Valid {
+		stored.LockedUntil = lockedUntil.Time.UTC()
+	}
+	if stored.Status == duplicateOperationCompleted {
+		return stored, true, nil
+	}
+	if owned {
+		return stored, false, nil
+	}
+	tag, err := repository.database.ExecContext(ctx, `
+		UPDATE f06_composer_duplicate_operations
+		   SET lease_generation = lease_generation + 1,
+		       locked_until = $3,
+		       updated_at = $4
+		 WHERE workspace_id = $1
+		   AND idempotency_key = $2
+		   AND status = 'pending'
+		   AND locked_until <= $4`,
+		operation.WorkspaceID,
+		operation.IdempotencyKey,
+		now.UTC().Add(duplicateOperationLease),
+		now.UTC(),
+	)
+	if err != nil {
+		return duplicateOperation{}, false, fmt.Errorf("claim composer duplicate operation: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return duplicateOperation{}, false, ErrConflict
+	}
+	stored.LeaseGeneration++
+	stored.LockedUntil = now.UTC().Add(duplicateOperationLease)
+	stored.UpdatedAt = now.UTC()
+	return stored, false, nil
+}
+
+func (repository *PostgresRepository) CompleteDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+	cloneDraftID string,
+	cloneDraftRevision int64,
+	completedAt time.Time,
+) error {
+	tag, err := repository.database.ExecContext(ctx, `
+		UPDATE f06_composer_duplicate_operations
+		   SET status = 'completed',
+		       clone_draft_id = $3,
+		       clone_draft_revision = $4,
+		       locked_until = NULL,
+		       updated_at = $5
+		 WHERE workspace_id = $1
+		   AND idempotency_key = $2
+		   AND status = 'pending'
+		   AND lease_generation = $6`,
+		operation.WorkspaceID,
+		operation.IdempotencyKey,
+		cloneDraftID,
+		cloneDraftRevision,
+		completedAt.UTC(),
+		operation.LeaseGeneration,
+	)
+	if err != nil {
+		return fmt.Errorf("complete composer duplicate operation: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (repository *PostgresRepository) AbandonDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+) (bool, error) {
+	tag, err := repository.database.ExecContext(ctx, `
+		DELETE FROM f06_composer_duplicate_operations
+		 WHERE workspace_id = $1
+		   AND idempotency_key = $2
+		   AND status = 'pending'
+		   AND lease_generation = $3`,
+		operation.WorkspaceID,
+		operation.IdempotencyKey,
+		operation.LeaseGeneration,
+	)
+	if err != nil {
+		return false, fmt.Errorf("abandon composer duplicate operation: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (repository *PostgresRepository) ResetDanglingCompletedDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+	now time.Time,
+) (duplicateOperation, bool, error) {
+	tag, err := repository.database.ExecContext(ctx, `
+		UPDATE f06_composer_duplicate_operations
+		   SET status = 'pending',
+		       clone_draft_id = NULL,
+		       clone_draft_revision = NULL,
+		       lease_generation = lease_generation + 1,
+		       locked_until = $3,
+		       updated_at = $4
+		 WHERE workspace_id = $1
+		   AND idempotency_key = $2
+		   AND status = 'completed'
+		   AND lease_generation = $5
+		   AND clone_draft_id = $6
+		   AND clone_draft_revision = $7`,
+		operation.WorkspaceID,
+		operation.IdempotencyKey,
+		now.UTC().Add(duplicateOperationLease),
+		now.UTC(),
+		operation.LeaseGeneration,
+		operation.CloneDraftID,
+		operation.CloneDraftRevision,
+	)
+	if err != nil {
+		return duplicateOperation{}, false, fmt.Errorf("reset composer dangling duplicate operation: %w", err)
+	}
+	if affected, _ := tag.RowsAffected(); affected != 1 {
+		return duplicateOperation{}, false, nil
+	}
+	operation.Status = duplicateOperationPending
+	operation.CloneDraftID = ""
+	operation.CloneDraftRevision = 0
+	operation.LeaseGeneration++
+	operation.LockedUntil = now.UTC().Add(duplicateOperationLease)
+	operation.UpdatedAt = now.UTC()
+	return operation, true, nil
 }
 
 func insertRevision(

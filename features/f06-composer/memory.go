@@ -4,23 +4,30 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 )
 
 type MemoryRepository struct {
-	mutex     sync.RWMutex
-	drafts    map[string]Draft
-	revisions map[string][]DraftRevision
+	mutex      sync.RWMutex
+	drafts     map[string]Draft
+	revisions  map[string][]DraftRevision
+	duplicates map[string]duplicateOperation
 }
 
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
-		drafts:    make(map[string]Draft),
-		revisions: make(map[string][]DraftRevision),
+		drafts:     make(map[string]Draft),
+		revisions:  make(map[string][]DraftRevision),
+		duplicates: make(map[string]duplicateOperation),
 	}
 }
 
 func draftKey(workspaceID, draftID string) string {
 	return workspaceID + "\x00" + draftID
+}
+
+func duplicateKey(workspaceID, idempotencyKey string) string {
+	return workspaceID + "\x00" + idempotencyKey
 }
 
 func (repository *MemoryRepository) Create(_ context.Context, draft Draft) (Draft, error) {
@@ -168,6 +175,113 @@ func (repository *MemoryRepository) GetRevision(
 		}
 	}
 	return DraftRevision{}, ErrConflict
+}
+
+func (repository *MemoryRepository) ReserveDuplicateOperation(
+	_ context.Context,
+	operation duplicateOperation,
+	now time.Time,
+) (duplicateOperation, bool, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	key := duplicateKey(operation.WorkspaceID, operation.IdempotencyKey)
+	stored, exists := repository.duplicates[key]
+	if !exists {
+		operation.Status = duplicateOperationPending
+		operation.LeaseGeneration = 1
+		operation.LockedUntil = now.UTC().Add(duplicateOperationLease)
+		operation.CreatedAt = now.UTC()
+		operation.UpdatedAt = now.UTC()
+		repository.duplicates[key] = operation
+		return operation, false, nil
+	}
+	if stored.SourceDraftID != operation.SourceDraftID ||
+		stored.SourceRevision != operation.SourceRevision ||
+		stored.CreatedByAccount != operation.CreatedByAccount {
+		return duplicateOperation{}, false, ErrConflict
+	}
+	if stored.Status == duplicateOperationCompleted {
+		return stored, true, nil
+	}
+	if stored.LockedUntil.After(now.UTC()) {
+		return duplicateOperation{}, false, ErrConflict
+	}
+	stored.LeaseGeneration++
+	stored.LockedUntil = now.UTC().Add(duplicateOperationLease)
+	stored.UpdatedAt = now.UTC()
+	repository.duplicates[key] = stored
+	return stored, false, nil
+}
+
+func (repository *MemoryRepository) CompleteDuplicateOperation(
+	_ context.Context,
+	operation duplicateOperation,
+	cloneDraftID string,
+	cloneDraftRevision int64,
+	completedAt time.Time,
+) error {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	key := duplicateKey(operation.WorkspaceID, operation.IdempotencyKey)
+	stored, exists := repository.duplicates[key]
+	if !exists || stored.Status != duplicateOperationPending ||
+		stored.LeaseGeneration != operation.LeaseGeneration {
+		return ErrConflict
+	}
+	stored.Status = duplicateOperationCompleted
+	stored.CloneDraftID = cloneDraftID
+	stored.CloneDraftRevision = cloneDraftRevision
+	stored.LockedUntil = time.Time{}
+	stored.UpdatedAt = completedAt.UTC()
+	repository.duplicates[key] = stored
+	return nil
+}
+
+func (repository *MemoryRepository) AbandonDuplicateOperation(
+	_ context.Context,
+	operation duplicateOperation,
+) (bool, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	key := duplicateKey(operation.WorkspaceID, operation.IdempotencyKey)
+	stored, exists := repository.duplicates[key]
+	if !exists {
+		return false, nil
+	}
+	if stored.Status != duplicateOperationPending ||
+		stored.LeaseGeneration != operation.LeaseGeneration {
+		return false, nil
+	}
+	delete(repository.duplicates, key)
+	return true, nil
+}
+
+func (repository *MemoryRepository) ResetDanglingCompletedDuplicateOperation(
+	_ context.Context,
+	operation duplicateOperation,
+	now time.Time,
+) (duplicateOperation, bool, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	key := duplicateKey(operation.WorkspaceID, operation.IdempotencyKey)
+	stored, exists := repository.duplicates[key]
+	if !exists {
+		return duplicateOperation{}, false, nil
+	}
+	if stored.Status != duplicateOperationCompleted ||
+		stored.LeaseGeneration != operation.LeaseGeneration ||
+		stored.CloneDraftID != operation.CloneDraftID ||
+		stored.CloneDraftRevision != operation.CloneDraftRevision {
+		return duplicateOperation{}, false, nil
+	}
+	stored.Status = duplicateOperationPending
+	stored.CloneDraftID = ""
+	stored.CloneDraftRevision = 0
+	stored.LeaseGeneration++
+	stored.LockedUntil = now.UTC().Add(duplicateOperationLease)
+	stored.UpdatedAt = now.UTC()
+	repository.duplicates[key] = stored
+	return stored, true, nil
 }
 
 func revisionOf(draft Draft, autosaveKey string) DraftRevision {

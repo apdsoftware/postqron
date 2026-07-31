@@ -375,7 +375,7 @@ func (store *PostgresMediaStore) CloneForDraft(
 		}
 	}
 	for index, candidate := range media {
-		source, fileName, metadata, objectKey, declaredType, declaredSize, err := store.readCloneSource(
+		source, fileName, _, objectKey, declaredType, declaredSize, err := store.readCloneSource(
 			ctx,
 			workspaceID,
 			strings.TrimSpace(candidate.ID),
@@ -403,6 +403,15 @@ func (store *PostgresMediaStore) CloneForDraft(
 			return nil, fmt.Errorf("clone composer object: %w", err)
 		}
 		expiresAt := now.Add(uploadLifetime)
+		source.ID = id
+		source.URL = mediaBasePath(workspaceID, id) + "/download"
+		source.ExpiresAt = &expiresAt
+		metadata, err := json.Marshal(source)
+		if err != nil {
+			cleanupClones()
+			_ = store.objects.Delete(ctx, cloneKey)
+			return nil, fmt.Errorf("encode cloned composer metadata: %w", err)
+		}
 		_, err = store.database.ExecContext(ctx, `
 			INSERT INTO f06_composer_media (
 				id, workspace_id, object_key, file_name,
@@ -425,9 +434,6 @@ func (store *PostgresMediaStore) CloneForDraft(
 			_ = store.objects.Delete(ctx, cloneKey)
 			return nil, fmt.Errorf("record cloned composer media: %w", err)
 		}
-		source.ID = id
-		source.URL = mediaBasePath(workspaceID, id) + "/download"
-		source.ExpiresAt = &expiresAt
 		cloned = append(cloned, source)
 		cleanup = append(cleanup, struct {
 			id        string
@@ -848,6 +854,67 @@ func (store *PostgresMediaStore) Canonicalize(
 			return nil, err
 		}
 		canonical[index] = inspected
+	}
+	return canonical, nil
+}
+
+func (store *PostgresMediaStore) PreflightScheduling(
+	ctx context.Context,
+	workspaceID, _ string,
+	media []Media,
+) ([]Media, error) {
+	canonical := make([]Media, len(media))
+	for index, candidate := range media {
+		item, _, _, objectKey, _, _, err := store.readCloneSource(
+			ctx,
+			workspaceID,
+			strings.TrimSpace(candidate.ID),
+		)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, &FieldRuleError{
+					Field:   fmt.Sprintf("media[%d].id", index),
+					Rule:    "ready_workspace_media",
+					Code:    "media_not_ready",
+					Message: "Media must belong to this workspace and remain ready.",
+				}
+			}
+			return nil, err
+		}
+		info, err := store.objects.Stat(ctx, objectKey)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, &FieldRuleError{
+					Field:   fmt.Sprintf("media[%d].id", index),
+					Rule:    "live_object_exists",
+					Code:    "media_not_ready",
+					Message: "Media must still exist in object storage before scheduling.",
+				}
+			}
+			return nil, err
+		}
+		reader, err := store.objects.Open(ctx, objectKey)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, &FieldRuleError{
+					Field:   fmt.Sprintf("media[%d].id", index),
+					Rule:    "live_object_exists",
+					Code:    "media_not_ready",
+					Message: "Media must still exist in object storage before scheduling.",
+				}
+			}
+			return nil, err
+		}
+		_ = reader.Close()
+		if info.SizeBytes < 1 || normalizeContentType(info.ContentType) == "" {
+			return nil, &FieldRuleError{
+				Field:   fmt.Sprintf("media[%d].id", index),
+				Rule:    "live_object_metadata",
+				Code:    "media_not_ready",
+				Message: "Media object metadata is no longer valid for scheduling.",
+			}
+		}
+		canonical[index] = item
 	}
 	return canonical, nil
 }

@@ -204,6 +204,7 @@ type DuplicateDraftCommand struct {
 	ActorID        string
 	SourceDraftID  string
 	SourceRevision int64
+	IdempotencyKey string
 }
 
 type DuplicatedDraft struct {
@@ -211,4 +212,5 @@ type DuplicatedDraft struct {
 	DraftRevision       int64  `json:"draft_revision"`
 	SourceDraftID       string `json:"source_draft_id"`
 	SourceDraftRevision int64  `json:"source_draft_revision"`
+	Replayed            bool   `json:"replayed,omitempty"`
 }

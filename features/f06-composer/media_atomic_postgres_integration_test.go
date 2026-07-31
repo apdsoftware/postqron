@@ -3,8 +3,10 @@ package composer
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -732,7 +734,22 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 		created, err := service.CreateDraft(context.Background(), CreateDraftCommand{
 			WorkspaceID: workspaceID,
 			ActorID:     "account-atomic",
-			Content:     DraftContent{Media: []Media{{ID: inspected.ID}}},
+			Content: DraftContent{
+				Media:  []Media{{ID: inspected.ID}},
+				Thread: []ThreadItem{{Text: "thread", MediaIDs: []string{inspected.ID}}},
+				Destinations: []Destination{{
+					ID:           "image",
+					ChannelID:    "channel-1",
+					ChannelType:  "fixture_image_channel",
+					CapabilityID: "fixture:image",
+					Format:       FormatImage,
+					MediaIDs:     &[]string{inspected.ID},
+					ThreadOverride: &[]ThreadItem{{
+						Text:     "override",
+						MediaIDs: []string{inspected.ID},
+					}},
+				}},
+			},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -746,6 +763,7 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 			ActorID:        "account-atomic",
 			SourceDraftID:  created.Draft.ID,
 			SourceRevision: 1,
+			IdempotencyKey: "atomic-clone-1",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -762,25 +780,58 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 		if len(cloned.Draft.Content.Media) != 1 {
 			t.Fatalf("cloned draft media = %#v", cloned.Draft.Content.Media)
 		}
+		if len(cloned.Draft.Content.Thread) != 1 ||
+			len(cloned.Draft.Content.Destinations) != 1 {
+			t.Fatalf("cloned draft nested content = %#v", cloned.Draft.Content)
+		}
+		if cloned.Draft.Content.Media[0].ID == inspected.ID ||
+			cloned.Draft.Content.Media[0].URL ==
+				mediaBasePath(workspaceID, inspected.ID)+"/download" {
+			t.Fatalf("clone reused source metadata: %#v", cloned.Draft.Content.Media[0])
+		}
+		if cloned.Draft.Content.Thread[0].MediaIDs[0] != cloned.Draft.Content.Media[0].ID {
+			t.Fatalf("thread media ids not remapped: %#v", cloned.Draft.Content.Thread)
+		}
+		if cloned.Draft.Content.Destinations[0].MediaIDs == nil ||
+			(*cloned.Draft.Content.Destinations[0].MediaIDs)[0] != cloned.Draft.Content.Media[0].ID {
+			t.Fatalf("destination media ids not remapped: %#v", cloned.Draft.Content.Destinations[0])
+		}
+		if cloned.Draft.Content.Destinations[0].ThreadOverride == nil ||
+			(*cloned.Draft.Content.Destinations[0].ThreadOverride)[0].MediaIDs[0] !=
+				cloned.Draft.Content.Media[0].ID {
+			t.Fatalf("thread override media ids not remapped: %#v", cloned.Draft.Content.Destinations[0])
+		}
 		var cloneObjectKey, cloneLifecycle string
 		var cloneAttached string
+		var cloneMetadataID, cloneMetadataURL string
 		if err := database.QueryRowContext(context.Background(), `
-			SELECT object_key, attached_draft_id, lifecycle_state
+			SELECT object_key, attached_draft_id, lifecycle_state,
+			       inspected_metadata->>'id', inspected_metadata->>'url'
 			  FROM f06_composer_media
 			 WHERE workspace_id = $1
 			   AND id = $2`,
 			workspaceID,
 			cloned.Draft.Content.Media[0].ID,
-		).Scan(&cloneObjectKey, &cloneAttached, &cloneLifecycle); err != nil {
+		).Scan(
+			&cloneObjectKey,
+			&cloneAttached,
+			&cloneLifecycle,
+			&cloneMetadataID,
+			&cloneMetadataURL,
+		); err != nil {
 			t.Fatal(err)
 		}
 		if cloneObjectKey == sourceObjectKey || cloneAttached != duplicated.DraftID ||
-			cloneLifecycle != "retained" {
+			cloneLifecycle != "retained" ||
+			cloneMetadataID != cloned.Draft.Content.Media[0].ID ||
+			cloneMetadataURL != cloned.Draft.Content.Media[0].URL {
 			t.Fatalf(
-				"clone media lifecycle = key %q attached %q state %q",
+				"clone media lifecycle = key %q attached %q state %q metadata_id %q metadata_url %q",
 				cloneObjectKey,
 				cloneAttached,
 				cloneLifecycle,
+				cloneMetadataID,
+				cloneMetadataURL,
 			)
 		}
 		if err := service.DeleteDraft(
@@ -804,6 +855,408 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 			false,
 		)
 	})
+
+	t.Run("validate scheduling fails when live object is missing", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "preflight-missing")
+		objects, media, _, service := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			13,
+		)
+		inspected, objectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"preflight-missing.png",
+		)
+		created, err := service.CreateDraft(context.Background(), CreateDraftCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			Content: DraftContent{
+				Media: []Media{{ID: inspected.ID}},
+				Destinations: []Destination{{
+					ID:           "image",
+					ChannelID:    "channel-1",
+					ChannelType:  "fixture_image_channel",
+					CapabilityID: "fixture:image",
+					Format:       FormatImage,
+				}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects.mutex.Lock()
+		delete(objects.objects, objectKey)
+		objects.mutex.Unlock()
+		boundary, err := service.SchedulingBoundary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = boundary.ValidateForScheduling(context.Background(), SchedulingValidationCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			DraftID:     created.Draft.ID,
+			ChannelIDs:  []string{"channel-1"},
+		})
+		var failure *ValidationFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("missing object validation error = %#v", err)
+		}
+		if len(failure.Report.Errors) == 0 || failure.Report.Errors[0].Code != "media_not_ready" {
+			t.Fatalf("missing object validation report = %#v", failure.Report)
+		}
+	})
+
+	t.Run("validate scheduling maps live object outage to dependency unavailable", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "preflight-outage")
+		objects, media, _, service := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			14,
+		)
+		inspected, _ := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"preflight-outage.png",
+		)
+		created, err := service.CreateDraft(context.Background(), CreateDraftCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			Content: DraftContent{
+				Media: []Media{{ID: inspected.ID}},
+				Destinations: []Destination{{
+					ID:           "image",
+					ChannelID:    "channel-1",
+					ChannelType:  "fixture_image_channel",
+					CapabilityID: "fixture:image",
+					Format:       FormatImage,
+				}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects.openErr = errors.New("object store unavailable")
+		boundary, err := service.SchedulingBoundary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = boundary.ValidateForScheduling(context.Background(), SchedulingValidationCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			DraftID:     created.Draft.ID,
+			ChannelIDs:  []string{"channel-1"},
+		})
+		if !errors.Is(err, ErrDependencyUnavailable) {
+			t.Fatalf("live object outage error = %#v", err)
+		}
+	})
+
+	t.Run("stale owner cleans local cloned media without deleting canonical draft", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "stale-owner-cleanup")
+		nowValue := now
+		var nowMutex sync.Mutex
+		currentTime := func() time.Time {
+			nowMutex.Lock()
+			defer nowMutex.Unlock()
+			return nowValue
+		}
+		setTime := func(next time.Time) {
+			nowMutex.Lock()
+			nowValue = next
+			nowMutex.Unlock()
+		}
+		objects := newFakeObjectStore()
+		media, err := NewPostgresMediaStore(
+			database,
+			objects,
+			StreamMediaInspector{},
+			currentTime,
+			defaultMaximumUploadBytes,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseRepository, err := NewPostgresRepository(database)
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseRepository.BindMediaStore(media)
+		wrapper := &blockingCreateRepository{
+			base:    baseRepository,
+			started: make(chan struct{}),
+			release: make(chan struct{}),
+		}
+		service, err := NewService(
+			wrapper,
+			authorizerStub{allowed: true},
+			WithCapabilityCatalog(fixtureCatalog(t)),
+			WithDestinationResolver(schedulingDestinationResolverStub{
+				resolved: map[string]ResolvedDestination{
+					"channel-1": {
+						ChannelType:  "fixture_image_channel",
+						CapabilityID: "fixture:image",
+						Format:       FormatImage,
+					},
+				},
+			}),
+			WithClock(currentTime),
+			WithRandom(func() func([]byte) error {
+				var sequence uint64
+				return func(destination []byte) error {
+					sequence++
+					for index := range destination {
+						destination[index] = 15
+					}
+					binary.BigEndian.PutUint64(
+						destination[len(destination)-8:],
+						uint64(time.Now().UTC().UnixNano())+sequence,
+					)
+					return nil
+				}
+			}()),
+			WithMediaResolver(media),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = database.Exec(
+				`DELETE FROM f06_composer_duplicate_operations WHERE workspace_id = $1`,
+				workspaceID,
+			)
+			_, _ = database.Exec(
+				`DELETE FROM f06_composer_media WHERE workspace_id = $1`,
+				workspaceID,
+			)
+			_, _ = database.Exec(
+				`DELETE FROM f06_composer_drafts WHERE workspace_id = $1`,
+				workspaceID,
+			)
+		})
+		inspected, _ := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"stale-owner-cleanup.png",
+		)
+		created, err := service.CreateDraft(context.Background(), CreateDraftCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			Content: DraftContent{
+				Media: []Media{{ID: inspected.ID}},
+				Destinations: []Destination{{
+					ID:           "image",
+					ChannelID:    "channel-1",
+					ChannelType:  "fixture_image_channel",
+					CapabilityID: "fixture:image",
+					Format:       FormatImage,
+				}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		boundary, err := service.SchedulingBoundary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		results := make(chan DuplicatedDraft, 1)
+		errorsCh := make(chan error, 2)
+		go func() {
+			result, err := boundary.DuplicateDraft(context.Background(), DuplicateDraftCommand{
+				WorkspaceID:    workspaceID,
+				ActorID:        "account-atomic",
+				SourceDraftID:  created.Draft.ID,
+				SourceRevision: 1,
+				IdempotencyKey: "test-idempotency-stale-owner",
+			})
+			if err != nil {
+				errorsCh <- err
+				return
+			}
+			results <- result
+		}()
+		<-wrapper.started
+		setTime(now.Add(duplicateOperationLease + time.Second))
+		second, err := boundary.DuplicateDraft(context.Background(), DuplicateDraftCommand{
+			WorkspaceID:    workspaceID,
+			ActorID:        "account-atomic",
+			SourceDraftID:  created.Draft.ID,
+			SourceRevision: 1,
+			IdempotencyKey: " test-idempotency-stale-owner ",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		close(wrapper.release)
+		select {
+		case err := <-errorsCh:
+			if !errors.Is(err, ErrConflict) {
+				t.Fatalf("stale owner error = %v", err)
+			}
+		case replay := <-results:
+			if !replay.Replayed || replay.DraftID != second.DraftID {
+				t.Fatalf("stale owner replay = %#v, canonical = %#v", replay, second)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for stale owner result")
+		}
+		cloned, err := service.GetDraft(
+			context.Background(),
+			workspaceID,
+			"account-atomic",
+			second.DraftID,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cloned.Draft.Content.Media) != 1 {
+			t.Fatalf("canonical cloned draft = %#v", cloned.Draft.Content)
+		}
+		var unattachedCount int
+		if err := database.QueryRowContext(context.Background(), `
+			SELECT count(*)
+			  FROM f06_composer_media
+			 WHERE workspace_id = $1
+			   AND attached_draft_id IS NULL
+			   AND id <> $2`,
+			workspaceID,
+			inspected.ID,
+		).Scan(&unattachedCount); err != nil {
+			t.Fatal(err)
+		}
+		if unattachedCount != 0 {
+			t.Fatalf("orphan cloned media rows = %d", unattachedCount)
+		}
+		objects.mutex.Lock()
+		objectCount := len(objects.objects)
+		objects.mutex.Unlock()
+		if objectCount != 2 {
+			t.Fatalf("unexpected object count = %d, want 2", objectCount)
+		}
+	})
+}
+
+type blockingCreateRepository struct {
+	base    *PostgresRepository
+	started chan struct{}
+	release chan struct{}
+	mutex   sync.Mutex
+	blocked bool
+}
+
+func (repository *blockingCreateRepository) Create(
+	ctx context.Context,
+	draft Draft,
+) (Draft, error) {
+	if len(draft.ID) >= len("draft_dup_") && draft.ID[:len("draft_dup_")] == "draft_dup_" {
+		repository.mutex.Lock()
+		shouldBlock := !repository.blocked
+		if shouldBlock {
+			repository.blocked = true
+		}
+		repository.mutex.Unlock()
+		if shouldBlock {
+			close(repository.started)
+			<-repository.release
+		}
+	}
+	return repository.base.Create(ctx, draft)
+}
+
+func (repository *blockingCreateRepository) Get(
+	ctx context.Context,
+	workspaceID, draftID string,
+) (Draft, error) {
+	return repository.base.Get(ctx, workspaceID, draftID)
+}
+
+func (repository *blockingCreateRepository) List(
+	ctx context.Context,
+	workspaceID string,
+) ([]Draft, error) {
+	return repository.base.List(ctx, workspaceID)
+}
+
+func (repository *blockingCreateRepository) Update(
+	ctx context.Context,
+	draft Draft,
+	expectedRevision int64,
+	autosaveKey string,
+) (Draft, error) {
+	return repository.base.Update(ctx, draft, expectedRevision, autosaveKey)
+}
+
+func (repository *blockingCreateRepository) Delete(
+	ctx context.Context,
+	workspaceID, draftID string,
+	expectedRevision int64,
+) error {
+	return repository.base.Delete(ctx, workspaceID, draftID, expectedRevision)
+}
+
+func (repository *blockingCreateRepository) ListRevisions(
+	ctx context.Context,
+	workspaceID, draftID string,
+) ([]DraftRevision, error) {
+	return repository.base.ListRevisions(ctx, workspaceID, draftID)
+}
+
+func (repository *blockingCreateRepository) GetRevision(
+	ctx context.Context,
+	workspaceID, draftID string,
+	revision int64,
+) (DraftRevision, error) {
+	return repository.base.GetRevision(ctx, workspaceID, draftID, revision)
+}
+
+func (repository *blockingCreateRepository) ReserveDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+	now time.Time,
+) (duplicateOperation, bool, error) {
+	return repository.base.ReserveDuplicateOperation(ctx, operation, now)
+}
+
+func (repository *blockingCreateRepository) CompleteDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+	cloneDraftID string,
+	cloneDraftRevision int64,
+	completedAt time.Time,
+) error {
+	return repository.base.CompleteDuplicateOperation(
+		ctx,
+		operation,
+		cloneDraftID,
+		cloneDraftRevision,
+		completedAt,
+	)
+}
+
+func (repository *blockingCreateRepository) AbandonDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+) (bool, error) {
+	return repository.base.AbandonDuplicateOperation(ctx, operation)
+}
+
+func (repository *blockingCreateRepository) ResetDanglingCompletedDuplicateOperation(
+	ctx context.Context,
+	operation duplicateOperation,
+	now time.Time,
+) (duplicateOperation, bool, error) {
+	return repository.base.ResetDanglingCompletedDuplicateOperation(ctx, operation, now)
 }
 
 func atomicMediaTestService(
@@ -815,6 +1268,10 @@ func atomicMediaTestService(
 ) (*fakeObjectStore, *PostgresMediaStore, *PostgresRepository, *Service) {
 	t.Helper()
 	t.Cleanup(func() {
+		_, _ = database.Exec(
+			`DELETE FROM f06_composer_duplicate_operations WHERE workspace_id = $1`,
+			workspaceID,
+		)
 		_, _ = database.Exec(
 			`DELETE FROM f06_composer_media WHERE workspace_id = $1`,
 			workspaceID,
@@ -842,13 +1299,28 @@ func atomicMediaTestService(
 	service, err := NewService(
 		repository,
 		authorizerStub{allowed: true},
-		WithClock(func() time.Time { return now }),
-		WithRandom(func(destination []byte) error {
-			for index := range destination {
-				destination[index] = randomByte
-			}
-			return nil
+		WithCapabilityCatalog(fixtureCatalog(t)),
+		WithDestinationResolver(schedulingDestinationResolverStub{
+			resolved: map[string]ResolvedDestination{
+				"channel-1": {
+					ChannelType:  "fixture_image_channel",
+					CapabilityID: "fixture:image",
+					Format:       FormatImage,
+				},
+			},
 		}),
+		WithClock(func() time.Time { return now }),
+		WithRandom(func() func([]byte) error {
+			var sequence uint64
+			return func(destination []byte) error {
+				sequence++
+				for index := range destination {
+					destination[index] = randomByte
+				}
+				binary.BigEndian.PutUint64(destination[len(destination)-8:], sequence)
+				return nil
+			}
+		}()),
 		WithMediaResolver(media),
 	)
 	if err != nil {

@@ -2,11 +2,14 @@ package composer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 type schedulingRevisionReader interface {
@@ -15,6 +18,15 @@ type schedulingRevisionReader interface {
 
 type schedulingMediaCloner interface {
 	CloneForDraft(context.Context, string, []Media) ([]Media, error)
+}
+
+type schedulingMediaPreflighter interface {
+	PreflightScheduling(
+		context.Context,
+		string,
+		string,
+		[]Media,
+	) ([]Media, error)
 }
 
 // SchedulingBoundary is the narrow F6 contract intended for F7.
@@ -42,7 +54,7 @@ func (boundary *SchedulingBoundary) ValidateForScheduling(
 	}
 	service := boundary.service
 	if err := service.authorize(ctx, command.WorkspaceID, command.ActorID); err != nil {
-		return SchedulingDraftReference{}, err
+		return SchedulingDraftReference{}, mapSchedulingDependencyError(err)
 	}
 	draftID := strings.TrimSpace(command.DraftID)
 	if draftID == "" {
@@ -59,7 +71,7 @@ func (boundary *SchedulingBoundary) ValidateForScheduling(
 	}
 	draft, err := service.repository.Get(ctx, command.WorkspaceID, draftID)
 	if err != nil {
-		return SchedulingDraftReference{}, err
+		return SchedulingDraftReference{}, mapSchedulingDependencyError(err)
 	}
 	content, report, err := service.liveSchedulingContent(
 		ctx,
@@ -113,23 +125,155 @@ func (boundary *SchedulingBoundary) DuplicateDraft(
 		return DuplicatedDraft{}, err
 	}
 	sourceDraftID := strings.TrimSpace(command.SourceDraftID)
-	if sourceDraftID == "" || command.SourceRevision < 1 {
+	idempotencyKey := normalizeIdempotencyKey(command.IdempotencyKey)
+	if sourceDraftID == "" || command.SourceRevision < 1 || idempotencyKey == "" {
 		return DuplicatedDraft{}, fmt.Errorf(
-			"%w: source draft id and positive source revision are required",
+			"%w: source draft id, positive source revision, and idempotency key are required",
 			ErrInvalidArgument,
 		)
-	}
-	current, err := service.repository.Get(ctx, command.WorkspaceID, sourceDraftID)
-	if err != nil {
-		return DuplicatedDraft{}, err
-	}
-	if current.Revision != command.SourceRevision {
-		return DuplicatedDraft{}, ErrConflict
 	}
 	revisionReader, ok := service.repository.(schedulingRevisionReader)
 	if !ok {
 		return DuplicatedDraft{}, ErrDependencyUnavailable
 	}
+	duplicates, ok := service.repository.(duplicateOperationStore)
+	if !ok {
+		return DuplicatedDraft{}, ErrDependencyUnavailable
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		now := service.now().UTC()
+		operation, replayed, err := duplicates.ReserveDuplicateOperation(ctx, duplicateOperation{
+			WorkspaceID:      command.WorkspaceID,
+			IdempotencyKey:   idempotencyKey,
+			SourceDraftID:    sourceDraftID,
+			SourceRevision:   command.SourceRevision,
+			CreatedByAccount: command.ActorID,
+		}, now)
+		if err != nil {
+			return DuplicatedDraft{}, mapSchedulingDependencyError(err)
+		}
+		if replayed {
+			_, err := service.repository.Get(
+				ctx,
+				command.WorkspaceID,
+				operation.CloneDraftID,
+			)
+			if err == nil {
+				return DuplicatedDraft{
+					DraftID:             operation.CloneDraftID,
+					DraftRevision:       operation.CloneDraftRevision,
+					SourceDraftID:       sourceDraftID,
+					SourceDraftRevision: command.SourceRevision,
+					Replayed:            true,
+				}, nil
+			}
+			if !errors.Is(err, ErrNotFound) {
+				return DuplicatedDraft{}, mapSchedulingDependencyError(err)
+			}
+			operation, reset, resetErr := duplicates.ResetDanglingCompletedDuplicateOperation(
+				ctx,
+				operation,
+				now,
+			)
+			if resetErr != nil {
+				return DuplicatedDraft{}, mapSchedulingDependencyError(resetErr)
+			}
+			if !reset {
+				continue
+			}
+			result, duplicateErr := boundary.executeDuplicateDraft(
+				ctx,
+				command,
+				sourceDraftID,
+				idempotencyKey,
+				operation,
+				revisionReader,
+				duplicates,
+				now,
+			)
+			if duplicateErr == nil {
+				return result, nil
+			}
+			return DuplicatedDraft{}, duplicateErr
+		}
+		result, duplicateErr := boundary.executeDuplicateDraft(
+			ctx,
+			command,
+			sourceDraftID,
+			idempotencyKey,
+			operation,
+			revisionReader,
+			duplicates,
+			now,
+		)
+		if duplicateErr == nil {
+			return result, nil
+		}
+		if errors.Is(duplicateErr, ErrConflict) {
+			continue
+		}
+		return DuplicatedDraft{}, duplicateErr
+	}
+	return DuplicatedDraft{}, ErrConflict
+}
+
+func (boundary *SchedulingBoundary) executeDuplicateDraft(
+	ctx context.Context,
+	command DuplicateDraftCommand,
+	sourceDraftID string,
+	idempotencyKey string,
+	operation duplicateOperation,
+	revisionReader schedulingRevisionReader,
+	duplicates duplicateOperationStore,
+	now time.Time,
+) (_ DuplicatedDraft, err error) {
+	service := boundary.service
+	var (
+		content     DraftContent
+		clonedMedia []Media
+		created     Draft
+	)
+	defer func() {
+		if err == nil {
+			return
+		}
+		if created.ID == "" && len(clonedMedia) > 0 {
+			service.cleanupClonedMedia(
+				context.Background(),
+				command.WorkspaceID,
+				clonedMedia,
+				&err,
+			)
+		}
+		abandoned, abandonErr := duplicates.AbandonDuplicateOperation(
+			context.Background(),
+			operation,
+		)
+		if abandonErr != nil {
+			err = ErrDependencyUnavailable
+			return
+		}
+		if !abandoned {
+			return
+		}
+		if created.ID != "" {
+			_ = service.DeleteDraft(
+				context.Background(),
+				command.WorkspaceID,
+				command.ActorID,
+				created.ID,
+				created.Revision,
+			)
+		}
+		if created.ID != "" && len(clonedMedia) > 0 {
+			service.cleanupClonedMedia(
+				context.Background(),
+				command.WorkspaceID,
+				clonedMedia,
+				&err,
+			)
+		}
+	}()
 	revision, err := revisionReader.GetRevision(
 		ctx,
 		command.WorkspaceID,
@@ -137,34 +281,108 @@ func (boundary *SchedulingBoundary) DuplicateDraft(
 		command.SourceRevision,
 	)
 	if err != nil {
-		return DuplicatedDraft{}, err
+		return DuplicatedDraft{}, mapSchedulingDependencyError(err)
 	}
-	content := cloneContent(revision.Content)
+	content = cloneContent(revision.Content)
 	if err := service.requireLiveSchedulingDependencies(content); err != nil {
 		return DuplicatedDraft{}, err
+	}
+	cloneDraftID := duplicatedDraftID(
+		command.WorkspaceID,
+		sourceDraftID,
+		command.SourceRevision,
+		idempotencyKey,
+	)
+	if existing, getErr := service.repository.Get(
+		ctx,
+		command.WorkspaceID,
+		cloneDraftID,
+	); getErr == nil {
+		if completeErr := duplicates.CompleteDuplicateOperation(
+			ctx,
+			operation,
+			existing.ID,
+			existing.Revision,
+			now,
+		); completeErr != nil {
+			return DuplicatedDraft{}, mapSchedulingDependencyError(completeErr)
+		}
+		return DuplicatedDraft{
+			DraftID:             existing.ID,
+			DraftRevision:       existing.Revision,
+			SourceDraftID:       sourceDraftID,
+			SourceDraftRevision: command.SourceRevision,
+			Replayed:            true,
+		}, nil
+	} else if !errors.Is(getErr, ErrNotFound) {
+		return DuplicatedDraft{}, mapSchedulingDependencyError(getErr)
 	}
 	if len(content.Media) > 0 {
 		cloner, ok := service.media.(schedulingMediaCloner)
 		if !ok {
 			return DuplicatedDraft{}, ErrDependencyUnavailable
 		}
-		content.Media, err = cloner.CloneForDraft(ctx, command.WorkspaceID, content.Media)
+		clonedMedia, err = cloner.CloneForDraft(ctx, command.WorkspaceID, content.Media)
 		if err != nil {
-			return DuplicatedDraft{}, err
+			return DuplicatedDraft{}, mapSchedulingDependencyError(err)
 		}
-		defer service.cleanupClonedMedia(ctx, command.WorkspaceID, content.Media, &err)
+		content, err = remapDraftMediaReferences(content, clonedMedia)
+		if err != nil {
+			return DuplicatedDraft{}, mapSchedulingDependencyError(err)
+		}
 	}
-	created, err := service.CreateDraft(ctx, CreateDraftCommand{
+	created, err = service.repository.Create(ctx, Draft{
+		ID:          cloneDraftID,
 		WorkspaceID: command.WorkspaceID,
-		ActorID:     command.ActorID,
+		CreatedBy:   command.ActorID,
 		Content:     content,
+		Revision:    1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	})
 	if err != nil {
-		return DuplicatedDraft{}, err
+		if errors.Is(err, ErrConflict) {
+			existing, getErr := service.repository.Get(
+				ctx,
+				command.WorkspaceID,
+				cloneDraftID,
+			)
+			if getErr == nil {
+				if completeErr := duplicates.CompleteDuplicateOperation(
+					ctx,
+					operation,
+					existing.ID,
+					existing.Revision,
+					now,
+				); completeErr != nil {
+					return DuplicatedDraft{}, mapSchedulingDependencyError(completeErr)
+				}
+				return DuplicatedDraft{
+					DraftID:             existing.ID,
+					DraftRevision:       existing.Revision,
+					SourceDraftID:       sourceDraftID,
+					SourceDraftRevision: command.SourceRevision,
+					Replayed:            true,
+				}, nil
+			}
+			if !errors.Is(getErr, ErrNotFound) {
+				return DuplicatedDraft{}, mapSchedulingDependencyError(getErr)
+			}
+		}
+		return DuplicatedDraft{}, mapSchedulingDependencyError(err)
+	}
+	if err = duplicates.CompleteDuplicateOperation(
+		ctx,
+		operation,
+		created.ID,
+		created.Revision,
+		now,
+	); err != nil {
+		return DuplicatedDraft{}, mapSchedulingDependencyError(err)
 	}
 	return DuplicatedDraft{
-		DraftID:             created.Draft.ID,
-		DraftRevision:       created.Draft.Revision,
+		DraftID:             created.ID,
+		DraftRevision:       created.Revision,
 		SourceDraftID:       sourceDraftID,
 		SourceDraftRevision: command.SourceRevision,
 	}, nil
@@ -211,9 +429,18 @@ func (service *Service) liveSchedulingContent(
 	live := cloneContent(content)
 	if len(live.Media) > 0 {
 		var err error
-		live, err = service.canonicalizeMedia(ctx, workspaceID, actorID, live)
+		if preflighter, ok := service.media.(schedulingMediaPreflighter); ok {
+			live.Media, err = preflighter.PreflightScheduling(
+				ctx,
+				workspaceID,
+				actorID,
+				live.Media,
+			)
+		} else {
+			live, err = service.canonicalizeMedia(ctx, workspaceID, actorID, live)
+		}
 		if err != nil {
-			return live, schedulingFailureReport(content, service.catalog, err), nil
+			return classifySchedulingValidationError(content, service.catalog, err)
 		}
 	}
 	if len(live.Destinations) > 0 {
@@ -221,7 +448,7 @@ func (service *Service) liveSchedulingContent(
 		var err error
 		resolved, err = service.canonicalizeDestinations(ctx, workspaceID, resolved)
 		if err != nil {
-			return live, schedulingFailureReport(content, service.catalog, err), nil
+			return classifySchedulingValidationError(content, service.catalog, err)
 		}
 		report := Validate(resolved, service.catalog)
 		for index := range resolved.Destinations {
@@ -252,15 +479,15 @@ func (service *Service) liveSchedulingContent(
 	return live, Validate(live, service.catalog), nil
 }
 
-func schedulingFailureReport(
+func classifySchedulingValidationError(
 	content DraftContent,
 	catalog CapabilityCatalog,
 	cause error,
-) ValidationReport {
-	report := Validate(content, catalog)
-	report.Valid = false
+) (DraftContent, ValidationReport, error) {
 	var fieldError *FieldRuleError
 	if errors.As(cause, &fieldError) {
+		report := Validate(content, catalog)
+		report.Valid = false
 		report.Errors = append(report.Errors, validationError(
 			"",
 			fieldError.Field,
@@ -270,8 +497,9 @@ func schedulingFailureReport(
 			"Refresh the draft dependencies and try again.",
 			nil,
 		))
+		return DraftContent{}, report, &ValidationFailure{Report: report}
 	}
-	return report
+	return DraftContent{}, ValidationReport{}, mapSchedulingDependencyError(cause)
 }
 
 func schedulingDraftChannelSet(content DraftContent) ([]string, *ValidationError) {
@@ -338,4 +566,97 @@ func destinationDrift(stored, resolved Destination) bool {
 	return stored.ChannelType != resolved.ChannelType ||
 		stored.CapabilityID != resolved.CapabilityID ||
 		stored.Format != resolved.Format
+}
+
+func remapDraftMediaReferences(
+	content DraftContent,
+	clonedMedia []Media,
+) (DraftContent, error) {
+	if len(content.Media) != len(clonedMedia) {
+		return DraftContent{}, ErrConflict
+	}
+	mapping := make(map[string]string, len(content.Media))
+	for index, original := range content.Media {
+		mapping[original.ID] = clonedMedia[index].ID
+	}
+	remapped := cloneContent(content)
+	remapped.Media = append([]Media(nil), clonedMedia...)
+	var err error
+	for index := range remapped.Thread {
+		remapped.Thread[index].MediaIDs, err = remapMediaIDList(
+			remapped.Thread[index].MediaIDs,
+			mapping,
+		)
+		if err != nil {
+			return DraftContent{}, err
+		}
+	}
+	for index := range remapped.Destinations {
+		destination := &remapped.Destinations[index]
+		if destination.MediaIDs != nil {
+			mediaIDs, remapErr := remapMediaIDList(*destination.MediaIDs, mapping)
+			if remapErr != nil {
+				return DraftContent{}, remapErr
+			}
+			destination.MediaIDs = &mediaIDs
+		}
+		if destination.ThreadOverride != nil {
+			thread := make([]ThreadItem, len(*destination.ThreadOverride))
+			for itemIndex, item := range *destination.ThreadOverride {
+				thread[itemIndex] = item
+				thread[itemIndex].MediaIDs, err = remapMediaIDList(item.MediaIDs, mapping)
+				if err != nil {
+					return DraftContent{}, err
+				}
+			}
+			destination.ThreadOverride = &thread
+		}
+	}
+	return remapped, nil
+}
+
+func remapMediaIDList(ids []string, mapping map[string]string) ([]string, error) {
+	result := append([]string(nil), ids...)
+	for index, id := range result {
+		remapped, ok := mapping[id]
+		if !ok {
+			return nil, ErrConflict
+		}
+		result[index] = remapped
+	}
+	return result, nil
+}
+
+func mapSchedulingDependencyError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrInvalidArgument),
+		errors.Is(err, ErrUnauthenticated),
+		errors.Is(err, ErrForbidden),
+		errors.Is(err, ErrNotFound),
+		errors.Is(err, ErrConflict),
+		errors.Is(err, ErrValidation),
+		errors.Is(err, ErrDependencyUnavailable):
+		return err
+	case errors.Is(err, ErrStorageUnavailable):
+		return ErrDependencyUnavailable
+	default:
+		return ErrDependencyUnavailable
+	}
+}
+
+func duplicatedDraftID(
+	workspaceID, sourceDraftID string,
+	sourceRevision int64,
+	idempotencyKey string,
+) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"%s\x00%s\x00%d\x00%s",
+		workspaceID,
+		sourceDraftID,
+		sourceRevision,
+		idempotencyKey,
+	)))
+	return "draft_dup_" + base64.RawURLEncoding.EncodeToString(sum[:18])
 }

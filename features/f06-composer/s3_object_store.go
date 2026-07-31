@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithy "github.com/aws/smithy-go"
 )
 
 type S3ObjectStoreConfig struct {
@@ -161,6 +162,9 @@ func (store *S3ObjectStore) Stat(
 		Key:    aws.String(objectKey),
 	})
 	if err != nil {
+		if normalized := normalizeS3MissingObjectError(err); normalized != nil {
+			return ObjectInfo{}, normalized
+		}
 		return ObjectInfo{}, fmt.Errorf("head S3 object: %w", err)
 	}
 	if result.ContentLength == nil || *result.ContentLength < 1 {
@@ -181,6 +185,9 @@ func (store *S3ObjectStore) Open(
 		Key:    aws.String(objectKey),
 	})
 	if err != nil {
+		if normalized := normalizeS3MissingObjectError(err); normalized != nil {
+			return nil, normalized
+		}
 		return nil, fmt.Errorf("get S3 object: %w", err)
 	}
 	return result.Body, nil
@@ -248,4 +255,17 @@ func (store *S3ObjectStore) Delete(
 		return fmt.Errorf("delete S3 object: %w", err)
 	}
 	return nil
+}
+
+func normalizeS3MissingObjectError(err error) error {
+	var apiError smithy.APIError
+	if !errors.As(err, &apiError) {
+		return nil
+	}
+	switch strings.TrimSpace(apiError.ErrorCode()) {
+	case "NoSuchKey", "NotFound", "404":
+		return ErrNotFound
+	default:
+		return nil
+	}
 }
