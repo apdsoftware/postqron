@@ -399,9 +399,9 @@ func TestProductionMetaBootstrapRegistersReviewedThreads(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := publishing.PublishRequest{
-		WorkspaceID:  workspaceID,
-		ConnectionID: connectionID,
-		Payload:      []byte(`{"format":"text","text":"hello Threads"}`),
+		WorkspaceID:    workspaceID,
+		ConnectionID:   connectionID,
+		Payload:        []byte(`{"format":"text","text":"hello Threads"}`),
 		IdempotencyKey: "threads-bootstrap-idempotency",
 	}
 	first, err := publisher.Publish(context.Background(), request)
