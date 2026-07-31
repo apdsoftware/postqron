@@ -3,13 +3,19 @@ package scheduling
 import "errors"
 
 var (
-	ErrInvalidArgument       = errors.New("invalid scheduling argument")
-	ErrUnauthenticated       = errors.New("authentication required")
-	ErrForbidden             = errors.New("operation forbidden")
-	ErrNotFound              = errors.New("scheduled post not found")
-	ErrConflict              = errors.New("scheduled post revision conflict")
-	ErrImmutable             = errors.New("scheduled post can no longer be changed")
-	ErrDependencyUnavailable = errors.New("scheduling dependency unavailable")
+	ErrInvalidArgument              = errors.New("invalid scheduling argument")
+	ErrUnauthenticated              = errors.New("authentication required")
+	ErrForbidden                    = errors.New("operation forbidden")
+	ErrNotFound                     = errors.New("scheduled post not found")
+	ErrDraftNotFound                = errors.New("scheduled draft not found")
+	ErrDraftRevisionStale           = errors.New("scheduled draft revision is stale")
+	ErrIdempotencyMismatch          = errors.New("idempotency key payload mismatch")
+	ErrIdempotencyReplayUnavailable = errors.New("legacy idempotency response snapshot unavailable")
+	ErrOperationInProgress          = errors.New("idempotent scheduling operation is in progress")
+	ErrComposerContention           = errors.New("composer duplicate operation is contended")
+	ErrConflict                     = errors.New("scheduled post revision conflict")
+	ErrImmutable                    = errors.New("scheduled post can no longer be changed")
+	ErrDependencyUnavailable        = errors.New("scheduling dependency unavailable")
 )
 
 type FieldError struct {

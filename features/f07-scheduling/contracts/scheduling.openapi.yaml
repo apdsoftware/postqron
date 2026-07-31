@@ -1,12 +1,11 @@
 openapi: 3.1.0
 info:
   title: Postqron Scheduling API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     Browser-safe calendar and scheduled-post contract. Draft state and draft
-    validation remain owned by F6. Creation, content/channel edits and
-    duplication fail closed with scheduling_dependency_unavailable until #303
-    publishes its stable runtime boundary.
+    validation remain owned by F6; F7 consumes the F6 scheduling boundary and
+    persists the validated draft revision internally for downstream publishing.
 security:
   - sessionCookie: []
 paths:
@@ -61,9 +60,12 @@ paths:
       - $ref: '#/components/parameters/WorkspaceID'
     post:
       operationId: schedulePost
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       description: >-
-        Atomically creates a scheduled post and its publication command after
-        the F6 draft and selected channels have been validated.
+        Creates a scheduled post and its publication command exactly once after
+        the F6 draft and selected channels have been validated. A retry with the
+        same key and payload replays the original 201 response.
       requestBody:
         required: true
         content:
@@ -89,6 +91,10 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
         '503':
           $ref: '#/components/responses/DependencyUnavailable'
   /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}:
@@ -177,6 +183,11 @@ paths:
       - $ref: '#/components/parameters/PostID'
     post:
       operationId: duplicateScheduledPost
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      description: >-
+        Durably reserves the operation before cloning the F6 draft. Retries
+        resume or replay the same clone and scheduled post.
       requestBody:
         required: true
         content:
@@ -202,7 +213,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          $ref: '#/components/responses/IdempotencyConflict'
         '503':
           $ref: '#/components/responses/DependencyUnavailable'
   /api/v1/workspaces/{workspace_id}/scheduled-posts/{post_id}/cancel:
@@ -256,6 +267,18 @@ components:
       schema:
         type: string
         pattern: '^post_'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Opaque visible-ASCII key scoped to the workspace and operation. Reuse
+        with a different payload is rejected.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+        pattern: '^[!-~]+$'
   schemas:
     Revision:
       type: integer
@@ -410,11 +433,16 @@ components:
           schema:
             $ref: '#/components/schemas/ScheduledPost'
     ScheduledPostCreated:
-      description: Browser-safe scheduled post with a Location header
+      description: Browser-safe scheduled post with replay-safe headers
       headers:
         Location:
           schema:
             type: string
+        Idempotency-Replayed:
+          description: Present and true when the original completed response was replayed.
+          schema:
+            type: string
+            const: 'true'
       content:
         application/json:
           schema:
@@ -438,19 +466,33 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     NotFound:
-      description: Scheduled post not found in the selected workspace
+      description: Scheduled post or referenced draft not found in the selected workspace
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
-      description: Revision conflict or immutable post state
+      description: Scheduled-post revision conflict, stale draft revision, or immutable post state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    IdempotencyConflict:
+      description: >-
+        idempotency_payload_mismatch means the key was reused with different
+        input. idempotency_in_progress means the current fenced owner is still
+        completing the operation and is retryable.
+        idempotency_replay_unavailable is a non-retryable fail-closed response
+        for a legacy completion whose original 201 snapshot was never captured.
+        Duplicate may also report a
+        scheduled-post revision conflict, stale draft revision, or immutable
+        source state through the same error schema.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     DependencyUnavailable:
-      description: F6 scheduling validation or draft duplication is not available yet
+      description: F6 scheduling validation or draft duplication is unavailable
       content:
         application/json:
           schema:

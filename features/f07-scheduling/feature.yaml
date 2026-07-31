@@ -8,6 +8,9 @@ dependencies:
   - social-connections
 migrations:
   - ./migrations/000001_create_scheduled_posts.sql
+  - ./migrations/000002_add_draft_revision_to_scheduling.sql
+  - ./migrations/000003_add_idempotency_operations.sql
+  - ./migrations/000004_harden_idempotency_recovery.sql
 server:
   routes:
     - path: /workspaces/{workspace_id}/calendar
