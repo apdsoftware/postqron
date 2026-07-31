@@ -1,0 +1,41 @@
+{
+  "mastodon": {
+    "instance": {
+      "configuration": {
+        "statuses": {
+          "max_characters": 500,
+          "characters_reserved_per_url": 23,
+          "max_media_attachments": 4
+        },
+        "media_attachments": {
+          "supported_mime_types": ["image/png", "audio/mpeg", "image/jpeg", "video/mp4", "audio/ogg"],
+          "description_limit": 1500,
+          "image_size_limit": 16777216,
+          "image_matrix_limit": 16777216,
+          "video_size_limit": 103809024,
+          "video_matrix_limit": 2304000,
+          "video_frame_rate_limit": 60
+        }
+      }
+    },
+    "media": {"id": "91001", "url": "https://social.example/media/91001.png"},
+    "status": {
+      "id": "92001",
+      "url": "https://social.example/@fixture/92001",
+      "uri": "https://social.example/users/fixture/statuses/92001"
+    }
+  },
+  "bluesky": {
+    "blob": {
+      "blob": {
+        "$type": "blob",
+        "ref": {"$link": "bafkreifixtureblob"},
+        "mimeType": "image/png",
+        "size": 14
+      }
+    },
+    "record": {
+      "cid": "bafyreifixturerecord"
+    }
+  }
+}

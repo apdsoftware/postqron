@@ -17,6 +17,7 @@ import (
 )
 
 type Store interface {
+	MonotonicTIDAllocator
 	Enqueue(context.Context, Job) (EnqueueResult, error)
 	ClaimDue(context.Context, time.Time, time.Time, string) (Destination, bool, error)
 	MarkCancelled(context.Context, string, string, Diagnostic, time.Time) error
@@ -307,6 +308,7 @@ func (engine *Engine) DispatchOne(ctx context.Context) (bool, error) {
 			Payload:        append([]byte(nil), destination.Payload...),
 			Checkpoint:     append([]byte(nil), destination.Checkpoint...),
 			IdempotencyKey: destination.IdempotencyKey,
+			TIDAllocator:   engine.store,
 		})
 		if reconcileErr != nil {
 			return true, engine.handleFailure(ctx, destination, reconcileErr, now)
@@ -354,6 +356,7 @@ func (engine *Engine) DispatchOne(ctx context.Context) (bool, error) {
 		Payload:        append([]byte(nil), destination.Payload...),
 		Checkpoint:     append([]byte(nil), destination.Checkpoint...),
 		IdempotencyKey: destination.IdempotencyKey,
+		TIDAllocator:   engine.store,
 	})
 	if publishErr != nil {
 		return true, engine.handleFailure(

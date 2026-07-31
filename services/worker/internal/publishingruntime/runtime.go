@@ -16,6 +16,7 @@ import (
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	dynamicpublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/dynamic"
 	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
@@ -55,6 +56,17 @@ type VideoAdapterDependencies struct {
 	YouTube                  ProviderGate
 }
 
+// DynamicAdapterDependencies are process-local trusted dependencies. The
+// executor owns credentials, origins, dynamic discovery, PAR, DPoP keys and
+// nonce rotation; F8 receives none of them.
+type DynamicAdapterDependencies struct {
+	Executor *socialconnections.AuthenticatedExecutor
+	Media    dynamicpublishing.MediaSource
+	Identity dynamicpublishing.ConnectionIdentityResolver
+	Mastodon ProviderGate
+	Bluesky  ProviderGate
+}
+
 func New(
 	ctx context.Context,
 	database *sql.DB,
@@ -66,6 +78,7 @@ func New(
 	return newService(
 		ctx, database, databaseURL, clock, nil, config,
 		metapublishing.RegistrationConfig{},
+		DynamicAdapterDependencies{},
 		videoDependencies...,
 	)
 }
@@ -104,6 +117,28 @@ func NewWithExecutorAndMeta(
 	metaConfig metapublishing.RegistrationConfig,
 	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
+	return NewWithAllAdapters(
+		ctx,
+		database,
+		databaseURL,
+		clock,
+		executor,
+		metaConfig,
+		DynamicAdapterDependencies{},
+		videoDependencies...,
+	)
+}
+
+func NewWithAllAdapters(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	executor *socialconnections.AuthenticatedExecutor,
+	metaConfig metapublishing.RegistrationConfig,
+	dynamicDependencies DynamicAdapterDependencies,
+	videoDependencies ...VideoAdapterDependencies,
+) (*Service, error) {
 	var boundary staticproviders.Executor
 	if executor != nil {
 		boundary = executor
@@ -119,6 +154,7 @@ func NewWithExecutorAndMeta(
 		boundary,
 		runtimeStaticProviderConfig(database),
 		metaConfig,
+		dynamicDependencies,
 		videoDependencies...,
 	)
 }
@@ -250,6 +286,7 @@ func newService(
 	executor staticproviders.Executor,
 	staticConfig staticproviders.Config,
 	metaConfig metapublishing.RegistrationConfig,
+	dynamicDependencies DynamicAdapterDependencies,
 	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
@@ -273,8 +310,13 @@ func newService(
 		pool.Close()
 		return nil, err
 	}
-	registry, err := newRuntimeAdapterRegistryWithMeta(
-		executor, staticConfig, metaConfig, videoDependencies...,
+	registry, err := newRuntimeAdapterRegistryWithAll(
+		executor,
+		staticConfig,
+		metaConfig,
+		dynamicDependencies,
+		clock,
+		videoDependencies...,
 	)
 	if err != nil {
 		pool.Close()
@@ -347,6 +389,24 @@ func newRuntimeAdapterRegistryWithMeta(
 	metaConfig metapublishing.RegistrationConfig,
 	videoDependencies ...VideoAdapterDependencies,
 ) (*publishing.AdapterRegistry, error) {
+	return newRuntimeAdapterRegistryWithAll(
+		executor,
+		config,
+		metaConfig,
+		DynamicAdapterDependencies{},
+		time.Now,
+		videoDependencies...,
+	)
+}
+
+func newRuntimeAdapterRegistryWithAll(
+	executor staticproviders.Executor,
+	config staticproviders.Config,
+	metaConfig metapublishing.RegistrationConfig,
+	dynamicDependencies DynamicAdapterDependencies,
+	clock func() time.Time,
+	videoDependencies ...VideoAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
 	registry := publishing.NewAdapterRegistry()
 	config.Executor = executor
 	if err := staticproviders.Register(registry, config); err != nil {
@@ -358,7 +418,65 @@ func newRuntimeAdapterRegistryWithMeta(
 	if err := metapublishing.Register(registry, metaConfig); err != nil {
 		return nil, fmt.Errorf("register Meta publishing adapters: %w", err)
 	}
+	if err := registerDynamicAdapters(
+		registry,
+		dynamicDependencies,
+		clock,
+	); err != nil {
+		return nil, err
+	}
 	return registry, nil
+}
+
+func NewDynamicAdapterRegistry(
+	dependencies DynamicAdapterDependencies,
+	clock func() time.Time,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	if err := registerDynamicAdapters(registry, dependencies, clock); err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
+
+func registerDynamicAdapters(
+	registry *publishing.AdapterRegistry,
+	config DynamicAdapterDependencies,
+	clock func() time.Time,
+) error {
+	if config.Mastodon.ready() {
+		adapter, err := dynamicpublishing.NewMastodon(
+			config.Executor,
+			config.Media,
+			clock,
+		)
+		if err != nil {
+			return fmt.Errorf("configure Mastodon publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderMastodon),
+			adapter,
+		); err != nil {
+			return err
+		}
+	}
+	if config.Bluesky.ready() {
+		adapter, err := dynamicpublishing.NewBluesky(
+			config.Executor,
+			config.Media,
+			config.Identity,
+		)
+		if err != nil {
+			return fmt.Errorf("configure Bluesky publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderBluesky),
+			adapter,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runtimeStaticProviderConfig(database *sql.DB) staticproviders.Config {

@@ -126,6 +126,28 @@ not claim deterministic reconciliation for a pre-ID multipart outcome; it
 declares the F8 ambiguous-fail-closed capability, which prevents all blind
 upload replay.
 
+The dynamic provider package implements Mastodon and Bluesky. Mastodon reads
+the connected instance capability document, uploads each attachment through a
+durable multipart checkpoint, waits for asynchronous processing, and creates
+the status with the official `Idempotency-Key`. Bluesky uploads image blobs
+through the connected PDS, creates `app.bsky.feed.post` with a deterministic,
+Lexicon-valid TID, and reconciles that exact key through
+`com.atproto.repo.getRecord`.
+
+Both adapters call only the F5 `AuthenticatedExecutor`, always set
+`ExpectedProvider`, and never receive origins, tokens, PAR state, DPoP keys, or
+nonces. The worker registers either adapter only when a trusted executor,
+immutable media source, server-side connection identity resolver, and all
+provider gates are present. The production composition remains fail-closed
+until the concrete F5 Mastodon/Bluesky dependencies are integrated: enabling
+either environment gate without those dependencies aborts startup.
+
+Ambiguous media uploads are never retried blindly. Mastodon status replay is
+allowed only inside the official one-hour idempotency window recorded by a
+server-side checkpoint; after that it fails closed. Bluesky derives the repo
+DID from the F5 connection binding, rejects payload disagreement, and
+reconciles the complete canonical record before accepting an existing key.
+
 ## Verification
 
 ```sh

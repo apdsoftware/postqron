@@ -82,13 +82,14 @@ func TestCollectPreservesParentMetaOutboxBeforeSocialBoundaryUpgrade(t *testing.
 			publishing = append(publishing, migration)
 		}
 	}
-	if len(publishing) != 4 {
-		t.Fatalf("publishing migrations = %d, want 4", len(publishing))
+	if len(publishing) != 5 {
+		t.Fatalf("publishing migrations = %d, want 5", len(publishing))
 	}
 	if publishing[2].Name != "000003_meta_notification_outbox.sql" ||
 		publishing[2].Checksum !=
 			"108f50baa59265797b12d6a5a54c3c4386a3dc7f72c0cdfd289772079ed6d66a" ||
-		publishing[3].Name != "000004_social_notification_boundary.sql" {
+		publishing[3].Name != "000004_social_notification_boundary.sql" ||
+		publishing[4].Name != "000005_bluesky_tid_allocator.sql" {
 		t.Fatalf("unexpected publishing migration chain: %#v", publishing)
 	}
 }

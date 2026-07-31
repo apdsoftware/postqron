@@ -33,7 +33,7 @@ var newWorkspaceRuntimeService = func(
 }
 
 var newMetaRegistrationConfig = publishingruntime.NewMetaRegistrationConfig
-var newPublishingRuntimeService = publishingruntime.NewWithExecutorAndMeta
+var newPublishingRuntimeService = publishingruntime.NewWithAllAdapters
 
 type workspaceOnboardingRuntime interface {
 	ConsumeOnboardingRequired(
@@ -79,6 +79,7 @@ func NewRuntime(
 	clock func() time.Time,
 	logger *slog.Logger,
 	videoDependencies publishingruntime.VideoAdapterDependencies,
+	dynamicDependencies publishingruntime.DynamicAdapterDependencies,
 ) (*Runner, error) {
 	executor, err := publishingruntime.NewF5AuthenticatedExecutor(database, clock)
 	if err != nil {
@@ -86,7 +87,7 @@ func NewRuntime(
 	}
 	return NewRuntimeWithExecutor(
 		features, database, databaseURL, appDomain, interval, clock,
-		logger, executor, videoDependencies,
+		logger, executor, dynamicDependencies, videoDependencies,
 	)
 }
 
@@ -102,6 +103,7 @@ func NewRuntimeWithExecutor(
 	clock func() time.Time,
 	logger *slog.Logger,
 	executor *socialconnections.AuthenticatedExecutor,
+	dynamicDependencies publishingruntime.DynamicAdapterDependencies,
 	videoDependencies ...publishingruntime.VideoAdapterDependencies,
 ) (*Runner, error) {
 	if logger == nil {
@@ -134,6 +136,7 @@ func NewRuntimeWithExecutor(
 		clock,
 		executor,
 		metaConfig,
+		dynamicDependencies,
 		videoDependencies...,
 	)
 	if err != nil {
@@ -159,6 +162,7 @@ func configurePublishingRuntime(
 	clock func() time.Time,
 	executor *socialconnections.AuthenticatedExecutor,
 	metaConfig metapublishing.RegistrationConfig,
+	dynamicDependencies publishingruntime.DynamicAdapterDependencies,
 	videoDependencies ...publishingruntime.VideoAdapterDependencies,
 ) (*publishingruntime.Service, error) {
 	return newPublishingRuntimeService(
@@ -168,6 +172,7 @@ func configurePublishingRuntime(
 		clock,
 		executor,
 		metaConfig,
+		dynamicDependencies,
 		videoDependencies...,
 	)
 }

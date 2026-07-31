@@ -70,6 +70,7 @@ func TestRealRunnerCompositionAcceptsValidGatesOnlyWithF5Executor(
 	if _, err := NewRuntimeWithExecutor(
 		nil, database, "postgres://worker:worker@127.0.0.1/postqron",
 		"example.test", time.Second, time.Now, logger, nil,
+		publishingruntime.DynamicAdapterDependencies{},
 	); err == nil {
 		t.Fatal("valid gates without F5 executor must fail closed")
 	}
@@ -86,6 +87,7 @@ func TestRealRunnerCompositionAcceptsValidGatesOnlyWithF5Executor(
 		nil, database, "postgres://worker:worker@127.0.0.1/postqron",
 		"example.test", time.Second, time.Now, logger,
 		publishingruntime.VideoAdapterDependencies{},
+		publishingruntime.DynamicAdapterDependencies{},
 	)
 	if err != nil {
 		t.Fatalf("compose gated runner: %v", err)
@@ -108,6 +110,7 @@ func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 		_ func() time.Time,
 		_ *socialconnections.AuthenticatedExecutor,
 		_ metapublishing.RegistrationConfig,
+		_ publishingruntime.DynamicAdapterDependencies,
 		dependencies ...publishingruntime.VideoAdapterDependencies,
 	) (*publishingruntime.Service, error) {
 		registry, err := publishingruntime.NewVideoAdapterRegistry(dependencies...)
@@ -134,6 +137,7 @@ func TestRealPublishingBootstrapRegistersGatedVideoAdapters(t *testing.T) {
 		time.Now,
 		&socialconnections.AuthenticatedExecutor{},
 		metapublishing.RegistrationConfig{},
+		publishingruntime.DynamicAdapterDependencies{},
 		publishingruntime.VideoAdapterDependencies{
 			Executor:                 &socialconnections.AuthenticatedExecutor{},
 			Media:                    bootstrapMediaSource{},

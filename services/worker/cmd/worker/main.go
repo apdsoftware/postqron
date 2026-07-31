@@ -49,6 +49,14 @@ func main() {
 		"features", len(features),
 		"version", version,
 	)
+	dynamicPublishing, err := publishingruntime.FailClosedDynamicBootstrap(
+		os.Getenv("POSTQRON_F08_MASTODON_ENABLED"),
+		os.Getenv("POSTQRON_F08_BLUESKY_ENABLED"),
+	)
+	if err != nil {
+		logger.Error("configure dynamic publishing", "error", err)
+		os.Exit(1)
+	}
 	if shouldSkipRunOnceDatabase(runOnce, os.Getenv("DATABASE_URL")) {
 		runner.New(features, interval, logger).Tick(ctx)
 		logger.Info(
@@ -77,6 +85,7 @@ func main() {
 		// The standalone worker remains fail-closed until the F5 video
 		// adapters from #313 / PR #326 are integrated.
 		publishingruntime.VideoAdapterDependencies{},
+		dynamicPublishing,
 	)
 	if err != nil {
 		logger.Error("configure worker", "error", err)
