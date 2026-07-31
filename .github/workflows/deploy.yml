@@ -78,6 +78,8 @@ jobs:
       TF_VAR_deployment_ssh_public_key: ${{ vars.DEPLOYMENT_SSH_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v7
+      - name: Test F5 delivery guardrails
+        run: ./infra/deploy/validate-f05-runtime.test.sh
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
@@ -201,6 +203,7 @@ jobs:
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           APP_DOMAIN: ${{ vars.APP_DOMAIN }}
           AUTH_ENCRYPTION_KEY_B64: ${{ secrets.AUTH_ENCRYPTION_KEY_B64 }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
           MAILRONIX_TRANSACTIONAL_API_KEY: ${{ secrets.MAILRONIX_TRANSACTIONAL_API_KEY }}
           PRIVACY_ARTIFACT_KEY_B64: ${{ secrets.PRIVACY_ARTIFACT_KEY_B64 }}
           PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
@@ -252,6 +255,10 @@ jobs:
             "$PRIVACY_ARTIFACT_KEY_B64"
           install -m 0600 /dev/null "$RUNNER_TEMP/runtime.env"
           printf '%s\n' "$RUNTIME_ENV" > "$RUNNER_TEMP/runtime.env"
+          ./infra/deploy/validate-f05-runtime.sh \
+            "$RUNNER_TEMP/runtime.env" \
+            "$APP_DOMAIN" \
+            "$INPUT_ENVIRONMENT"
           if grep --quiet '^PADDLE_' "$RUNNER_TEMP/runtime.env"; then
             echo "Paddle values must use dedicated GitHub Environment secrets" >&2
             exit 1
@@ -456,6 +463,45 @@ jobs:
               docker compose --env-file runtime.env exec -T postgres \
                 sh -c '"'"'exec psql --no-psqlrc --no-align --tuples-only --field-separator="|" -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'"'"'
           '
+      - name: Verify social OAuth callback routes without state
+        if: inputs.operation == 'release'
+        env:
+          API_DOMAIN: ${{ vars.API_DOMAIN }}
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+        run: |
+          relay_status=$(
+            curl \
+              --connect-timeout 10 \
+              --location \
+              --max-time 20 \
+              --output /dev/null \
+              --retry 0 \
+              --silent \
+              --show-error \
+              --write-out '%{http_code}' \
+              "https://$APP_DOMAIN/app/social-oauth/callback"
+          )
+          if [[ "$relay_status" != "200" ]]; then
+            echo "social OAuth relay returned HTTP $relay_status" >&2
+            exit 1
+          fi
+
+          api_status=$(
+            curl \
+              --connect-timeout 10 \
+              --max-time 20 \
+              --output /dev/null \
+              --retry 0 \
+              --silent \
+              --show-error \
+              --write-out '%{http_code}' \
+              "https://$API_DOMAIN/api/v1/social-authorizations/callback"
+          )
+          if [[ "$api_status" != "409" ]]; then
+            echo "state-less social OAuth API callback returned HTTP $api_status" >&2
+            exit 1
+          fi
+          echo "social OAuth relay and state validation are reachable"
       - name: Restore administrative SSH allowlist
         if: always()
         run: |

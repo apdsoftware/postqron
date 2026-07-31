@@ -54,6 +54,15 @@ exactly one canonical line per dedicated delivery variable. The remote file is
 mode `0600`. No token, private key, password, state credential, or personal data
 is stored in Git.
 
+`RUNTIME_ENV` is also the production secret boundary for F5 social provider
+values. Every enabled provider requires the provider-neutral F5 gate and
+cipher. The workflow validates the exact allowlisted inventory, provider
+approval gates, and every redirect against
+`https://APP_DOMAIN/app/social-oauth/callback` before upload, then Compose
+forwards only those named entries to the API container. See
+[F5 social providers in production](../operations/social-provider-production.md)
+for the complete inventory and manual provider-console checklist.
+
 OAuth provider secrets remain optional and independent. Invalid or missing
 Google, Apple, Facebook, or LinkedIn values must never block password flows.
 Redirect URLs are accepted only as HTTPS callback URLs. Apple client-secret
