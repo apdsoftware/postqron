@@ -289,6 +289,15 @@ func (engine *Engine) DispatchOne(ctx context.Context) (bool, error) {
 	if err := validateRuntimeCapabilities(destination, capabilities); err != nil {
 		return true, engine.handleFailure(ctx, destination, err, now)
 	}
+	if destination.NeedsReconciliation && !capabilities.NativeIdempotency &&
+		!capabilities.Reconciliation {
+		return true, engine.handleFailure(ctx, destination, &ProviderError{
+			Code:      "ambiguous_outcome_fail_closed",
+			Detail:    "The provider outcome cannot be reconciled safely.",
+			Retryable: false,
+			Ambiguous: true,
+		}, now)
+	}
 	if destination.NeedsReconciliation && capabilities.Reconciliation {
 		reconciled, reconcileErr := publisher.Reconcile(ctx, ReconcileRequest{
 			WorkspaceID:    destination.WorkspaceID,
@@ -607,7 +616,8 @@ func (engine *Engine) resolveCapabilities(
 			)
 		}
 		capabilities = publisher.Capabilities()
-		if !capabilities.NativeIdempotency && !capabilities.Reconciliation {
+		if !capabilities.NativeIdempotency && !capabilities.Reconciliation &&
+			!capabilities.AmbiguousFailClosed {
 			return AdapterCapabilities{}, ErrUnsafeAdapter
 		}
 	case PublishingModeNotification:
@@ -650,10 +660,11 @@ func validateRuntimeCapabilities(
 		}
 	}
 	if destination.Mode == PublishingModeAuto &&
-		!current.NativeIdempotency && !current.Reconciliation {
+		!current.NativeIdempotency && !current.Reconciliation &&
+		!current.AmbiguousFailClosed {
 		return &ProviderError{
 			Code:      "unsafe_adapter",
-			Detail:    "The provider adapter cannot safely recover an ambiguous request.",
+			Detail:    "The provider adapter cannot safely handle an ambiguous request.",
 			Retryable: false,
 		}
 	}

@@ -789,12 +789,15 @@ func validateAuthenticatedRequest(
 		return fmt.Errorf("%w: authenticated request path is invalid", ErrInvalidArgument)
 	}
 	decodedPath, err := url.PathUnescape(target.EscapedPath())
-	if err != nil || strings.Contains(decodedPath, "\\") {
+	if err != nil ||
+		strings.Contains(decodedPath, "\\") ||
+		containsUnsafeText(decodedPath) {
 		return fmt.Errorf("%w: authenticated request path is invalid", ErrInvalidArgument)
 	}
 	lowerEscapedPath := strings.ToLower(target.EscapedPath())
 	if strings.Contains(lowerEscapedPath, "%2f") ||
-		strings.Contains(lowerEscapedPath, "%5c") {
+		strings.Contains(lowerEscapedPath, "%5c") ||
+		strings.Contains(lowerEscapedPath, "%25") {
 		return fmt.Errorf("%w: encoded path separators are forbidden", ErrInvalidArgument)
 	}
 	for _, segment := range strings.Split(decodedPath, "/") {

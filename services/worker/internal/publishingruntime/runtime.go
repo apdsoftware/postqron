@@ -17,6 +17,7 @@ import (
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
+	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,14 +28,39 @@ type Service struct {
 	pool   *pgxpool.Pool
 }
 
+type ProviderGate struct {
+	Configured     bool
+	ReviewApproved bool
+	AuditVerified  bool
+	QuotaVerified  bool
+}
+
+func (gate ProviderGate) ready() bool {
+	return gate.Configured && gate.ReviewApproved &&
+		gate.AuditVerified && gate.QuotaVerified
+}
+
+type VideoAdapterDependencies struct {
+	Executor                 *socialconnections.AuthenticatedExecutor
+	Media                    videopublishing.MediaSource
+	TikTokVerifiedPullPrefix string
+	F5TrailingSlashPaths     bool
+	TikTok                   ProviderGate
+	YouTube                  ProviderGate
+}
+
 func New(
 	ctx context.Context,
 	database *sql.DB,
 	databaseURL string,
 	clock func() time.Time,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	config := runtimeStaticProviderConfig(database)
-	return newService(ctx, database, databaseURL, clock, nil, config)
+	return newService(
+		ctx, database, databaseURL, clock, nil, config,
+		videoDependencies...,
+	)
 }
 
 // NewWithExecutor is the credential-free F5→F8 worker composition boundary.
@@ -45,10 +71,14 @@ func NewWithExecutor(
 	databaseURL string,
 	clock func() time.Time,
 	executor *socialconnections.AuthenticatedExecutor,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	var boundary staticproviders.Executor
 	if executor != nil {
 		boundary = executor
+	}
+	if len(videoDependencies) == 1 && videoDependencies[0].Executor == nil {
+		videoDependencies[0].Executor = executor
 	}
 	return newService(
 		ctx,
@@ -57,6 +87,7 @@ func NewWithExecutor(
 		clock,
 		boundary,
 		runtimeStaticProviderConfig(database),
+		videoDependencies...,
 	)
 }
 
@@ -67,6 +98,7 @@ func newService(
 	clock func() time.Time,
 	executor staticproviders.Executor,
 	staticConfig staticproviders.Config,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("publishing runtime database is required")
@@ -83,7 +115,9 @@ func newService(
 		pool.Close()
 		return nil, err
 	}
-	registry, err := newRuntimeAdapterRegistry(executor, staticConfig)
+	registry, err := newRuntimeAdapterRegistry(
+		executor, staticConfig, videoDependencies...,
+	)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -112,11 +146,15 @@ func newService(
 func newRuntimeAdapterRegistry(
 	executor staticproviders.Executor,
 	config staticproviders.Config,
+	videoDependencies ...VideoAdapterDependencies,
 ) (*publishing.AdapterRegistry, error) {
 	registry := publishing.NewAdapterRegistry()
 	config.Executor = executor
 	if err := staticproviders.Register(registry, config); err != nil {
 		return nil, fmt.Errorf("register static publishing adapters: %w", err)
+	}
+	if err := registerVideoAdapters(registry, videoDependencies...); err != nil {
+		return nil, err
 	}
 	return registry, nil
 }
@@ -260,6 +298,62 @@ func staticProviderGate(provider string) staticproviders.Gate {
 		AuditVerified:   os.Getenv(prefix+"RUNTIME_AUDIT_VERIFIED") == "true",
 		QuotaConfigured: os.Getenv(prefix+"QUOTA_CONFIGURED") == "true",
 	}
+}
+
+func NewVideoAdapterRegistry(
+	dependencies ...VideoAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
+	registry := publishing.NewAdapterRegistry()
+	if err := registerVideoAdapters(registry, dependencies...); err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
+
+func registerVideoAdapters(
+	registry *publishing.AdapterRegistry,
+	dependencies ...VideoAdapterDependencies,
+) error {
+	if len(dependencies) == 0 {
+		return nil
+	}
+	if len(dependencies) != 1 {
+		return errors.New("video adapter dependencies must be supplied once")
+	}
+	config := dependencies[0]
+	if config.TikTok.ready() {
+		if !config.F5TrailingSlashPaths {
+			return errors.New(
+				"TikTok publisher requires F5 trailing-slash path support (issue #342)",
+			)
+		}
+		adapter, err := videopublishing.NewTikTok(
+			config.Executor,
+			videopublishing.TikTokConfig{
+				VerifiedPullURLPrefix: config.TikTokVerifiedPullPrefix,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("configure TikTok publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderTikTok), adapter,
+		); err != nil {
+			return err
+		}
+	}
+	if config.YouTube.ready() {
+		adapter, err := videopublishing.NewYouTube(config.Executor, config.Media)
+		if err != nil {
+			return fmt.Errorf("configure YouTube publisher: %w", err)
+		}
+		if err = registry.RegisterPublisher(
+			string(socialconnections.ProviderYouTube), adapter,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {

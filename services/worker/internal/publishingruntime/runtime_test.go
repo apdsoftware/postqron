@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
@@ -89,7 +90,9 @@ func TestRuntimeRegistersOnlyExplicitlyGatedStaticProviders(t *testing.T) {
 		staticproviders.ProviderPinterest,
 		staticproviders.ProviderGoogleBusinessProfile,
 	} {
-		if _, resolveErr := registry.ResolvePublisher(context.Background(), provider); !errors.Is(resolveErr, publishing.ErrProviderUnavailable) {
+		if _, resolveErr := registry.ResolvePublisher(
+			context.Background(), provider,
+		); !errors.Is(resolveErr, publishing.ErrProviderUnavailable) {
 			t.Fatalf("%s resolution error=%v", provider, resolveErr)
 		}
 	}
@@ -123,5 +126,82 @@ func TestRuntimeEnvironmentGateFailsClosed(t *testing.T) {
 		staticproviders.ProviderX,
 	); !errors.Is(err, publishing.ErrProviderUnavailable) {
 		t.Fatalf("resolution error=%v", err)
+	}
+}
+
+func TestVideoAdapterRegistrationFailsClosedWithoutEveryGate(t *testing.T) {
+	registry, err := NewVideoAdapterRegistry(VideoAdapterDependencies{
+		TikTok: ProviderGate{
+			Configured: true, ReviewApproved: true,
+			AuditVerified: true, QuotaVerified: false,
+		},
+		YouTube: ProviderGate{
+			Configured: true, ReviewApproved: false,
+			AuditVerified: true, QuotaVerified: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"tiktok", "youtube"} {
+		if _, err := registry.ResolvePublisher(
+			context.Background(), provider,
+		); !errors.Is(err, publishing.ErrProviderUnavailable) {
+			t.Fatalf("%s resolution error=%v", provider, err)
+		}
+	}
+}
+
+func TestTikTokRegistrationFailsClosedUntilF5TrailingSlashSupport(t *testing.T) {
+	ready := ProviderGate{
+		Configured: true, ReviewApproved: true,
+		AuditVerified: true, QuotaVerified: true,
+	}
+	_, err := NewVideoAdapterRegistry(VideoAdapterDependencies{
+		TikTok:                   ready,
+		TikTokVerifiedPullPrefix: "https://media.example/tiktok/",
+	})
+	if err == nil || !strings.Contains(err.Error(), "issue #342") {
+		t.Fatalf("registration error=%v", err)
+	}
+}
+
+func TestRuntimeRegistryPreservesStaticAndVideoWiring(t *testing.T) {
+	ready := ProviderGate{
+		Configured: true, ReviewApproved: true,
+		AuditVerified: true, QuotaVerified: true,
+	}
+	registry, err := newRuntimeAdapterRegistry(
+		rejectingExecutor{},
+		staticproviders.Config{
+			LinkedInVersion: "202606",
+			Targets:         runtimeTargetResolver{},
+			Media:           fixtureRuntimeMediaResolver{},
+			Gates: map[string]staticproviders.Gate{
+				staticproviders.ProviderX: {
+					Enabled: true, ReviewApproved: true,
+					AuditVerified: true, QuotaConfigured: true,
+				},
+			},
+		},
+		VideoAdapterDependencies{
+			Executor:                 &socialconnections.AuthenticatedExecutor{},
+			TikTokVerifiedPullPrefix: "https://media.example/tiktok/",
+			F5TrailingSlashPaths:     true,
+			TikTok:                   ready,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{
+		staticproviders.ProviderX,
+		string(socialconnections.ProviderTikTok),
+	} {
+		if _, err = registry.ResolvePublisher(
+			context.Background(), provider,
+		); err != nil {
+			t.Fatalf("%s resolution error=%v", provider, err)
+		}
 	}
 }

@@ -593,6 +593,143 @@ type SessionCommand struct {
 	Event                  *Event
 }
 
+type LinkedInDMSGrantState string
+
+const (
+	LinkedInDMSGrantRegistered    LinkedInDMSGrantState = "registered"
+	LinkedInDMSGrantUploading     LinkedInDMSGrantState = "uploading"
+	LinkedInDMSGrantUploadSending LinkedInDMSGrantState = "upload_sending"
+	LinkedInDMSGrantUploaded      LinkedInDMSGrantState = "uploaded"
+	LinkedInDMSGrantCreating      LinkedInDMSGrantState = "creating"
+	LinkedInDMSGrantCreateSending LinkedInDMSGrantState = "create_sending"
+	LinkedInDMSGrantConsumed      LinkedInDMSGrantState = "consumed"
+	LinkedInDMSGrantFailed        LinkedInDMSGrantState = "failed"
+)
+
+// StoredLinkedInDMSGrant contains only a hash of the public opaque handle.
+// The provider upload URL, signed query, and asset URN are held together in
+// EvidenceCiphertext and bound by F5 AEAD additional data.
+type StoredLinkedInDMSGrant struct {
+	HandleHash         string
+	WorkspaceID        string
+	ConnectionID       string
+	Provider           Provider
+	EvidenceCiphertext Ciphertext
+	State              LinkedInDMSGrantState
+	LeaseID            string
+	LockedUntil        *time.Time
+	CreatedAt          time.Time
+	ExpiresAt          time.Time
+	UploadedAt         *time.Time
+	ConsumedAt         *time.Time
+}
+
+type LinkedInDMSGrantTransition struct {
+	HandleHash      string
+	WorkspaceID     string
+	ConnectionID    string
+	FromState       LinkedInDMSGrantState
+	ToState         LinkedInDMSGrantState
+	ExpectedLeaseID string
+	NewLeaseID      string
+	NewLockedUntil  *time.Time
+	Now             time.Time
+}
+
+func validLinkedInDMSGrantTransition(
+	command LinkedInDMSGrantTransition,
+) bool {
+	if command.HandleHash == "" ||
+		command.WorkspaceID == "" ||
+		command.ConnectionID == "" ||
+		command.Now.IsZero() {
+		return false
+	}
+	switch {
+	case command.FromState == LinkedInDMSGrantRegistered &&
+		command.ToState == LinkedInDMSGrantUploading:
+		return command.ExpectedLeaseID == "" &&
+			command.NewLeaseID != "" &&
+			command.NewLockedUntil != nil &&
+			command.NewLockedUntil.After(command.Now)
+	case command.FromState == LinkedInDMSGrantUploading &&
+		command.ToState == LinkedInDMSGrantUploading:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID != "" &&
+			command.NewLeaseID != command.ExpectedLeaseID &&
+			command.NewLockedUntil != nil &&
+			command.NewLockedUntil.After(command.Now)
+	case command.FromState == LinkedInDMSGrantUploading &&
+		command.ToState == LinkedInDMSGrantRegistered:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	case command.FromState == LinkedInDMSGrantUploading &&
+		command.ToState == LinkedInDMSGrantUploadSending:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	case command.FromState == LinkedInDMSGrantUploading &&
+		command.ToState == LinkedInDMSGrantFailed:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	case command.FromState == LinkedInDMSGrantUploadSending &&
+		(command.ToState == LinkedInDMSGrantUploaded ||
+			command.ToState == LinkedInDMSGrantFailed):
+		return command.ExpectedLeaseID == "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	case command.FromState == LinkedInDMSGrantUploaded &&
+		command.ToState == LinkedInDMSGrantCreating:
+		return command.ExpectedLeaseID == "" &&
+			command.NewLeaseID != "" &&
+			command.NewLockedUntil != nil &&
+			command.NewLockedUntil.After(command.Now)
+	case command.FromState == LinkedInDMSGrantCreating &&
+		command.ToState == LinkedInDMSGrantCreating:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID != "" &&
+			command.NewLeaseID != command.ExpectedLeaseID &&
+			command.NewLockedUntil != nil &&
+			command.NewLockedUntil.After(command.Now)
+	case command.FromState == LinkedInDMSGrantCreating &&
+		command.ToState == LinkedInDMSGrantCreateSending:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	case command.FromState == LinkedInDMSGrantCreating &&
+		command.ToState == LinkedInDMSGrantFailed:
+		return command.ExpectedLeaseID != "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	case command.FromState == LinkedInDMSGrantCreateSending &&
+		(command.ToState == LinkedInDMSGrantConsumed ||
+			command.ToState == LinkedInDMSGrantFailed):
+		return command.ExpectedLeaseID == "" &&
+			command.NewLeaseID == "" &&
+			command.NewLockedUntil == nil
+	default:
+		return false
+	}
+}
+
+func validStoredLinkedInDMSGrant(grant StoredLinkedInDMSGrant) bool {
+	return len(grant.HandleHash) == 64 &&
+		grant.WorkspaceID != "" &&
+		grant.ConnectionID != "" &&
+		grant.Provider == ProviderLinkedIn &&
+		grant.EvidenceCiphertext.KeyID != "" &&
+		len(grant.EvidenceCiphertext.Data) > 28 &&
+		grant.State == LinkedInDMSGrantRegistered &&
+		grant.LeaseID == "" &&
+		grant.LockedUntil == nil &&
+		!grant.CreatedAt.IsZero() &&
+		grant.ExpiresAt.After(grant.CreatedAt) &&
+		grant.UploadedAt == nil &&
+		grant.ConsumedAt == nil
+}
+
 type Repository interface {
 	CreateAttempt(context.Context, OAuthAttempt) error
 	ConsumeAttempt(context.Context, string, time.Time) (OAuthAttempt, error)
@@ -607,6 +744,9 @@ type Repository interface {
 	ClaimSession(context.Context, string, string, time.Time, time.Time, time.Duration) (StoredCredential, bool, error)
 	CompleteSession(context.Context, SessionCommand) (Connection, error)
 	ReleaseSession(context.Context, string, string, string) error
+	SaveLinkedInDMSGrant(context.Context, StoredLinkedInDMSGrant) error
+	GetLinkedInDMSGrant(context.Context, string, string, string, time.Time) (StoredLinkedInDMSGrant, error)
+	TransitionLinkedInDMSGrant(context.Context, LinkedInDMSGrantTransition) (StoredLinkedInDMSGrant, error)
 	MarkReconnectRequired(context.Context, string, string, string, time.Time, Event) (Connection, bool, error)
 	Revoke(context.Context, string, string, time.Time, Event) (Connection, bool, error)
 }

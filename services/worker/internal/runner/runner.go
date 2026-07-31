@@ -31,6 +31,8 @@ var newWorkspaceRuntimeService = func(
 	return workspaces.NewRuntimeServiceWithClock(repository, clock)
 }
 
+var newPublishingRuntimeService = publishingruntime.NewWithExecutor
+
 type workspaceOnboardingRuntime interface {
 	ConsumeOnboardingRequired(
 		context.Context,
@@ -74,6 +76,7 @@ func NewRuntime(
 	interval time.Duration,
 	clock func() time.Time,
 	logger *slog.Logger,
+	videoDependencies publishingruntime.VideoAdapterDependencies,
 ) (*Runner, error) {
 	executor, err := publishingruntime.NewF5AuthenticatedExecutor(database, clock)
 	if err != nil {
@@ -81,7 +84,7 @@ func NewRuntime(
 	}
 	return NewRuntimeWithExecutor(
 		features, database, databaseURL, appDomain, interval, clock,
-		logger, executor,
+		logger, executor, videoDependencies,
 	)
 }
 
@@ -97,6 +100,7 @@ func NewRuntimeWithExecutor(
 	clock func() time.Time,
 	logger *slog.Logger,
 	executor *socialconnections.AuthenticatedExecutor,
+	videoDependencies ...publishingruntime.VideoAdapterDependencies,
 ) (*Runner, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -117,12 +121,13 @@ func NewRuntimeWithExecutor(
 	if err != nil {
 		return nil, err
 	}
-	publishingService, err := publishingruntime.NewWithExecutor(
+	publishingService, err := configurePublishingRuntime(
 		context.Background(),
 		database,
 		databaseURL,
 		clock,
 		executor,
+		videoDependencies...,
 	)
 	if err != nil {
 		return nil, err
@@ -138,6 +143,19 @@ func NewRuntimeWithExecutor(
 		publishing:      publishingService,
 		closePublishing: publishingService.Close,
 	}, nil
+}
+
+func configurePublishingRuntime(
+	ctx context.Context,
+	database *sql.DB,
+	databaseURL string,
+	clock func() time.Time,
+	executor *socialconnections.AuthenticatedExecutor,
+	videoDependencies ...publishingruntime.VideoAdapterDependencies,
+) (*publishingruntime.Service, error) {
+	return newPublishingRuntimeService(
+		ctx, database, databaseURL, clock, executor, videoDependencies...,
+	)
 }
 
 func (r *Runner) Run(ctx context.Context) {

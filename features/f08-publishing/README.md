@@ -11,9 +11,11 @@ executes one immutable F5/F6 destination snapshot at a time.
 - PostgreSQL claims use `FOR UPDATE SKIP LOCKED`, a durable lease token, and an
   attempt ledger. An expired claim is reclaimable after a worker crash.
 - Every provider request receives the persisted destination idempotency key.
-  Registration requires native idempotency or deterministic reconciliation.
-  A lease-expired `publishing` claim is marked ambiguous: reconciliation runs
-  first when declared; a native-idempotent adapter replays the same key.
+  Registration requires native idempotency, deterministic reconciliation, or
+  explicit ambiguous-fail-closed behavior. A lease-expired `publishing` claim
+  is marked ambiguous: reconciliation runs first when declared; a
+  native-idempotent adapter replays the same key; a fail-closed adapter enters
+  the DLQ without replay.
 - Multi-step media/video adapters perform at most one remote side effect per
   call. F8 persists the checkpoint before the next step. Successful progress
   compensates the claim's failure-attempt budget.
@@ -67,13 +69,13 @@ IDs. X checkpoints initialize, append, finalize, and status before create;
 binary streams cross the credential boundary only as
 `PublishingRequest.Media`. LinkedIn text publishing accepts a remote ID only
 from sanitized response-body evidence and otherwise enters reconciliation.
-LinkedIn image publishing is disabled fail-closed pending #345: the provider
-returns a signed `www.linkedin.com/dms-uploads` URL, while the current public
-F5 boundary safely accepts only relative paths for the distinct
-`api.linkedin.com` resource server. F8 preserves and validates that signed URL
-but never rewrites it, sends it to the API origin, or opens an arbitrary-origin
-HTTP path. No LinkedIn create can occur before that dependency supplies an
-allowlisted DMS upload boundary and asset `AVAILABLE` verification.
+LinkedIn image publishing remains disabled fail-closed. #345 delivered the
+allowlisted F5 DMS upload boundary and asset `AVAILABLE` verification, but this
+F8 adapter does not consume that boundary yet. F8 preserves and validates the
+signed `www.linkedin.com/dms-uploads` URL but never rewrites it, sends it to the
+API origin, or opens an arbitrary-origin HTTP path. The advertised LinkedIn
+capability therefore remains text-only until the dedicated F8 wiring is
+implemented and reviewed.
 
 Every adapter persists a fully paginated baseline and immutable ordered media
 snapshot before its create step. Reconciliation paginates every result page
@@ -82,6 +84,24 @@ baseline. Zero visible matches and multiple matches remain unknown during the
 provider's eventual-consistency window, so F8 never repeats a create based on
 a single page or a transient absence. Pinterest image variants are selected
 in sorted-key order to keep reconciliation deterministic.
+
+The same registry contains the official TikTok Direct Post and YouTube Shorts
+adapters. They call providers only through F5 `AuthenticatedExecutor`, with an
+explicit `ExpectedProvider` on every request. Registration remains fail-closed
+unless configuration, provider review, runtime audit, and quota verification
+gates are all true. TikTok additionally requires a verified immutable pull
+prefix and F5 trailing-slash support. The default video registry remains empty
+when those dependencies are not injected.
+
+TikTok checkpoints creator capability discovery, Direct Post initialization,
+and asynchronous status. Its three official API paths preserve their required
+trailing slash. It uses a verified, immutable HTTPS pull URL so the upload
+capability URL never crosses the F5 boundary. YouTube checkpoints channel
+capability, a local `multipart/related` upload through F5, and asynchronous
+processing. TikTok reconciles only from a durable `publish_id`. YouTube does
+not claim deterministic reconciliation for a pre-ID multipart outcome; it
+declares the F8 ambiguous-fail-closed capability, which prevents all blind
+upload replay.
 
 ## Verification
 
