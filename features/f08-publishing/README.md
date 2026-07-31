@@ -85,6 +85,19 @@ provider's eventual-consistency window, so F8 never repeats a create based on
 a single page or a transient absence. Pinterest image variants are selected
 in sorted-key order to keep reconciliation deterministic.
 
+The registry also supports Facebook Pages and Instagram Professional through
+the same F5 authenticated-executor boundary. They are registered only when the
+Meta auto-publishing gate, the provider-specific enable gate, App Review, and
+runtime-audit gates are all true. Their media containers, carousel children,
+publish IDs, and permalink reads are durable checkpoint steps. Meta mutations
+do not claim general reconciliation: an ambiguous request without durable
+provider evidence is dead-lettered without replay.
+
+Threads remains fail-closed until its verified F5 adapter dependency is
+integrated. Facebook Groups and Instagram Personal have a durable notification
+outbox implementation, but production registration remains rejected until the
+downstream notification delivery owned by #343 is available.
+
 The same registry contains the official TikTok Direct Post and YouTube Shorts
 adapters. They call providers only through F5 `AuthenticatedExecutor`, with an
 explicit `ExpectedProvider` on every request. Registration remains fail-closed

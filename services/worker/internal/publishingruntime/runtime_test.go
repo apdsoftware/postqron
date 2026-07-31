@@ -3,6 +3,7 @@ package publishingruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 )
 
@@ -30,6 +32,41 @@ func TestRuntimeAdapterRegistryIsEmptyAndFailClosed(t *testing.T) {
 	); !errors.Is(err, publishing.ErrProviderUnavailable) {
 		t.Fatalf("notification publisher resolution error=%v", err)
 	}
+}
+
+func TestRuntimeAdapterRegistryRegistersInjectedMetaNotifications(t *testing.T) {
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		nil,
+		staticproviders.Config{},
+		metapublishing.RegistrationConfig{
+			NotificationStore: runtimeNotificationStore{},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"facebook_groups", "instagram_personal"} {
+		if _, err = registry.ResolveNotificationPublisher(
+			context.Background(),
+			provider,
+		); err != nil {
+			t.Fatalf("resolve %s: %v", provider, err)
+		}
+	}
+}
+
+type runtimeNotificationStore struct{}
+
+func (runtimeNotificationStore) PutIfAbsent(
+	context.Context,
+	string,
+	string,
+	string,
+	string,
+	string,
+	json.RawMessage,
+) (string, bool, error) {
+	return "meta_notification_0123456789abcdef0123456789abcdef", true, nil
 }
 
 type rejectingExecutor struct{}

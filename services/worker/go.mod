@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/apdsoftware/postqron/features/f05-social-connections v0.0.0 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

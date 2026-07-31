@@ -58,6 +58,54 @@ func TestCrashReclaimUsesReconciliationWhenDeclared(t *testing.T) {
 	}
 }
 
+func TestCrashReclaimFailClosedAdapterNeverBlindlyRepublishes(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
+	store := NewMemoryStore()
+	provider := newFakeProvider()
+	provider.capabilities.NativeIdempotency = false
+	provider.capabilities.Reconciliation = false
+	provider.capabilities.AmbiguousFailClosed = true
+	engine := newTestEngine(
+		t, store, provider, &now,
+		&fakeGate{current: true},
+		&fakeAuthorizer{allowed: true},
+	)
+	result := enqueueTestJob(t, ctx, engine, now, []DestinationInput{
+		testDestination("channel-fail-closed", "meta", 3),
+	})
+	claimed, found, err := store.ClaimDue(
+		ctx, now, now.Add(30*time.Second), "lease_crash_fail_closed",
+	)
+	if err != nil || !found {
+		t.Fatalf("claim found=%v error=%v", found, err)
+	}
+	if _, err = provider.Publish(ctx, publishRequestFromDestination(claimed)); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(31 * time.Second)
+	processed, err := engine.DispatchOne(ctx)
+	if err != nil || !processed {
+		t.Fatalf("reclaim processed=%v error=%v", processed, err)
+	}
+	job, err := engine.GetJob(ctx, "workspace-1", result.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := job.Destinations[0]
+	if destination.Status != DestinationDeadLetter ||
+		!destination.LastDiagnostic.Ambiguous ||
+		destination.LastDiagnostic.Retryable ||
+		provider.Calls() != 1 || provider.ReconcileCalls() != 0 {
+		t.Fatalf(
+			"destination=%#v publish_calls=%d reconcile_calls=%d",
+			destination,
+			provider.Calls(),
+			provider.ReconcileCalls(),
+		)
+	}
+}
+
 func TestNativeIdempotencyTimeoutRetriesWithoutReconciliation(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
@@ -162,23 +210,13 @@ func TestAmbiguousFailClosedAdapterNeverReplaysMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := job.Destinations[0]
-	if first.Status != DestinationRetryWait || !first.NeedsReconciliation {
-		t.Fatalf("first destination=%#v", first)
-	}
-	now = first.NextAttemptAt
-	if processed, err := engine.DispatchOne(ctx); err != nil || !processed {
-		t.Fatalf("fail-closed dispatch processed=%v error=%v", processed, err)
-	}
-	job, err = engine.GetJob(ctx, "workspace-1", result.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	final := job.Destinations[0]
-	if final.Status != DestinationDeadLetter || provider.Calls() != 1 ||
+	if first.Status != DestinationDeadLetter ||
+		!first.NeedsReconciliation ||
+		provider.Calls() != 1 ||
 		provider.ReconcileCalls() != 0 {
 		t.Fatalf(
 			"destination=%#v publish_calls=%d reconcile_calls=%d",
-			final, provider.Calls(), provider.ReconcileCalls(),
+			first, provider.Calls(), provider.ReconcileCalls(),
 		)
 	}
 }

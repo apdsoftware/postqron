@@ -702,17 +702,24 @@ func classifyPublishError(
 			copyOfError.Ambiguous =
 				copyOfError.Ambiguous || !capabilities.NativeIdempotency
 		}
+		if copyOfError.Ambiguous && capabilities.AmbiguousFailClosed {
+			copyOfError.Retryable = false
+		}
 		return &copyOfError
 	}
 	if !transportFailure {
 		return err
 	}
-	return &ProviderError{
+	result := &ProviderError{
 		Code:      "transport_outcome_unknown",
 		Detail:    err.Error(),
 		Retryable: true,
 		Ambiguous: !capabilities.NativeIdempotency,
 	}
+	if result.Ambiguous && capabilities.AmbiguousFailClosed {
+		result.Retryable = false
+	}
+	return result
 }
 
 func validateCompletedResult(result PublishResult) error {

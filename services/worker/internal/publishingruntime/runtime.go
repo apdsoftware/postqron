@@ -16,6 +16,7 @@ import (
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
 	staticproviders "github.com/apdsoftware/postqron/features/f08-publishing/providers/static"
 	videopublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/video"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,8 +25,9 @@ import (
 // Service owns only F8 wiring. Credentials remain behind the injected F5
 // AuthenticatedExecutor boundary.
 type Service struct {
-	engine *publishing.Engine
-	pool   *pgxpool.Pool
+	engine                 *publishing.Engine
+	notificationDispatcher *metapublishing.NotificationDispatcher
+	pool                   *pgxpool.Pool
 }
 
 type ProviderGate struct {
@@ -59,6 +61,7 @@ func New(
 	config := runtimeStaticProviderConfig(database)
 	return newService(
 		ctx, database, databaseURL, clock, nil, config,
+		metapublishing.RegistrationConfig{},
 		videoDependencies...,
 	)
 }
@@ -73,6 +76,10 @@ func NewWithExecutor(
 	executor *socialconnections.AuthenticatedExecutor,
 	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
+	metaConfig, err := NewMetaRegistrationConfig(database, clock)
+	if err != nil {
+		return nil, err
+	}
 	var boundary staticproviders.Executor
 	if executor != nil {
 		boundary = executor
@@ -87,8 +94,28 @@ func NewWithExecutor(
 		clock,
 		boundary,
 		runtimeStaticProviderConfig(database),
+		metaConfig,
 		videoDependencies...,
 	)
+}
+
+func NewMetaRegistrationConfig(
+	database *sql.DB,
+	clock func() time.Time,
+) (metapublishing.RegistrationConfig, error) {
+	config, err := productionMetaAutoConfig(database, clock)
+	if err != nil {
+		return metapublishing.RegistrationConfig{}, err
+	}
+	if strings.TrimSpace(
+		os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED"),
+	) == "true" {
+		return metapublishing.RegistrationConfig{}, fmt.Errorf(
+			"%w: social notification delivery requires issue 343",
+			publishing.ErrProviderUnavailable,
+		)
+	}
+	return config, nil
 }
 
 func newService(
@@ -98,6 +125,7 @@ func newService(
 	clock func() time.Time,
 	executor staticproviders.Executor,
 	staticConfig staticproviders.Config,
+	metaConfig metapublishing.RegistrationConfig,
 	videoDependencies ...VideoAdapterDependencies,
 ) (*Service, error) {
 	if database == nil || strings.TrimSpace(databaseURL) == "" {
@@ -115,8 +143,8 @@ func newService(
 		pool.Close()
 		return nil, err
 	}
-	registry, err := newRuntimeAdapterRegistry(
-		executor, staticConfig, videoDependencies...,
+	registry, err := newRuntimeAdapterRegistryWithMeta(
+		executor, staticConfig, metaConfig, videoDependencies...,
 	)
 	if err != nil {
 		pool.Close()
@@ -140,12 +168,51 @@ func newService(
 		pool.Close()
 		return nil, err
 	}
-	return &Service{engine: engine, pool: pool}, nil
+	var notificationDispatcher *metapublishing.NotificationDispatcher
+	if metaConfig.NotificationStore != nil ||
+		metaConfig.NotificationSender != nil {
+		store, ok := metaConfig.NotificationStore.(*metapublishing.PostgresNotificationStore)
+		if !ok || metaConfig.NotificationSender == nil {
+			pool.Close()
+			return nil, fmt.Errorf(
+				"%w: incomplete Meta notification dispatcher",
+				publishing.ErrProviderUnavailable,
+			)
+		}
+		notificationDispatcher, err = metapublishing.NewNotificationDispatcher(
+			store,
+			metaConfig.NotificationSender,
+			2*time.Minute,
+		)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+	return &Service{
+		engine:                 engine,
+		notificationDispatcher: notificationDispatcher,
+		pool:                   pool,
+	}, nil
 }
 
 func newRuntimeAdapterRegistry(
 	executor staticproviders.Executor,
 	config staticproviders.Config,
+	videoDependencies ...VideoAdapterDependencies,
+) (*publishing.AdapterRegistry, error) {
+	return newRuntimeAdapterRegistryWithMeta(
+		executor,
+		config,
+		metapublishing.RegistrationConfig{},
+		videoDependencies...,
+	)
+}
+
+func newRuntimeAdapterRegistryWithMeta(
+	executor staticproviders.Executor,
+	config staticproviders.Config,
+	metaConfig metapublishing.RegistrationConfig,
 	videoDependencies ...VideoAdapterDependencies,
 ) (*publishing.AdapterRegistry, error) {
 	registry := publishing.NewAdapterRegistry()
@@ -155,6 +222,9 @@ func newRuntimeAdapterRegistry(
 	}
 	if err := registerVideoAdapters(registry, videoDependencies...); err != nil {
 		return nil, err
+	}
+	if err := metapublishing.Register(registry, metaConfig); err != nil {
+		return nil, fmt.Errorf("register Meta publishing adapters: %w", err)
 	}
 	return registry, nil
 }
@@ -359,6 +429,12 @@ func registerVideoAdapters(
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	if service == nil || service.engine == nil {
 		return false, errors.New("publishing runtime is not configured")
+	}
+	if service.notificationDispatcher != nil {
+		dispatched, err := service.notificationDispatcher.DispatchOne(ctx)
+		if err != nil || dispatched {
+			return dispatched, err
+		}
 	}
 	return service.engine.DispatchOne(ctx)
 }
