@@ -239,6 +239,10 @@ Runtime secret-store/environment keys:
 | `POSTQRON_F05_X_API_ACCESS_APPROVED` | Exact `true` only after developer app, write access, billing/access, and policy prerequisites are verified. |
 | `POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after the offline fixture and security audit. |
 | `POSTQRON_F05_X_SMOKE_TEST_VERIFIED` | Exact `true` only after an authorized environment smoke test. |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED` | Temporary exact `true` to permit the controlled first smoke while the normal smoke gate remains false. |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID` | Exact dedicated test workspace allowed to see and begin the X canary. |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID` | Exact authorized Owner account allowed to see and begin the X canary. |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT` | Future UTC RFC3339 timestamp no more than two hours away; expiry closes begin/callback/selection. |
 
 Values must be injected by the runtime secret store. Do not commit them, expose
 them through bootstrap, or place them in browser configuration.

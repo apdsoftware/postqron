@@ -62,6 +62,10 @@ below is a real credential.
 | `POSTQRON_F05_X_API_ACCESS_APPROVED` | Exact `true` only after the developer app, write access, billing/access prerequisites, and policy review are verified |
 | `POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED` | Exact `true` only after fixture and security audit |
 | `POSTQRON_F05_X_SMOKE_TEST_VERIFIED` | Exact `true` only after an authorized environment smoke test |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED` | Temporary exact `true` only while the normal smoke gate is false |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID` | Exact dedicated test workspace |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID` | Exact authorized Owner account |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT` | Future UTC RFC3339 expiry, at most two hours away |
 
 The shared F5 encryption key and provider-neutral runtime gate from the #302
 foundation must also be valid. Missing credentials keep X `not_configured`;
@@ -69,6 +73,13 @@ missing access approval reports `review_required`; missing audit or smoke
 verification reports `audit_required`. Only the complete set mounts the
 adapter and exposes real authorization, PKCE, resource-selection, refresh,
 and remote-revocation capabilities.
+
+The first-smoke canary does not change the global `audit_required` state. It
+mounts a separate adapter usable only by the exact workspace/actor before the
+short expiry. OAuth attempts and connect/disconnect actions retain their normal
+database audit evidence, while token access for publishing remains blocked.
+After a real successful smoke, remove the canary and set the normal smoke gate
+in a separately reviewed release. A verified gate and canary cannot coexist.
 
 ## Offline verification
 

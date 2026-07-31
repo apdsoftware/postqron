@@ -30,33 +30,43 @@ var requiredScopes = map[Provider][]string{
 }
 
 type Config struct {
-	Repository       Repository
-	Authorizer       Authorizer
-	Cipher           CredentialCipher
-	Quota            ChannelQuota
-	Adapters         map[Provider]Adapter
-	DynamicAdapters  map[Provider]DynamicAdapter
-	Availability     map[Provider]ProviderAvailability
-	Now              func() time.Time
-	AuthorizationTTL time.Duration
-	SelectionTTL     time.Duration
-	RefreshLockTTL   time.Duration
-	RefreshBefore    time.Duration
+	Repository         Repository
+	Authorizer         Authorizer
+	Cipher             CredentialCipher
+	Quota              ChannelQuota
+	Adapters           map[Provider]Adapter
+	DynamicAdapters    map[Provider]DynamicAdapter
+	Availability       map[Provider]ProviderAvailability
+	Now                func() time.Time
+	AuthorizationTTL   time.Duration
+	SelectionTTL       time.Duration
+	RefreshLockTTL     time.Duration
+	RefreshBefore      time.Duration
+	firstSmokeAdapters map[Provider]Adapter
+	firstSmokeCanaries map[Provider]firstSmokeCanary
+}
+
+type firstSmokeCanary struct {
+	WorkspaceID    string
+	ActorAccountID string
+	ExpiresAt      time.Time
 }
 
 type Service struct {
-	repository       Repository
-	authorizer       Authorizer
-	cipher           CredentialCipher
-	quota            ChannelQuota
-	adapters         map[Provider]Adapter
-	dynamicAdapters  map[Provider]DynamicAdapter
-	availability     map[Provider]ProviderAvailability
-	now              func() time.Time
-	authorizationTTL time.Duration
-	selectionTTL     time.Duration
-	refreshLockTTL   time.Duration
-	refreshBefore    time.Duration
+	repository         Repository
+	authorizer         Authorizer
+	cipher             CredentialCipher
+	quota              ChannelQuota
+	adapters           map[Provider]Adapter
+	dynamicAdapters    map[Provider]DynamicAdapter
+	firstSmokeAdapters map[Provider]Adapter
+	firstSmokeCanaries map[Provider]firstSmokeCanary
+	availability       map[Provider]ProviderAvailability
+	now                func() time.Time
+	authorizationTTL   time.Duration
+	selectionTTL       time.Duration
+	refreshLockTTL     time.Duration
+	refreshBefore      time.Duration
 }
 
 func NewService(config Config) (*Service, error) {
@@ -66,8 +76,14 @@ func NewService(config Config) (*Service, error) {
 			ErrInvalidArgument,
 		)
 	}
+	if config.Now == nil {
+		config.Now = time.Now
+	}
+	configuredAt := config.Now().UTC()
 	adapters := make(map[Provider]Adapter, len(SupportedProviders))
 	dynamicAdapters := make(map[Provider]DynamicAdapter, len(SupportedProviders))
+	firstSmokeAdapters := make(map[Provider]Adapter, 1)
+	firstSmokeCanaries := make(map[Provider]firstSmokeCanary, 1)
 	availability := make(
 		map[Provider]ProviderAvailability,
 		len(SupportedProviders),
@@ -134,6 +150,35 @@ func NewService(config Config) (*Service, error) {
 			}
 			dynamicAdapters[provider] = dynamicAdapter
 		}
+		firstSmokeAdapter, hasFirstSmokeAdapter := config.firstSmokeAdapters[provider]
+		firstSmokePolicy, hasFirstSmokePolicy := config.firstSmokeCanaries[provider]
+		if hasFirstSmokeAdapter != hasFirstSmokePolicy {
+			return nil, fmt.Errorf(
+				"%w: first-smoke adapter and policy must be configured together",
+				ErrInvalidArgument,
+			)
+		}
+		if hasFirstSmokeAdapter {
+			if provider != ProviderX || firstSmokeAdapter == nil ||
+				adapter != nil || dynamicAdapter != nil || config.Cipher == nil ||
+				providerAvailability.ConfigurationState != ProviderAuditRequired ||
+				strings.TrimSpace(firstSmokePolicy.WorkspaceID) == "" ||
+				strings.TrimSpace(firstSmokePolicy.ActorAccountID) == "" ||
+				!firstSmokePolicy.ExpiresAt.After(configuredAt) ||
+				firstSmokePolicy.ExpiresAt.After(
+					configuredAt.Add(firstSmokeCanaryMaxTTL),
+				) {
+				return nil, fmt.Errorf(
+					"%w: invalid X first-smoke canary",
+					ErrInvalidArgument,
+				)
+			}
+			if err := validateOAuthConfig(provider, firstSmokeAdapter.Config()); err != nil {
+				return nil, err
+			}
+			firstSmokeAdapters[provider] = firstSmokeAdapter
+			firstSmokeCanaries[provider] = firstSmokePolicy
+		}
 		if adapters[provider] == nil && dynamicAdapters[provider] == nil {
 			providerAvailability.Status = ProviderUnavailable
 			providerAvailability.Retryable = false
@@ -142,9 +187,6 @@ func NewService(config Config) (*Service, error) {
 			}
 		}
 		availability[provider] = providerAvailability
-	}
-	if config.Now == nil {
-		config.Now = time.Now
 	}
 	if config.AuthorizationTTL == 0 {
 		config.AuthorizationTTL = defaultAuthorizationTTL
@@ -163,18 +205,20 @@ func NewService(config Config) (*Service, error) {
 		return nil, fmt.Errorf("%w: service durations are invalid", ErrInvalidArgument)
 	}
 	return &Service{
-		repository:       config.Repository,
-		authorizer:       config.Authorizer,
-		cipher:           config.Cipher,
-		quota:            config.Quota,
-		adapters:         adapters,
-		dynamicAdapters:  dynamicAdapters,
-		availability:     availability,
-		now:              config.Now,
-		authorizationTTL: config.AuthorizationTTL,
-		selectionTTL:     config.SelectionTTL,
-		refreshLockTTL:   config.RefreshLockTTL,
-		refreshBefore:    config.RefreshBefore,
+		repository:         config.Repository,
+		authorizer:         config.Authorizer,
+		cipher:             config.Cipher,
+		quota:              config.Quota,
+		adapters:           adapters,
+		dynamicAdapters:    dynamicAdapters,
+		firstSmokeAdapters: firstSmokeAdapters,
+		firstSmokeCanaries: firstSmokeCanaries,
+		availability:       availability,
+		now:                config.Now,
+		authorizationTTL:   config.AuthorizationTTL,
+		selectionTTL:       config.SelectionTTL,
+		refreshLockTTL:     config.RefreshLockTTL,
+		refreshBefore:      config.RefreshBefore,
 	}, nil
 }
 
@@ -224,7 +268,23 @@ func (service *Service) BootstrapForWorkspace(
 	); err != nil {
 		return ClientBootstrap{}, err
 	}
-	return service.Bootstrap(), nil
+	bootstrap := service.Bootstrap()
+	for index := range bootstrap.Catalog {
+		provider := bootstrap.Catalog[index].Provider
+		adapter := service.firstSmokeAdapter(
+			provider,
+			workspaceID,
+			actorID,
+		)
+		if adapter == nil {
+			continue
+		}
+		bootstrap.Catalog[index].Status = ProviderAvailable
+		bootstrap.Catalog[index].ConfigurationState = ProviderReady
+		bootstrap.Catalog[index].Retryable = false
+		bootstrap.Catalog[index].Capabilities = adapterCapabilities(adapter)
+	}
+	return bootstrap, nil
 }
 
 func (service *Service) Begin(
@@ -235,7 +295,11 @@ func (service *Service) Begin(
 		strings.TrimSpace(request.ActorID) == "" {
 		return Authorization{}, fmt.Errorf("%w: workspace and actor are required", ErrInvalidArgument)
 	}
-	adapter, err := service.availableAdapter(request.Provider)
+	adapter, err := service.availableAdapterForFirstSmoke(
+		request.Provider,
+		request.WorkspaceID,
+		request.ActorID,
+	)
 	dynamicAdapter, dynamicErr := service.availableDynamicAdapter(request.Provider)
 	if err != nil && dynamicErr != nil {
 		if slices.Contains(SupportedProviders, request.Provider) {
@@ -328,7 +392,11 @@ func (service *Service) Callback(
 	if dynamicAdapter := service.dynamicAdapters[attempt.Provider]; dynamicAdapter != nil {
 		return service.callbackDynamic(ctx, request, attempt, dynamicAdapter, now)
 	}
-	adapter, err := service.availableAdapter(attempt.Provider)
+	adapter, err := service.availableAdapterForFirstSmoke(
+		attempt.Provider,
+		attempt.WorkspaceID,
+		attempt.ActorID,
+	)
 	if err != nil {
 		return Selection{}, err
 	}
@@ -455,7 +523,11 @@ func (service *Service) Select(
 	if err != nil {
 		return Connection{}, err
 	}
-	staticAdapter, staticErr := service.availableAdapter(target.Provider)
+	staticAdapter, staticErr := service.availableAdapterForFirstSmoke(
+		target.Provider,
+		request.WorkspaceID,
+		request.ActorID,
+	)
 	dynamicAdapter, dynamicErr := service.availableDynamicAdapter(target.Provider)
 	if staticAdapter == nil && dynamicAdapter == nil {
 		return Connection{}, providerAvailabilityError(staticErr, dynamicErr)
@@ -763,6 +835,14 @@ func (service *Service) Revoke(
 	}
 	providerRevoked := false
 	adapter := service.adapters[stored.Provider]
+	if adapter == nil {
+		canary, configured := service.firstSmokeCanaries[stored.Provider]
+		if configured && canary.WorkspaceID == workspaceID {
+			// Cleanup remains possible after canary expiry. This does not expose
+			// authorization or publishing to another workspace.
+			adapter = service.firstSmokeAdapters[stored.Provider]
+		}
+	}
 	dynamicAdapter := service.dynamicAdapters[stored.Provider]
 	dynamicLeaseClaimed := false
 	var remoteErr error
@@ -1107,6 +1187,38 @@ func (service *Service) availableAdapter(provider Provider) (Adapter, error) {
 	default:
 		return nil, ErrProviderUnavailable
 	}
+}
+
+func (service *Service) availableAdapterForFirstSmoke(
+	provider Provider,
+	workspaceID, actorAccountID string,
+) (Adapter, error) {
+	adapter, err := service.availableAdapter(provider)
+	if err == nil {
+		return adapter, nil
+	}
+	if adapter = service.firstSmokeAdapter(
+		provider,
+		workspaceID,
+		actorAccountID,
+	); adapter != nil {
+		return adapter, nil
+	}
+	return nil, err
+}
+
+func (service *Service) firstSmokeAdapter(
+	provider Provider,
+	workspaceID, actorAccountID string,
+) Adapter {
+	canary, configured := service.firstSmokeCanaries[provider]
+	if !configured ||
+		canary.WorkspaceID != strings.TrimSpace(workspaceID) ||
+		canary.ActorAccountID != strings.TrimSpace(actorAccountID) ||
+		!service.now().UTC().Before(canary.ExpiresAt) {
+		return nil
+	}
+	return service.firstSmokeAdapters[provider]
 }
 
 func (service *Service) newEvent(

@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 validator="$script_dir/validate-f05-runtime.sh"
+composer="$script_dir/compose-f05-runtime.sh"
 compose="$script_dir/compose.yaml"
 workflow="$script_dir/../../.github/workflows/deploy.yml"
 temporary_dir=$(mktemp -d)
@@ -11,6 +12,13 @@ trap 'rm -rf "$temporary_dir"' EXIT
 
 cipher_key=$(printf '0123456789abcdef0123456789abcdef' | openssl base64 -A)
 callback=https://postqron.com/app/social-oauth/callback
+if canary_expires_at=$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null); then
+  canary_too_long_at=$(date -u -d '+3 hours' '+%Y-%m-%dT%H:%M:%SZ')
+  :
+else
+  canary_expires_at=$(date -j -u -v+1H '+%Y-%m-%dT%H:%M:%SZ')
+  canary_too_long_at=$(date -j -u -v+3H '+%Y-%m-%dT%H:%M:%SZ')
+fi
 
 write_base() {
   local target=$1
@@ -19,6 +27,32 @@ write_base() {
     'POSTQRON_F05_CIPHER_KEY_ID=fixture-key' \
     "POSTQRON_F05_CIPHER_KEY_BASE64=$cipher_key" \
     > "$target"
+}
+
+compose_x_runtime() {
+  local target=$1
+  local dedicated_cipher=$2
+  local smoke_verified=$3
+  local canary_enabled=$4
+  local canary_workspace=$5
+  local canary_actor=$6
+  local canary_expiry=$7
+  env \
+    POSTQRON_F05_ENABLED=true \
+    POSTQRON_F05_CIPHER_KEY_ID=dedicated-fixture-key \
+    POSTQRON_F05_CIPHER_KEY_BASE64="$dedicated_cipher" \
+    POSTQRON_F05_X_ENABLED=true \
+    POSTQRON_F05_X_CLIENT_ID=dedicated-fixture-client \
+    POSTQRON_F05_X_CLIENT_SECRET=NEVER_PRINT_DEDICATED_SECRET \
+    POSTQRON_F05_X_REDIRECT_URL="$callback" \
+    POSTQRON_F05_X_API_ACCESS_APPROVED=true \
+    POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED=true \
+    POSTQRON_F05_X_SMOKE_TEST_VERIFIED="$smoke_verified" \
+    POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED="$canary_enabled" \
+    POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID="$canary_workspace" \
+    POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID="$canary_actor" \
+    POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT="$canary_expiry" \
+    "$composer" "$target" postqron.com production
 }
 
 append_ready_provider() {
@@ -200,6 +234,56 @@ if [[ "$no_provider_output" != *"catalog remains fail-closed"* ]]; then
   exit 1
 fi
 
+first_smoke_canary="$temporary_dir/x-first-smoke-canary.env"
+write_base "$first_smoke_canary"
+printf '%s\n' \
+  'POSTQRON_F05_X_ENABLED=true' \
+  'POSTQRON_F05_X_CLIENT_ID=fixture-client' \
+  'POSTQRON_F05_X_CLIENT_SECRET=fixture-secret' \
+  "POSTQRON_F05_X_REDIRECT_URL=$callback" \
+  'POSTQRON_F05_X_API_ACCESS_APPROVED=true' \
+  'POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED=true' \
+  'POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false' \
+  'POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED=true' \
+  'POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID=workspace-canary' \
+  'POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID=actor-canary' \
+  "POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT=$canary_expires_at" \
+  >> "$first_smoke_canary"
+first_smoke_output=$(
+  "$validator" "$first_smoke_canary" postqron.com production
+)
+if [[ "$first_smoke_output" != *"fail-closed outside the scoped canary"* ]]; then
+  echo "first-smoke canary did not report its restricted catalog state" >&2
+  exit 1
+fi
+
+missing_canary="$temporary_dir/x-missing-canary.env"
+cp "$first_smoke_canary" "$missing_canary"
+sed -i.bak \
+  '/^POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID=/d' \
+  "$missing_canary"
+expect_failure missing-canary \
+  "POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID is missing" \
+  "$missing_canary"
+
+verified_with_canary="$temporary_dir/x-verified-with-canary.env"
+cp "$first_smoke_canary" "$verified_with_canary"
+sed -i.bak \
+  's/POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false/POSTQRON_F05_X_SMOKE_TEST_VERIFIED=true/' \
+  "$verified_with_canary"
+expect_failure verified-with-canary \
+  "first-smoke canary must be removed" \
+  "$verified_with_canary"
+
+overlong_canary="$temporary_dir/x-overlong-canary.env"
+cp "$first_smoke_canary" "$overlong_canary"
+sed -i.bak \
+  "s/$canary_expires_at/$canary_too_long_at/" \
+  "$overlong_canary"
+expect_failure overlong-canary \
+  "no more than two hours away" \
+  "$overlong_canary"
+
 partial="$temporary_dir/partial.env"
 write_base "$partial"
 printf '%s\n' 'POSTQRON_F05_X_ENABLED=true' >> "$partial"
@@ -282,6 +366,111 @@ if [[ "$redaction_output" == *NEVER_PRINT_THIS_FIXTURE_VALUE* ]]; then
   exit 1
 fi
 
+staging_legacy="$temporary_dir/staging-legacy-runtime.env"
+printf '%s\n' 'UNRELATED_RUNTIME_VALUE=staging-opaque' > "$staging_legacy"
+cp "$staging_legacy" "$temporary_dir/staging-legacy.before"
+env -i PATH="$PATH" \
+  "$composer" "$staging_legacy" staging.example.com staging >/dev/null
+if ! cmp --silent \
+  "$temporary_dir/staging-legacy.before" \
+  "$staging_legacy"; then
+  echo "provider-free staging composition changed legacy RUNTIME_ENV" >&2
+  exit 1
+fi
+
+legacy_runtime="$temporary_dir/legacy-runtime.env"
+printf '%s\n' \
+  'DATABASE_URL=postgres://legacy-preserved' \
+  'UNRELATED_RUNTIME_VALUE=opaque-legacy-value' \
+  > "$legacy_runtime"
+composition_output=$(
+  compose_x_runtime \
+    "$legacy_runtime" \
+    "$cipher_key" \
+    false \
+    true \
+    workspace-canary \
+    actor-canary \
+    "$canary_expires_at" 2>&1
+)
+if ! grep --fixed-strings --line-regexp --quiet \
+  'UNRELATED_RUNTIME_VALUE=opaque-legacy-value' "$legacy_runtime"; then
+  echo "dedicated composition did not preserve legacy RUNTIME_ENV" >&2
+  exit 1
+fi
+if [[ "$composition_output" == *NEVER_PRINT_DEDICATED_SECRET* ]]; then
+  echo "dedicated composition exposed an X secret" >&2
+  exit 1
+fi
+if [[ $(grep --count '^POSTQRON_F05_X_CLIENT_ID=' "$legacy_runtime") != 1 ]]; then
+  echo "dedicated composition did not append exactly one X client ID" >&2
+  exit 1
+fi
+
+post_smoke_runtime="$temporary_dir/post-smoke-runtime.env"
+printf '%s\n' 'UNRELATED_RUNTIME_VALUE=still-opaque' > "$post_smoke_runtime"
+compose_x_runtime \
+  "$post_smoke_runtime" \
+  "$cipher_key" \
+  true \
+  false \
+  '' \
+  '' \
+  '' \
+  >/dev/null
+
+conflicting_runtime="$temporary_dir/conflicting-runtime.env"
+printf '%s\n' \
+  'UNRELATED_RUNTIME_VALUE=preserve-on-failure' \
+  'POSTQRON_F05_X_CLIENT_ID=legacy-client' \
+  > "$conflicting_runtime"
+cp "$conflicting_runtime" "$temporary_dir/conflicting-runtime.before"
+if conflict_output=$(
+  compose_x_runtime \
+    "$conflicting_runtime" \
+    "$cipher_key" \
+    false \
+    true \
+    workspace-canary \
+    actor-canary \
+    "$canary_expires_at" 2>&1
+); then
+  echo "conflicting legacy and dedicated F5 keys unexpectedly composed" >&2
+  exit 1
+fi
+if [[ "$conflict_output" != *"conflicts with dedicated F5 configuration"* ]] ||
+  [[ "$conflict_output" == *NEVER_PRINT_DEDICATED_SECRET* ]]; then
+  echo "F5 conflict failed unsafely: $conflict_output" >&2
+  exit 1
+fi
+if ! cmp --silent \
+  "$temporary_dir/conflicting-runtime.before" \
+  "$conflicting_runtime"; then
+  echo "failed F5 composition mutated legacy RUNTIME_ENV" >&2
+  exit 1
+fi
+
+missing_cipher_runtime="$temporary_dir/missing-cipher-runtime.env"
+printf '%s\n' 'UNRELATED_RUNTIME_VALUE=preserved' > "$missing_cipher_runtime"
+if missing_cipher_output=$(
+  compose_x_runtime \
+    "$missing_cipher_runtime" \
+    '' \
+    false \
+    true \
+    workspace-canary \
+    actor-canary \
+    "$canary_expires_at" 2>&1
+); then
+  echo "production composition without the dedicated cipher unexpectedly passed" >&2
+  exit 1
+fi
+if [[ "$missing_cipher_output" != *"POSTQRON_F05_CIPHER_KEY_BASE64"* ]] ||
+  [[ "$missing_cipher_output" == *NEVER_PRINT_DEDICATED_SECRET* ]]; then
+  echo "missing cipher failed for an unsafe reason: $missing_cipher_output" >&2
+  exit 1
+fi
+
 grep -Eo 'POSTQRON_F05_[A-Z0-9_]+' "$validator" | sort -u \
   > "$temporary_dir/validator-keys"
 grep -Eo 'POSTQRON_F05_[A-Z0-9_]+' "$compose" | sort -u \
@@ -300,9 +489,19 @@ if ! diff -u "$temporary_dir/runtime-keys" "$temporary_dir/validator-keys"; then
   exit 1
 fi
 
-if ! grep -Fq './infra/deploy/validate-f05-runtime.sh' "$workflow"; then
-  echo "Deploy workflow does not invoke the F5 validator" >&2
+if ! grep -Fq './infra/deploy/compose-f05-runtime.sh' "$workflow"; then
+  echo "Deploy workflow does not invoke atomic F5 composition" >&2
   exit 1
 fi
 
-echo "F5 deploy validation tests passed for all connectable provider families"
+for secret_name in \
+  POSTQRON_F05_X_CLIENT_ID \
+  POSTQRON_F05_X_CLIENT_SECRET \
+  POSTQRON_F05_CIPHER_KEY_BASE64; do
+  if ! grep -Fq "$secret_name: \${{ secrets.$secret_name }}" "$workflow"; then
+    echo "Deploy workflow does not use the dedicated $secret_name secret" >&2
+    exit 1
+  fi
+done
+
+echo "F5 deploy validation and composition tests passed"

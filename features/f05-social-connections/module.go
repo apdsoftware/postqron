@@ -148,15 +148,31 @@ func (module *Module) Configure(values map[string]string) error {
 	if err := registry.Merge(runtimeRegistry); err != nil {
 		return err
 	}
+	firstSmokeAdapters := make(map[Provider]Adapter, 1)
+	firstSmokeCanaries := make(map[Provider]firstSmokeCanary, 1)
+	firstSmokeAdapter, firstSmokePolicy, err := configureXFirstSmokeCanary(
+		configured,
+		cipher,
+		module.clock().UTC(),
+	)
+	if err != nil {
+		return err
+	}
+	if firstSmokeAdapter != nil {
+		firstSmokeAdapters[ProviderX] = firstSmokeAdapter
+		firstSmokeCanaries[ProviderX] = firstSmokePolicy
+	}
 	service, err := NewService(Config{
-		Repository:      module.repository,
-		Authorizer:      module.authorizer,
-		Cipher:          cipher,
-		Quota:           module.quota,
-		Adapters:        registry.staticAdapters,
-		DynamicAdapters: registry.dynamicAdapters,
-		Availability:    registry.availability,
-		Now:             module.clock,
+		Repository:         module.repository,
+		Authorizer:         module.authorizer,
+		Cipher:             cipher,
+		Quota:              module.quota,
+		Adapters:           registry.staticAdapters,
+		DynamicAdapters:    registry.dynamicAdapters,
+		Availability:       registry.availability,
+		Now:                module.clock,
+		firstSmokeAdapters: firstSmokeAdapters,
+		firstSmokeCanaries: firstSmokeCanaries,
 	})
 	if err != nil {
 		return err

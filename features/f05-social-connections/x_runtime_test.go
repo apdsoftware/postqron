@@ -1,8 +1,12 @@
 package socialconnections
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
+	"net/url"
 	"testing"
+	"time"
 )
 
 func TestXRuntimeGatesCredentialsAccessAuditAndSmoke(t *testing.T) {
@@ -203,4 +207,324 @@ func TestXRuntimeIsVisibleInProviderDiscoveryOnlyWhenReady(t *testing.T) {
 		return
 	}
 	t.Fatal("X provider is missing from runtime discovery")
+}
+
+func TestXFirstSmokeCanaryIsActorWorkspaceAndTimeScoped(t *testing.T) {
+	now := serviceTestNow
+	module := runtimeModuleFixture()
+	module.clock = func() time.Time { return now }
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	expiresAt := now.Add(time.Hour)
+	err := module.Configure(map[string]string{
+		configEnabled:          "true",
+		configCipherKeyID:      "fixture-key",
+		configCipherKey:        key,
+		configXEnabled:         "true",
+		configXClientID:        "fixture-x-client",
+		configXClientSecret:    "fixture-x-client-secret",
+		configXRedirectURL:     "https://postqron.com/app/social-oauth/callback",
+		configXAccessApproved:  "true",
+		configXAuditVerified:   "true",
+		configXSmokeVerified:   "false",
+		configXCanaryEnabled:   "true",
+		configXCanaryWorkspace: "workspace-canary",
+		configXCanaryActor:     "actor-canary",
+		configXCanaryExpires:   expiresAt.Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	global := providerCatalogEntry(t, module.service.Bootstrap(), ProviderX)
+	if global.Status != ProviderUnavailable ||
+		global.ConfigurationState != ProviderAuditRequired ||
+		global.Capabilities != (AdapterCapabilities{}) {
+		t.Fatalf("global X entry = %#v, want audit-required", global)
+	}
+	if _, adapterErr := module.service.availableAdapter(ProviderX); !errors.Is(
+		adapterErr,
+		ErrProviderAuditRequired,
+	) {
+		t.Fatalf("publishing adapter error = %v, want audit gate", adapterErr)
+	}
+	for _, identity := range []struct {
+		workspace string
+		actor     string
+	}{
+		{workspace: "another-workspace", actor: "actor-canary"},
+		{workspace: "workspace-canary", actor: "another-actor"},
+	} {
+		bootstrap, bootstrapErr := module.service.BootstrapForWorkspace(
+			context.Background(),
+			identity.workspace,
+			identity.actor,
+		)
+		if bootstrapErr != nil {
+			t.Fatal(bootstrapErr)
+		}
+		entry := providerCatalogEntry(t, bootstrap, ProviderX)
+		if entry.Status != ProviderUnavailable ||
+			entry.ConfigurationState != ProviderAuditRequired {
+			t.Fatalf("non-canary X entry = %#v", entry)
+		}
+		_, beginErr := module.service.Begin(
+			context.Background(),
+			BeginRequest{
+				WorkspaceID: identity.workspace,
+				ActorID:     identity.actor,
+				Provider:    ProviderX,
+			},
+		)
+		if !errors.Is(beginErr, ErrProviderAuditRequired) {
+			t.Fatalf("non-canary Begin() error = %v", beginErr)
+		}
+	}
+
+	bootstrap, err := module.service.BootstrapForWorkspace(
+		context.Background(),
+		"workspace-canary",
+		"actor-canary",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := providerCatalogEntry(t, bootstrap, ProviderX)
+	if entry.Status != ProviderAvailable ||
+		entry.ConfigurationState != ProviderReady ||
+		!entry.Capabilities.Authorization ||
+		!entry.Capabilities.PKCE {
+		t.Fatalf("canary X entry = %#v", entry)
+	}
+	authorization, err := module.service.Begin(
+		context.Background(),
+		BeginRequest{
+			WorkspaceID: "workspace-canary",
+			ActorID:     "actor-canary",
+			Provider:    ProviderX,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(authorization.URL)
+	if err != nil || parsed.Host != "x.com" {
+		t.Fatalf("canary authorization URL = %q, error = %v", authorization.URL, err)
+	}
+	if len(module.repository.(*MemoryRepository).attempts) != 1 {
+		t.Fatalf("auditable canary attempts = %d, want 1", len(module.repository.(*MemoryRepository).attempts))
+	}
+	for _, attempt := range module.repository.(*MemoryRepository).attempts {
+		if attempt.WorkspaceID != "workspace-canary" ||
+			attempt.ActorID != "actor-canary" ||
+			attempt.Provider != ProviderX {
+			t.Fatalf("canary attempt audit fields = %#v", attempt)
+		}
+	}
+
+	now = expiresAt
+	expired, err := module.service.BootstrapForWorkspace(
+		context.Background(),
+		"workspace-canary",
+		"actor-canary",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry = providerCatalogEntry(t, expired, ProviderX)
+	if entry.Status != ProviderUnavailable ||
+		entry.ConfigurationState != ProviderAuditRequired {
+		t.Fatalf("expired canary X entry = %#v", entry)
+	}
+	if _, beginErr := module.service.Begin(
+		context.Background(),
+		BeginRequest{
+			WorkspaceID: "workspace-canary",
+			ActorID:     "actor-canary",
+			Provider:    ProviderX,
+		},
+	); !errors.Is(beginErr, ErrProviderAuditRequired) {
+		t.Fatalf("expired canary Begin() error = %v", beginErr)
+	}
+}
+
+func TestXFirstSmokeCanaryRejectsUnsafeConfiguration(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	base := map[string]string{
+		configEnabled:          "true",
+		configCipherKeyID:      "fixture-key",
+		configCipherKey:        key,
+		configXEnabled:         "true",
+		configXClientID:        "fixture-x-client",
+		configXClientSecret:    "fixture-x-client-secret",
+		configXRedirectURL:     "https://postqron.com/app/social-oauth/callback",
+		configXAccessApproved:  "true",
+		configXAuditVerified:   "true",
+		configXSmokeVerified:   "false",
+		configXCanaryEnabled:   "true",
+		configXCanaryWorkspace: "workspace-canary",
+		configXCanaryActor:     "actor-canary",
+		configXCanaryExpires: serviceTestNow.Add(time.Hour).Format(
+			time.RFC3339,
+		),
+	}
+	tests := []struct {
+		name   string
+		change func(map[string]string)
+	}{
+		{
+			name: "verified gate cannot retain canary",
+			change: func(values map[string]string) {
+				values[configXSmokeVerified] = "true"
+			},
+		},
+		{
+			name: "missing actor",
+			change: func(values map[string]string) {
+				delete(values, configXCanaryActor)
+			},
+		},
+		{
+			name: "non exact smoke flag",
+			change: func(values map[string]string) {
+				values[configXSmokeVerified] = "FALSE"
+			},
+		},
+		{
+			name: "expiry over two hours",
+			change: func(values map[string]string) {
+				values[configXCanaryExpires] = serviceTestNow.Add(
+					firstSmokeCanaryMaxTTL + time.Second,
+				).Format(time.RFC3339)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			values := make(map[string]string, len(base))
+			for key, value := range base {
+				values[key] = value
+			}
+			test.change(values)
+			module := runtimeModuleFixture()
+			if configureErr := module.Configure(values); !errors.Is(
+				configureErr,
+				ErrInvalidArgument,
+			) {
+				t.Fatalf("Configure() error = %v, want ErrInvalidArgument", configureErr)
+			}
+		})
+	}
+}
+
+func TestXFirstSmokeCanaryCompletesAuditedConnectAndCleanupWithoutPublishing(
+	t *testing.T,
+) {
+	repository := NewMemoryRepository()
+	authorizer := &fakeAuthorizer{permissions: map[Permission]bool{
+		PermissionViewWorkspace:  true,
+		PermissionManageChannels: true,
+	}}
+	cipher, err := NewAESGCMCipher(
+		"fixture-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := serviceTestNow.Add(time.Hour)
+	adapter := &fakeAdapter{
+		config: OAuthConfig{
+			ClientID:         "fixture-x-client",
+			AuthorizationURL: xOfficialAuthorizationURL,
+			RedirectURL:      "https://postqron.com/app/social-oauth/callback",
+			Scopes:           append([]string(nil), xRequiredScopes...),
+			ScopeSeparator:   OAuthScopeSeparatorSpace,
+			SupportsPKCE:     true,
+		},
+		grant: Credential{
+			AccessToken:  "fixture-x-access-token",
+			RefreshToken: "fixture-x-refresh-token",
+			ExpiresAt:    &expiresAt,
+			Scopes:       append([]string(nil), xRequiredScopes...),
+		},
+		resources: []DiscoveredResource{
+			{
+				Candidate: Candidate{
+					RemoteID:     "x-profile-1",
+					ResourceType: ResourceXProfile,
+					AccountType:  AccountTypeProfile,
+					DisplayName:  "Canary profile",
+				},
+				Credential: Credential{
+					AccessToken:  "fixture-x-access-token",
+					RefreshToken: "fixture-x-refresh-token",
+					ExpiresAt:    &expiresAt,
+					Scopes:       append([]string(nil), xRequiredScopes...),
+				},
+			},
+		},
+	}
+	service, err := NewService(Config{
+		Repository: repository,
+		Authorizer: authorizer,
+		Cipher:     cipher,
+		Quota:      newFakeChannelQuota(),
+		Availability: map[Provider]ProviderAvailability{
+			ProviderX: unavailableProvider(ProviderX, ProviderAuditRequired),
+		},
+		Now: func() time.Time { return serviceTestNow },
+		firstSmokeAdapters: map[Provider]Adapter{
+			ProviderX: adapter,
+		},
+		firstSmokeCanaries: map[Provider]firstSmokeCanary{
+			ProviderX: {
+				WorkspaceID:    "workspace-1",
+				ActorAccountID: "owner-1",
+				ExpiresAt:      expiresAt,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := authorizeAndDiscover(t, service, ProviderX)
+	connection, err := service.Select(context.Background(), SelectRequest{
+		WorkspaceID: "workspace-1",
+		ActorID:     "owner-1",
+		SelectionID: selection.ID,
+		RemoteID:    "x-profile-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.AccessToken(
+		context.Background(),
+		"workspace-1",
+		connection.ID,
+	); !errors.Is(err, ErrProviderAuditRequired) {
+		t.Fatalf("canary AccessToken() error = %v, want audit gate", err)
+	}
+	result, err := service.Revoke(
+		context.Background(),
+		"workspace-1",
+		"owner-1",
+		connection.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ProviderRevoked || result.Connection.Status != StatusRevoked {
+		t.Fatalf("canary revoke result = %#v", result)
+	}
+	if countEvents(repository.Events(), EventConnected) != 1 ||
+		countEvents(repository.Events(), EventDisconnected) != 1 {
+		t.Fatalf("canary audit events = %#v", repository.Events())
+	}
+	if len(repository.attempts) != 1 {
+		t.Fatalf("canary OAuth attempts = %d, want 1", len(repository.attempts))
+	}
 }
