@@ -141,6 +141,22 @@ Gli eventi di billing dichiarano esplicitamente che Paddle possiede la ricevuta
 fiscale; Mailronix invia soltanto la notifica Postqron e non ne duplica il
 contenuto.
 
+## Pubblicazione social manuale
+
+Il boundary worker per F8/F9 accetta esclusivamente workspace, post, channel,
+provider, recipient ID già risolto, locale, template e idempotency key. F14
+risolve nuovamente l’Owner verificato del workspace e rifiuta ogni mismatch:
+indirizzo email, nome, oggetto e corpo non possono essere forniti da un client o
+dal payload social.
+
+`facebook_group_manual_publish` e `instagram_personal_manual_publish` hanno copy
+localizzata e azione specifica per target. Il link porta alla risorsa Postqron;
+testo, media URL, token OAuth e credenziali social non attraversano il comando
+email. L’idempotency key F14 è stabile. Poiché il contratto Mailronix verificato
+non espone webhook, lo stato F8 avanza solo dopo che F14 ha persistito la
+ricevuta sincrona `accepted` del provider. Stati terminali o un `sending`
+ambiguo dopo crash producono permanent failure senza un secondo invio.
+
 ## Affidabilità e ambiente fake
 
 L’idempotency key è unica nel ledger F14 e il claim SQL usa

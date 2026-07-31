@@ -30,8 +30,10 @@ executes one immutable F5/F6 destination snapshot at a time.
   executing work, so invalidated generations are cancelled.
 - Notification publishing is a separate idempotent delivery boundary; it never
   fabricates a social remote ID or calls a social provider. Facebook Groups and
-  Instagram Personal remain production-disabled until #343 supplies confirmed,
-  downstream-idempotent delivery.
+  Instagram Personal enqueue a minimized command whose owner recipient, locale,
+  and target-specific F14 template are resolved server-side. F8 reaches
+  `notified` only after F14 commits the provider's successful acceptance
+  receipt.
 
 Opaque connection references are persisted, never provider tokens. Diagnostic
 text is redacted and length-limited before storage.
@@ -60,10 +62,19 @@ per-provider enable, App Review, runtime-audit, Graph-version, and F5 credential
 dependencies are complete. Threads remains explicitly fail-closed in production
 until the verified F5 adapter from #309 / PR #316 is integrated; setting its F8
 enable gate aborts bootstrap and never registers a substitute credential
-adapter. Facebook Groups and Instagram Personal have a durable F8 outbox and
-claim/retry dispatcher implementation, but their production registration is
-rejected with an explicit #343 dependency; none of these three paths may be
-described as production-ready.
+adapter. Facebook Groups and Instagram Personal are registered only when their
+notification gate and the F9/F14 email boundary are both present. Missing or
+partial wiring aborts startup.
+
+The notification command stores no social body, media URL, email address, or
+credential. It keeps only identifiers, a one-way conflict fingerprint,
+server-resolved locale/template metadata, bounded diagnostic codes, and a link
+to the idempotent F14 delivery. Claims use `SKIP LOCKED` and a lease. Retry
+exhaustion and terminal F14 states become permanent failures. If the email
+provider call completed but the worker crashed before its local commit, the F14
+row remains `sending`; after the ambiguity window it is deterministically
+failed and never replayed. Terminal minimized audit metadata follows D05 and is
+purged after 12 months.
 
 Media containers, carousel children, final publish IDs, and permalink reads are
 separate durable steps. Meta does not claim general reconciliation: an
@@ -82,8 +93,9 @@ Production gates:
   authoritative for Facebook Pages and Instagram Professional.
 - `POSTQRON_F08_THREADS_ENABLED=true` intentionally fails bootstrap until the
   F5 dependency in #309 / PR #316 is integrated.
-- `POSTQRON_F08_META_NOTIFICATIONS_ENABLED=true` intentionally fails bootstrap
-  until #343 is integrated.
+- `POSTQRON_F08_META_NOTIFICATIONS_ENABLED=true` enables Facebook Groups and
+  Instagram Personal only when the worker F9/F14 boundary is configured;
+  otherwise bootstrap fails closed.
 
 ## Verification
 

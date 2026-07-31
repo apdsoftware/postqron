@@ -46,21 +46,23 @@ func ResolveLocale(value string) Locale {
 type TemplateID string
 
 const (
-	TemplateWelcome             TemplateID = "welcome"
-	TemplateAccountVerification TemplateID = "account_verification"
-	TemplateWorkspaceInvitation TemplateID = "workspace_invitation"
-	TemplateAccountSecurity     TemplateID = "account_security"
-	TemplateAccountLinked       TemplateID = "account_linked"
-	TemplateSocialReconnect     TemplateID = "social_reconnect"
-	TemplateCollaboration       TemplateID = "collaboration"
-	TemplatePublicationSuccess  TemplateID = "publication_succeeded"
-	TemplatePublicationFailed   TemplateID = "publication_failed"
-	TemplateBilling             TemplateID = "billing_update"
-	TemplateDataExportReady     TemplateID = "data_export_ready"
-	TemplateDeletion            TemplateID = "deletion_update"
-	TemplatePrivacyRequest      TemplateID = "privacy_request"
-	TemplatePrelaunchAccess     TemplateID = "prelaunch_access"
-	TemplateOperationalAlert    TemplateID = "operational_alert"
+	TemplateWelcome                 TemplateID = "welcome"
+	TemplateAccountVerification     TemplateID = "account_verification"
+	TemplateWorkspaceInvitation     TemplateID = "workspace_invitation"
+	TemplateAccountSecurity         TemplateID = "account_security"
+	TemplateAccountLinked           TemplateID = "account_linked"
+	TemplateSocialReconnect         TemplateID = "social_reconnect"
+	TemplateCollaboration           TemplateID = "collaboration"
+	TemplatePublicationSuccess      TemplateID = "publication_succeeded"
+	TemplatePublicationFailed       TemplateID = "publication_failed"
+	TemplateBilling                 TemplateID = "billing_update"
+	TemplateDataExportReady         TemplateID = "data_export_ready"
+	TemplateDeletion                TemplateID = "deletion_update"
+	TemplatePrivacyRequest          TemplateID = "privacy_request"
+	TemplatePrelaunchAccess         TemplateID = "prelaunch_access"
+	TemplateOperationalAlert        TemplateID = "operational_alert"
+	TemplateFacebookGroupManual     TemplateID = "facebook_group_manual_publish"
+	TemplateInstagramPersonalManual TemplateID = "instagram_personal_manual_publish"
 )
 
 type Recipient struct {
@@ -203,7 +205,9 @@ func validateMessage(message Message) error {
 
 func templateRequiresActionURL(templateID TemplateID) bool {
 	switch templateID {
-	case TemplateAccountVerification:
+	case TemplateAccountVerification,
+		TemplateFacebookGroupManual,
+		TemplateInstagramPersonalManual:
 		return true
 	default:
 		return false

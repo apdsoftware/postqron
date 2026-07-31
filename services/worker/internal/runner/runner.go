@@ -95,7 +95,7 @@ func NewRuntime(
 	if err != nil {
 		return nil, err
 	}
-	metaConfig, err := newMetaRegistrationConfig(database, clock)
+	metaConfig, err := newMetaRegistrationConfig(database, clock, emailService)
 	if err != nil {
 		return nil, err
 	}

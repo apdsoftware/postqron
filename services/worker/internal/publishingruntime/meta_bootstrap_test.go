@@ -11,6 +11,7 @@ import (
 
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
+	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -118,8 +119,19 @@ func TestProductionMetaBootstrapGatesMissingDependenciesAndIssue343(
 	clearMetaBootstrapEnvironment(t)
 	t.Setenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED", "true")
 	if _, err = NewMetaRegistrationConfig(database, time.Now); err == nil ||
-		!strings.Contains(err.Error(), "issue 343") {
+		!strings.Contains(err.Error(), "email boundary is unavailable") {
 		t.Fatalf("notification gate error=%v", err)
+	}
+	config, err := NewMetaRegistrationConfig(
+		database,
+		time.Now,
+		&emailruntime.Service{},
+	)
+	if err != nil {
+		t.Fatalf("configured notification boundary error=%v", err)
+	}
+	if config.NotificationStore == nil || config.NotificationSender == nil {
+		t.Fatalf("notification boundary was not registered: %+v", config)
 	}
 }
 

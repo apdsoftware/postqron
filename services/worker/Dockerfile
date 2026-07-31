@@ -8,6 +8,7 @@ COPY features/f03-auth/go.mod features/f03-auth/go.sum features/f03-auth/
 COPY features/f04-workspaces/go.mod features/f04-workspaces/go.sum features/f04-workspaces/
 COPY features/f05-social-connections/go.mod features/f05-social-connections/go.sum features/f05-social-connections/
 COPY features/f08-publishing/go.mod features/f08-publishing/go.sum features/f08-publishing/
+COPY features/f09-status-notifications/go.mod features/f09-status-notifications/go.sum features/f09-status-notifications/
 COPY features/f14-email/go.mod features/f14-email/
 COPY services/api/go.mod services/api/go.sum services/api/
 COPY services/worker/go.mod services/worker/go.sum services/worker/

@@ -11,6 +11,8 @@ import (
 
 	publishing "github.com/apdsoftware/postqron/features/f08-publishing"
 	metapublishing "github.com/apdsoftware/postqron/features/f08-publishing/providers/meta"
+	statusnotifications "github.com/apdsoftware/postqron/features/f09-status-notifications"
+	"github.com/apdsoftware/postqron/services/worker/internal/emailruntime"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -38,18 +40,108 @@ func WithMetaAdapters(config metapublishing.RegistrationConfig) Option {
 func NewMetaRegistrationConfig(
 	database *sql.DB,
 	clock func() time.Time,
+	emailServices ...*emailruntime.Service,
 ) (metapublishing.RegistrationConfig, error) {
 	config, err := productionMetaAutoConfig(database, clock)
 	if err != nil {
 		return metapublishing.RegistrationConfig{}, err
 	}
-	if strings.TrimSpace(os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED")) == "true" {
+	if strings.TrimSpace(os.Getenv("POSTQRON_F08_META_NOTIFICATIONS_ENABLED")) != "true" {
+		return config, nil
+	}
+	if len(emailServices) != 1 || emailServices[0] == nil {
 		return metapublishing.RegistrationConfig{}, fmt.Errorf(
-			"%w: social notification delivery requires issue 343",
+			"%w: social notification email boundary is unavailable",
 			publishing.ErrProviderUnavailable,
 		)
 	}
+	store, err := metapublishing.NewPostgresNotificationStore(database, clock)
+	if err != nil {
+		return metapublishing.RegistrationConfig{}, err
+	}
+	boundary, err := statusnotifications.NewSocialNotificationBoundary(
+		runtimeSocialEmailGateway{email: emailServices[0]},
+	)
+	if err != nil {
+		return metapublishing.RegistrationConfig{}, err
+	}
+	config.NotificationStore = store
+	config.NotificationSender = runtimeSocialNotificationSender{boundary: boundary}
 	return config, nil
+}
+
+type runtimeSocialNotificationSender struct {
+	boundary *statusnotifications.SocialNotificationBoundary
+}
+
+type runtimeSocialEmailGateway struct {
+	email *emailruntime.Service
+}
+
+func (gateway runtimeSocialEmailGateway) DeliverSocialNotification(
+	ctx context.Context,
+	command statusnotifications.SocialNotificationCommand,
+) (statusnotifications.SocialDeliveryReceipt, error) {
+	emailID, state, err := gateway.email.EnqueueSocialNotification(
+		ctx,
+		emailruntime.SocialNotificationCommand{
+			WorkspaceID: command.WorkspaceID, PostID: command.PostID,
+			ChannelID: command.ChannelID, Provider: command.Provider,
+			RecipientID: command.RecipientID, Locale: command.Locale,
+			TemplateID: command.TemplateID, IdempotencyKey: command.IdempotencyKey,
+		},
+	)
+	if err != nil {
+		return statusnotifications.SocialDeliveryReceipt{}, err
+	}
+	return statusnotifications.SocialDeliveryReceipt{
+		EmailDeliveryID: emailID,
+		State:           statusnotifications.SocialDeliveryState(state),
+	}, nil
+}
+
+func (sender runtimeSocialNotificationSender) DeliverMetaNotification(
+	ctx context.Context,
+	delivery metapublishing.NotificationDelivery,
+) (string, error) {
+	if sender.boundary == nil {
+		return "", &publishing.ProviderError{
+			Code:   "notification_boundary_unavailable",
+			Detail: "social notification F9 boundary is unavailable",
+		}
+	}
+	receipt, err := sender.boundary.Deliver(
+		ctx,
+		statusnotifications.SocialNotificationCommand{
+			WorkspaceID: delivery.WorkspaceID, PostID: delivery.PostID,
+			ChannelID: delivery.ChannelID, Provider: delivery.Provider,
+			RecipientID: delivery.RecipientID, Locale: delivery.Locale,
+			TemplateID: delivery.TemplateID, IdempotencyKey: delivery.IdempotencyKey,
+		},
+	)
+	if err != nil {
+		return "", &publishing.ProviderError{
+			Code:      "notification_email_enqueue_failed",
+			Detail:    "social notification F9/F14 delivery failed",
+			Retryable: true,
+		}
+	}
+	switch receipt.State {
+	case statusnotifications.SocialDeliveryDelivered:
+		return receipt.EmailDeliveryID, nil
+	case statusnotifications.SocialDeliveryPermanentFailure:
+		return receipt.EmailDeliveryID, &publishing.ProviderError{
+			Code:   "notification_email_permanent_failure",
+			Detail: "social notification email reached a permanent failure",
+		}
+	default:
+		return receipt.EmailDeliveryID, &publishing.ProviderError{
+			Code:       "notification_email_pending",
+			Detail:     "social notification email is awaiting confirmed delivery",
+			Retryable:  true,
+			RetryAfter: 5 * time.Second,
+		}
+	}
 }
 
 func New(

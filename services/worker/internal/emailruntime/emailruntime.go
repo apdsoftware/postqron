@@ -26,6 +26,9 @@ const (
 
 type Service struct {
 	emailService *email.Service
+	database     *sql.DB
+	appDomain    string
+	clock        func() time.Time
 }
 
 func NewService(
@@ -67,7 +70,201 @@ func NewService(
 	if err != nil {
 		return nil, err
 	}
-	return &Service{emailService: service}, nil
+	return &Service{
+		emailService: service,
+		database:     database,
+		appDomain:    validatedDomain,
+		clock:        clock,
+	}, nil
+}
+
+type SocialNotificationCommand struct {
+	WorkspaceID    string
+	PostID         string
+	ChannelID      string
+	Provider       string
+	RecipientID    string
+	Locale         string
+	TemplateID     string
+	IdempotencyKey string
+}
+
+type SocialNotificationState string
+
+const (
+	SocialNotificationPending          SocialNotificationState = "pending"
+	SocialNotificationDelivered        SocialNotificationState = "delivered"
+	SocialNotificationPermanentFailure SocialNotificationState = "permanent_failure"
+)
+
+// EnqueueSocialNotification is the worker-facing F14 boundary. It accepts only
+// identifiers already resolved by the server-side F9 bridge; callers cannot
+// supply an address, rendered copy, social content, or provider credentials.
+func (service *Service) EnqueueSocialNotification(
+	ctx context.Context,
+	command SocialNotificationCommand,
+) (string, SocialNotificationState, error) {
+	if service == nil || service.emailService == nil || service.database == nil {
+		return "", "", errors.New("email runtime service is not configured")
+	}
+	command.WorkspaceID = strings.TrimSpace(command.WorkspaceID)
+	command.PostID = strings.TrimSpace(command.PostID)
+	command.ChannelID = strings.TrimSpace(command.ChannelID)
+	command.Provider = strings.TrimSpace(command.Provider)
+	command.RecipientID = strings.TrimSpace(command.RecipientID)
+	command.Locale = strings.TrimSpace(command.Locale)
+	command.TemplateID = strings.TrimSpace(command.TemplateID)
+	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
+	if command.WorkspaceID == "" || command.PostID == "" ||
+		command.ChannelID == "" || command.RecipientID == "" ||
+		command.IdempotencyKey == "" {
+		return "", "", errors.New("invalid social notification command")
+	}
+	template, err := socialTemplate(command.Provider, command.TemplateID)
+	if err != nil {
+		return "", "", err
+	}
+	recipient, err := service.resolveSocialRecipient(
+		ctx,
+		command.WorkspaceID,
+		command.RecipientID,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	now := service.clock().UTC()
+	result, err := service.emailService.Enqueue(ctx, email.Message{
+		IdempotencyKey:  "social-notification:" + command.IdempotencyKey,
+		Channel:         email.ChannelTransactional,
+		Template:        template,
+		TemplateVersion: "1.0.0",
+		Recipient: email.Recipient{
+			ID: recipient.id, Email: recipient.email, Name: recipient.name,
+			Locale: recipient.locale,
+		},
+		Data: email.TemplateData{
+			ActionURL: "https://" + service.appDomain + "/app/posts/" +
+				url.PathEscape(command.PostID) + "?channel=" +
+				url.QueryEscape(command.ChannelID),
+			OccurredAt: now,
+		},
+		CreatedAt:   now,
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return service.socialDeliveryState(ctx, result.ID, now)
+}
+
+type resolvedSocialRecipient struct {
+	id, email, name, locale string
+}
+
+func (service *Service) resolveSocialRecipient(
+	ctx context.Context,
+	workspaceID, expectedRecipientID string,
+) (resolvedSocialRecipient, error) {
+	var recipient resolvedSocialRecipient
+	err := service.database.QueryRowContext(ctx, `
+		SELECT account.id, account.email, account.display_name,
+		       CASE
+		           WHEN lower(split_part(COALESCE(profile.locale, ''), '-', 1))
+		               IN ('en', 'it', 'es', 'fr', 'de')
+		           THEN lower(split_part(profile.locale, '-', 1))
+		           ELSE 'en'
+		       END
+		  FROM f04_memberships membership
+		  JOIN auth_accounts account ON account.id = membership.account_id
+		  LEFT JOIN account_privacy_profiles profile
+		    ON profile.account_id = membership.account_id
+		 WHERE membership.workspace_id = $1
+		   AND membership.status = 'active'
+		   AND membership.role::text = 'owner'
+		   AND account.email_verified_at IS NOT NULL
+		 ORDER BY membership.account_id
+		 LIMIT 1`,
+		workspaceID,
+	).Scan(&recipient.id, &recipient.email, &recipient.name, &recipient.locale)
+	if err != nil {
+		return resolvedSocialRecipient{}, fmt.Errorf(
+			"resolve social notification recipient: %w",
+			err,
+		)
+	}
+	if recipient.id != expectedRecipientID {
+		return resolvedSocialRecipient{}, errors.New(
+			"social notification recipient changed",
+		)
+	}
+	return recipient, nil
+}
+
+func socialTemplate(provider, templateID string) (email.TemplateID, error) {
+	var expected email.TemplateID
+	switch provider {
+	case "facebook_groups":
+		expected = email.TemplateFacebookGroupManual
+	case "instagram_personal":
+		expected = email.TemplateInstagramPersonalManual
+	default:
+		return "", errors.New("unsupported social notification provider")
+	}
+	if string(expected) != templateID {
+		return "", errors.New("social notification template mismatch")
+	}
+	return expected, nil
+}
+
+func (service *Service) socialDeliveryState(
+	ctx context.Context,
+	deliveryID string,
+	now time.Time,
+) (string, SocialNotificationState, error) {
+	var (
+		state     string
+		updatedAt time.Time
+	)
+	err := service.database.QueryRowContext(ctx, `
+		SELECT state, updated_at
+		  FROM f14_email_deliveries
+		 WHERE id = $1`,
+		deliveryID,
+	).Scan(&state, &updatedAt)
+	if err != nil {
+		return "", "", fmt.Errorf("read social email delivery: %w", err)
+	}
+	if state == "sending" && !updatedAt.Add(2*time.Minute).After(now) {
+		result, updateErr := service.database.ExecContext(ctx, `
+			UPDATE f14_email_deliveries
+			   SET state = 'failed',
+			       last_diagnostic_code = 'ambiguous_delivery',
+			       last_diagnostic_detail = '',
+			       updated_at = $2
+			 WHERE id = $1
+			   AND state = 'sending'
+			   AND updated_at <= $3`,
+			deliveryID,
+			now,
+			now.Add(-2*time.Minute),
+		)
+		if updateErr != nil {
+			return "", "", fmt.Errorf("reconcile ambiguous social email: %w", updateErr)
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr != nil {
+			return "", "", rowsErr
+		} else if rows == 1 {
+			state = "failed"
+		}
+	}
+	switch state {
+	case "accepted", "delivered":
+		return deliveryID, SocialNotificationDelivered, nil
+	case "failed", "bounced", "complained", "suppressed":
+		return deliveryID, SocialNotificationPermanentFailure, nil
+	default:
+		return deliveryID, SocialNotificationPending, nil
+	}
 }
 
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {

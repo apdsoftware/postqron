@@ -3,7 +3,9 @@ package emailruntime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	email "github.com/apdsoftware/postqron/features/f14-email"
@@ -14,10 +16,64 @@ type sqlStore struct {
 }
 
 func (store *sqlStore) Enqueue(
-	context.Context,
-	email.Delivery,
+	ctx context.Context,
+	delivery email.Delivery,
 ) (email.EnqueueResult, error) {
-	return email.EnqueueResult{}, errors.New("worker does not enqueue email")
+	headers, err := json.Marshal(map[string]string{})
+	if err != nil {
+		return email.EnqueueResult{}, err
+	}
+	result, err := store.database.ExecContext(ctx, `
+		INSERT INTO f14_email_deliveries (
+			id, idempotency_key, channel, template_id, template_version,
+			recipient_id, recipient_email, recipient_name, subject, preheader,
+			html_body, text_body, locale, message_headers, state, attempt_count,
+			max_attempts, next_attempt_at, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+			'pending', 0, $15, $16, $17, $17
+		)
+		ON CONFLICT (channel, idempotency_key) DO NOTHING`,
+		delivery.Message.ID,
+		delivery.Message.IdempotencyKey,
+		delivery.Message.Channel,
+		delivery.Message.Template,
+		delivery.Message.TemplateVersion,
+		delivery.Rendered.Recipient.ID,
+		delivery.Rendered.Recipient.Email,
+		delivery.Rendered.Recipient.Name,
+		delivery.Rendered.Subject,
+		delivery.Rendered.Preheader,
+		delivery.Rendered.HTML,
+		delivery.Rendered.Text,
+		delivery.Rendered.Locale,
+		headers,
+		delivery.Message.MaxAttempts,
+		delivery.NextAttemptAt,
+		delivery.Message.CreatedAt,
+	)
+	if err != nil {
+		return email.EnqueueResult{}, fmt.Errorf("insert email delivery: %w", err)
+	}
+	created := true
+	if rows, rowsErr := result.RowsAffected(); rowsErr == nil && rows == 0 {
+		created = false
+	}
+	var (
+		id    string
+		state email.DeliveryState
+	)
+	err = store.database.QueryRowContext(ctx, `
+		SELECT id, state
+		  FROM f14_email_deliveries
+		 WHERE channel = $1 AND idempotency_key = $2`,
+		delivery.Message.Channel,
+		delivery.Message.IdempotencyKey,
+	).Scan(&id, &state)
+	if err != nil {
+		return email.EnqueueResult{}, fmt.Errorf("read email delivery: %w", err)
+	}
+	return email.EnqueueResult{ID: id, Created: created, State: state}, nil
 }
 
 func (store *sqlStore) ClaimDue(
