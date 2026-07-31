@@ -934,7 +934,14 @@ test('owner social flow captures typed discovery, completes callback selection, 
     },
   })
   await popup.waitForURL(`${offBaseURL}/en/app/social-oauth/callback`)
-  await expect(popup.locator('[data-postqron-social-callback-handoff]')).toBeAttached()
+  // The callback page renders the handoff document as a one-shot artifact: the
+  // opener polls the popup, reads it, and immediately closes the window. Racing
+  // toBeAttached() against that transient element flakes because the assertion
+  // can re-poll a popup the opener has already torn down. Synchronise instead
+  // on the deterministic close — isClosed() is safe on a destroyed page — which
+  // only occurs after the opener has consumed and parsed a valid handoff. The
+  // handoff element's presence stays covered statically by editorial-blockers.
+  await expect.poll(() => popup.isClosed()).toBe(true)
 
   await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toBeVisible()
   expect(social.callbackRequests).toHaveLength(1)
