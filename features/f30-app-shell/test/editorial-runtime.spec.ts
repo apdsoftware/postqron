@@ -12,10 +12,19 @@ const require = createRequire(
 const { expect, test } = require('@playwright/test') as typeof import('@playwright/test')
 const AxeBuilder = require('@axe-core/playwright').default as typeof import('@axe-core/playwright').default
 
-function json(body: unknown): { body: string, contentType: string, status: number } {
+function json(body: unknown): {
+  body: string
+  contentType: string
+  headers: Record<string, string>
+  status: number
+} {
   return {
     status: 200,
     contentType: 'application/json',
+    headers: {
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-origin': offBaseURL,
+    },
     body: JSON.stringify(body),
   }
 }
@@ -108,7 +117,7 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
   let connections = role === 'owner' ? [] as Array<ReturnType<typeof socialConnection>> : [socialConnection('reconnect_required')]
   let beginBody: unknown
 
-  await page.route('**/*', async route => {
+  await page.context().route('**/*', async route => {
     const request = route.request()
     const url = new URL(request.url())
 
@@ -183,6 +192,87 @@ async function routeSocialPage(page: Page, role: 'owner' | 'member') {
   return {
     beginBody: () => beginBody,
   }
+}
+
+async function routeWorkspaceSwitchPage(page: Page) {
+  const roles = {
+    'workspace-a': 'owner',
+    'workspace-b': 'member',
+  } as const
+  let activeWorkspace: keyof typeof roles = 'workspace-a'
+  const names = {
+    'workspace-a': 'Workspace A',
+    'workspace-b': 'Workspace B',
+  } as const
+
+  function activeSession() {
+    return {
+      ...session(roles[activeWorkspace]),
+      current_workspace: {
+        id: activeWorkspace,
+        name: names[activeWorkspace],
+        role: roles[activeWorkspace],
+      },
+      workspaces: (Object.keys(roles) as Array<keyof typeof roles>).map(id => ({
+        id,
+        name: names[id],
+        role: roles[id],
+      })),
+    }
+  }
+
+  await page.route('**/*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname === '/api/v1/auth/csrf') {
+      await route.fulfill(json({ csrf_token: 'workspace-switch-csrf' }))
+      return
+    }
+    if (url.pathname === '/api/v1/app/workspaces/select' && request.method() === 'POST') {
+      activeWorkspace = (request.postDataJSON() as { workspace_id: typeof activeWorkspace }).workspace_id
+      await route.fulfill(json({ ok: true }))
+      return
+    }
+    if (url.pathname === '/api/v1/app/session') {
+      await route.fulfill(json(activeSession()))
+      return
+    }
+    if (url.pathname === '/api/v1/app/workspaces/current') {
+      if (activeWorkspace === 'workspace-b') {
+        await new Promise(resolve => globalThis.setTimeout(resolve, 250))
+      }
+      await route.fulfill(json({
+        ...currentWorkspace(roles[activeWorkspace]),
+        id: activeWorkspace,
+        name: names[activeWorkspace],
+      }))
+      return
+    }
+    if (url.pathname === `/api/v1/workspaces/${activeWorkspace}/social-connections/bootstrap`) {
+      if (activeWorkspace === 'workspace-b') {
+        await new Promise(resolve => globalThis.setTimeout(resolve, 250))
+      }
+      await route.fulfill(json(socialBootstrap()))
+      return
+    }
+    if (url.pathname === `/api/v1/workspaces/${activeWorkspace}/social-connections`
+      && request.method() === 'GET') {
+      if (activeWorkspace === 'workspace-b') {
+        await new Promise(resolve => globalThis.setTimeout(resolve, 250))
+      }
+      await route.fulfill(json({
+        connections: [{
+          ...socialConnection(),
+          id: `connection-${activeWorkspace}`,
+          display_name: activeWorkspace === 'workspace-a'
+            ? 'A Owner Channel'
+            : 'B Member Channel',
+        }],
+      }))
+      return
+    }
+    await route.continue()
+  })
 }
 
 async function routeComposerPage(page: Page) {
@@ -389,6 +479,7 @@ async function routeComposerPage(page: Page) {
 
 async function routeCalendarPage(page: Page) {
   const calendarRequests: string[] = []
+  const rescheduleBodies: unknown[] = []
 
   await page.route('**/*', async route => {
     const request = route.request()
@@ -530,10 +621,10 @@ async function routeCalendarPage(page: Page) {
           draft_id: 'draft-1',
           channel_ids: ['channel-1'],
           status: 'scheduled',
-          scheduled_for_utc: '2026-03-10T14:00:00.000Z',
+          scheduled_for_utc: '2026-03-10T09:00:00.000Z',
           scheduled_local: '2026-03-10T10:00:00',
-          time_zone: 'America/Santo_Domingo',
-          utc_offset_minutes: -240,
+          time_zone: 'Europe/Rome',
+          utc_offset_minutes: 60,
           revision: 2,
         }, {
           post_id: 'published-1',
@@ -559,12 +650,39 @@ async function routeCalendarPage(page: Page) {
       }))
       return
     }
+    if (url.pathname === '/api/v1/workspaces/workspace-fixture/scheduled-posts/scheduled-1/reschedule'
+      && request.method() === 'POST') {
+      const body = request.postDataJSON() as {
+        scheduled_at: {
+          local_date_time: string
+          time_zone: string
+          utc_offset_minutes: number
+        }
+      }
+      rescheduleBodies.push(body)
+      await route.fulfill(json({
+        id: 'scheduled-1',
+        workspace_id: 'workspace-fixture',
+        draft_id: 'draft-1',
+        channel_ids: ['channel-1'],
+        status: 'scheduled',
+        scheduled_for_utc: '2026-07-10T08:00:00.000Z',
+        scheduled_local: body.scheduled_at.local_date_time,
+        time_zone: body.scheduled_at.time_zone,
+        utc_offset_minutes: body.scheduled_at.utc_offset_minutes,
+        revision: 3,
+        created_at: '2026-03-01T08:00:00.000Z',
+        updated_at: '2026-03-01T08:00:00.000Z',
+      }))
+      return
+    }
 
     await route.continue()
   })
 
   return {
     calendarRequests,
+    rescheduleBodies,
   }
 }
 
@@ -594,9 +712,9 @@ test('owner social flow captures typed discovery, completes callback selection, 
       value: 'did:plc:alice',
     },
   })
+  await popup.waitForURL(`${offBaseURL}/api/v1/social-authorizations/callback`)
+  await expect(popup.locator('body')).toContainText('selection_id')
 
-  await popup.close()
-  await page.goto(`${offBaseURL}/en/app/social-channels?state=oauth-state&code=oauth-code&iss=https%3A%2F%2Fbluesky.example.test`)
   await expect(page.getByRole('heading', { name: 'Choose what to connect' })).toBeVisible()
   await page.getByRole('button', { name: 'Connect this resource' }).click()
 
@@ -627,9 +745,65 @@ test('member workspace stays fail-closed for connect, reconnect, and revoke', as
   await expect(connection.getByRole('button', { name: 'Disconnect' })).toBeDisabled()
 })
 
+test('workspace changes clear social state atomically across Owner and Member roles', async ({
+  page,
+}) => {
+  await routeWorkspaceSwitchPage(page)
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+
+  const workspace = page.getByLabel('Current workspace')
+  await workspace.selectOption('workspace-b')
+  expect(await page.getByText('A Owner Channel').isVisible()).toBe(false)
+  await expect(page.getByText('B Member Channel')).toBeVisible()
+  await expect(page.getByText(
+    'Only an Owner on an active workspace can connect, reconnect, select, or revoke channels.',
+  )).toBeVisible()
+  await expect(page.locator('.app-provider-catalog').getByRole('button', { name: 'Connect' }).first()).toBeDisabled()
+
+  await workspace.selectOption('workspace-a')
+  expect(await page.getByText('B Member Channel').isVisible()).toBe(false)
+  await expect(page.getByText('A Owner Channel')).toBeVisible()
+  await expect(page.locator('.app-provider-catalog').getByRole('button', { name: 'Connect' }).first()).toBeEnabled()
+})
+
+test('cross-origin F5 callbacks fail closed before OAuth starts', async ({ page }) => {
+  const social = await routeSocialPage(page, 'owner')
+  await page.route('**/en/app/social-channels', async route => {
+    const response = await route.fetch()
+    const original = await response.text()
+    const body = original.replace(
+      /(\bapiBase\s*:\s*")http:\/\/127\.0\.0\.1:41795/u,
+      '$1http://127.0.0.1:41796',
+    )
+    expect(body).not.toBe(original)
+    const headers = response.headers()
+    // The fixture rewrites Nuxt's hashed inline runtime-config script. Remove
+    // only this document's CSP so Chromium executes that test-only rewrite;
+    // production CSP coverage remains in apps/web/test.
+    delete headers['content-security-policy']
+    await route.fulfill({ response, body, headers })
+  })
+
+  let popupCount = 0
+  page.on('popup', () => { popupCount += 1 })
+  await page.goto(`${offBaseURL}/en/app/social-channels`)
+  const provider = page.locator('.app-provider-catalog li').filter({ hasText: 'Bluesky' })
+  await provider.getByLabel('Discovery type').selectOption('did')
+  await provider.getByLabel('Discovery value').fill('did:plc:alice')
+  await provider.getByRole('button', { name: 'Connect' }).click()
+
+  await expect(page.getByText(
+    'Social OAuth requires the API callback to be exposed through the same origin as the app. No authorization was started.',
+  )).toBeVisible()
+  expect(popupCount).toBe(0)
+  expect(social.beginBody()).toBeUndefined()
+})
+
 test('composer uploads media, enables thread controls from capabilities, and localizes validation errors', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 320, height: 880 })
   const composer = await routeComposerPage(page)
 
   await page.goto(`${offBaseURL}/en/app/publish`)
@@ -650,11 +824,15 @@ test('composer uploads media, enables thread controls from capabilities, and loc
   await page.getByRole('checkbox', { name: /image\/png/u }).check()
   await page.getByRole('button', { name: 'Publish now' }).click()
 
-  const validation = page.locator('.composer-validation[role="alert"]').first()
+  const validation = page.locator('[role="alert"] .composer-validation').first()
   await expect(validation).toContainText('Thread')
   await expect(validation).toContainText('Text is required for this destination.')
   await expect(validation).not.toContainText('RAW_BACKEND_THREAD_MESSAGE')
   expect(composer.scheduleRequests()).toBe(0)
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
+  const results = await new AxeBuilder({ page }).include('main').analyze()
+  expect(results.violations).toEqual([])
 })
 
 test('calendar refetches on timezone changes, keeps local DST boundaries visible, and locks non-scheduled posts', async ({
@@ -687,7 +865,30 @@ test('calendar refetches on timezone changes, keeps local DST boundaries visible
   const scheduledCard = page.locator('li.app-card').filter({ hasText: 'March launch' })
   await scheduledCard.getByRole('button', { name: 'Reschedule' }).click()
   await expect(page.getByRole('heading', { name: 'Reschedule post' })).toBeVisible()
-  await expect(page.locator('article.calendar-reschedule select').first()).toHaveValue('America/Santo_Domingo')
+  await expect(page.locator('article.calendar-reschedule select').first()).toHaveValue('Europe/Rome')
+  await page.getByLabel('Local date and time').fill('2026-07-10T10:00')
+  await page.getByRole('button', { name: 'Confirm new time' }).click()
+  expect(calendar.rescheduleBodies[0]).toEqual({
+    expected_revision: 2,
+    scheduled_at: {
+      local_date_time: '2026-07-10T10:00',
+      time_zone: 'Europe/Rome',
+      utc_offset_minutes: 120,
+    },
+  })
+
+  await scheduledCard.getByRole('button', { name: 'Reschedule' }).click()
+  await page.getByLabel('Local date and time').fill('2026-07-10T10:00')
+  await page.locator('article.calendar-reschedule select').first().selectOption('America/New_York')
+  await page.getByRole('button', { name: 'Confirm new time' }).click()
+  expect(calendar.rescheduleBodies[1]).toEqual({
+    expected_revision: 2,
+    scheduled_at: {
+      local_date_time: '2026-07-10T10:00',
+      time_zone: 'America/New_York',
+      utc_offset_minutes: -240,
+    },
+  })
 
   const results = await new AxeBuilder({ page }).include('main').analyze()
   expect(results.violations).toEqual([])

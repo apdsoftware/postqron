@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node test/runner.mjs",
+    "test:playwright": "F30_PLAYWRIGHT=1 node test/runner.mjs",
+    "test:unit": "node --experimental-strip-types --test test/*.test.ts"
   }
 }
