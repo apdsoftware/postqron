@@ -37,6 +37,40 @@ external key identifiers, and workspace/provider/resource-bound additional
 authenticated data. Plaintext tokens are never returned by list operations,
 events, API contracts, or persistence models.
 
+Dynamic OAuth providers use the optional `DynamicAdapter` contract. Public
+`Begin` accepts only a typed discovery value (`instance_origin`, `handle`,
+`did`, or `pds_origin`); reconnect never accepts a browser-supplied binding and
+derives it from the existing connection. The adapter returns opaque attempt
+and session state which F5 encrypts with issuer/resource/subject-bound AAD.
+PAR `request_uri`, PKCE material, DPoP private keys, Authorization Server and
+Resource Server nonces, and provider client credentials therefore remain
+encrypted and are never serialized by the API.
+
+Callback `iss`, discovered issuer/resource server (PDS), and token `sub` are
+canonicalized and compared exactly. Bluesky configuration is rejected unless
+it declares PAR, DPoP, issuer and subject binding, a single-use refresh-token
+mode, redirect rejection, per-request DNS validation/dial pinning, and bounded
+responses. Password and app-password variants do not exist in the contract.
+
+`Service.AuthenticatedRequest` is an internal service-to-service boundary; it
+has no HTTP route or OpenAPI operation. Callers provide only a relative path,
+bounded body, and non-authentication headers. Absolute or scheme-relative
+URLs, path traversal, encoded separators, and caller-controlled
+`Authorization`, `DPoP`, `Host`, or `Cookie` headers are rejected before an
+adapter is called. The adapter owns the bound resource-server origin, applies
+its no-redirect/DNS-pinned transport, creates a fresh proof (including `ath`
+for resource requests), and returns bounded response data without exposing
+tokens, nonces, proofs, or private keys.
+
+Each dynamic request holds a persistent, random lease ID for one connection.
+Nonce updates are saved under that lease, so concurrent or stale completions
+cannot overwrite newer session state. A successful single-use refresh is
+atomically persisted with the rotated refresh token and Authorization Server
+nonce before the Resource Server request starts. If the process dies after the
+refresh request may have consumed the token but before that commit, the
+`session_refreshing` marker survives lease expiry; the old token is never
+retried and the connection moves fail-closed to `reconnect_required`.
+
 Only `channels.manage` may start, select, reconnect, or revoke a channel.
 Workspace members with `workspace.view` can list safe connection state. Every
 state change and token refresh writes an outbox event in the same repository
@@ -52,6 +86,9 @@ The authenticated runtime exposes:
 - explicit resource selection;
 - explicit reconnect start;
 - local revocation, plus provider revocation when it is safe for the grant.
+
+Providers may instead declare remote revocation as required; a remote failure
+then leaves local credentials and quota intact.
 
 All private routes read the account established by the shared API session
 middleware. The callback does not trust a browser identity: it consumes the
@@ -145,6 +182,15 @@ The preserved Meta adapter and fixtures are anchored to the official
 and [Instagram API with Instagram Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/)
 documentation. The runtime requires an explicit Graph version so a provider
 version change cannot happen silently.
+
+The dynamic contract is anchored to the official
+[Mastodon OAuth documentation](https://docs.joinmastodon.org/spec/oauth/),
+[AT Protocol OAuth profile](https://atproto.com/specs/oauth),
+[RFC 9449 DPoP](https://datatracker.ietf.org/doc/html/rfc9449),
+[RFC 9126 PAR](https://datatracker.ietf.org/doc/html/rfc9126),
+[RFC 9207 issuer identification](https://datatracker.ietf.org/doc/html/rfc9207),
+[RFC 8414 authorization-server metadata](https://datatracker.ietf.org/doc/html/rfc8414),
+and [RFC 7009 revocation](https://datatracker.ietf.org/doc/html/rfc7009).
 
 Before a new resource (or a previously revoked resource) is persisted, the
 service sends an atomic `channels +1` command to F10 using a server-generated

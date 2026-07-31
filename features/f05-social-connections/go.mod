@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/apdsoftware/postqron/packages/runtime v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -14,7 +15,6 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/apdsoftware/postqron/packages/runtime => ../../packages/runtime/go

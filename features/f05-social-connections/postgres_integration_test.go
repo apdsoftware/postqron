@@ -241,6 +241,240 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	testPostgresF10ChannelQuota(t, database, suffix)
 }
 
+func TestPostgresRepositoryDynamicSessionLeaseAndCrashSafety(t *testing.T) {
+	databaseURL := os.Getenv("F05_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("F05_DATABASE_URL is not set")
+	}
+	database, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err = database.PingContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	workspaceID := "dynamic-pg-workspace-" + suffix
+	actorID := "dynamic-pg-owner-" + suffix
+	connectionID := "dynamic-pg-connection-" + suffix
+	selectionID := "dynamic-pg-selection-" + suffix
+	remoteID := dynamicTestDID + "-" + suffix
+	repository, err := NewPostgresRepository(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := NewAESGCMCipher(
+		"dynamic-pg-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := OAuthBinding{
+		Issuer:         "https://auth.example.com",
+		ResourceServer: "https://pds.example.com",
+		Subject:        dynamicTestDID,
+	}
+	now := serviceTestNow
+	expired := now.Add(-time.Minute)
+	credentialAAD := credentialAdditionalData(
+		workspaceID,
+		ProviderBluesky,
+		remoteID,
+	)
+	access, err := cipher.Seal([]byte("dynamic-pg-access-1"), credentialAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh, err := cipher.Seal([]byte("dynamic-pg-refresh-1"), credentialAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := cipher.Seal(
+		[]byte("dynamic-pg-dpop-key|as-1|rs-1"),
+		dynamicSessionAdditionalData(
+			workspaceID,
+			ProviderBluesky,
+			remoteID,
+			binding,
+		),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repository.SaveSelection(context.Background(), StoredSelection{
+		ID:          selectionID,
+		WorkspaceID: workspaceID,
+		ActorID:     actorID,
+		Provider:    ProviderBluesky,
+		Resources: []StoredResource{{
+			Candidate: Candidate{
+				RemoteID:     remoteID,
+				ResourceType: ResourceBlueskyAccount,
+				AccountType:  AccountTypeProfile,
+				DisplayName:  "PostgreSQL dynamic profile",
+				Scopes:       []string{"atproto"},
+			},
+			AccessTokenCiphertext:  access,
+			RefreshTokenCiphertext: refresh,
+			OAuthSessionCiphertext: session,
+			Binding:                binding,
+			RefreshTokenMode:       RefreshTokenSingleUse,
+			TokenExpiresAt:         &expired,
+		}},
+		CreatedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = repository.Connect(context.Background(), ConnectCommand{
+		NewConnectionID: connectionID,
+		WorkspaceID:     workspaceID,
+		ActorID:         actorID,
+		SelectionID:     selectionID,
+		RemoteID:        remoteID,
+		Now:             now,
+		Event: Event{
+			ID:            "dynamic-pg-event-connect-" + suffix,
+			Type:          EventConnected,
+			Version:       1,
+			WorkspaceID:   workspaceID,
+			ConnectionID:  connectionID,
+			Provider:      ProviderBluesky,
+			RemoteID:      remoteID,
+			ActorID:       actorID,
+			CorrelationID: "dynamic-pg-correlation-connect-" + suffix,
+			OccurredAt:    now,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, needsRefresh, err := repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now,
+		now.Add(5*time.Minute),
+		time.Second,
+	)
+	if err != nil || !needsRefresh {
+		t.Fatalf("initial session claim = refresh %v, error %v", needsRefresh, err)
+	}
+	if _, _, err = repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now,
+		now.Add(5*time.Minute),
+		time.Second,
+	); !errors.Is(err, ErrAuthenticatedRequestInProgress) {
+		t.Fatalf("concurrent PostgreSQL claim error = %v", err)
+	}
+	refreshedExpiry := now.Add(time.Hour)
+	access2, _ := cipher.Seal([]byte("dynamic-pg-access-2"), credentialAAD)
+	refresh2, _ := cipher.Seal([]byte("dynamic-pg-refresh-2"), credentialAAD)
+	session2, _ := cipher.Seal(
+		[]byte("dynamic-pg-dpop-key|as-2|rs-1"),
+		dynamicSessionAdditionalData(
+			workspaceID,
+			ProviderBluesky,
+			remoteID,
+			binding,
+		),
+	)
+	refreshCommand := SessionCommand{
+		ConnectionID:           connectionID,
+		SessionLeaseID:         claimed.SessionLeaseID,
+		AccessTokenCiphertext:  access2,
+		RefreshTokenCiphertext: refresh2,
+		OAuthSessionCiphertext: session2,
+		Scopes:                 []string{"atproto"},
+		ExpiresAt:              &refreshedExpiry,
+		UpdateCredential:       true,
+		VerifiedAt:             now,
+		Now:                    now,
+		Event: &Event{
+			ID:            "dynamic-pg-event-refresh-" + suffix,
+			Type:          EventTokenRefreshed,
+			Version:       1,
+			WorkspaceID:   workspaceID,
+			ConnectionID:  connectionID,
+			Provider:      ProviderBluesky,
+			RemoteID:      remoteID,
+			CorrelationID: "dynamic-pg-correlation-refresh-" + suffix,
+			OccurredAt:    now,
+		},
+	}
+	if _, err = repository.CompleteSession(
+		context.Background(),
+		refreshCommand,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repository.CompleteSession(
+		context.Background(),
+		refreshCommand,
+	); !errors.Is(err, ErrAuthenticatedRequestInProgress) {
+		t.Fatalf("replayed session completion error = %v", err)
+	}
+	persisted, err := repository.GetCredential(
+		context.Background(),
+		workspaceID,
+		connectionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	openedRefresh, err := cipher.Open(persisted.RefreshTokenCiphertext, credentialAAD)
+	if err != nil || string(openedRefresh) != "dynamic-pg-refresh-2" {
+		t.Fatalf("persisted rotated refresh = %q, error %v", openedRefresh, err)
+	}
+	openedSession, err := cipher.Open(
+		persisted.OAuthSessionCiphertext,
+		dynamicSessionAdditionalData(
+			workspaceID,
+			ProviderBluesky,
+			remoteID,
+			binding,
+		),
+	)
+	if err != nil || string(openedSession) != "dynamic-pg-dpop-key|as-2|rs-1" {
+		t.Fatalf("persisted session = %q, error %v", openedSession, err)
+	}
+
+	if _, err = database.ExecContext(context.Background(), `
+		UPDATE f05_social_connections
+		SET token_expires_at = $2
+		WHERE id = $1`,
+		connectionID,
+		expired,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, needsRefresh, err = repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now,
+		now.Add(5*time.Minute),
+		time.Second,
+	); err != nil || !needsRefresh {
+		t.Fatalf("crash-window claim = refresh %v, error %v", needsRefresh, err)
+	}
+	if _, _, err = repository.ClaimSession(
+		context.Background(),
+		workspaceID,
+		connectionID,
+		now.Add(2*time.Second),
+		now.Add(5*time.Minute),
+		time.Second,
+	); !errors.Is(err, ErrRefreshOutcomeUnknown) {
+		t.Fatalf("expired single-use lease error = %v", err)
+	}
+}
+
 func testPostgresF10ChannelQuota(
 	t *testing.T,
 	database *sql.DB,

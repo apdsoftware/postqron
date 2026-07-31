@@ -112,10 +112,15 @@ func (handler *HTTPHandler) beginAuthorization(
 		return
 	}
 	var input struct {
-		Provider Provider `json:"provider"`
+		Provider  Provider        `json:"provider"`
+		Discovery *DiscoveryInput `json:"discovery,omitempty"`
 	}
 	if !decodeSocialJSON(writer, request, &input) {
 		return
+	}
+	discovery := DiscoveryInput{}
+	if input.Discovery != nil {
+		discovery = *input.Discovery
 	}
 	authorization, err := handler.service.Begin(
 		request.Context(),
@@ -123,6 +128,7 @@ func (handler *HTTPHandler) beginAuthorization(
 			WorkspaceID: request.PathValue("workspace_id"),
 			ActorID:     accountID,
 			Provider:    input.Provider,
+			Discovery:   discovery,
 		},
 	)
 	if err != nil {
@@ -141,6 +147,7 @@ func (handler *HTTPHandler) callback(
 		CallbackRequest{
 			State:         request.URL.Query().Get("state"),
 			Code:          request.URL.Query().Get("code"),
+			Issuer:        request.URL.Query().Get("iss"),
 			ProviderError: request.URL.Query().Get("error"),
 		},
 	)
@@ -349,6 +356,13 @@ func writeSocialServiceError(writer http.ResponseWriter, err error) {
 			writer,
 			http.StatusServiceUnavailable,
 			"channel_quota_unavailable",
+			true,
+		)
+	case errors.Is(err, ErrRemoteRevocationRequired):
+		writeSocialError(
+			writer,
+			http.StatusBadGateway,
+			"remote_revocation_required",
 			true,
 		)
 	case errors.Is(err, ErrResourceNotFound):

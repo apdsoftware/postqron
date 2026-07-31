@@ -582,6 +582,45 @@ func TestHTTPRuntimeAcceptsProductionCrossOriginMutation(t *testing.T) {
 	}
 }
 
+func TestHTTPBeginRejectsInjectedPreviousBinding(t *testing.T) {
+	fixture := newServiceFixture(t)
+	handler, err := NewHTTPHandler(
+		fixture.service,
+		fixedRequestAuthenticator{accountID: "owner-1"},
+		testSocialOrigin,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/workspaces/workspace-1/social-authorizations",
+		bytes.NewBufferString(`{
+			"provider":"facebook_pages",
+			"previous_binding":{
+				"issuer":"https://evil.example",
+				"resource_server":"https://evil.example",
+				"subject":"did:web:evil.example"
+			}
+		}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", testSocialOrigin)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest ||
+		!strings.Contains(response.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf(
+			"injected previous binding = %d %s",
+			response.Code,
+			response.Body.String(),
+		)
+	}
+	if len(fixture.repository.attempts) != 0 {
+		t.Fatal("injected previous binding created an OAuth attempt")
+	}
+}
+
 func performSocialRequest(
 	t *testing.T,
 	handler http.Handler,
