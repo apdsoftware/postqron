@@ -32,6 +32,14 @@ parameter: the zero value remains comma-delimited for exact compatibility with
 the existing Meta adapters, while `OAuthScopeSeparatorSpace` supports the
 individual scope sets used by X, LinkedIn, and Google.
 
+`OAuthConfig.ClientParameterName` controls the public client identifier name in
+the authorization request. Its zero value remains `client_id` for exact
+compatibility with Meta, X, LinkedIn, Google, Pinterest, and other existing
+adapters. TikTok selects `OAuthClientParameterClientKey` and therefore emits
+only `client_key`. Both names are reserved: adapters cannot duplicate or
+override them through the authorization endpoint query or `ExtraParameters`.
+Client secrets remain server-side and are never part of this contract.
+
 Access and refresh tokens are AES-256-GCM ciphertexts with random nonces,
 external key identifiers, and workspace/provider/resource-bound additional
 authenticated data. Plaintext tokens are never returned by list operations,
