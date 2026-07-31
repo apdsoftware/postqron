@@ -31,18 +31,28 @@ func TestRuntimeProviderFamiliesKeepStaticAndDynamicRegistriesSeparate(
 	t.Cleanup(func() { runtimeProviderFamilies = previous })
 	runtimeProviderFamilies = []runtimeProviderFamily{
 		{
-			name: "dynamic-only",
-			dynamic: func(
-				_ map[string]string,
-				_ CredentialCipher,
-				adapters map[Provider]DynamicAdapter,
-				availability map[Provider]ProviderAvailability,
-			) {
-				adapters[ProviderMastodon] = runtimeDynamicAdapterFixture()
-				availability[ProviderMastodon] = ProviderAvailability{
-					Status:             ProviderAvailable,
-					ConfigurationState: ProviderReady,
-				}
+			name:      "dynamic-only",
+			providers: []Provider{ProviderMastodon},
+			configure: func(
+				_ runtimeProviderFamilyInput,
+				registrar *runtimeProviderFamilyRegistrar,
+			) error {
+				return registrar.RegisterDynamic(
+					RuntimeDynamicProviderRegistration{
+						Provider:         ProviderMastodon,
+						Adapter:          runtimeDynamicAdapterFixture(),
+						Configured:       true,
+						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+					},
+					runtimeDynamicProviderAttestations{
+						Enabled:              true,
+						Configured:           true,
+						AuditVerified:        true,
+						SmokeVerified:        true,
+						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
+						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
+					},
+				)
 			},
 		},
 	}
@@ -69,19 +79,28 @@ func TestRuntimeProviderFamiliesRejectUndeclaredDynamicProviders(t *testing.T) {
 	t.Cleanup(func() { runtimeProviderFamilies = previous })
 	runtimeProviderFamilies = []runtimeProviderFamily{
 		{
-			name: "undeclared",
-			dynamic: func(
-				_ map[string]string,
-				_ CredentialCipher,
-				adapters map[Provider]DynamicAdapter,
-				availability map[Provider]ProviderAvailability,
-			) {
-				provider := Provider("fixture")
-				adapters[provider] = runtimeDynamicAdapterFixture()
-				availability[provider] = ProviderAvailability{
-					Status:             ProviderAvailable,
-					ConfigurationState: ProviderReady,
-				}
+			name:      "undeclared",
+			providers: []Provider{ProviderMastodon},
+			configure: func(
+				_ runtimeProviderFamilyInput,
+				registrar *runtimeProviderFamilyRegistrar,
+			) error {
+				return registrar.RegisterDynamic(
+					RuntimeDynamicProviderRegistration{
+						Provider:         Provider("fixture"),
+						Adapter:          runtimeDynamicAdapterFixture(),
+						Configured:       true,
+						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+					},
+					runtimeDynamicProviderAttestations{
+						Enabled:              true,
+						Configured:           true,
+						AuditVerified:        true,
+						SmokeVerified:        true,
+						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
+						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
+					},
+				)
 			},
 		},
 	}
@@ -93,52 +112,97 @@ func TestRuntimeProviderFamiliesRejectUndeclaredDynamicProviders(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderFamiliesRejectStaticDynamicCollisions(t *testing.T) {
+func TestRuntimeProviderFamiliesRejectFamilyOwnershipViolations(t *testing.T) {
 	previous := runtimeProviderFamilies
 	t.Cleanup(func() { runtimeProviderFamilies = previous })
 	runtimeProviderFamilies = []runtimeProviderFamily{
 		{
-			name: "static",
-			static: func(
-				_ map[string]string,
-				_ CredentialCipher,
-				adapters map[Provider]Adapter,
-				availability map[Provider]ProviderAvailability,
-			) {
-				adapters[ProviderBluesky] = &fakeAdapter{config: OAuthConfig{
-					ClientID:         "fixture-client",
-					AuthorizationURL: "https://example.test/oauth/authorize",
-					RedirectURL:      "https://app.example.test/callback",
-					Scopes:           []string{"atproto"},
-					SupportsPKCE:     true,
-				}}
-				availability[ProviderBluesky] = ProviderAvailability{
-					Status:             ProviderAvailable,
-					ConfigurationState: ProviderReady,
-				}
-			},
-		},
-		{
-			name: "dynamic",
-			dynamic: func(
-				_ map[string]string,
-				_ CredentialCipher,
-				adapters map[Provider]DynamicAdapter,
-				availability map[Provider]ProviderAvailability,
-			) {
-				adapters[ProviderBluesky] = runtimeDynamicAdapterFixture()
-				availability[ProviderBluesky] = ProviderAvailability{
-					Status:             ProviderAvailable,
-					ConfigurationState: ProviderReady,
-				}
+			name:      "decentralized",
+			providers: []Provider{ProviderMastodon},
+			configure: func(
+				_ runtimeProviderFamilyInput,
+				registrar *runtimeProviderFamilyRegistrar,
+			) error {
+				return registrar.RegisterDynamic(
+					RuntimeDynamicProviderRegistration{
+						Provider:         ProviderBluesky,
+						Adapter:          runtimeDynamicAdapterFixture(),
+						Configured:       true,
+						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+					},
+					runtimeDynamicProviderAttestations{
+						Enabled:              true,
+						Configured:           true,
+						AuditVerified:        true,
+						SmokeVerified:        true,
+						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
+						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
+					},
+				)
 			},
 		},
 	}
 
 	_, err := configureRuntimeProviderFamilies(map[string]string{}, nil)
 	if !errors.Is(err, ErrInvalidArgument) ||
-		!strings.Contains(err.Error(), "cannot mount static and dynamic adapters together") {
-		t.Fatalf("collision error = %v", err)
+		!strings.Contains(err.Error(), "does not own bluesky") {
+		t.Fatalf("ownership error = %v", err)
+	}
+}
+
+func TestRuntimeProviderFamiliesRejectDeterministicDynamicDuplicates(t *testing.T) {
+	previous := runtimeProviderFamilies
+	t.Cleanup(func() { runtimeProviderFamilies = previous })
+	runtimeProviderFamilies = []runtimeProviderFamily{
+		{
+			name:      "decentralized",
+			providers: []Provider{ProviderBluesky, ProviderMastodon},
+			configure: func(
+				_ runtimeProviderFamilyInput,
+				registrar *runtimeProviderFamilyRegistrar,
+			) error {
+				if err := registrar.RegisterDynamic(
+					RuntimeDynamicProviderRegistration{
+						Provider:         ProviderMastodon,
+						Adapter:          runtimeDynamicAdapterFixture(),
+						Configured:       true,
+						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+					},
+					runtimeDynamicProviderAttestations{
+						Enabled:              true,
+						Configured:           true,
+						AuditVerified:        true,
+						SmokeVerified:        true,
+						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
+						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
+					},
+				); err != nil {
+					return err
+				}
+				return registrar.RegisterDynamic(
+					RuntimeDynamicProviderRegistration{
+						Provider:         ProviderMastodon,
+						Adapter:          runtimeDynamicAdapterFixture(),
+						Configured:       true,
+						SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+					},
+					runtimeDynamicProviderAttestations{
+						Enabled:              true,
+						Configured:           true,
+						AuditVerified:        true,
+						SmokeVerified:        true,
+						CompatibilityVersion: RuntimeDynamicProviderCompatibilityVersion,
+						SupportedVersion:     RuntimeDynamicProviderCompatibilityVersion,
+					},
+				)
+			},
+		},
+	}
+
+	_, err := configureRuntimeProviderFamilies(map[string]string{}, nil)
+	if !errors.Is(err, ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "duplicate dynamic adapter for mastodon") {
+		t.Fatalf("duplicate error = %v", err)
 	}
 }
 

@@ -294,33 +294,32 @@ func TestRuntimeProviderExtensionPointsRemainFailClosed(t *testing.T) {
 }
 
 func TestRuntimeDynamicAdaptersPropagateToNewService(t *testing.T) {
-	previous := runtimeProviderFamilies
-	t.Cleanup(func() { runtimeProviderFamilies = previous })
-	runtimeProviderFamilies = []runtimeProviderFamily{
-		{
-			name: "decentralized_networks",
-			dynamic: func(
-				_ map[string]string,
-				_ CredentialCipher,
-				adapters map[Provider]DynamicAdapter,
-				availability map[Provider]ProviderAvailability,
-			) {
-				adapters[ProviderMastodon] = runtimeDynamicAdapterFixture()
-				availability[ProviderMastodon] = ProviderAvailability{
-					Status:             ProviderAvailable,
-					ConfigurationState: ProviderReady,
-				}
+	previous := decentralizedNetworksRuntimeConfigurer
+	t.Cleanup(func() { decentralizedNetworksRuntimeConfigurer = previous })
+	decentralizedNetworksRuntimeConfigurer = func(
+		_ runtimeProviderFamilyInput,
+	) ([]RuntimeDynamicProviderRegistration, error) {
+		return []RuntimeDynamicProviderRegistration{
+			{
+				Provider:         ProviderMastodon,
+				Adapter:          runtimeDynamicAdapterFixture(),
+				Configured:       true,
+				SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
 			},
-		},
+		}, nil
 	}
 	module := runtimeModuleFixture()
 	key := base64.StdEncoding.EncodeToString(
 		[]byte("0123456789abcdef0123456789abcdef"),
 	)
 	if err := module.Configure(map[string]string{
-		configEnabled:     "true",
-		configCipherKeyID: "fixture-key",
-		configCipherKey:   key,
+		configEnabled:                            "true",
+		configCipherKeyID:                        "fixture-key",
+		configCipherKey:                          key,
+		"social.mastodon.enabled":                "true",
+		"social.mastodon.runtime_audit_verified": "true",
+		"social.mastodon.runtime_smoke_verified": "true",
+		"social.mastodon.compatibility_version":  RuntimeDynamicProviderCompatibilityVersion,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -342,34 +341,101 @@ func TestRuntimeDynamicAdaptersPropagateToNewService(t *testing.T) {
 	}
 }
 
-func TestRuntimeDynamicAdapterCollisionsFailClosed(t *testing.T) {
-	previous := runtimeProviderFamilies
-	t.Cleanup(func() { runtimeProviderFamilies = previous })
-	runtimeProviderFamilies = []runtimeProviderFamily{
-		{
-			name: "decentralized_networks",
-			dynamic: func(
-				_ map[string]string,
-				_ CredentialCipher,
-				adapters map[Provider]DynamicAdapter,
-				availability map[Provider]ProviderAvailability,
-			) {
-				adapters[ProviderFacebookPages] = runtimeDynamicAdapterFixture()
-				availability[ProviderFacebookPages] = ProviderAvailability{
-					Status:             ProviderAvailable,
-					ConfigurationState: ProviderReady,
-				}
+func TestRuntimeDynamicProvidersRemainUnavailableWithOnlyCipher(t *testing.T) {
+	module := runtimeModuleFixture()
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err := module.Configure(map[string]string{
+		configEnabled:     "true",
+		configCipherKeyID: "fixture-key",
+		configCipherKey:   key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entry := providerCatalogEntry(
+		t,
+		module.service.Bootstrap(),
+		ProviderMastodon,
+	)
+	if entry.Status != ProviderUnavailable ||
+		entry.ConfigurationState != ProviderNotConfigured {
+		t.Fatalf("Mastodon bootstrap entry = %#v", entry)
+	}
+	if module.service.dynamicAdapters[ProviderMastodon] != nil {
+		t.Fatal("Mastodon dynamic adapter should remain unavailable with only cipher")
+	}
+}
+
+func TestRuntimeDynamicAdapterOwnershipFailsClosed(t *testing.T) {
+	previous := decentralizedNetworksRuntimeConfigurer
+	t.Cleanup(func() { decentralizedNetworksRuntimeConfigurer = previous })
+	decentralizedNetworksRuntimeConfigurer = func(
+		_ runtimeProviderFamilyInput,
+	) ([]RuntimeDynamicProviderRegistration, error) {
+		return []RuntimeDynamicProviderRegistration{
+			{
+				Provider:         ProviderFacebookPages,
+				Adapter:          runtimeDynamicAdapterFixture(),
+				Configured:       true,
+				SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
 			},
-		},
+		}, nil
 	}
 	module := runtimeModuleFixture()
-	if err := module.Configure(completeMetaRuntimeValues(
-		base64.StdEncoding.EncodeToString(
-			[]byte("0123456789abcdef0123456789abcdef"),
-		),
-	)); !errors.Is(err, ErrInvalidArgument) ||
-		!strings.Contains(err.Error(), "cannot mount static and dynamic adapters together") {
-		t.Fatalf("collision error = %v", err)
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err := module.Configure(map[string]string{
+		configEnabled:                            "true",
+		configCipherKeyID:                        "fixture-key",
+		configCipherKey:                          key,
+		"social.mastodon.enabled":                "true",
+		"social.mastodon.runtime_audit_verified": "true",
+		"social.mastodon.runtime_smoke_verified": "true",
+		"social.mastodon.compatibility_version":  RuntimeDynamicProviderCompatibilityVersion,
+	}); !errors.Is(err, ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "does not own facebook_pages") {
+		t.Fatalf("ownership error = %v", err)
+	}
+}
+
+func TestRuntimeDynamicAdapterDuplicateRegistrationsFailClosed(t *testing.T) {
+	previous := decentralizedNetworksRuntimeConfigurer
+	t.Cleanup(func() { decentralizedNetworksRuntimeConfigurer = previous })
+	decentralizedNetworksRuntimeConfigurer = func(
+		_ runtimeProviderFamilyInput,
+	) ([]RuntimeDynamicProviderRegistration, error) {
+		return []RuntimeDynamicProviderRegistration{
+			{
+				Provider:         ProviderMastodon,
+				Adapter:          runtimeDynamicAdapterFixture(),
+				Configured:       true,
+				SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+			},
+			{
+				Provider:         ProviderMastodon,
+				Adapter:          runtimeDynamicAdapterFixture(),
+				Configured:       true,
+				SupportedVersion: RuntimeDynamicProviderCompatibilityVersion,
+			},
+		}, nil
+	}
+	module := runtimeModuleFixture()
+	key := base64.StdEncoding.EncodeToString(
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err := module.Configure(map[string]string{
+		configEnabled:                            "true",
+		configCipherKeyID:                        "fixture-key",
+		configCipherKey:                          key,
+		"social.mastodon.enabled":                "true",
+		"social.mastodon.runtime_audit_verified": "true",
+		"social.mastodon.runtime_smoke_verified": "true",
+		"social.mastodon.compatibility_version":  RuntimeDynamicProviderCompatibilityVersion,
+	}); !errors.Is(err, ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "duplicate dynamic adapter for mastodon") {
+		t.Fatalf("duplicate error = %v", err)
 	}
 }
 
