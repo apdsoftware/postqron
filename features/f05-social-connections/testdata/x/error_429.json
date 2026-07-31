@@ -1,0 +1,5 @@
+{
+  "title": "Too Many Requests",
+  "type": "https://api.x.com/2/problems/rate-limit-exceeded",
+  "detail": "Fixture rate limit exceeded"
+}

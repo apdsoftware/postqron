@@ -1038,7 +1038,7 @@ func buildAuthorizationURL(
 		return "", fmt.Errorf("%w: invalid provider authorization URL", ErrInvalidArgument)
 	}
 	query := authorizationURL.Query()
-	query.Set("client_id", config.ClientID)
+	query.Set(oauthClientParameterName(config), config.ClientID)
 	query.Set("redirect_uri", config.RedirectURL)
 	query.Set("response_type", "code")
 	query.Set("scope", strings.Join(config.Scopes, oauthScopeSeparator(config)))
@@ -1056,16 +1056,36 @@ func buildAuthorizationURL(
 
 func validateOAuthConfig(provider Provider, config OAuthConfig) error {
 	if strings.TrimSpace(config.ClientID) == "" {
-		return fmt.Errorf("%w: %s client ID is required", ErrInvalidArgument, provider)
+		return fmt.Errorf(
+			"%w: %s client identifier is required",
+			ErrInvalidArgument,
+			provider,
+		)
 	}
-	for _, rawURL := range []string{config.AuthorizationURL, config.RedirectURL} {
+	var authorizationURL *url.URL
+	for index, rawURL := range []string{
+		config.AuthorizationURL,
+		config.RedirectURL,
+	} {
 		parsed, err := url.Parse(rawURL)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 			return fmt.Errorf("%w: %s OAuth URLs must use HTTPS", ErrInvalidArgument, provider)
 		}
+		if index == 0 {
+			authorizationURL = parsed
+		}
 	}
 	if err := validateRequestedScopes(provider, config.Scopes); err != nil {
 		return err
+	}
+	switch config.ClientParameterName {
+	case "", OAuthClientParameterClientID, OAuthClientParameterClientKey:
+	default:
+		return fmt.Errorf(
+			"%w: %s adapter uses an unsupported OAuth client parameter name",
+			ErrInvalidArgument,
+			provider,
+		)
 	}
 	switch config.ScopeSeparator {
 	case "", OAuthScopeSeparatorComma, OAuthScopeSeparatorSpace:
@@ -1078,6 +1098,8 @@ func validateOAuthConfig(provider Provider, config OAuthConfig) error {
 	}
 	reserved := []string{
 		"client_id",
+		"client_key",
+		"client_secret",
 		"redirect_uri",
 		"response_type",
 		"scope",
@@ -1086,6 +1108,13 @@ func validateOAuthConfig(provider Provider, config OAuthConfig) error {
 		"code_challenge_method",
 	}
 	for _, key := range reserved {
+		if authorizationURL.Query().Has(key) {
+			return fmt.Errorf(
+				"%w: provider authorization URL cannot set reserved parameter %s",
+				ErrInvalidArgument,
+				key,
+			)
+		}
 		if _, exists := config.ExtraParameters[key]; exists {
 			return fmt.Errorf(
 				"%w: provider extra parameters cannot override %s",
@@ -1184,6 +1213,13 @@ func oauthScopeSeparator(config OAuthConfig) string {
 		return string(OAuthScopeSeparatorSpace)
 	}
 	return string(OAuthScopeSeparatorComma)
+}
+
+func oauthClientParameterName(config OAuthConfig) string {
+	if config.ClientParameterName == OAuthClientParameterClientKey {
+		return string(OAuthClientParameterClientKey)
+	}
+	return string(OAuthClientParameterClientID)
 }
 
 func isReconnectFailure(kind ProviderFailureKind) bool {

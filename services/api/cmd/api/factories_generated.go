@@ -7,6 +7,7 @@ import (
 
 	workspaces "github.com/apdsoftware/postqron/features/f04-workspaces"
 	socialconnections "github.com/apdsoftware/postqron/features/f05-social-connections"
+	composer "github.com/apdsoftware/postqron/features/f06-composer"
 	scheduling "github.com/apdsoftware/postqron/features/f07-scheduling"
 	entitlements "github.com/apdsoftware/postqron/features/f10-entitlements"
 	cookieconsent "github.com/apdsoftware/postqron/features/f26-cookie-consent-api"
@@ -36,6 +37,9 @@ func registerFeatureFactories(registry *featurehost.Registry) error {
 		},
 		"scheduling": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return scheduling.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
+		},
+		"f06-composer": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
+			return composer.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)
 		},
 		"f10-entitlements": func(_ context.Context, _ featureruntime.Feature, dependencies featurehost.Dependencies) (featurehost.Module, error) {
 			return entitlements.NewPostgresModule(dependencies.PostgreSQL, dependencies.Clock)

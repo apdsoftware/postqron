@@ -1,0 +1,1 @@
+{"access_token":"fixture-youtube-access","expires_in":3600,"refresh_token":"fixture-youtube-refresh","scope":"https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload","token_type":"Bearer"}

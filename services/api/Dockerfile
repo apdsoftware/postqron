@@ -8,6 +8,7 @@ COPY features/f03-auth/go.mod features/f03-auth/go.sum features/f03-auth/
 COPY features/f04-workspaces/go.mod features/f04-workspaces/go.sum features/f04-workspaces/
 COPY features/f05-social-connections/go.mod features/f05-social-connections/go.sum features/f05-social-connections/
 COPY features/f07-scheduling/go.mod features/f07-scheduling/go.sum features/f07-scheduling/
+COPY features/f06-composer/go.mod features/f06-composer/go.sum features/f06-composer/
 COPY features/f12-account-privacy/go.mod features/f12-account-privacy/go.sum features/f12-account-privacy/
 COPY features/f14-email/go.mod features/f14-email/
 COPY features/f15-operations/go.mod features/f15-operations/

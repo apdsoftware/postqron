@@ -76,10 +76,11 @@ func TestHTTPDraftCRUDAndValidationContract(t *testing.T) {
 			Text:  "Ready",
 			Media: []Media{validImage("image", "image/jpeg", 1080, 1080)},
 			Destinations: []Destination{{
-				ID:          "instagram",
-				ChannelID:   "ig-1",
-				ChannelType: ChannelInstagramProfessional,
-				Format:      FormatImage,
+				ID:           "image",
+				ChannelID:    "image-1",
+				ChannelType:  "fixture_image_channel",
+				CapabilityID: "fixture:image",
+				Format:       FormatImage,
 			}},
 		},
 	}
@@ -143,9 +144,9 @@ func TestHTTPRejectsUnknownFieldsAndStaleUpdates(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/workspaces/workspace-1/drafts",
 		`{"content":{"text":"","media":[
-			{"id":"same","storage_key":"one","kind":"image","content_type":"image/jpeg","size_bytes":1,"width":1,"height":1},
-			{"id":"same","storage_key":"two","kind":"image","content_type":"image/jpeg","size_bytes":1,"width":1,"height":1}
-		],"destinations":[]}}`,
+			{"id":"same","kind":"image","content_type":"image/jpeg","size_bytes":1,"width":1,"height":1,"inspection_status":"ready","url":"/one"},
+			{"id":"same","kind":"image","content_type":"image/jpeg","size_bytes":1,"width":1,"height":1,"inspection_status":"ready","url":"/two"}
+		],"thread":[],"destinations":[],"link":""}}`,
 	)
 	if response.Code != http.StatusBadRequest ||
 		!strings.Contains(response.Body.String(), `"field":"media[1].id"`) ||
@@ -171,6 +172,29 @@ func TestHTTPRequiresAuthentication(t *testing.T) {
 	)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestHTTPMapsUnavailableStorageToClientSafeRetryable503(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeServiceError(response, ErrStorageUnavailable)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("storage status = %d", response.Code)
+	}
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
+			Message   string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != "media_storage_unavailable" ||
+		!body.Error.Retryable ||
+		strings.Contains(response.Body.String(), ErrStorageUnavailable.Error()) {
+		t.Fatalf("storage error body = %s", response.Body.String())
 	}
 }
 

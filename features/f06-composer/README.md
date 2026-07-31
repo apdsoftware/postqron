@@ -1,52 +1,126 @@
-# F06 — Composer and media validation
+# F06 — Composer runtime
 
-This autonomous API slice owns draft text/media, multi-destination selection,
-and the validation gate used before scheduling. It implements the launch
-contract from D02 for Facebook Pages and Instagram Professional accounts.
+F6 owns provider-agnostic draft authoring, optimistic autosave, revision history,
+destination validation, and temporary media ingestion. It does not own social
+connections (F5), scheduling (F7), publishing (F8), or the reusable media
+library (F19).
 
-## Behavior
+## Why the previous F6 was invisible to the UI
 
-- incomplete drafts remain saveable and always return their current validation
-  report;
-- create, read, list, update, and delete operations are scoped to a workspace
-  and require the caller to pass the `ContentAuthorizer` boundary;
-- updates and deletes use a positive expected revision, so two composer
-  sessions cannot silently overwrite one another;
-- destination text and ordered media can inherit draft defaults or use explicit
-  overrides;
-- every selected destination receives an independent `valid` result and a list
-  of stable `field`, `rule`, and `code` errors;
-- `ValidateForScheduling` and `POST .../validate` reject the whole operation
-  when any destination is invalid;
-- server text is normalized to NFC and both Go and browser validators count
-  Unicode code points after normalization;
-- media validation is metadata-only. Upload authorization, object inspection,
-  and storage lifecycle belong at the media-ingestion boundary; callers must
-  populate the inspected codec, dimensions, duration, and container fields.
+The original slice contained domain, HTTP, PostgreSQL, OpenAPI, and browser
+validation code, but its manifest had no `server.routes`, it did not implement
+the runtime `Module`/`NewPostgresModule` contract, the API had no F6 factory,
+and the API image did not resolve the F6 module. Discovery therefore treated
+F6 as metadata-only and mounted no UI-callable routes.
 
-The browser validator in `client/validation.ts` provides early feedback, but
-the Go validator is authoritative and repeats all rules server-side. Neither
-the draft payload nor the database contains social-provider credentials.
+This version declares every private route plus a public `OPTIONS` twin, provides
+the runtime factory, consumes the authenticated account context established by
+the API session middleware, and authorizes active Owner/Member workspace
+memberships server-side.
 
-## HTTP endpoints
+## Capability contract and issue #301
 
-All endpoints live below `/api/v1/workspaces/{workspace_id}`:
+`GET /api/v1/workspaces/{workspace_id}/composer/capabilities` is the only source
+of provider/channel/format constraints. The validator supports these
+provider-independent families:
 
-| Method | Path | Result |
-| --- | --- | --- |
-| `POST` | `/drafts` | Create a draft and return validation |
-| `GET` | `/drafts` | List workspace drafts and validation |
-| `GET` | `/drafts/{draft_id}` | Read one draft and validation |
-| `PUT` | `/drafts/{draft_id}` | Replace content using `expected_revision` |
-| `DELETE` | `/drafts/{draft_id}?revision=N` | Delete the expected revision |
-| `POST` | `/drafts/{draft_id}/validate` | Scheduling validation gate |
+- text and links;
+- image and carousel;
+- video and short/reel;
+- thread;
+- capability-declared destination fields.
 
-The full wire contract is in `contracts/composer.openapi.yaml`.
+The catalog supplies text, URL, media count/type/size/dimension/ratio/duration,
+codec, thread, and destination-field rules. Both Go and TypeScript validators
+consume that same shape and return destination, field, rule, code, remedy, and
+details.
+
+The provider matrix in #301 is still open. F6 therefore starts with a
+`pending-d02-301` blocked catalog and no available provider capabilities. It
+does not infer or preserve the previous Meta-only limits. A reviewed catalog
+can later be injected through `POSTQRON_F06_CAPABILITIES_JSON`; unavailable
+entries require an explicit reason and validation always fails closed.
+
+`test/fixtures/capabilities.json` covers every content family but is expressly a
+test fixture, not a declaration that any provider is configured or approved.
+
+## Drafts, autosave, and revisions
+
+Incomplete drafts remain saveable and return their current validation report.
+`PUT` and `PATCH` require `expected_revision`; stale writes return `409`.
+`autosave_key` is optional, but when supplied it is idempotent per draft:
+retries replay the committed revision instead of creating another revision.
+The immutable revision list is available at `GET .../revisions`.
+
+Draft content can hold common text/link/media/thread values, multiple
+destinations, per-destination overrides, ordered media IDs, and fields declared
+by a capability. Provider credentials are never accepted or returned.
+
+## Temporary media ingestion
+
+Media upload authorization is bound to the authenticated account and workspace:
+
+1. `POST .../composer/media` declares name, type, and byte length and returns
+   a short-lived signed object-store upload URL, its required headers, and an
+   authenticated completion URL.
+2. The browser sends bytes directly to the S3-compatible store. The API process
+   never accepts or buffers the object body.
+3. `POST .../complete` verifies the stored size and declared content type, then
+   streams bounded image/MP4 inspection before changing the record to `ready`.
+4. Draft saves replace client-supplied metadata with the canonical inspected
+   record before validation.
+5. `GET .../download` returns a short-lived signed download URL. Unattached
+   objects can be deleted; attachment changes their lifecycle tag to retained.
+
+PostgreSQL stores only metadata, inspection state, expiry, and the private
+object key. Object bytes remain in S3-compatible storage. Configure that bucket
+to expire objects tagged `postqron-lifecycle=temporary`; retained objects are
+retagged `postqron-lifecycle=retained` and must be excluded from that expiry
+rule. The bucket CORS policy must allow the product's exact browser origins and
+the signed `PUT` headers returned by the API.
+
+Draft/media changes are consistency-safe across the external object boundary:
+new objects are retained before mutation, while the draft, immutable revision,
+and media attachment metadata commit in one PostgreSQL transaction. A failed
+transaction compensates retained objects back to temporary. Removed objects
+receive a fresh safe expiry in that same transaction, then their temporary tag
+is synchronized. Failed tag synchronization is recorded and retried by later
+media/draft operations; until retry succeeds the object remains safely retained
+and no committed draft references it.
+
+Storage is fail-closed. With no S3 configuration, draft operations remain
+available but media operations return client-safe `503` errors with
+`retryable: true`. A partial or invalid storage configuration prevents F6 from
+starting.
+
+Runtime storage configuration:
+
+- `POSTQRON_F06_S3_ENDPOINT`: absolute S3-compatible endpoint.
+- `POSTQRON_F06_S3_REGION`: signing region.
+- `POSTQRON_F06_S3_BUCKET`: private object bucket.
+- `POSTQRON_F06_S3_ACCESS_KEY_ID` and
+  `POSTQRON_F06_S3_SECRET_ACCESS_KEY`: runtime credentials; never expose these
+  values in client configuration, logs, fixtures, or source control.
+- `POSTQRON_F06_S3_PATH_STYLE`: optional boolean, defaults to `true`.
+- `POSTQRON_F06_S3_ALLOW_INSECURE_ENDPOINT`: optional boolean, defaults to
+  `false`. Browser-facing signed URLs require HTTPS by default. Plain HTTP is
+  accepted only for a loopback endpoint or when this development-only override
+  is explicitly `true`.
+- `POSTQRON_F06_MAX_UPLOAD_BYTES`: optional positive operational ceiling. It is
+  not a provider capability or provider-specific media limit.
+
+This boundary is intentionally provider-agnostic. It does not make media
+searchable/reusable across drafts and does not implement F19.
+
+## CORS and security
+
+All browser routes use exact origins from `POSTQRON_AUTH_ALLOWED_ORIGINS`,
+credentialed CORS, explicit preflight methods/headers, `Vary: Origin`, and
+fail-closed hostile/multiple origins. Private routes remain behind the shared
+product-session middleware; the F6 handler reads only the authenticated runtime
+context and checks active workspace membership.
 
 ## Verification
-
-Run the slice independently because issue #16 may only modify this directory
-and therefore cannot add the module or package to root workspace registries:
 
 ```sh
 GOWORK=off go test -race ./...
@@ -58,9 +132,11 @@ POSTQRON_FEATURE_ROOTS="services/api/features:features" \
   pnpm migrations:check
 ```
 
-With the migration already applied to a disposable PostgreSQL database:
+PostgreSQL integration:
 
 ```sh
 F06_DATABASE_URL="postgres://..." GOWORK=off \
-  go test -race -run TestPostgresRepositoryIntegration ./...
+  go test -race -run 'TestPostgres.*Integration' ./...
 ```
+
+The wire contract is `contracts/composer.openapi.yaml`.

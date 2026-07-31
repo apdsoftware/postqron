@@ -1,0 +1,14 @@
+{
+  "grant_type": [
+    "authorization_code"
+  ],
+  "code": [
+    "fixture-code"
+  ],
+  "redirect_uri": [
+    "https://app.example.test/social/callback"
+  ],
+  "continuous_refresh": [
+    "true"
+  ]
+}

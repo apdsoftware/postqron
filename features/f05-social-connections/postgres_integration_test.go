@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -152,8 +153,8 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	instagram.refreshErr = &ProviderFailure{
-		Kind: FailureAuthentication,
-		Code: "meta_error_190",
+		Kind: FailurePermissionMissing,
+		Code: "x_required_scope_missing",
 	}
 	if _, err = service.AccessToken(
 		context.Background(),
@@ -195,6 +196,20 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	if refreshCalls != 2 {
 		t.Fatalf("refresh calls = %d, want refresh plus one failed check", refreshCalls)
 	}
+	var eventCount int
+	if err = database.QueryRowContext(context.Background(), `
+		SELECT count(*)
+		FROM f05_social_outbox
+		WHERE connection_id = $1
+			AND event_type = $2`,
+		connection.ID,
+		EventReconnectRequired,
+	).Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("reconnect event count = %d, want 1", eventCount)
+	}
 
 	instagram.refreshErr = nil
 	instagram.resources = []DiscoveredResource{instagramResource(
@@ -226,7 +241,6 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 	if !result.ProviderRevoked || result.Connection.Status != StatusRevoked {
 		t.Fatalf("revocation result = %#v", result)
 	}
-	var eventCount int
 	if err = database.QueryRowContext(context.Background(), `
 		SELECT count(*)
 		FROM f05_social_outbox
@@ -239,6 +253,118 @@ func TestPostgresRepositoryConnectionLifecycle(t *testing.T) {
 		t.Fatalf("outbox event count = %d, want 5", eventCount)
 	}
 	testPostgresF10ChannelQuota(t, database, suffix)
+}
+
+func TestPostgresRepositoryLinkedInRefreshAuthenticationFailureMarksReconnectRequired(
+	t *testing.T,
+) {
+	databaseURL := os.Getenv("F05_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("F05_DATABASE_URL is not set")
+	}
+	database, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err = database.PingContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	workspaceID := "integration-workspace-" + suffix
+	actorID := "integration-owner-" + suffix
+	repository, err := NewPostgresRepository(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorizer := &fakeAuthorizer{permissions: map[Permission]bool{
+		PermissionViewWorkspace:  true,
+		PermissionManageChannels: true,
+	}}
+	cipher, err := NewAESGCMCipher(
+		"integration-key",
+		[]byte("0123456789abcdef0123456789abcdef"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(Config{
+		Repository: repository,
+		Authorizer: authorizer,
+		Cipher:     cipher,
+		Quota:      newFakeChannelQuota(),
+		Adapters: map[Provider]Adapter{
+			ProviderLinkedIn: newLinkedInRefreshFailureAdapter(
+				t,
+				http.StatusBadRequest,
+				`{"error":"invalid_request","error_description":"refresh token expired"}`,
+			),
+		},
+		Now: func() time.Time { return serviceTestNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	connection := postgresConnectLinkedIn(
+		t,
+		service,
+		workspaceID,
+		actorID,
+		linkedInFixtureMemberID,
+	)
+	expired := serviceTestNow.Add(-time.Minute)
+	if _, err = database.ExecContext(context.Background(), `
+		UPDATE f05_social_connections
+		SET token_expires_at = $2
+		WHERE id = $1`,
+		connection.ID,
+		expired,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.AccessToken(
+		context.Background(),
+		workspaceID,
+		connection.ID,
+	); !errors.Is(err, ErrReconnectRequired) {
+		t.Fatalf("LinkedIn AccessToken() error = %v", err)
+	}
+	var (
+		status              string
+		reconnectReason     string
+		accessTokenMissing  bool
+		refreshTokenMissing bool
+	)
+	if err = database.QueryRowContext(context.Background(), `
+		SELECT
+			status,
+			reconnect_reason,
+			access_token_ciphertext IS NULL,
+			refresh_token_ciphertext IS NULL
+		FROM f05_social_connections
+		WHERE id = $1`,
+		connection.ID,
+	).Scan(
+		&status,
+		&reconnectReason,
+		&accessTokenMissing,
+		&refreshTokenMissing,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(StatusReconnectRequired) ||
+		reconnectReason != string(FailureAuthentication) ||
+		!accessTokenMissing ||
+		!refreshTokenMissing {
+		t.Fatalf(
+			"LinkedIn reconnect row = status %q reason %q credentials missing %v/%v",
+			status,
+			reconnectReason,
+			accessTokenMissing,
+			refreshTokenMissing,
+		)
+	}
 }
 
 func TestPostgresRepositoryDynamicSessionLeaseAndCrashSafety(t *testing.T) {
@@ -566,6 +692,43 @@ func postgresConnectInstagram(
 	selection, err := service.Callback(context.Background(), CallbackRequest{
 		State: parsed.Query().Get("state"),
 		Code:  "integration-code",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := service.Select(context.Background(), SelectRequest{
+		WorkspaceID: workspaceID,
+		ActorID:     actorID,
+		SelectionID: selection.ID,
+		RemoteID:    remoteID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return connection
+}
+
+func postgresConnectLinkedIn(
+	t *testing.T,
+	service *Service,
+	workspaceID, actorID, remoteID string,
+) Connection {
+	t.Helper()
+	authorization, err := service.Begin(context.Background(), BeginRequest{
+		WorkspaceID: workspaceID,
+		ActorID:     actorID,
+		Provider:    ProviderLinkedIn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(authorization.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := service.Callback(context.Background(), CallbackRequest{
+		State: parsed.Query().Get("state"),
+		Code:  "provider-code",
 	})
 	if err != nil {
 		t.Fatal(err)

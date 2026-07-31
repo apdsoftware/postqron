@@ -56,7 +56,8 @@ func Register(
 				name != socialconnections.ProviderThreads {
 				return publishing.ErrInvalidArgument
 			}
-			if strings.TrimSpace(version) == "" {
+			if name != socialconnections.ProviderThreads &&
+				strings.TrimSpace(version) == "" {
 				return fmt.Errorf(
 					"%w: missing Graph version for %s",
 					publishing.ErrProviderUnavailable,
