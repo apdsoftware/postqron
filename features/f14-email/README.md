@@ -158,9 +158,10 @@ email. L’idempotency key F14 è stabile. Poiché il contratto Mailronix verifi
 non espone webhook o status lookup, la ricevuta HTTP 202 `queued` viene
 persistita come `accepted` ma resta non-delivered: può infatti rappresentare
 anche un destinatario poi scartato dalle suppression list. F8 non avanza mai a
-`notified` su questa ricevuta. Solo uno stato F14 `delivered` confermato può
-chiudere F8; finché il contratto non offre tale conferma, il percorso live resta
-fail-closed. Stati terminali o un `sending` ambiguo dopo crash producono
+`notified` su questa ricevuta e la chiude subito come permanent failure
+fail-closed. Solo uno stato F14 `delivered` confermato può chiudere F8 con
+successo; finché il contratto non offre tale conferma, il percorso live non
+dichiara consegna. Stati terminali o un `sending` ambiguo dopo crash producono
 permanent failure senza un secondo invio.
 
 ## Affidabilità e ambiente fake

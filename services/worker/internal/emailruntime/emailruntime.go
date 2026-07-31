@@ -274,7 +274,7 @@ func (service *Service) socialDeliveryState(
 		// Mailronix contract 1.0.0 only confirms that the request was queued.
 		// The same 202 response is returned for recipients later discarded by
 		// suppression handling, so accepted must never advance F8 to notified.
-		return deliveryID, SocialNotificationPending, nil
+		return deliveryID, SocialNotificationPermanentFailure, nil
 	case "failed", "bounced", "complained", "suppressed":
 		return deliveryID, SocialNotificationPermanentFailure, nil
 	default:
@@ -286,7 +286,8 @@ func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	if service == nil || service.emailService == nil {
 		return false, errors.New("email runtime service is not configured")
 	}
-	if _, err := service.purgeExpiredDeliveries(ctx, service.clock().UTC()); err != nil {
+	now := service.clock().UTC()
+	if _, err := service.purgeExpiredDeliveries(ctx, now); err != nil {
 		return false, err
 	}
 	return service.emailService.DispatchOne(ctx)

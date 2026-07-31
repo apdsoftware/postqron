@@ -22,6 +22,8 @@ import (
 type Service struct {
 	engine                 *publishing.Engine
 	notificationDispatcher *metapublishing.NotificationDispatcher
+	notificationAuditStore *metapublishing.PostgresNotificationStore
+	clock                  func() time.Time
 	pool                   *pgxpool.Pool
 }
 
@@ -131,8 +133,8 @@ func (sender runtimeSocialNotificationSender) DeliverMetaNotification(
 		return receipt.EmailDeliveryID, nil
 	case statusnotifications.SocialDeliveryPermanentFailure:
 		return receipt.EmailDeliveryID, &publishing.ProviderError{
-			Code:   "notification_email_permanent_failure",
-			Detail: "social notification email reached a permanent failure",
+			Code:   "notification_not_delivered",
+			Detail: "social notification delivery could not be confirmed",
 		}
 	default:
 		return receipt.EmailDeliveryID, &publishing.ProviderError{
@@ -162,6 +164,12 @@ func New(
 		return nil, fmt.Errorf("configure publishing postgres pool: %w", err)
 	}
 	store, err := publishing.NewPostgresStore(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	notificationAuditStore, err :=
+		metapublishing.NewPostgresNotificationStore(database, clock)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -218,6 +226,8 @@ func New(
 	return &Service{
 		engine:                 engine,
 		notificationDispatcher: notificationDispatcher,
+		notificationAuditStore: notificationAuditStore,
+		clock:                  clock,
 		pool:                   pool,
 	}, nil
 }
@@ -235,6 +245,20 @@ func newRuntimeAdapterRegistry(
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	if service == nil || service.engine == nil {
 		return false, errors.New("publishing runtime is not configured")
+	}
+	if service.notificationAuditStore == nil || service.clock == nil {
+		return false, errors.New(
+			"publishing notification audit cleanup is not configured",
+		)
+	}
+	if _, err := service.notificationAuditStore.PurgeExpired(
+		ctx,
+		service.clock().UTC(),
+	); err != nil {
+		return false, fmt.Errorf(
+			"purge publishing notification audit: %w",
+			err,
+		)
 	}
 	if service.notificationDispatcher != nil {
 		dispatched, err := service.notificationDispatcher.DispatchOne(ctx)

@@ -17,6 +17,7 @@ type MemoryStore struct {
 	idempotency map[string]string
 	providerIDs map[string]string
 	order       []string
+	leaseCount  uint64
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -85,11 +86,11 @@ func (store *MemoryStore) ClaimDue(
 			continue
 		}
 		delivery.State = StateSending
-		delivery.Attempt++
+		store.leaseCount++
 		delivery.LeaseToken = fmt.Sprintf(
 			"memory-lease-%s-%d",
 			id,
-			delivery.Attempt,
+			store.leaseCount,
 		)
 		delivery.LockedUntil = now.Add(2 * time.Minute)
 		delivery.ProviderCallAt = time.Time{}
@@ -97,6 +98,37 @@ func (store *MemoryStore) ClaimDue(
 		return cloneDelivery(delivery), true, nil
 	}
 	return Delivery{}, false, nil
+}
+
+func (store *MemoryStore) ReconcileExpiredLeases(
+	_ context.Context,
+	now time.Time,
+) (int64, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var reconciled int64
+	for id, delivery := range store.deliveries {
+		if delivery.State != StateSending ||
+			delivery.LockedUntil.After(now) ||
+			(delivery.ProviderCallAt.IsZero() &&
+				delivery.Attempt < delivery.Message.MaxAttempts) {
+			continue
+		}
+		code := "lease_attempts_exhausted"
+		if !delivery.ProviderCallAt.IsZero() {
+			code = "ambiguous_delivery"
+		}
+		delivery.State = StateFailed
+		delivery.LastDiagnostic = Diagnostic{
+			Code: code, Detail: "", At: now,
+		}
+		delivery.LeaseToken = ""
+		delivery.LockedUntil = time.Time{}
+		delivery.ProviderCallAt = time.Time{}
+		store.deliveries[id] = delivery
+		reconciled++
+	}
+	return reconciled, nil
 }
 
 func (store *MemoryStore) MarkProviderCallStarted(
@@ -109,9 +141,11 @@ func (store *MemoryStore) MarkProviderCallStarted(
 	delivery, ok := store.deliveries[id]
 	if !ok || delivery.State != StateSending ||
 		delivery.LeaseToken != leaseToken || leaseToken == "" ||
-		!delivery.LockedUntil.After(now) {
+		!delivery.LockedUntil.After(now) ||
+		delivery.Attempt >= delivery.Message.MaxAttempts {
 		return errors.New("delivery provider call lease was lost")
 	}
+	delivery.Attempt++
 	delivery.ProviderCallAt = now
 	store.deliveries[id] = delivery
 	return nil

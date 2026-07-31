@@ -77,6 +77,9 @@ func (service *Service) Enqueue(
 // atomically so concurrent workers cannot send the same delivery.
 func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	now := service.now().UTC()
+	if _, err := service.store.ReconcileExpiredLeases(ctx, now); err != nil {
+		return false, fmt.Errorf("reconcile expired email leases: %w", err)
+	}
 	delivery, found, err := service.store.ClaimDue(ctx, now)
 	if err != nil {
 		return false, fmt.Errorf("claim email delivery: %w", err)
@@ -93,6 +96,7 @@ func (service *Service) DispatchOne(ctx context.Context) (bool, error) {
 	); err != nil {
 		return true, fmt.Errorf("record provider call start: %w", err)
 	}
+	delivery.Attempt++
 	receipt, sendErr := service.sender.Send(ctx, delivery.Rendered)
 	if sendErr == nil {
 		if err := service.store.MarkAccepted(

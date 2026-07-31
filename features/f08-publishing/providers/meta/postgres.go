@@ -82,13 +82,18 @@ func (dispatcher *NotificationDispatcher) DispatchOne(
 	}
 	if err = deliveryErr; err != nil {
 		var providerError *publishing.ProviderError
+		failureCode := "notification_delivery_failed"
+		if errors.As(err, &providerError) &&
+			providerError.Code == "notification_not_delivered" {
+			failureCode = providerError.Code
+		}
 		if (errors.As(err, &providerError) && !providerError.Retryable) ||
 			delivery.AttemptCount >= notificationMaxAttempts {
 			if markErr := dispatcher.store.MarkPermanentFailure(
 				ctx,
 				delivery.ID,
 				delivery.LeaseToken,
-				"notification_delivery_failed",
+				failureCode,
 				now,
 			); markErr != nil {
 				return true, errors.Join(err, markErr)
@@ -200,6 +205,41 @@ func (store *PostgresNotificationStore) PutIfAbsent(
 		return "", false, fmt.Errorf("begin Meta notification: %w", err)
 	}
 	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(
+		ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		deliveryID,
+	); err != nil {
+		return "", false, fmt.Errorf("lock Meta notification idempotency: %w", err)
+	}
+	var tombstoneProvider, tombstoneFingerprint string
+	err = transaction.QueryRowContext(ctx, `
+		SELECT provider, payload_fingerprint
+		  FROM f08_meta_notification_tombstones
+		 WHERE id = $1
+		   AND expires_at > $2`,
+		deliveryID,
+		store.clock().UTC(),
+	).Scan(&tombstoneProvider, &tombstoneFingerprint)
+	if err == nil {
+		if tombstoneProvider != provider ||
+			tombstoneFingerprint != hex.EncodeToString(fingerprint[:]) {
+			return "", false, publishing.ErrConflict
+		}
+		if err = transaction.Commit(); err != nil {
+			return "", false, fmt.Errorf(
+				"commit Meta notification tombstone: %w",
+				err,
+			)
+		}
+		return deliveryID, false, &publishing.ProviderError{
+			Code:   "notification_permanent_failure",
+			Detail: "manual publishing notification was not delivered",
+		}
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", false, fmt.Errorf("read Meta notification tombstone: %w", err)
+	}
 	var (
 		persistedID          string
 		persistedWorkspace   string
@@ -399,16 +439,85 @@ func (store *PostgresNotificationStore) PurgeExpired(
 	ctx context.Context,
 	now time.Time,
 ) (int64, error) {
-	result, err := store.database.ExecContext(ctx, `
-		DELETE FROM f08_meta_notification_outbox
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin Meta notification purge: %w", err)
+	}
+	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(ctx, `
+		DELETE FROM f08_meta_notification_tombstones
+		 WHERE expires_at <= $1`,
+		now.UTC(),
+	); err != nil {
+		return 0, fmt.Errorf("purge Meta notification tombstones: %w", err)
+	}
+	rows, err := transaction.QueryContext(ctx, `
+		SELECT id
+		  FROM f08_meta_notification_outbox
 		 WHERE state IN ('delivered', 'permanent_failure')
-		   AND retention_until <= $1`,
+		   AND retention_until <= $1
+		 ORDER BY retention_until, id
+		 LIMIT 100`,
 		now.UTC(),
 	)
 	if err != nil {
-		return 0, fmt.Errorf("purge Meta notification audit: %w", err)
+		return 0, fmt.Errorf("list expired Meta notification audit: %w", err)
 	}
-	return result.RowsAffected()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err = rows.Close(); err != nil {
+		return 0, err
+	}
+	var purged int64
+	for _, id := range ids {
+		if _, err = transaction.ExecContext(ctx, `
+			SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+			id,
+		); err != nil {
+			return 0, err
+		}
+		result, purgeErr := transaction.ExecContext(ctx, `
+			WITH expired AS (
+				DELETE FROM f08_meta_notification_outbox
+				 WHERE id = $1
+				   AND state IN ('delivered', 'permanent_failure')
+				   AND retention_until <= $2
+				RETURNING id, provider, payload_fingerprint, retention_until
+			)
+			INSERT INTO f08_meta_notification_tombstones (
+				id, provider, payload_fingerprint, outcome, expires_at
+			)
+			SELECT id, provider, payload_fingerprint, 'permanent_failure',
+			       retention_until + INTERVAL '12 months'
+			  FROM expired
+			ON CONFLICT (id) DO UPDATE
+			   SET expires_at = GREATEST(
+			           f08_meta_notification_tombstones.expires_at,
+			           EXCLUDED.expires_at
+			       )`,
+			id,
+			now.UTC(),
+		)
+		if purgeErr != nil {
+			return 0, fmt.Errorf("purge Meta notification audit: %w", purgeErr)
+		}
+		if affected, rowsErr := result.RowsAffected(); rowsErr != nil {
+			return 0, rowsErr
+		} else {
+			purged += affected
+		}
+	}
+	if err = transaction.Commit(); err != nil {
+		return 0, fmt.Errorf("commit Meta notification purge: %w", err)
+	}
+	return purged, nil
 }
 
 func (store *PostgresNotificationStore) MarkRetry(

@@ -396,6 +396,12 @@ func TestPostgresNotificationCrashAfterDownstreamEnqueueDoesNotSendTwice(
 			key,
 			permanentKey,
 		)
+		_, _ = database.Exec(
+			`DELETE FROM f08_meta_notification_tombstones
+			  WHERE id IN ($1, $2)`,
+			StableNotificationID("facebook_groups", key),
+			StableNotificationID("instagram_personal", permanentKey),
+		)
 		_, _ = database.Exec(`DELETE FROM f04_workspaces WHERE id = $1`, workspaceID)
 		_, _ = database.Exec(
 			`DELETE FROM account_privacy_profiles WHERE account_id = $1`,
@@ -566,6 +572,50 @@ func TestPostgresNotificationCrashAfterDownstreamEnqueueDoesNotSendTwice(
 			permanentState,
 			permanentFailedAt,
 			permanentRetention,
+		)
+	}
+	now = notificationRetentionUntil(now).Add(time.Second)
+	purged, err := store.PurgeExpired(context.Background(), now)
+	if err != nil || purged != 2 {
+		t.Fatalf("terminal purge = %d, %v", purged, err)
+	}
+	_, delivered, err = store.PutIfAbsent(
+		context.Background(),
+		"instagram_personal",
+		workspaceID,
+		"post-permanent",
+		"channel-permanent",
+		permanentKey,
+		json.RawMessage(
+			`{"format":"image","media":[{"url":"https://media.example/manual.jpg"}]}`,
+		),
+	)
+	var replayFailure *publishing.ProviderError
+	if delivered || !errors.As(err, &replayFailure) ||
+		replayFailure.Code != "notification_permanent_failure" {
+		t.Fatalf("post-retention replay delivered=%v error=%v", delivered, err)
+	}
+	var (
+		tombstones int
+		outboxRows int
+	)
+	err = database.QueryRow(`
+		SELECT
+		    (SELECT count(*) FROM f08_meta_notification_tombstones
+		      WHERE id = $1
+		        AND provider = 'instagram_personal'
+		        AND payload_fingerprint ~ '^[0-9a-f]{64}$'
+		        AND expires_at > $2),
+		    (SELECT count(*) FROM f08_meta_notification_outbox WHERE id = $1)`,
+		permanentID,
+		now,
+	).Scan(&tombstones, &outboxRows)
+	if err != nil || tombstones != 1 || outboxRows != 0 {
+		t.Fatalf(
+			"post-retention tombstone=%d outbox=%d error=%v",
+			tombstones,
+			outboxRows,
+			err,
 		)
 	}
 }

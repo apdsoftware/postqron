@@ -48,6 +48,21 @@ func TestSQLStoreEnqueueReturnsExistingRowOnIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestSQLStoreReconcilesExpiredLeases(t *testing.T) {
+	database := sql.OpenDB(emailStoreConnector{state: &emailStoreState{
+		rowsAffected: 1,
+	}})
+	t.Cleanup(func() { _ = database.Close() })
+	store := &sqlStore{database: database}
+	reconciled, err := store.ReconcileExpiredLeases(
+		context.Background(),
+		time.Unix(1_800_000_000, 0).UTC(),
+	)
+	if err != nil || reconciled != 1 {
+		t.Fatalf("ReconcileExpiredLeases() = %d, %v", reconciled, err)
+	}
+}
+
 func testDelivery(idempotencyKey string) email.Delivery {
 	now := time.Unix(1_800_000_000, 0).UTC()
 	return email.Delivery{

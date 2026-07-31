@@ -32,8 +32,9 @@ executes one immutable F5/F6 destination snapshot at a time.
   fabricates a social remote ID or calls a social provider. Facebook Groups and
   Instagram Personal enqueue a minimized command whose owner recipient, locale,
   and target-specific F14 template are resolved server-side. F8 reaches
-  `notified` only after F14 commits the provider's successful acceptance
-  receipt.
+  `notified` only after F14 exposes a confirmed `delivered` state. A provider
+  `queued`/F14 `accepted` receipt is not delivery confirmation and terminates
+  F8 as a fail-closed permanent failure.
 
 Opaque connection references are persisted, never provider tokens. Diagnostic
 text is redacted and length-limited before storage.

@@ -130,6 +130,39 @@ func nullableWorkspaceID(workspaceID string) any {
 	return workspaceID
 }
 
+func (store *sqlStore) ReconcileExpiredLeases(
+	ctx context.Context,
+	now time.Time,
+) (int64, error) {
+	result, err := store.database.ExecContext(ctx, `
+		UPDATE f14_email_deliveries
+		   SET state = 'failed',
+		       last_diagnostic_code = CASE
+		           WHEN provider_call_started_at IS NOT NULL
+		           THEN 'ambiguous_delivery'
+		           ELSE 'lease_attempts_exhausted'
+		       END,
+		       last_diagnostic_detail = '',
+		       updated_at = $1,
+		       retention_until = $2,
+		       lease_token = NULL,
+		       locked_until = NULL,
+		       provider_call_started_at = NULL
+		 WHERE state = 'sending'
+		   AND locked_until <= $1
+		   AND (
+		       provider_call_started_at IS NOT NULL
+		       OR attempt_count >= max_attempts
+		   )`,
+		now,
+		now.AddDate(1, 0, 0),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (store *sqlStore) ClaimDue(
 	ctx context.Context,
 	now time.Time,
@@ -184,13 +217,15 @@ func (store *sqlStore) MarkProviderCallStarted(
 ) error {
 	result, err := store.database.ExecContext(ctx, `
 		UPDATE f14_email_deliveries
-		   SET provider_call_started_at = $3,
+		   SET attempt_count = attempt_count + 1,
+		       provider_call_started_at = $3,
 		       updated_at = $3
 		 WHERE id = $1
 		   AND state = 'sending'
 		   AND lease_token = $2
 		   AND locked_until > $3
-		   AND provider_call_started_at IS NULL`,
+		   AND provider_call_started_at IS NULL
+		   AND attempt_count < max_attempts`,
 		id,
 		leaseToken,
 		now,

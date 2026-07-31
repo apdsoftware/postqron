@@ -47,9 +47,13 @@ DELETE FROM f14_email_deliveries
    AND source_workspace_id IS NULL;
 
 UPDATE f14_email_deliveries
-   SET lease_token = 'legacy-ambiguous-' || id,
-       locked_until = updated_at,
-       provider_call_started_at = updated_at
+   SET state = 'failed',
+       last_diagnostic_code = 'legacy_ambiguous_delivery',
+       last_diagnostic_detail = '',
+       retention_until = updated_at + INTERVAL '12 months',
+       lease_token = NULL,
+       locked_until = NULL,
+       provider_call_started_at = NULL
  WHERE state = 'sending';
 
 UPDATE f14_email_deliveries
@@ -94,6 +98,198 @@ CREATE INDEX f14_email_retention_idx
     ON f14_email_deliveries (retention_until, id)
     WHERE retention_until IS NOT NULL;
 
+CREATE TABLE f08_meta_notification_tombstones (
+    id text PRIMARY KEY CHECK (
+        id ~ '^meta_notification_[0-9a-f]{32}$'
+    ),
+    provider text NOT NULL CHECK (
+        provider IN ('facebook_groups', 'instagram_personal')
+    ),
+    payload_fingerprint text NOT NULL CHECK (
+        payload_fingerprint ~ '^[0-9a-f]{64}$'
+    ),
+    outcome text NOT NULL CHECK (outcome = 'permanent_failure'),
+    expires_at timestamptz NOT NULL
+);
+
+CREATE INDEX f08_meta_notification_tombstone_expiry_idx
+    ON f08_meta_notification_tombstones (expires_at, id);
+
+CREATE OR REPLACE FUNCTION f14_suppress_email_recipient(
+    p_recipient_id text,
+    p_scope text,
+    p_reason text,
+    p_occurred_at timestamptz
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO f14_email_suppressions (
+        recipient_id,
+        scope,
+        reason,
+        occurred_at,
+        updated_at
+    )
+    VALUES (
+        p_recipient_id,
+        p_scope,
+        p_reason,
+        p_occurred_at,
+        p_occurred_at
+    )
+    ON CONFLICT (recipient_id) DO UPDATE
+       SET scope = CASE
+               WHEN f14_email_suppressions.scope = 'all' THEN 'all'
+               ELSE EXCLUDED.scope
+           END,
+           reason = CASE
+               WHEN f14_email_suppressions.scope = 'all'
+               THEN f14_email_suppressions.reason
+               ELSE EXCLUDED.reason
+           END,
+           occurred_at = LEAST(
+               f14_email_suppressions.occurred_at,
+               EXCLUDED.occurred_at
+           ),
+           updated_at = EXCLUDED.updated_at;
+
+    UPDATE f14_email_deliveries
+       SET state = 'suppressed',
+           updated_at = p_occurred_at,
+           retention_until = p_occurred_at + INTERVAL '12 months',
+           lease_token = NULL,
+           locked_until = NULL,
+           provider_call_started_at = NULL
+     WHERE recipient_id = p_recipient_id
+       AND state IN ('pending', 'retry')
+       AND (
+            p_scope = 'all'
+            OR channel = 'marketing'
+       );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION f14_record_email_provider_event(
+    p_provider_event_id text,
+    p_provider_message_id text,
+    p_event_type text,
+    p_recipient_id text,
+    p_diagnostic_code text,
+    p_diagnostic_detail text,
+    p_occurred_at timestamptz
+)
+RETURNS boolean
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_delivery_id text;
+    v_recipient_id text;
+BEGIN
+    SELECT id, recipient_id
+      INTO v_delivery_id, v_recipient_id
+      FROM f14_email_deliveries
+     WHERE provider_message_id = p_provider_message_id
+     FOR UPDATE;
+
+    IF v_delivery_id IS NULL THEN
+        RAISE EXCEPTION 'unknown provider message id';
+    END IF;
+    IF v_recipient_id <> p_recipient_id THEN
+        RAISE EXCEPTION 'provider event recipient mismatch';
+    END IF;
+
+    INSERT INTO f14_email_provider_events (
+        provider_event_id,
+        provider_message_id,
+        event_type,
+        recipient_id,
+        diagnostic_code,
+        diagnostic_detail,
+        occurred_at
+    )
+    VALUES (
+        p_provider_event_id,
+        p_provider_message_id,
+        p_event_type,
+        p_recipient_id,
+        p_diagnostic_code,
+        p_diagnostic_detail,
+        p_occurred_at
+    )
+    ON CONFLICT (provider_event_id) DO NOTHING;
+
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+
+    UPDATE f14_email_deliveries
+       SET state = CASE p_event_type
+               WHEN 'delivered' THEN 'delivered'
+               WHEN 'soft_bounce' THEN 'bounced'
+               WHEN 'hard_bounce' THEN 'bounced'
+               WHEN 'complaint' THEN 'complained'
+               ELSE state
+           END,
+           last_diagnostic_code = p_diagnostic_code,
+           last_diagnostic_detail = p_diagnostic_detail,
+           updated_at = p_occurred_at,
+           retention_until = CASE
+               WHEN p_event_type IN (
+                   'delivered',
+                   'soft_bounce',
+                   'hard_bounce',
+                   'complaint'
+               )
+               THEN p_occurred_at + INTERVAL '12 months'
+               ELSE retention_until
+           END,
+           lease_token = CASE
+               WHEN p_event_type IN (
+                   'delivered',
+                   'soft_bounce',
+                   'hard_bounce',
+                   'complaint'
+               )
+               THEN NULL
+               ELSE lease_token
+           END,
+           locked_until = CASE
+               WHEN p_event_type IN (
+                   'delivered',
+                   'soft_bounce',
+                   'hard_bounce',
+                   'complaint'
+               )
+               THEN NULL
+               ELSE locked_until
+           END,
+           provider_call_started_at = CASE
+               WHEN p_event_type IN (
+                   'delivered',
+                   'soft_bounce',
+                   'hard_bounce',
+                   'complaint'
+               )
+               THEN NULL
+               ELSE provider_call_started_at
+           END
+     WHERE id = v_delivery_id;
+
+    IF p_event_type IN ('hard_bounce', 'complaint') THEN
+        PERFORM f14_suppress_email_recipient(
+            p_recipient_id,
+            'all',
+            p_event_type,
+            p_occurred_at
+        );
+    END IF;
+
+    RETURN true;
+END;
+$$;
+
 CREATE FUNCTION f14_claim_email_delivery_v2(
     p_now timestamptz,
     p_lease_token text,
@@ -119,7 +315,13 @@ BEGIN
             )
        )
        AND delivery.next_attempt_at <= p_now
-       AND delivery.attempt_count < delivery.max_attempts
+       AND (
+            delivery.attempt_count < delivery.max_attempts
+            OR (
+                delivery.state = 'sending'
+                AND delivery.provider_call_started_at IS NULL
+            )
+       )
        AND (
             suppression.recipient_id IS NULL
             OR (
@@ -138,7 +340,6 @@ BEGIN
     RETURN QUERY
     UPDATE f14_email_deliveries
        SET state = 'sending',
-           attempt_count = attempt_count + 1,
            lease_token = p_lease_token,
            locked_until = p_locked_until,
            provider_call_started_at = NULL,
@@ -258,3 +459,5 @@ COMMENT ON COLUMN f14_email_deliveries.provider_call_started_at IS
     'Persisted ambiguity boundary: an expired lease after this instant must never replay the provider call.';
 COMMENT ON COLUMN f14_email_deliveries.retention_until IS
     'Instant after which delivery PII and linked provider events must be purged.';
+COMMENT ON TABLE f08_meta_notification_tombstones IS
+    'PII-free one-way idempotency evidence retained for twelve months after terminal F8 audit erasure.';

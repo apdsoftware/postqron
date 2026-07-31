@@ -157,6 +157,7 @@ type Sender interface {
 
 type Store interface {
 	Enqueue(context.Context, Delivery) (EnqueueResult, error)
+	ReconcileExpiredLeases(context.Context, time.Time) (int64, error)
 	ClaimDue(context.Context, time.Time) (Delivery, bool, error)
 	MarkProviderCallStarted(context.Context, string, string, time.Time) error
 	MarkAccepted(context.Context, string, string, string, time.Time) error
