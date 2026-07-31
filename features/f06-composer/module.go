@@ -254,6 +254,17 @@ func (module *Module) WrapAuthenticatedRoute(
 	return securityHeaders(credentialedComposerCORS(next, module.origins))
 }
 
+func (module *Module) SchedulingBoundary() (*SchedulingBoundary, bool) {
+	if module == nil || module.service == nil {
+		return nil, false
+	}
+	boundary, err := module.service.SchedulingBoundary()
+	if err != nil {
+		return nil, false
+	}
+	return boundary, true
+}
+
 type runtimeComposerAuthenticator struct{}
 
 func (runtimeComposerAuthenticator) AccountID(

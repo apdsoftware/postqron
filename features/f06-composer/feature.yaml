@@ -13,6 +13,8 @@ migrations:
   - ./migrations/000001_create_composer_drafts.sql
   - ./migrations/000002_runtime_media_and_revisions.sql
   - ./migrations/000003_add_media_delete_reservation.sql
+  - ./migrations/000004_add_duplicate_operations.sql
+  - ./migrations/000005_fence_duplicate_operations.sql
 server:
   routes:
     - path: /workspaces/{workspace_id}/composer/capabilities

@@ -56,6 +56,34 @@ Draft content can hold common text/link/media/thread values, multiple
 destinations, per-destination overrides, ordered media IDs, and fields declared
 by a capability. Provider credentials are never accepted or returned.
 
+## Scheduling boundary for #364
+
+F6 now exposes a narrow runtime boundary for F7 through
+`Service.SchedulingBoundary()` and `Module.SchedulingBoundary()`.
+
+- `ValidateForScheduling(SchedulingValidationCommand)` authorizes the actor,
+  rechecks live channel capability resolution and live media metadata through
+  F6-owned boundaries, requires the exact normalized set of requested
+  `channel_ids`, and returns an immutable `SchedulingDraftReference` with
+  `draft_id`, `draft_revision`, normalized `channel_ids`, and
+  `capability_version`.
+- The boundary fails closed on missing live dependencies with typed
+  `ErrDependencyUnavailable`; invalid content still returns typed
+  `ErrValidation` via `ValidationFailure`.
+- Capability drift is revision-visible: if the live resolved channel type or
+  capability differs from the stored draft revision, validation fails instead
+  of silently rewriting the snapshot.
+
+`DuplicateDraft(DuplicateDraftCommand)` clones one exact stored revision into a
+new independent draft. The clone copies each referenced media object into a new
+F6-owned object key and metadata row before draft creation, so deleting the
+source draft does not invalidate the clone. The operation is idempotent per
+`idempotency_key`: F6 persists the duplication state, replays a completed clone
+for safe retries, and can recover a previously created deterministic clone if a
+retry arrives after an intermediate failure. On internal failures before the new
+draft commits, F6 cleans up cloned media rows and objects and abandons the
+pending operation record.
+
 ## Temporary media ingestion
 
 Media upload authorization is bound to the authenticated account and workspace:
