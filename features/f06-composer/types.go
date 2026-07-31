@@ -179,3 +179,36 @@ type MediaDownload struct {
 	URL       string    `json:"url"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
+
+// SchedulingValidationCommand is the narrow, revision-aware F6 boundary
+// consumed by scheduling. ChannelIDs must match the exact normalized set of
+// destinations stored in the validated draft revision.
+type SchedulingValidationCommand struct {
+	WorkspaceID string
+	ActorID     string
+	DraftID     string
+	ChannelIDs  []string
+}
+
+// SchedulingDraftReference is immutable once returned. Consumers must persist
+// DraftRevision and treat a later composer revision as stale.
+type SchedulingDraftReference struct {
+	DraftID           string   `json:"draft_id"`
+	DraftRevision     int64    `json:"draft_revision"`
+	ChannelIDs        []string `json:"channel_ids"`
+	CapabilityVersion string   `json:"capability_version"`
+}
+
+type DuplicateDraftCommand struct {
+	WorkspaceID    string
+	ActorID        string
+	SourceDraftID  string
+	SourceRevision int64
+}
+
+type DuplicatedDraft struct {
+	DraftID             string `json:"draft_id"`
+	DraftRevision       int64  `json:"draft_revision"`
+	SourceDraftID       string `json:"source_draft_id"`
+	SourceDraftRevision int64  `json:"source_draft_revision"`
+}

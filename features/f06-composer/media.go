@@ -58,6 +58,7 @@ type ObjectStore interface {
 	Open(context.Context, string) (io.ReadCloser, error)
 	Retain(context.Context, string) error
 	MakeTemporary(context.Context, string) error
+	Copy(context.Context, string, string) error
 	Delete(context.Context, string) error
 }
 
@@ -98,6 +99,10 @@ func (unavailableObjectStore) Retain(context.Context, string) error {
 }
 
 func (unavailableObjectStore) MakeTemporary(context.Context, string) error {
+	return ErrStorageUnavailable
+}
+
+func (unavailableObjectStore) Copy(context.Context, string, string) error {
 	return ErrStorageUnavailable
 }
 
@@ -341,6 +346,97 @@ func (store *PostgresMediaStore) Get(
 	return media, nil
 }
 
+func (store *PostgresMediaStore) CloneForDraft(
+	ctx context.Context,
+	workspaceID string,
+	media []Media,
+) ([]Media, error) {
+	if len(media) == 0 {
+		return []Media{}, nil
+	}
+	if err := store.ReconcileLifecycle(ctx, workspaceID); err != nil {
+		return nil, err
+	}
+	now := store.clock().UTC()
+	cloned := make([]Media, 0, len(media))
+	cleanup := make([]struct {
+		id        string
+		objectKey string
+	}, 0, len(media))
+	cleanupClones := func() {
+		for _, item := range cleanup {
+			_, _ = store.database.ExecContext(ctx, `
+				DELETE FROM f06_composer_media
+				 WHERE workspace_id = $1 AND id = $2 AND attached_draft_id IS NULL`,
+				workspaceID,
+				item.id,
+			)
+			_ = store.objects.Delete(ctx, item.objectKey)
+		}
+	}
+	for index, candidate := range media {
+		source, fileName, metadata, objectKey, declaredType, declaredSize, err := store.readCloneSource(
+			ctx,
+			workspaceID,
+			strings.TrimSpace(candidate.ID),
+		)
+		if err != nil {
+			cleanupClones()
+			if errors.Is(err, ErrNotFound) {
+				return nil, &FieldRuleError{
+					Field:   fmt.Sprintf("media[%d].id", index),
+					Rule:    "ready_workspace_media",
+					Code:    "media_not_ready",
+					Message: "Media must belong to this workspace and remain ready.",
+				}
+			}
+			return nil, err
+		}
+		id, err := randomMediaID(store.random)
+		if err != nil {
+			cleanupClones()
+			return nil, err
+		}
+		cloneKey := temporaryObjectKey(workspaceID, id, fileName)
+		if err := store.objects.Copy(ctx, objectKey, cloneKey); err != nil {
+			cleanupClones()
+			return nil, fmt.Errorf("clone composer object: %w", err)
+		}
+		expiresAt := now.Add(uploadLifetime)
+		_, err = store.database.ExecContext(ctx, `
+			INSERT INTO f06_composer_media (
+				id, workspace_id, object_key, file_name,
+				declared_content_type, declared_size_bytes, status,
+				inspected_metadata, lifecycle_state, lifecycle_sync_pending,
+				created_at, expires_at
+			) VALUES ($1, $2, $3, $4, $5, $6, 'ready', $7, 'temporary', false, $8, $9)`,
+			id,
+			workspaceID,
+			cloneKey,
+			fileName,
+			declaredType,
+			declaredSize,
+			metadata,
+			now,
+			expiresAt,
+		)
+		if err != nil {
+			cleanupClones()
+			_ = store.objects.Delete(ctx, cloneKey)
+			return nil, fmt.Errorf("record cloned composer media: %w", err)
+		}
+		source.ID = id
+		source.URL = mediaBasePath(workspaceID, id) + "/download"
+		source.ExpiresAt = &expiresAt
+		cloned = append(cloned, source)
+		cleanup = append(cleanup, struct {
+			id        string
+			objectKey string
+		}{id: id, objectKey: cloneKey})
+	}
+	return cloned, nil
+}
+
 func (store *PostgresMediaStore) Download(
 	ctx context.Context,
 	workspaceID, mediaID string,
@@ -368,6 +464,53 @@ func (store *PostgresMediaStore) Download(
 		return MediaDownload{}, fmt.Errorf("authorize composer object download: %w", err)
 	}
 	return MediaDownload{URL: signed.URL, ExpiresAt: signed.ExpiresAt}, nil
+}
+
+func (store *PostgresMediaStore) readCloneSource(
+	ctx context.Context,
+	workspaceID, mediaID string,
+) (Media, string, []byte, string, string, int64, error) {
+	var (
+		media        Media
+		fileName     string
+		metadata     []byte
+		objectKey    string
+		declaredType string
+		declaredSize int64
+		expiresAt    sql.NullTime
+	)
+	err := store.database.QueryRowContext(ctx, `
+		SELECT file_name, inspected_metadata, object_key,
+		       declared_content_type, declared_size_bytes, expires_at
+		  FROM f06_composer_media
+		 WHERE workspace_id = $1
+		   AND id = $2
+		   AND status = 'ready'
+		   AND deleting_at IS NULL`,
+		workspaceID,
+		mediaID,
+	).Scan(
+		&fileName,
+		&metadata,
+		&objectKey,
+		&declaredType,
+		&declaredSize,
+		&expiresAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Media{}, "", nil, "", "", 0, ErrNotFound
+	}
+	if err != nil {
+		return Media{}, "", nil, "", "", 0, fmt.Errorf("read composer clone source: %w", err)
+	}
+	if expiresAt.Valid && !expiresAt.Time.After(store.clock().UTC()) {
+		_ = store.rejectAndDelete(ctx, workspaceID, mediaID, objectKey)
+		return Media{}, "", nil, "", "", 0, ErrNotFound
+	}
+	if err := json.Unmarshal(metadata, &media); err != nil {
+		return Media{}, "", nil, "", "", 0, fmt.Errorf("decode composer clone source: %w", err)
+	}
+	return media, fileName, metadata, objectKey, declaredType, declaredSize, nil
 }
 
 func (store *PostgresMediaStore) Delete(

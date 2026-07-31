@@ -139,6 +139,21 @@ func (store *fakeObjectStore) MakeTemporary(_ context.Context, key string) error
 	return nil
 }
 
+func (store *fakeObjectStore) Copy(_ context.Context, sourceKey, destinationKey string) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	object, found := store.objects[sourceKey]
+	if !found {
+		return ErrNotFound
+	}
+	store.objects[destinationKey] = fakeObject{
+		contentType: object.contentType,
+		content:     append([]byte{}, object.content...),
+		retained:    false,
+	}
+	return nil
+}
+
 func (store *fakeObjectStore) Delete(_ context.Context, key string) error {
 	store.mutex.Lock()
 	start := store.deleteStart

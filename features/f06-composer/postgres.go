@@ -437,6 +437,46 @@ func (repository *PostgresRepository) ListRevisions(
 	return revisions, nil
 }
 
+func (repository *PostgresRepository) GetRevision(
+	ctx context.Context,
+	workspaceID, draftID string,
+	revision int64,
+) (DraftRevision, error) {
+	var result DraftRevision
+	var content []byte
+	result.DraftID = draftID
+	err := repository.database.QueryRowContext(ctx, `
+		SELECT revision, content, COALESCE(autosave_key, ''), saved_at
+		  FROM f06_composer_draft_revisions
+		 WHERE workspace_id = $1
+		   AND draft_id = $2
+		   AND revision = $3`,
+		workspaceID,
+		draftID,
+		revision,
+	).Scan(
+		&result.Revision,
+		&content,
+		&result.AutosaveKey,
+		&result.SavedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DraftRevision{}, classifyRevisionMissQuery(
+			ctx,
+			repository.database,
+			workspaceID,
+			draftID,
+		)
+	}
+	if err != nil {
+		return DraftRevision{}, fmt.Errorf("read composer revision: %w", err)
+	}
+	if err := json.Unmarshal(content, &result.Content); err != nil {
+		return DraftRevision{}, fmt.Errorf("decode composer revision: %w", err)
+	}
+	return result, nil
+}
+
 func insertRevision(
 	ctx context.Context,
 	transaction *sql.Tx,
@@ -555,6 +595,29 @@ func classifyMissQuery(
 	).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("classify composer draft miss: %w", err)
+	}
+	if exists {
+		return ErrConflict
+	}
+	return ErrNotFound
+}
+
+func classifyRevisionMissQuery(
+	ctx context.Context,
+	query existsQuery,
+	workspaceID, draftID string,
+) error {
+	var exists bool
+	err := query.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM f06_composer_drafts
+			 WHERE workspace_id = $1 AND id = $2
+		)`,
+		workspaceID,
+		draftID,
+	).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("classify composer revision miss: %w", err)
 	}
 	if exists {
 		return ErrConflict

@@ -200,6 +200,24 @@ func (store *S3ObjectStore) MakeTemporary(
 	return store.setLifecycleTag(ctx, objectKey, "temporary")
 }
 
+func (store *S3ObjectStore) Copy(
+	ctx context.Context,
+	sourceKey, destinationKey string,
+) error {
+	copySource := url.PathEscape(store.bucket + "/" + sourceKey)
+	_, err := store.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:           aws.String(store.bucket),
+		Key:              aws.String(destinationKey),
+		CopySource:       aws.String(copySource),
+		Tagging:          aws.String("postqron-lifecycle=temporary"),
+		TaggingDirective: types.TaggingDirectiveReplace,
+	})
+	if err != nil {
+		return fmt.Errorf("copy S3 object: %w", err)
+	}
+	return nil
+}
+
 func (store *S3ObjectStore) setLifecycleTag(
 	ctx context.Context,
 	objectKey, lifecycle string,

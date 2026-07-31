@@ -3,13 +3,14 @@ package composer
 import "errors"
 
 var (
-	ErrInvalidArgument    = errors.New("invalid argument")
-	ErrUnauthenticated    = errors.New("authentication required")
-	ErrForbidden          = errors.New("operation forbidden")
-	ErrNotFound           = errors.New("draft not found")
-	ErrConflict           = errors.New("draft revision conflict")
-	ErrValidation         = errors.New("draft is not ready for scheduling")
-	ErrStorageUnavailable = errors.New("composer object storage is unavailable")
+	ErrInvalidArgument       = errors.New("invalid argument")
+	ErrUnauthenticated       = errors.New("authentication required")
+	ErrForbidden             = errors.New("operation forbidden")
+	ErrNotFound              = errors.New("draft not found")
+	ErrConflict              = errors.New("draft revision conflict")
+	ErrValidation            = errors.New("draft is not ready for scheduling")
+	ErrDependencyUnavailable = errors.New("composer dependency unavailable")
+	ErrStorageUnavailable    = errors.New("composer object storage is unavailable")
 )
 
 type ValidationFailure struct {

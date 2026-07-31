@@ -712,6 +712,98 @@ func TestPostgresDraftMediaAtomicityIntegration(t *testing.T) {
 		}
 		assertDeletedAtomicMedia(t, database, objects, workspaceID, inspected.ID, objectKey)
 	})
+
+	t.Run("duplicate draft clones independent media lifecycle", func(t *testing.T) {
+		workspaceID := atomicMediaWorkspaceID(t, "duplicate-independent")
+		objects, media, _, service := atomicMediaTestService(
+			t,
+			database,
+			now,
+			workspaceID,
+			12,
+		)
+		inspected, sourceObjectKey := createReadyAtomicMedia(
+			t,
+			media,
+			objects,
+			workspaceID,
+			"duplicate-independent.png",
+		)
+		created, err := service.CreateDraft(context.Background(), CreateDraftCommand{
+			WorkspaceID: workspaceID,
+			ActorID:     "account-atomic",
+			Content:     DraftContent{Media: []Media{{ID: inspected.ID}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		boundary, err := service.SchedulingBoundary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		duplicated, err := boundary.DuplicateDraft(context.Background(), DuplicateDraftCommand{
+			WorkspaceID:    workspaceID,
+			ActorID:        "account-atomic",
+			SourceDraftID:  created.Draft.ID,
+			SourceRevision: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cloned, err := service.GetDraft(
+			context.Background(),
+			workspaceID,
+			"account-atomic",
+			duplicated.DraftID,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cloned.Draft.Content.Media) != 1 {
+			t.Fatalf("cloned draft media = %#v", cloned.Draft.Content.Media)
+		}
+		var cloneObjectKey, cloneLifecycle string
+		var cloneAttached string
+		if err := database.QueryRowContext(context.Background(), `
+			SELECT object_key, attached_draft_id, lifecycle_state
+			  FROM f06_composer_media
+			 WHERE workspace_id = $1
+			   AND id = $2`,
+			workspaceID,
+			cloned.Draft.Content.Media[0].ID,
+		).Scan(&cloneObjectKey, &cloneAttached, &cloneLifecycle); err != nil {
+			t.Fatal(err)
+		}
+		if cloneObjectKey == sourceObjectKey || cloneAttached != duplicated.DraftID ||
+			cloneLifecycle != "retained" {
+			t.Fatalf(
+				"clone media lifecycle = key %q attached %q state %q",
+				cloneObjectKey,
+				cloneAttached,
+				cloneLifecycle,
+			)
+		}
+		if err := service.DeleteDraft(
+			context.Background(),
+			workspaceID,
+			"account-atomic",
+			created.Draft.ID,
+			1,
+		); err != nil {
+			t.Fatal(err)
+		}
+		assertAtomicMediaLifecycle(
+			t,
+			database,
+			objects,
+			workspaceID,
+			cloned.Draft.Content.Media[0].ID,
+			cloneObjectKey,
+			duplicated.DraftID,
+			"retained",
+			false,
+		)
+	})
 }
 
 func atomicMediaTestService(

@@ -149,6 +149,27 @@ func (repository *MemoryRepository) ListRevisions(
 	return revisions, nil
 }
 
+func (repository *MemoryRepository) GetRevision(
+	_ context.Context,
+	workspaceID, draftID string,
+	revision int64,
+) (DraftRevision, error) {
+	repository.mutex.RLock()
+	defer repository.mutex.RUnlock()
+	key := draftKey(workspaceID, draftID)
+	if _, exists := repository.drafts[key]; !exists {
+		return DraftRevision{}, ErrNotFound
+	}
+	for _, item := range repository.revisions[key] {
+		if item.Revision == revision {
+			result := item
+			result.Content = cloneContent(item.Content)
+			return result, nil
+		}
+	}
+	return DraftRevision{}, ErrConflict
+}
+
 func revisionOf(draft Draft, autosaveKey string) DraftRevision {
 	return DraftRevision{
 		DraftID:     draft.ID,
