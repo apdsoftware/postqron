@@ -62,6 +62,10 @@ known_keys=(
   POSTQRON_F05_X_API_ACCESS_APPROVED
   POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED
   POSTQRON_F05_X_SMOKE_TEST_VERIFIED
+  POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED
+  POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID
+  POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID
+  POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT
   POSTQRON_F05_LINKEDIN_ENABLED
   POSTQRON_F05_LINKEDIN_CLIENT_ID
   POSTQRON_F05_LINKEDIN_CLIENT_SECRET
@@ -200,6 +204,7 @@ boolean_keys=(
   POSTQRON_F05_X_API_ACCESS_APPROVED
   POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED
   POSTQRON_F05_X_SMOKE_TEST_VERIFIED
+  POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED
   POSTQRON_F05_LINKEDIN_ENABLED
   POSTQRON_F05_LINKEDIN_REVIEW_APPROVED
   POSTQRON_F05_LINKEDIN_RUNTIME_AUDIT_VERIFIED
@@ -279,6 +284,31 @@ require_meta_version() {
   fi
 }
 
+require_future_utc_timestamp() {
+  local key=$1
+  local value
+  local epoch
+  local now_epoch
+  value=$(value_of "$key")
+  if [[ ! "$value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+    echo "$key must be an RFC3339 UTC timestamp" >&2
+    exit 1
+  fi
+  if epoch=$(date -u -d "$value" +%s 2>/dev/null); then
+    :
+  elif epoch=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$value" '+%s' 2>/dev/null); then
+    :
+  else
+    echo "$key must be a valid RFC3339 UTC timestamp" >&2
+    exit 1
+  fi
+  now_epoch=$(date -u +%s)
+  if (( epoch <= now_epoch || epoch > now_epoch + 7200 )); then
+    echo "$key must be in the future and no more than two hours away" >&2
+    exit 1
+  fi
+}
+
 any_present() {
   local key
   for key in "$@"; do
@@ -290,6 +320,7 @@ any_present() {
 }
 
 configured_providers=()
+first_smoke_canary=false
 
 facebook_keys=(
   POSTQRON_F05_FACEBOOK_CLIENT_ID
@@ -339,9 +370,33 @@ if [[ "$(value_of POSTQRON_F05_X_ENABLED)" == "true" ]]; then
   require_values x POSTQRON_F05_X_CLIENT_ID POSTQRON_F05_X_CLIENT_SECRET \
     POSTQRON_F05_X_REDIRECT_URL
   require_true x POSTQRON_F05_X_API_ACCESS_APPROVED \
-    POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED POSTQRON_F05_X_SMOKE_TEST_VERIFIED
+    POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED
   require_callback x POSTQRON_F05_X_REDIRECT_URL
-  configured_providers+=(x)
+  x_smoke_verified=$(value_of POSTQRON_F05_X_SMOKE_TEST_VERIFIED)
+  if [[ "$x_smoke_verified" == "true" ]]; then
+    if [[ "$(value_of POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED)" == "true" ]] ||
+      any_present POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID \
+        POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID \
+        POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT; then
+      echo "X first-smoke canary must be removed after smoke verification" >&2
+      exit 1
+    fi
+    configured_providers+=(x)
+  elif [[ "$x_smoke_verified" == "false" ]]; then
+    require_true x_first_smoke_canary \
+      POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED
+    require_values x_first_smoke_canary \
+      POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID \
+      POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID \
+      POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT
+    require_future_utc_timestamp \
+      POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT
+    configured_providers+=(x_first_smoke_canary)
+    first_smoke_canary=true
+  else
+    echo "x is enabled but POSTQRON_F05_X_SMOKE_TEST_VERIFIED is missing" >&2
+    exit 1
+  fi
 fi
 
 if [[ "$(value_of POSTQRON_F05_LINKEDIN_ENABLED)" == "true" ]]; then
@@ -467,6 +522,12 @@ if [[ "$decoded_length" != "32" ]]; then
   exit 1
 fi
 
-printf 'F5 configuration valid for %s; canonical callback: %s\n' \
-  "$(IFS=,; echo "${configured_providers[*]}")" \
-  "$expected_callback"
+if [[ "$first_smoke_canary" == "true" ]]; then
+  printf 'F5 configuration valid for %s; catalog remains fail-closed outside the scoped canary; canonical callback: %s\n' \
+    "$(IFS=,; echo "${configured_providers[*]}")" \
+    "$expected_callback"
+else
+  printf 'F5 configuration valid for %s; canonical callback: %s\n' \
+    "$(IFS=,; echo "${configured_providers[*]}")" \
+    "$expected_callback"
+fi

@@ -50,22 +50,87 @@ or the release stops before upload.
 
 ## GitHub Environment secret boundary
 
-Production F5 values live inside the existing GitHub Environment secret
-`RUNTIME_ENV`. This keeps the social configuration isolated from browser
-configuration while preserving the existing encrypted, mode-`0600` delivery
-path. The workflow and validator never print values.
+The existing `RUNTIME_ENV` GitHub Environment secret is opaque and must remain
+the source of all legacy runtime entries. The release workflow copies it
+without reconstructing it, atomically appends an allowlisted dedicated F5/X
+inventory, validates the composed file, and uploads it with mode `0600`. It
+never prints values. Any dedicated key already present in `RUNTIME_ENV` stops
+the release before the source file is changed or uploaded; operators must not
+guess, overwrite, or discard unrelated legacy entries to resolve a conflict.
 
-The shared F5 entries are mandatory whenever any provider is enabled:
+The protected `production` GitHub Environment secrets are:
 
-| Entry in `RUNTIME_ENV` | Classification | Required value |
-| --- | --- | --- |
-| `POSTQRON_F05_ENABLED` | gate | exact `true` |
-| `POSTQRON_F05_CIPHER_KEY_ID` | non-secret identifier | non-empty key version/identifier |
-| `POSTQRON_F05_CIPHER_KEY_BASE64` | secret | base64 of exactly 32 random bytes |
+| Secret | Required state |
+| --- | --- |
+| `POSTQRON_F05_X_CLIENT_ID` | X OAuth client ID; stored as a secret even though it is an identifier |
+| `POSTQRON_F05_X_CLIENT_SECRET` | X OAuth client secret |
+| `POSTQRON_F05_CIPHER_KEY_BASE64` | base64 of exactly 32 random bytes; shared by F5 credential encryption |
 
-Rotate the cipher only with a reviewed migration for existing encrypted F5
-credentials and outstanding attempts. Replacing it without migration makes
-stored provider sessions unreadable.
+As of 2026-07-31 the two X credential secrets are present, transferred from
+the approved Keychain without disclosure. `POSTQRON_F05_CIPHER_KEY_BASE64` is
+absent from both Keychain and GitHub. A production release is intentionally
+blocked until the one-time creation procedure below is completed; do not
+invent a placeholder and do not reuse an unrelated encryption key.
+
+The non-secret production GitHub Environment variables are:
+
+| Variable | Required value before first smoke |
+| --- | --- |
+| `POSTQRON_F05_ENABLED` | exact `true` |
+| `POSTQRON_F05_CIPHER_KEY_ID` | stable, unique key identifier/version |
+| `POSTQRON_F05_X_ENABLED` | exact `true` |
+| `POSTQRON_F05_X_REDIRECT_URL` | canonical redirect above |
+| `POSTQRON_F05_X_API_ACCESS_APPROVED` | exact `true` only with recorded approval evidence |
+| `POSTQRON_F05_X_RUNTIME_AUDIT_VERIFIED` | exact `true` only after the offline runtime/security audit |
+| `POSTQRON_F05_X_SMOKE_TEST_VERIFIED` | exact `false` until the real production smoke succeeds |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED` | exact `true` only for the controlled first-smoke release |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_WORKSPACE_ID` | exact dedicated test workspace ID |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_ACTOR_ACCOUNT_ID` | exact authorized Owner account ID |
+| `POSTQRON_F05_X_FIRST_SMOKE_CANARY_EXPIRES_AT` | UTC `YYYY-MM-DDTHH:MM:SSZ`, future and at most two hours from release validation |
+
+Other provider families may remain in the legacy secret until they receive a
+separately reviewed migration. Unknown and duplicate F5 keys remain invalid.
+
+### One-time F5 cipher creation
+
+This is a manual, security-sensitive bootstrap step, not part of this change.
+An authorized operator must perform it once on an approved workstation:
+
+1. Create a mode-`0600` temporary file outside the repository, set a restrictive
+   umask, and write 32 bytes of cryptographically secure random material as
+   standard base64. Do not put the value in a command argument, clipboard,
+   issue, PR, log, or shell history.
+
+   ```sh
+   umask 077
+   openssl rand 32 | openssl base64 -A \
+     > /secure/path/postqron-f05-cipher-key.base64
+   chmod 0600 /secure/path/postqron-f05-cipher-key.base64
+   test "$(wc -c < /secure/path/postqron-f05-cipher-key.base64 | tr -d ' ')" = 44
+   ```
+
+2. Store the new value in the approved durable secret manager first. Record
+   the non-secret key ID, owner, creation date, recovery procedure, and review
+   date. Verify recovery access before proceeding.
+3. Send the file through standard input to the protected Environment secret:
+
+   ```sh
+   gh secret set POSTQRON_F05_CIPHER_KEY_BASE64 \
+     --repo apdsoftware/postqron \
+     --env production \
+     < /secure/path/postqron-f05-cipher-key.base64
+   ```
+
+4. Remove the temporary plaintext using the organization's approved secret
+   handling procedure and confirm only the secret name—not its value—appears
+   in GitHub Environment metadata.
+
+The cipher is a long-lived encryption root. Losing it makes stored F5 tokens
+and outstanding OAuth state unrecoverable. Replacing or rotating it without a
+reviewed data migration has the same effect and can strand connected channels.
+Back it up securely; do not create a second value if its availability is
+uncertain, and never rotate it as an incident workaround without an explicit
+migration/revocation plan.
 
 ### Meta: Facebook Pages and Instagram Professional
 
@@ -131,34 +196,26 @@ in the approved private operations system, not in GitHub comments.
 
 ## Safe GitHub update procedure
 
-1. On an authorized workstation, obtain the current `RUNTIME_ENV` from the
-   approved password/secret manager. GitHub cannot return its current value.
-2. Write a temporary mode-`0600` file outside the repository. Preserve the
-   existing database and unrelated runtime entries; add the exact F5 entries
-   above as unquoted `NAME=value` lines with no surrounding whitespace. Do not
-   put the file in shell history.
-3. Configure at least one complete provider. Providers left disabled stay
-   unavailable. Do not add unknown `POSTQRON_F05_*` keys.
-4. Validate locally without printing values:
+1. Do not fetch, replace, or reconstruct `RUNTIME_ENV`. GitHub cannot return
+   its value and it may contain unrelated production configuration.
+2. Complete the one-time cipher procedure above. Set the three dedicated
+   secrets only through protected GitHub Environment secret input. Never paste
+   a secret value into a variable, workflow input, issue, or PR.
+3. Set the non-secret variables from the table above. Use the exact dedicated
+   test workspace and Owner account IDs. Set the canary expiry shortly before
+   dispatch; it must be in UTC, in the future, and no more than two hours away.
+4. Keep `POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false`. A credential, approval,
+   release, reachable callback, or mocked test is not smoke evidence.
+5. Review GitHub Environment metadata by name only and retain the variable
+   change/deployment approvals as operational evidence. Do not echo values.
+6. Dispatch no release until the implementation is merged and all protected
+   Environment reviewers approve it. The composer will reject any overlap
+   between the dedicated inventory and legacy `RUNTIME_ENV` before upload.
 
-   ```sh
-   ./infra/deploy/validate-f05-runtime.sh \
-     /secure/path/runtime.env \
-     postqron.com \
-     production
-   ```
-
-5. Replace the GitHub Environment secret through standard input:
-
-   ```sh
-   gh secret set RUNTIME_ENV \
-     --repo apdsoftware/postqron \
-     --env production \
-     < /secure/path/runtime.env
-   ```
-
-6. Remove the temporary plaintext through the organization's approved secret
-   handling procedure. Do not attach or paste it anywhere.
+If overlap is reported, stop. Resolve it only from an authoritative recovered
+copy of the legacy secret, with a separate reviewed change that preserves every
+unrelated byte/entry. Do not delete or replace `RUNTIME_ENV` based on inference
+from a workflow error.
 
 ## Release and non-destructive verification
 
@@ -174,7 +231,19 @@ work is complete. The release workflow then:
 3. checks the public relay and the API's missing-state rejection after restart,
    without creating an OAuth attempt or channel.
 
-After those checks pass, an authorized Owner must perform the real smoke test:
+### Controlled first-smoke sequence for X
+
+The first release uses the canary variables above and keeps
+`POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false`. X remains `audit_required` in the
+global catalog. Only the exact canary workspace and actor see X as available
+while that actor still has Owner-equivalent channel-management permission, and
+may create an OAuth attempt before expiry. A mismatched, demoted, or expired
+request receives the normal `audit_required` catalog and cannot begin. The
+attempt persists provider, workspace, actor, and timestamps, and
+connect/disconnect actions use the existing F5 event audit trail. F8 token
+access/publishing remains unavailable until the normal smoke gate is true.
+
+The authorized canary Owner must then perform the real smoke test:
 
 1. open Social channels in production and confirm the F5 bootstrap marks only
    approved/configured providers `available`;
@@ -188,6 +257,23 @@ After those checks pass, an authorized Owner must perform the real smoke test:
    provider revocation behavior;
 6. confirm disabled providers remain `Non disponibile` and expose no missing
    secret name or value.
+
+If any step fails, leave `POSTQRON_F05_X_SMOKE_TEST_VERIFIED=false`, capture
+non-secret diagnostics privately, disconnect any created test channel, and let
+the canary expire. Expiry closes begin/callback/selection automatically;
+disconnect cleanup remains possible. An API restart with the expired runtime
+stays healthy and retains the X adapter only for cleanup/revocation; it does
+not mount normal X or reopen catalog, OAuth, selection, or token access. Deploy
+validation still rejects that expired timestamp for any new release. Clear or
+disable the four canary variables before a later release.
+
+Only after every step succeeds may an authorized operator set
+`POSTQRON_F05_X_SMOKE_TEST_VERIFIED=true`, set
+`POSTQRON_F05_X_FIRST_SMOKE_CANARY_ENABLED=false`, clear the workspace, actor,
+and expiry variables, and obtain review for a second release. Validation
+rejects a verified gate that retains canary scope. That second release makes X
+available through the normal catalog; the first canary release never does so
+for other users.
 
 This final smoke requires real external credentials and an authorized test
 account. Repository fixtures, mocked HTTP responses, callback reachability,
