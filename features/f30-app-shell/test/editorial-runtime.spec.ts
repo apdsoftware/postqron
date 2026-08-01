@@ -12,6 +12,8 @@ const require = createRequire(
 const { expect, test } = require('@playwright/test') as typeof import('@playwright/test')
 const AxeBuilder = require('@axe-core/playwright').default as typeof import('@axe-core/playwright').default
 
+const calendarFixtureNow = new Date('2026-03-15T12:00:00.000Z')
+
 function json(body: unknown): {
   body: string
   contentType: string
@@ -907,6 +909,12 @@ async function routeCalendarPage(
   }
 }
 
+async function openCalendarFixtureMonth(page: Page) {
+  await page.clock.setFixedTime(calendarFixtureNow)
+  await page.goto(`${offBaseURL}/en/app/calendar`)
+  await expect(page.getByRole('heading', { name: 'March 2026' })).toBeVisible()
+}
+
 test.beforeEach(async () => {
   await fixtureReset()
 })
@@ -1632,12 +1640,8 @@ test('calendar refetches on timezone changes, keeps local DST boundaries visible
 }) => {
   const calendar = await routeCalendarPage(page)
 
-  await page.goto(`${offBaseURL}/en/app/calendar`)
-  for (let index = 0; index < 4; index += 1) {
-    await page.getByRole('button', { name: 'Previous month' }).click()
-  }
+  await openCalendarFixtureMonth(page)
 
-  await expect(page.getByRole('heading', { name: 'March 2026' })).toBeVisible()
   expect(calendar.calendarRequests.some(query =>
     query.includes('from=2026-02-27T00%3A00%3A00.000Z')
     && query.includes('until=2026-04-03T00%3A00%3A00.000Z'))).toBe(true)
@@ -1690,10 +1694,7 @@ test('duplicate real clicks replay one F7 operation after an ambiguous response'
   page,
 }) => {
   const calendar = await routeCalendarPage(page, { ambiguousFirstDuplicate: true })
-  await page.goto(`${offBaseURL}/en/app/calendar`)
-  for (let index = 0; index < 4; index += 1) {
-    await page.getByRole('button', { name: 'Previous month' }).click()
-  }
+  await openCalendarFixtureMonth(page)
   await page.getByRole('button', { name: 'List view' }).click()
   const scheduledCard = page.locator('li.app-card').filter({ hasText: 'March launch' })
 
