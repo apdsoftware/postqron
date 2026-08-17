@@ -281,7 +281,7 @@ li mostra, non li applica.
 | Alert | email | email + webhook (Slack/Discord) | avanzati per membro e ambiente | avanzati |
 | RBAC | — | — | Admin / Developer / Viewer | ✓ |
 | Metriche e grafici | — | — | ✓ | ✓ |
-| Multi-workspace | — | — | — | ✓ isolati, fatturazione unificata |
+| Multi-workspace | — | — | — | ✓ **fino a 10** isolati, fatturazione unificata |
 | IP statico dedicato in uscita | — | — | — | ✓ |
 | Supporto | — | — | — | prioritario |
 
@@ -296,6 +296,17 @@ li mostra, non li applica.
   applicati lato backend.
 - **R25 — Multi-workspace.** Workspace isolati sotto un unico account padre, con
   fatturazione Paddle unificata e separazione netta dei dati fra workspace.
+  **Il piano Agency ne include fino a dieci** al prezzo d'ingresso; oltre, il prezzo è
+  concordato — ed è questo che il «da €79» di §8 significa. Il numero non è arbitrario:
+  è la variabile su cui il piano scala, e senza un tetto dichiarato ogni altro limite
+  per workspace sarebbe aggirabile creando workspace.
+- **R25-bis — Capacità dei trigger manuali su Agency.** Il budget dei trigger manuali
+  è quello del piano Team, **applicato per workspace**. Non è un numero scelto: Agency
+  non è «Team con più potenza», è «Team moltiplicato» — ciò che lo distingue sono i
+  workspace isolati, non la portata di ciascuno. Un workspace Agency serve un cliente
+  finale con gli stessi job di un cliente Team, quindi non ha ragione di eseguire di
+  più. La capacità totale dell'account scala col numero di workspace, cioè con ciò per
+  cui l'agenzia paga.
 - **R26 — IP statico in uscita.** Le chiamate dei job dei piani Agency escono da un
   IP dedicato e stabile, dichiarabile nei firewall dei clienti.
 - **R27 — Export dei log.** Esportazione delle esecuzioni in CSV e JSON.
