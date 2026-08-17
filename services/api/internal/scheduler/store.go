@@ -340,6 +340,58 @@ func expireOccurrences(ctx context.Context, q querier, from, before time.Time, l
 	return int(tag.RowsAffected()), nil
 }
 
+// --------------------------------------------------------- sovrapposizioni
+
+// skipOccurrencesSQL chiude come `skipped` un elenco di occorrenze indirizzate
+// per chiave naturale.
+//
+// È la stessa transizione di `expireOccurrencesSQL` con un altro motivo, e sta
+// in due statement invece che in uno perché le due popolazioni si scelgono in
+// modo diverso: là un intervallo di tempo, qui una lista che il dispatch ha già
+// nominato una per una. Provare a unificarle vorrebbe dire passare la lista a
+// una query che è scritta per non averne bisogno.
+//
+// `AND e.status = 'pending'` è la solita disciplina: se qualcuno l'ha presa nel
+// frattempo — cosa che non può succedere, visto che il dispatch l'ha appena
+// rifiutata, ma che non costa niente escludere — la riga è sua e non si tocca.
+const skipOccurrencesSQL = `
+	UPDATE job_executions e
+	   SET status = 'skipped', error = $5
+	  FROM unnest($1::text[], $2::timestamptz[], $3::text[], $4::smallint[])
+	    AS s(job_id, scheduled_for, environment, attempt)
+	 WHERE e.job_id = s.job_id::uuid
+	   AND e.scheduled_for = s.scheduled_for
+	   AND e.environment = s.environment::environment
+	   AND e.attempt = s.attempt
+	   AND e.status = 'pending'`
+
+// overlapReason è il testo che l'utente legge sull'occorrenza saltata.
+//
+// Nomina il campo che l'ha decisa — `on_overlap` — perché chi la vede in
+// dashboard deve poter risalire dalla riga all'impostazione senza indovinare: la
+// domanda che si fa davanti a un'esecuzione mai partita è «chi l'ha decisa», e
+// la risposta è una riga del suo `cron.yaml`.
+const overlapReason = "occorrenza saltata: l'esecuzione precedente era ancora in corso (on_overlap: skip)"
+
+func skipOccurrences(ctx context.Context, q querier, occs []Occurrence, reason string) (int, error) {
+	ids := make([]string, len(occs))
+	instants := make([]time.Time, len(occs))
+	envs := make([]string, len(occs))
+	attempts := make([]int16, len(occs))
+	for i, occ := range occs {
+		ids[i] = occ.Job.ID
+		instants[i] = occ.ScheduledFor
+		envs[i] = occ.Environment
+		attempts[i] = occ.Attempt
+	}
+
+	tag, err := q.Exec(ctx, skipOccurrencesSQL, ids, instants, envs, attempts, reason)
+	if err != nil {
+		return 0, fmt.Errorf("scheduler: chiusura delle occorrenze sovrapposte: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ---------------------------------------------------------------- partizioni
 
 // ensurePartitionsSQL prepara la finestra di partizioni giornaliere.

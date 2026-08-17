@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -147,6 +148,16 @@ type Occurrence struct {
 	// cambia nulla; per chi misura sì, perché il ritardo di una ripresa non
 	// dice niente sulla precisione dello scheduler.
 	Recovered bool
+
+	// Manual dice che l'occorrenza nasce da un «esegui adesso» dell'utente (R8),
+	// non dalla schedulazione: è `triggered_by = 'manual'` sulla riga.
+	//
+	// Lo scheduler non la valorizza mai — non raccoglie i trigger manuali, per
+	// scelta dichiarata — e serve a chi applica la politica di sovrapposizione
+	// (R41): quella politica riguarda le occorrenze che *scattano*, e un trigger
+	// manuale non scatta, lo chiede una persona. Il suo tetto è un altro, e sta
+	// dove nasce la riga.
+	Manual bool
 }
 
 // Lag è lo scarto fra l'orario dovuto e il momento in cui l'occorrenza è stata
@@ -192,9 +203,27 @@ func (o Occurrence) String() string {
 // il secondo cancello dell'idempotenza: il primo è la chiave primaria, che
 // impedisce a due occorrenze di nascere; questo impedisce a una stessa
 // occorrenza di partire due volte.
+//
+// **4. Un'occorrenza che non va eseguita affatto si dice con [ErrOverlap].** È
+// il caso della politica `skip` di R41: la precedente dello stesso job è ancora
+// in corso e il job ha dichiarato di saltare l'occorrenza in eccesso. Non è un
+// rifiuto come gli altri — la riga non va lasciata `pending` in attesa che
+// qualcuno la riprenda, perché nessuno la vuole più — e lo scheduler la chiude
+// come `skipped` con il motivo scritto sopra.
 type Dispatcher interface {
 	Dispatch(ctx context.Context, occ Occurrence) error
 }
+
+// ErrOverlap è la quarta clausola di [Dispatcher]: l'occorrenza non va eseguita
+// perché la precedente dello stesso job, nello stesso ambiente, è ancora in
+// carico e il job dichiara `on_overlap: skip` (R41).
+//
+// È un sentinella e non un tipo perché non porta niente oltre al fatto: chi lo
+// riceve non deve decidere nulla in base al dettaglio, deve solo distinguerlo da
+// «non ho posto adesso». La differenza è tutta nel destino della riga —
+// `skipped` con il motivo invece di `pending` in attesa di essere ripresa — e in
+// quello che l'utente legge in dashboard.
+var ErrOverlap = errors.New("scheduler: occorrenza saltata: la precedente dello stesso job è ancora in corso")
 
 // DispatcherFunc adatta una funzione a [Dispatcher].
 type DispatcherFunc func(ctx context.Context, occ Occurrence) error

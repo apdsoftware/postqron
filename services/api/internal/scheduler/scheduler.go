@@ -174,6 +174,12 @@ type Stats struct {
 	// Rejected sono le occorrenze che il dispatch ha rifiutato. Le loro righe
 	// restano `pending` e il recupero le riprende.
 	Rejected int
+	// Overlapped sono le occorrenze che il dispatch ha rifiutato **per sempre**
+	// perché la precedente dello stesso job era ancora in corso e il job
+	// dichiara `on_overlap: skip` (R41). Le loro righe si chiudono `skipped`
+	// dentro la stessa passata: non è un rifiuto temporaneo, non c'è niente da
+	// riprendere. Vedi [ErrOverlap].
+	Overlapped int
 	// Dropped sono le occorrenze scartate perché fuori dalla finestra di
 	// recupero, ed Expired quelle già accodate e chiuse come `skipped` per lo
 	// stesso motivo.
@@ -365,19 +371,28 @@ func (e *Engine) Tick(ctx context.Context) (Stats, error) {
 		e.obs.Tick(st)
 	}()
 
+	// Le occorrenze che il dispatch dichiara sovrapposte (R41) si accumulano qui
+	// e si chiudono tutte insieme in fondo alla passata: sono un'UPDATE sola
+	// invece di una per occorrenza, e in una passata in cui molti job stanno
+	// scavalcando sé stessi la differenza è fra un'istruzione e duecento.
+	var overlapped []Occurrence
+
 	if err := e.ensurePartitions(ctx, now); err != nil {
 		return st, err
 	}
 	if err := e.expire(ctx, now, &st); err != nil {
 		return st, err
 	}
-	if err := e.reclaim(ctx, now, now.Add(-e.reclaimAfter), &st); err != nil {
+	if err := e.reclaim(ctx, now, now.Add(-e.reclaimAfter), &st, &overlapped); err != nil {
 		return st, err
 	}
 	if err := e.seed(ctx, now, &st); err != nil {
 		return st, err
 	}
-	if err := e.claim(ctx, now, &st); err != nil {
+	if err := e.claim(ctx, now, &st, &overlapped); err != nil {
+		return st, err
+	}
+	if err := e.closeOverlapped(ctx, overlapped); err != nil {
 		return st, err
 	}
 	return st, nil
@@ -396,8 +411,12 @@ func (e *Engine) Tick(ctx context.Context) (Stats, error) {
 // [Dispatcher], dove l'aggiornamento condizionato dell'esecutore fa da arbitro.
 func (e *Engine) Recover(ctx context.Context) error {
 	var st Stats
+	var overlapped []Occurrence
 	now := e.now().UTC()
-	if err := e.reclaim(ctx, now, now, &st); err != nil {
+	if err := e.reclaim(ctx, now, now, &st, &overlapped); err != nil {
+		return err
+	}
+	if err := e.closeOverlapped(ctx, overlapped); err != nil {
 		return err
 	}
 	if st.Recovered > 0 {
@@ -456,7 +475,7 @@ func (e *Engine) expire(ctx context.Context, now time.Time, st *Stats) error {
 
 // ------------------------------------------------------------------ recupero
 
-func (e *Engine) reclaim(ctx context.Context, now, createdBefore time.Time, st *Stats) error {
+func (e *Engine) reclaim(ctx context.Context, now, createdBefore time.Time, st *Stats, overlapped *[]Occurrence) error {
 	from := now.Add(-e.reclaimHorizon)
 	// Il bordo superiore è la finestra di recupero: più indietro di così
 	// l'occorrenza è comunque destinata a essere chiusa da expire.
@@ -466,8 +485,37 @@ func (e *Engine) reclaim(ctx context.Context, now, createdBefore time.Time, st *
 		return err
 	}
 	for _, occ := range occs {
-		e.handoff(ctx, occ, st)
+		if e.handoff(ctx, occ, st) {
+			*overlapped = append(*overlapped, occ)
+		}
 	}
+	return nil
+}
+
+// ------------------------------------------------------------ sovrapposizioni
+
+// closeOverlapped chiude come `skipped` le occorrenze che il dispatch ha
+// dichiarato sovrapposte (R41, [ErrOverlap]).
+//
+// Sta qui e non nel dispatch per la stessa ragione per cui ci sta [expire]:
+// `skipped` è «l'occorrenza non è mai partita per decisione del motore» (0001),
+// la riga è dello scheduler finché qualcuno non la prende, e chi la prende non
+// l'ha presa. Il dispatch, dal canto suo, non deve fare una scrittura sul
+// database dentro [Dispatcher.Dispatch], che per contratto non blocca.
+//
+// Un errore qui non perde niente di irreparabile: le righe restano `pending` e
+// [expire] le chiuderà comunque a finestra di recupero scaduta — con un motivo
+// meno preciso, che è il prezzo, non un guasto.
+func (e *Engine) closeOverlapped(ctx context.Context, occs []Occurrence) error {
+	if len(occs) == 0 {
+		return nil
+	}
+	n, err := skipOccurrences(ctx, e.pool, occs, overlapReason)
+	if err != nil {
+		return err
+	}
+	e.log.Info("scheduler: occorrenze saltate perché la precedente era ancora in corso",
+		slog.Int("occorrenze", n))
 	return nil
 }
 
@@ -535,7 +583,7 @@ func (e *Engine) seed(ctx context.Context, now time.Time, st *Stats) error {
 // Il dispatch invece sta **fuori** dalla transazione: chiamare codice altrui
 // tenendo aperta una transazione significa tenere occupata una connessione per
 // tutto il tempo che quel codice decide di prendersi.
-func (e *Engine) claim(ctx context.Context, now time.Time, st *Stats) error {
+func (e *Engine) claim(ctx context.Context, now time.Time, st *Stats, overlapped *[]Occurrence) error {
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("scheduler: apertura della transazione di accodamento: %w", err)
@@ -621,7 +669,9 @@ func (e *Engine) claim(ctx context.Context, now time.Time, st *Stats) error {
 		e.obs.Dropped(d)
 	}
 	for _, occ := range claimed {
-		e.handoff(ctx, occ, st)
+		if e.handoff(ctx, occ, st) {
+			*overlapped = append(*overlapped, occ)
+		}
 	}
 	return nil
 }
@@ -726,7 +776,11 @@ func (e *Engine) insert(ctx context.Context, tx pgx.Tx, occs []Occurrence) ([]Oc
 }
 
 // handoff consegna un'occorrenza al dispatch e ne misura il ritardo (R47).
-func (e *Engine) handoff(ctx context.Context, occ Occurrence, st *Stats) {
+//
+// Restituisce vero quando l'occorrenza va chiusa come `skipped` perché il
+// dispatch l'ha dichiarata sovrapposta ([ErrOverlap], R41). Il chiamante la
+// accumula e [Engine.closeOverlapped] le chiude tutte in fondo alla passata.
+func (e *Engine) handoff(ctx context.Context, occ Occurrence, st *Stats) bool {
 	occ.EnqueuedAt = e.now()
 
 	// Il ritardo di un'occorrenza ripresa non dice niente sulla precisione
@@ -744,13 +798,24 @@ func (e *Engine) handoff(ctx context.Context, occ Occurrence, st *Stats) {
 	e.obs.Enqueued(occ)
 
 	if err := e.dispatch.Dispatch(ctx, occ); err != nil {
+		if errors.Is(err, ErrOverlap) {
+			// Non è un rifiuto temporaneo: questa occorrenza non si eseguirà mai,
+			// perché il job ha dichiarato di saltarla (R41). Lasciarla `pending`
+			// significherebbe rioffrirla a ogni passata finché la finestra di
+			// recupero non scade, cioè riprovare a fare una cosa che l'utente ha
+			// chiesto di non fare.
+			st.Overlapped++
+			e.log.Debug("scheduler: occorrenza saltata, la precedente è ancora in corso",
+				slog.String("occorrenza", occ.String()))
+			return true
+		}
 		// La riga resta `pending`: il recupero la riproporrà. È il motivo per
 		// cui un dispatch che non può accettare deve restituire un errore
 		// invece di far finta di niente.
 		st.Rejected++
 		e.log.Error("scheduler: occorrenza rifiutata dal dispatch",
 			slog.String("occorrenza", occ.String()), slog.Any("err", err))
-		return
+		return false
 	}
 
 	if occ.Recovered {
@@ -758,6 +823,7 @@ func (e *Engine) handoff(ctx context.Context, occ Occurrence, st *Stats) {
 	} else {
 		st.Enqueued++
 	}
+	return false
 }
 
 // --------------------------------------------------------------- schedulazione

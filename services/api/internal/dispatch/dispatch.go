@@ -32,6 +32,33 @@
 //     da solo non basta: con la coda di un job sola non c'è nessuno con cui
 //     alternarsi.
 //
+// # La politica sulle esecuzioni sovrapposte (R41)
+//
+// Un job può durare più del proprio intervallo, e con la risoluzione al secondo
+// non è un caso limite. Che cosa farne è una scelta **del job** — saltare
+// l'occorrenza in eccesso, accodarla, o lasciarla partire in parallelo — e vive
+// su `jobs.overlap_policy` (migrazione 0013), da dove arriva fin qui dentro
+// [scheduler.Job.Overlap].
+//
+// Si applica alla **corsia**, cioè alla coppia (job, ambiente): è quella la cosa
+// che si sovrappone a sé stessa. Una prova in staging e un'esecuzione in
+// produzione sono due esecuzioni distinte con esiti e alert separati (R23), e
+// farle aspettare a vicenda sarebbe un ritardo che nessuno ha chiesto.
+//
+//   - `skip` ammette una sola occorrenza in carico per corsia. L'eccedente non
+//     entra nemmeno in coda: [Pool.Dispatch] restituisce [ErrOverlapSkipped] e
+//     chi possiede la riga la chiude `skipped`, con scritto perché. Accodarla
+//     per poi saltarla dopo occuperebbe la coda con lavoro già deciso morto.
+//   - `queue` ammette una sola occorrenza **in volo** per corsia: le altre
+//     aspettano nella coda del job, in ordine di arrivo. È ciò che serializza le
+//     esecuzioni senza perderne nessuna, e il prezzo — dichiarato — è che un job
+//     stabilmente più lento del proprio intervallo accumula arretrato finché la
+//     sua coda non si riempie e comincia a rifiutare.
+//   - `allow` non limita la corsia: resta il solo tetto di risorse per job.
+//
+// Il tetto di [Options.MaxInFlightPerJob] vale **sempre**, anche su `allow`: non
+// è una politica, è la difesa degli altri job.
+//
 // C'è una terza scelta, meno visibile ma dello stesso peso: **il worker non
 // tiene una connessione al database mentre la chiamata HTTP è in corso**. Prende
 // la riga, la chiude, esegue, riapre per scrivere l'esito. Un pool da 32 worker
@@ -348,6 +375,13 @@ type Stats struct {
 	Duplicated int64
 	Refused    int64
 
+	// Overlapped sono le occorrenze non accettate perché la precedente dello
+	// stesso job e ambiente era ancora in carico e il job dichiara
+	// `on_overlap: skip` (R41). Non sono fra le Refused, ed è la distinzione che
+	// conta: una Refused torna, questa no — chi possiede la riga la chiude
+	// `skipped`. Vedi [ErrOverlapSkipped].
+	Overlapped int64
+
 	// Claimed sono le occorrenze di cui questo pool ha vinto l'aggiornamento
 	// condizionato; Lost quelle che al momento della presa erano già di qualcun
 	// altro. Lost > 0 non è un errore: è R4 che funziona.
@@ -421,10 +455,18 @@ const (
 	// succeda.
 	//
 	// Non è la politica delle esecuzioni sovrapposte di R41 — saltare, accodare o
-	// consentire — che è una scelta per job e vive su una colonna che oggi non
-	// esiste. È un tetto di risorse del processo: le occorrenze eccedenti non
-	// vengono saltate, aspettano il loro turno nella coda del job. Quando R41
-	// arriverà, si innesterà qui, sulla stessa coda per job.
+	// consentire — che è una scelta per job e vive su `jobs.overlap_policy`
+	// (migrazione 0013). Le due si sono innestate sulla stessa coda, come
+	// previsto, e restano due cose:
+	//
+	//   - questo è un **tetto di risorse del processo**, uguale per tutti i job e
+	//     non negoziabile: nemmeno un job `allow` può tenere più di così;
+	//   - quella è una **scelta del job** sulla propria corsia (job, ambiente), e
+	//     decide se l'occorrenza in eccesso si salta, aspetta o parte comunque.
+	//
+	// Un job `skip` o `queue` non arriva mai a questo tetto per conto proprio,
+	// perché la sua corsia ne ammette una per volta; ci arriva un job `allow`, o
+	// un job in due ambienti, o una raffica di retry.
 	DefaultMaxInFlightPerJob = 4
 
 	// DefaultQueueDepth è quante occorrenze il pool tiene in attesa in totale.

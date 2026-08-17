@@ -173,6 +173,9 @@ type jobSpec struct {
 	Environments []string
 	NextRunAt    *time.Time
 	Enabled      *bool
+	// Overlap è `jobs.overlap_policy` (0013, R41). Vuoto lascia il default della
+	// colonna, che è ciò che ha un job creato senza sceglierla.
+	Overlap string
 }
 
 // createJob inserisce un job. `schedule` ed `every_seconds` restano mutuamente
@@ -208,15 +211,20 @@ func createJob(t *testing.T, pool *pgxpool.Pool, userID string, spec jobSpec) st
 		every = &seconds
 	}
 
+	overlap := spec.Overlap
+	if overlap == "" {
+		overlap = string(scheduler.DefaultOverlap)
+	}
+
 	var id string
 	err := pool.QueryRow(t.Context(),
 		`INSERT INTO jobs (user_id, name, schedule, every_seconds, timezone,
-		                   environments, url, method, next_run_at, enabled)
+		                   environments, url, method, next_run_at, enabled, overlap_policy)
 		 VALUES ($1, $2, $3, $4, $5, $6::text[]::environment[], 'https://example.com/hook',
-		         'POST', $7, $8)
+		         'POST', $7, $8, $9::overlap_policy)
 		 RETURNING id::text`,
 		userID, spec.Name, expression, every, spec.Timezone,
-		spec.Environments, spec.NextRunAt, enabled,
+		spec.Environments, spec.NextRunAt, enabled, overlap,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("creazione del job %q: %v", spec.Name, err)
@@ -271,6 +279,26 @@ func executions(t *testing.T, pool *pgxpool.Pool) []executionRow {
 		t.Fatalf("lettura delle esecuzioni: %v", err)
 	}
 	return out
+}
+
+// executionError legge la colonna `error` di un'esecuzione: è il testo che
+// l'utente rilegge dall'API, e per un'occorrenza mai partita è l'unica cosa che
+// spiega perché.
+func executionError(t *testing.T, pool *pgxpool.Pool, row executionRow) string {
+	t.Helper()
+	var motivo *string
+	err := pool.QueryRow(t.Context(),
+		`SELECT error FROM job_executions
+		  WHERE job_id = $1::uuid AND scheduled_for = $2
+		    AND environment = $3::environment AND attempt = $4`,
+		row.JobID, row.ScheduledFor, row.Environment, row.Attempt).Scan(&motivo)
+	if err != nil {
+		t.Fatalf("lettura del motivo: %v", err)
+	}
+	if motivo == nil {
+		return ""
+	}
+	return *motivo
 }
 
 // ---------------------------------------------------------------- dispatcher

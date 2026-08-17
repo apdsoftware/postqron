@@ -113,6 +113,7 @@ type Pool struct {
 // worker e li legge chiunque chieda [Pool.Stats].
 type counters struct {
 	accepted, duplicated, refused atomic.Int64
+	overlapped                    atomic.Int64
 	claimed, lost                 atomic.Int64
 	succeeded, failed, timedOut   atomic.Int64
 	skipped, blocked              atomic.Int64
@@ -228,6 +229,12 @@ func (p *Pool) Dispatch(_ context.Context, occ scheduler.Occurrence) error {
 	case errors.Is(err, errDuplicate):
 		p.counters.duplicated.Add(1)
 		return nil
+	case errors.Is(err, scheduler.ErrOverlap):
+		// Non è un rifiuto: è la politica del job che ha deciso (R41). L'errore
+		// esce perché la riga va chiusa `skipped`, e a chiuderla è chi ce l'ha
+		// scritta — vedi la quarta clausola di [scheduler.Dispatcher].
+		p.counters.overlapped.Add(1)
+		return err
 	default:
 		p.counters.refused.Add(1)
 		return err
@@ -243,6 +250,7 @@ func (p *Pool) Stats() Stats {
 		Accepted:   p.counters.accepted.Load(),
 		Duplicated: p.counters.duplicated.Load(),
 		Refused:    p.counters.refused.Load(),
+		Overlapped: p.counters.overlapped.Load(),
 		Claimed:    p.counters.claimed.Load(),
 		Lost:       p.counters.lost.Load(),
 		Succeeded:  p.counters.succeeded.Load(),

@@ -114,7 +114,14 @@ func (s *memStore) recordOf(occ scheduler.Occurrence) dispatch.Record {
 	return s.records[occurrenceKey(occ)]
 }
 
-// fakeOccurrence costruisce un'occorrenza come la consegnerebbe lo scheduler.
+// fakeOccurrence costruisce un'occorrenza come la consegnerebbe lo scheduler,
+// con `on_overlap: allow`.
+//
+// La politica è esplicita perché i test di questo file misurano i tetti di
+// risorse del pool, e quei tetti si osservano solo su un job che può
+// sovrapporsi a sé stesso: con il predefinito `skip` (R41) cento occorrenze
+// dello stesso job diventerebbero una eseguita e novantanove saltate. La
+// politica ha i propri test in overlap_test.go.
 func fakeOccurrence(jobID string, seconds int) scheduler.Occurrence {
 	return scheduler.Occurrence{
 		Job: scheduler.Job{
@@ -124,6 +131,7 @@ func fakeOccurrence(jobID string, seconds int) scheduler.Occurrence {
 			Method:  "POST",
 			Timeout: 30 * time.Second,
 			Enabled: true,
+			Overlap: scheduler.OverlapAllow,
 		},
 		ScheduledFor: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC).Add(time.Duration(seconds) * time.Second),
 		Environment:  "production",

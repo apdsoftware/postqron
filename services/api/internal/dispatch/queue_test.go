@@ -15,9 +15,20 @@ import (
 
 var epoch = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 
+// fakeOccurrence costruisce un'occorrenza con `on_overlap: allow`.
+//
+// La politica esplicita **non** è una comodità: i test di questo file misurano i
+// tetti di risorse — il round robin, il tetto per job, la capienza della coda —
+// e quei tetti si osservano solo su un job che può sovrapporsi a sé stesso. Con
+// il predefinito `skip` (R41) la seconda occorrenza dello stesso job non
+// entrerebbe nemmeno in coda, e ogni misura qui sotto riguarderebbe un'altra
+// cosa. La politica ha i propri test in overlap_test.go.
 func fakeOccurrence(jobID string, seconds int) scheduler.Occurrence {
 	return scheduler.Occurrence{
-		Job:          scheduler.Job{ID: jobID, Name: jobID, Enabled: true},
+		Job: scheduler.Job{
+			ID: jobID, Name: jobID, Enabled: true,
+			Overlap: scheduler.OverlapAllow,
+		},
 		ScheduledFor: epoch.Add(time.Duration(seconds) * time.Second),
 		Environment:  "production",
 		Attempt:      1,
