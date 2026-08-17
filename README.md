@@ -1,4 +1,4 @@
-# PostQron
+# Postqron
 
 SaaS developer-first per gestione, sincronizzazione e monitoraggio di cronjob.
 
@@ -152,7 +152,7 @@ make db-check   # smoke test: è il nostro container? porta, credenziali, UTC, U
 
 `make db-check` è il primo comando da lanciare quando il backend si comporta in
 modo inspiegabile. Controlla le assunzioni che il resto del progetto dà per
-scontate: che sulla porta di `.env` risponda il container di PostQron e non altro,
+scontate: che sulla porta di `.env` risponda il container di Postqron e non altro,
 che le credenziali autentichino davvero, che la timezone del server sia UTC (il
 motore cron converte dai fusi dei job, R2), che la codifica sia UTF8 e che la
 major version sia la stessa della produzione.
@@ -167,7 +167,7 @@ pubblica il nostro container e la confronta con `.env`: se non coincidono, quell
 porta è di qualcun altro.
 
 ```
-✗ il container di PostQron pubblica 127.0.0.1:5433, ma .env punta a 127.0.0.1:5432.
+✗ il container di Postqron pubblica 127.0.0.1:5433, ma .env punta a 127.0.0.1:5432.
 ```
 
 La soluzione è cambiare `POSTGRES_PORT` in `.env` — un valore solo, il resto lo
@@ -188,7 +188,7 @@ go run ./cmd/migrate down 3           # annulla le ultime tre
 
 `make migrate` passa prima dalla guardia descritta sopra: applica le migrazioni
 solo dopo aver verificato che su `POSTGRES_HOST:POSTGRES_PORT` risponda il
-container di PostQron.
+container di Postqron.
 
 Il tool compone il DSN da `internal/config` (AGENTS.md §7) e legge le
 `POSTGRES_*` dall'ambiente; quelle che mancano le prende dal `.env` più vicino,

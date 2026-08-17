@@ -42,7 +42,7 @@ withDefaults(
   height: calc(var(--avatar-width) * 106 / 93);
 
   /* La cornice bianca è l'esagono esterno, la foto quello interno. */
-  background: #fff;
+  background: var(--pq-surface);
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   transition: var(--pq-transition);
 }

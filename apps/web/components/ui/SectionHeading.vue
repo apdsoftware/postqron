@@ -38,30 +38,30 @@ withDefaults(
 
 <style scoped>
 .section-heading__title {
-  margin-bottom: 20px;
+  margin-bottom: var(--pq-space-4);
   color: var(--pq-heading);
-  font-size: 28px;
-  font-weight: 400;
+  font-size: var(--pq-text-2xl);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 1.75px;
   line-height: 38px;
   text-align: center;
 }
 
 .section-heading__lead {
-  margin-bottom: 50px;
+  margin-bottom: var(--pq-space-10);
   color: var(--pq-text);
-  font-size: 16px;
+  font-size: var(--pq-text-base);
   letter-spacing: 1px;
   line-height: 28px;
   text-align: center;
 }
 
 .section-heading__lead p {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
 }
 
 .is-on-gradient.section-heading__title {
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 .is-on-gradient.section-heading__lead {

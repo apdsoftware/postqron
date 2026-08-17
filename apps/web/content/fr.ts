@@ -10,13 +10,13 @@ export const fr: SiteContent = {
   meta: {
     title: 'Des tâches cron fiables, définies comme du code',
     description:
-      'Décrivez vos planifications dans un fichier de votre dépôt. PostQron les exécute '
+      'Décrivez vos planifications dans un fichier de votre dépôt. Postqron les exécute '
       + 'à l\'heure, réessaie quand il le faut et vous dit toujours comment ça s\'est passé.',
   },
 
   ui: {
     menu: 'Menu',
-    homeLink: 'PostQron, retour à l\'accueil',
+    homeLink: 'Postqron, retour à l\'accueil',
     language: 'Langue',
     emailPlaceholder: 'Saisissez votre e-mail',
     emailSubmit: 'Commencer',
@@ -71,8 +71,8 @@ export const fr: SiteContent = {
   },
 
   company: {
-    name: 'PostQron',
-    legalName: 'PostQron',
+    name: 'Postqron',
+    legalName: 'Postqron',
     about:
       'Des tâches cron gérées pour vous, définies dans votre propre dépôt et ramenées '
       + 'à un seul endroit : une planification fiable, le journal de chaque exécution '
@@ -87,20 +87,20 @@ export const fr: SiteContent = {
   hero: {
     title: 'Des tâches cron fiables, définies comme du code',
     text:
-      'Décrivez vos planifications dans un fichier de votre dépôt. PostQron les exécute '
+      'Décrivez vos planifications dans un fichier de votre dépôt. Postqron les exécute '
       + 'à l\'heure, réessaie quand il le faut et vous dit toujours comment ça s\'est passé.',
     image: '/img/hero.jpg',
-    imageAlt: 'La console PostQron avec la liste des exécutions',
+    imageAlt: 'La console Postqron avec la liste des exécutions',
     note: '30 jours d\'essai sur l\'offre Pro — sans carte bancaire',
     video: {
       href: 'https://www.youtube.com/@postqron',
       embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'Découvrir PostQron en deux minutes',
+      title: 'Découvrir Postqron en deux minutes',
     },
   },
 
   featuresIntro: {
-    title: 'Quatre choses que PostQron raye de votre liste',
+    title: 'Quatre choses que Postqron raye de votre liste',
     lead:
       'Aucun serveur cron à maintenir en vie, aucun script qui échoue en silence, aucun '
       + 'doute sur ce qui s\'est exécuté et quand.',
@@ -135,7 +135,7 @@ export const fr: SiteContent = {
       title: 'Vos planifications vivent dans votre dépôt',
       text:
         'Un fichier cron.yaml décrit les tâches, les horaires et les destinations. À '
-        + 'chaque push, PostQron le relit et réaligne tout : la revue passe par la pull '
+        + 'chaque push, Postqron le relit et réaligne tout : la revue passe par la pull '
         + 'request.',
       bullets: [
         'Expressions cron avec fuseau horaire, heure d\'été comprise',
@@ -209,7 +209,7 @@ export const fr: SiteContent = {
       role: 'Platform engineer',
       quote:
         'Le mode par intervalle nous a enlevé un service entier : ce qui écrivait dans '
-        + 'une file toutes les dix secondes, c\'est PostQron qui le fait.',
+        + 'une file toutes les dix secondes, c\'est Postqron qui le fait.',
       avatar: '/img/people/3.svg',
       placeholder: true,
     },

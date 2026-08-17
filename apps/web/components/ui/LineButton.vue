@@ -27,8 +27,8 @@ withDefaults(
   height: 36px;
   border: 1px solid var(--pq-primary);
   border-radius: var(--pq-radius-pill);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--pq-text-2xs);
+  font-weight: var(--pq-weight-bold);
   letter-spacing: 0.75px;
   line-height: 34px;
   text-align: center;
@@ -43,12 +43,12 @@ withDefaults(
 
 .line-button--outline:hover {
   background: var(--pq-primary);
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 .line-button--solid {
   background: var(--pq-primary);
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 .line-button--solid:hover {

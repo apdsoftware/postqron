@@ -5,7 +5,7 @@
  * invece, è il nome del prodotto e vale in tutte le lingue.
  */
 useHead({
-  titleTemplate: title => (title ? `${title} · PostQron` : 'PostQron'),
+  titleTemplate: title => (title ? `${title} · Postqron` : 'Postqron'),
 })
 </script>
 

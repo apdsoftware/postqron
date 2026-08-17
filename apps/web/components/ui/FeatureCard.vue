@@ -48,8 +48,8 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
 .feature-card {
   display: block;
   position: relative;
-  margin-bottom: 30px;
-  padding: 40px 28px;
+  margin-bottom: var(--pq-space-6);
+  padding: var(--pq-space-8) 28px;
   overflow: hidden;
   border-radius: var(--pq-radius);
   background: var(--pq-surface-soft);
@@ -73,7 +73,7 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
 
 .feature-card:hover,
 .feature-card.is-highlighted {
-  --hex-fill: #fff;
+  --hex-fill: var(--pq-text-inverted);
 }
 
 .feature-card:hover::before,
@@ -83,7 +83,7 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
 
 .feature-card:hover .feature-card__title,
 .feature-card.is-highlighted .feature-card__title {
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 .feature-card:hover .feature-card__text,
@@ -92,7 +92,7 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
 }
 
 .feature-card:hover {
-  margin-top: -15px;
+  margin-top: -var(--pq-space-3);
 }
 
 /*
@@ -104,7 +104,7 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
   position: relative;
   width: 60px;
   height: 67px;
-  margin: 0 auto 35px;
+  margin: 0 auto var(--pq-space-7);
 }
 
 /* Il glifo è sovrapposto all'esagono e alto quanto lui, quindi ne è il centro. */
@@ -116,7 +116,7 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
   height: 67px;
   z-index: 2;
   color: var(--pq-primary);
-  font-size: 18px;
+  font-size: var(--pq-text-md);
   line-height: 67px;
   text-align: center;
 }
@@ -124,10 +124,10 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
 .feature-card__title {
   position: relative;
   z-index: 2;
-  margin-bottom: 15px;
+  margin-bottom: var(--pq-space-3);
   color: var(--pq-heading);
-  font-size: 16px;
-  font-weight: 400;
+  font-size: var(--pq-text-base);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 0.7px;
   transition: var(--pq-transition);
 }
@@ -136,7 +136,7 @@ const tag = computed(() => (props.to ? NuxtLink : 'div'))
   position: relative;
   z-index: 2;
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   line-height: 26px;
   transition: var(--pq-transition);

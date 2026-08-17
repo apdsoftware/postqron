@@ -14,8 +14,13 @@ const year = new Date().getFullYear()
     <div class="container">
       <div class="row">
         <div class="col-lg-5 col-md-12 col-sm-12">
+          <!--
+            Qui il marchio non sta dentro un link già etichettato come
+            nell'header: ha bisogno di un nome proprio per chi non lo vede.
+          -->
           <SiteLogo
-            :height="37"
+            :height="34"
+            :label="content.company.name"
             class="site-footer__logo"
           />
           <p class="site-footer__about">
@@ -88,26 +93,26 @@ const year = new Date().getFullYear()
 
 <style scoped>
 .site-footer {
-  padding-top: 70px;
+  padding-top: var(--pq-space-14);
   background: var(--pq-surface-tint);
 }
 
 .site-footer__logo {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
 }
 
 .site-footer__about {
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   line-height: 26px;
 }
 
 .site-footer__title {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
   color: var(--pq-heading);
-  font-size: 16px;
-  font-weight: 400;
+  font-size: var(--pq-text-base);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 0.69px;
   line-height: 30px;
 }
@@ -122,7 +127,7 @@ const year = new Date().getFullYear()
   height: 32px;
   margin-right: 12px;
   color: var(--pq-heading);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   line-height: 32px;
 }
 
@@ -130,7 +135,7 @@ const year = new Date().getFullYear()
   float: left;
   height: 32px;
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   line-height: 32px;
   transition: var(--pq-transition);
 }
@@ -145,10 +150,10 @@ const year = new Date().getFullYear()
 
 .site-footer__address p {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: var(--pq-space-1);
   overflow: hidden;
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   line-height: 26px;
 }
@@ -159,9 +164,9 @@ const year = new Date().getFullYear()
 
 .site-footer__social {
   display: flex;
-  gap: 10px;
-  margin-top: 5px;
-  font-size: 16px;
+  gap: var(--pq-space-2);
+  margin-top: var(--pq-space-1);
+  font-size: var(--pq-text-base);
 }
 
 .site-footer__social a {
@@ -174,27 +179,27 @@ const year = new Date().getFullYear()
 }
 
 .site-footer__copyright {
-  margin-top: 30px;
-  padding-top: 30px;
-  padding-bottom: 30px;
+  margin-top: var(--pq-space-6);
+  padding-top: var(--pq-space-6);
+  padding-bottom: var(--pq-space-6);
   border-top: 1px solid var(--pq-border-footer);
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   text-align: center;
 }
 
 @media (max-width: 991px) {
   .site-footer__about {
-    margin-bottom: 30px;
+    margin-bottom: var(--pq-space-6);
   }
 
   .site-footer__title {
-    margin-bottom: 15px;
+    margin-bottom: var(--pq-space-3);
   }
 
   .site-footer__nav {
-    margin-bottom: 30px;
+    margin-bottom: var(--pq-space-6);
   }
 }
 </style>

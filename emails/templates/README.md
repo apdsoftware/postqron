@@ -108,6 +108,6 @@ inglese non compaia nessuna delle formule che darebbero per avvenuto un recapito
 che non sappiamo se sia avvenuto.
 
 Sulla stessa linea, l'email di sicurezza **notifica, non autorizza**: non
-contiene link con token né valori di credenziali, e dichiara che PostQron non
+contiene link con token né valori di credenziali, e dichiara che Postqron non
 chiede mai password o chiavi API per email. I flussi che consegnano un valore
 monouso appartengono all'autenticazione, non a questo renderer.

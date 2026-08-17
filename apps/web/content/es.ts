@@ -10,13 +10,13 @@ export const es: SiteContent = {
   meta: {
     title: 'Tareas cron fiables, definidas como código',
     description:
-      'Describe tus programaciones en un archivo de tu repositorio. PostQron las '
+      'Describe tus programaciones en un archivo de tu repositorio. Postqron las '
       + 'ejecuta a su hora, reintenta cuando hace falta y siempre te cuenta cómo fue.',
   },
 
   ui: {
     menu: 'Menú',
-    homeLink: 'PostQron, volver al inicio',
+    homeLink: 'Postqron, volver al inicio',
     language: 'Idioma',
     emailPlaceholder: 'Escribe tu correo',
     emailSubmit: 'Empezar',
@@ -71,8 +71,8 @@ export const es: SiteContent = {
   },
 
   company: {
-    name: 'PostQron',
-    legalName: 'PostQron',
+    name: 'Postqron',
+    legalName: 'Postqron',
     about:
       'Tareas cron gestionadas, definidas en tu propio repositorio y reunidas en un '
       + 'solo sitio: una programación fiable, el registro de cada ejecución y un aviso '
@@ -87,20 +87,20 @@ export const es: SiteContent = {
   hero: {
     title: 'Tareas cron fiables, definidas como código',
     text:
-      'Describe tus programaciones en un archivo de tu repositorio. PostQron las '
+      'Describe tus programaciones en un archivo de tu repositorio. Postqron las '
       + 'ejecuta a su hora, reintenta cuando hace falta y siempre te cuenta cómo fue.',
     image: '/img/hero.jpg',
-    imageAlt: 'La consola de PostQron con la lista de ejecuciones',
+    imageAlt: 'La consola de Postqron con la lista de ejecuciones',
     note: '30 días de prueba en el plan Pro — sin tarjeta de crédito',
     video: {
       href: 'https://www.youtube.com/@postqron',
       embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'Mira PostQron en dos minutos',
+      title: 'Mira Postqron en dos minutos',
     },
   },
 
   featuresIntro: {
-    title: 'Cuatro cosas que PostQron te quita de la lista',
+    title: 'Cuatro cosas que Postqron te quita de la lista',
     lead:
       'Ningún servidor cron que mantener en pie, ningún script que falle en silencio, '
       + 'ninguna duda sobre qué se ejecutó y cuándo.',
@@ -135,7 +135,7 @@ export const es: SiteContent = {
       title: 'Tus programaciones viven en tu repositorio',
       text:
         'Un archivo cron.yaml describe tareas, horarios y destinos. En cada push '
-        + 'PostQron lo relee y lo realinea todo: la revisión pasa por la pull request.',
+        + 'Postqron lo relee y lo realinea todo: la revisión pasa por la pull request.',
       bullets: [
         'Expresiones cron con zona horaria, horario de verano incluido',
         'Modo por intervalos hasta el segundo',
@@ -207,7 +207,7 @@ export const es: SiteContent = {
       role: 'Platform engineer',
       quote:
         'El modo por intervalos nos ha quitado un servicio entero: lo que escribía en '
-        + 'una cola cada diez segundos ahora lo hace PostQron.',
+        + 'una cola cada diez segundos ahora lo hace Postqron.',
       avatar: '/img/people/3.svg',
       placeholder: true,
     },

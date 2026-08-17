@@ -1,13 +1,16 @@
 import { mount } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import HexIcon from '~/components/ui/HexIcon.vue'
 import HexagonAvatar from '~/components/ui/HexagonAvatar.vue'
 import HexagonShape from '~/components/ui/HexagonShape.vue'
 import LineButton from '~/components/ui/LineButton.vue'
+import SiteLogo from '~/components/ui/SiteLogo.vue'
 import PricingCard from '~/components/ui/PricingCard.vue'
 import TestimonialCard from '~/components/ui/TestimonialCard.vue'
 import { hexIcons } from '~/utils/icons'
+import { MARCHIO, SIMBOLO_STROKE, SIMBOLO_TRACCIATI } from '~/utils/marchio'
 import type { PricingPlan } from '~/types/content'
 
 describe('HexIcon', () => {
@@ -216,5 +219,83 @@ describe('PricingCard', () => {
     })
     expect(featured.classes()).toContain('is-featured')
     expect(featured.find('.line-button').classes()).toContain('line-button--solid')
+  })
+})
+
+describe('SiteLogo', () => {
+  it('tiene le proporzioni del disegno a qualunque altezza', () => {
+    const wrapper = mount(SiteLogo, { props: { height: 90 } })
+    expect(wrapper.attributes('viewBox')).toBe(MARCHIO.viewBox)
+    expect(Number(wrapper.attributes('width'))).toBeCloseTo(
+      (90 * MARCHIO.larghezza) / MARCHIO.altezza,
+      5,
+    )
+  })
+
+  it('è decorativo dentro un contenitore già etichettato', () => {
+    const wrapper = mount(SiteLogo)
+    expect(wrapper.attributes('aria-hidden')).toBe('true')
+    expect(wrapper.attributes('role')).toBeUndefined()
+    expect(wrapper.find('title').exists()).toBe(false)
+  })
+
+  it('porta il nome del prodotto quando sta da solo', () => {
+    const wrapper = mount(SiteLogo, { props: { label: 'Postqron' } })
+    expect(wrapper.attributes('role')).toBe('img')
+    expect(wrapper.attributes('aria-hidden')).toBeUndefined()
+    expect(wrapper.find('title').text()).toBe('Postqron')
+  })
+
+  it('dipinge il simbolo col gradiente solo nella variante primaria', () => {
+    // La vernice sta su `fill` o su `stroke` secondo che il simbolo sia un
+    // pieno o un tratto: si guarda quella che il simbolo usa davvero.
+    const vernice = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAll('.site-logo__mark')
+        .map(nodo => nodo.attributes(SIMBOLO_STROKE ? 'stroke' : 'fill'))
+
+    expect(vernice(mount(SiteLogo)).every(v => v?.startsWith('url(#'))).toBe(true)
+    expect(vernice(mount(SiteLogo, { props: { variant: 'mono' } })))
+      .toEqual(SIMBOLO_TRACCIATI.map(() => 'currentcolor'))
+
+    for (const variant of ['invertita', 'mono'] as const) {
+      expect(mount(SiteLogo, { props: { variant } }).classes())
+        .toContain(`site-logo--${variant}`)
+    }
+  })
+
+  it('non contorna i simboli pieni, e non riempie quelli a tratto', () => {
+    // Un `stroke` su un tracciato pieno lo ingrasserebbe di un'unità sulle 32
+    // della griglia, che a 16 px è mezzo pixel su tutto il perimetro.
+    const marchio = mount(SiteLogo).find('.site-logo__mark')
+    if (SIMBOLO_STROKE) {
+      expect(marchio.attributes('fill')).toBe('none')
+      expect(Number(marchio.attributes('stroke-width'))).toBe(SIMBOLO_STROKE)
+    }
+    else {
+      expect(marchio.attributes('stroke')).toBeUndefined()
+      expect(marchio.attributes('stroke-width')).toBeUndefined()
+    }
+  })
+
+  it('dà a ogni istanza un gradiente con id proprio', () => {
+    // Header e footer stanno nella stessa pagina: con due id uguali il secondo
+    // marchio erediterebbe il gradiente del primo, e la trasformazione dei
+    // colori sarebbe quella sbagliata.
+    // I due marchi vanno montati nella *stessa* applicazione: `useId()` conta
+    // per applicazione, e due `mount()` separati ripartirebbero entrambi da uno.
+    const Pagina = defineComponent({ render: () => h('div', [h(SiteLogo), h(SiteLogo)]) })
+    const ids = mount(Pagina)
+      .findAll('linearGradient')
+      .map(nodo => nodo.attributes('id'))
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[0]).not.toBe(ids[1])
+  })
+
+  it('disegna il simbolo e il logotipo, e nient\'altro', () => {
+    const tracciati = mount(SiteLogo).findAll('path').map(nodo => nodo.attributes('d'))
+    expect(tracciati).toContain(MARCHIO.lettere)
+    for (const d of SIMBOLO_TRACCIATI) expect(tracciati).toContain(d)
+    expect(tracciati).toHaveLength(SIMBOLO_TRACCIATI.length + 1)
   })
 })

@@ -90,7 +90,7 @@ const imageReveal = computed<RevealOptions>(() => ({
 
 @media (max-width: 991px) {
   .showcase__media {
-    margin-bottom: 30px;
+    margin-bottom: var(--pq-space-6);
   }
 }
 
@@ -101,30 +101,30 @@ const imageReveal = computed<RevealOptions>(() => ({
 }
 
 .showcase__title {
-  margin-bottom: 20px;
+  margin-bottom: var(--pq-space-4);
   color: var(--pq-heading);
-  font-size: 30px;
-  font-weight: 400;
+  font-size: var(--pq-text-2xl);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 1.3px;
   line-height: 40px;
 }
 
 .showcase__text {
   color: var(--pq-text);
-  font-size: 16px;
+  font-size: var(--pq-text-base);
   letter-spacing: 1px;
   line-height: 28px;
 }
 
 .showcase__text p {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
 }
 
 .showcase__text li {
   position: relative;
   min-height: 32px;
-  padding-left: 30px;
-  font-size: 14px;
+  padding-left: var(--pq-space-6);
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   line-height: 32px;
   transition: var(--pq-transition);
@@ -132,7 +132,7 @@ const imageReveal = computed<RevealOptions>(() => ({
 
 /* La voce scorre a destra al passaggio del mouse, la freccia resta ferma. */
 .showcase__text li:hover {
-  padding-left: 40px;
+  padding-left: var(--pq-space-8);
 }
 
 .showcase__bullet-icon {

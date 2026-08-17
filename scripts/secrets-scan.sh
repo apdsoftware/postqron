@@ -12,7 +12,7 @@
 #   gitleaks git     senza intervallo risale tutto lo storico. Qui sono 830
 #                    commit e 7 GB, perché il repository conserva l'archivio
 #                    del prodotto precedente: due minuti e 814 rilevamenti che
-#                    non riguardano PostQron.
+#                    non riguardano Postqron.
 #
 # Quello che segue guarda esattamente i commit nuovi rispetto al ramo remoto.
 set -euo pipefail

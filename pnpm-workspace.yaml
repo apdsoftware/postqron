@@ -1,4 +1,4 @@
-# Workspace pnpm del monorepo PostQron.
+# Workspace pnpm del monorepo Postqron.
 # Il backend Go vive fuori dal workspace, in services/api (vedi go.work).
 packages:
   - apps/*

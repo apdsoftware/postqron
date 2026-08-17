@@ -66,13 +66,13 @@ const emit = defineEmits<{ submit: [email: string] }>()
   height: 46px;
   z-index: 1;
   padding-right: 120px;
-  padding-left: 20px;
+  padding-left: var(--pq-space-4);
   border: 1px solid var(--pq-border-input);
   border-radius: var(--pq-radius-pill);
   outline: none;
   color: var(--pq-text);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--pq-text-2xs);
+  font-weight: var(--pq-weight-medium);
   letter-spacing: 0.67px;
   transition: var(--pq-transition);
 }
@@ -82,7 +82,7 @@ const emit = defineEmits<{ submit: [email: string] }>()
 }
 
 .email-signup__field input:focus {
-  padding-left: 30px;
+  padding-left: var(--pq-space-6);
 }
 
 /*
@@ -92,11 +92,11 @@ const emit = defineEmits<{ submit: [email: string] }>()
  */
 .email-signup__field input:focus-visible {
   border-color: var(--pq-primary);
-  box-shadow: 0 0 0 3px rgb(66 120 229 / 25%);
+  box-shadow: var(--pq-ring);
 }
 
 .email-signup__field button:focus-visible {
-  box-shadow: 0 0 0 3px rgb(66 120 229 / 35%);
+  box-shadow: var(--pq-ring-strong);
 }
 
 .email-signup__field button {
@@ -108,9 +108,9 @@ const emit = defineEmits<{ submit: [email: string] }>()
   border: none;
   border-radius: 0 var(--pq-radius-pill) var(--pq-radius-pill) 0;
   background: var(--pq-primary);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-2xs);
+  font-weight: var(--pq-weight-bold);
   outline: none;
   cursor: pointer;
 }
@@ -118,9 +118,9 @@ const emit = defineEmits<{ submit: [email: string] }>()
 .email-signup__note {
   display: block;
   margin-top: 54px;
-  padding-left: 5px;
+  padding-left: var(--pq-space-1);
   color: var(--pq-text);
-  font-size: 12px;
+  font-size: var(--pq-text-2xs);
   letter-spacing: 0.67px;
 }
 
@@ -132,7 +132,7 @@ const emit = defineEmits<{ submit: [email: string] }>()
 
 @media (max-width: 991px) {
   .email-signup__note {
-    color: #fff;
+    color: var(--pq-text-inverted);
     text-align: center;
   }
 }

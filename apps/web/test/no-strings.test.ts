@@ -47,7 +47,7 @@ const VISIBLE_ATTRIBUTES = [
  * Il nome del prodotto non è contenuto traducibile: è un marchio, e nel logo è
  * un tracciato tipografico. In cinque lingue si scrive nello stesso modo.
  */
-const ALLOWED = ['PostQron']
+const ALLOWED = ['Postqron']
 
 interface Finding {
   file: string
@@ -153,6 +153,6 @@ describe('nessuna stringa nei componenti', () => {
     expect(collect(injected)).toEqual(['Frase nel markup'])
     expect(isAllowed('Testo statico')).toBe(false)
     expect(isAllowed('© . : {{ }}')).toBe(true)
-    expect(isAllowed('PostQron')).toBe(true)
+    expect(isAllowed('Postqron')).toBe(true)
   })
 })

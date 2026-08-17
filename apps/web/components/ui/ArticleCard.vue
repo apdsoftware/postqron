@@ -47,14 +47,14 @@ defineProps<{
 
 <style scoped>
 .article-card {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
   text-align: center;
 }
 
 .article-card__figure {
   display: block;
   height: 200px;
-  margin-bottom: 25px;
+  margin-bottom: var(--pq-space-5);
   overflow: hidden;
   border-radius: var(--pq-radius);
 }
@@ -71,14 +71,14 @@ defineProps<{
  * l'interlinea generosa delle righe del titolo.
  */
 .article-card__title {
-  margin-bottom: 10px;
-  font-size: 28px;
+  margin-bottom: var(--pq-space-2);
+  font-size: var(--pq-text-2xl);
 }
 
 .article-card__title a {
   color: var(--pq-heading);
-  font-size: 16px;
-  font-weight: 400;
+  font-size: var(--pq-text-base);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 1px;
   line-height: 26px;
   transition: var(--pq-transition);
@@ -89,14 +89,14 @@ defineProps<{
 }
 
 .article-card__excerpt {
-  margin-bottom: 15px;
+  margin-bottom: var(--pq-space-3);
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   line-height: 26px;
 }
 
 .article-card__cta {
-  margin-bottom: 40px;
+  margin-bottom: var(--pq-space-8);
 }
 </style>

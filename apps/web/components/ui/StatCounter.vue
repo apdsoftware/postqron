@@ -91,11 +91,11 @@ onMounted(() => {
 
 .stat__value {
   display: block;
-  margin-top: 70px;
-  margin-bottom: 10px;
-  color: #fff;
-  font-size: 40px;
-  font-weight: 400;
+  margin-top: var(--pq-space-14);
+  margin-bottom: var(--pq-space-2);
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-4xl);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 1.72px;
   text-align: center;
   transition: var(--pq-transition);
@@ -103,13 +103,13 @@ onMounted(() => {
 
 /* Al passaggio del mouse il numero scende: è l'unico movimento della fascia. */
 .stat:hover .stat__value {
-  margin-top: 60px;
+  margin-top: var(--pq-space-12);
 }
 
 .stat__label {
   display: block;
-  color: #fff;
-  font-size: 20px;
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-lg);
   letter-spacing: 0.86px;
   text-align: center;
 }
@@ -117,8 +117,8 @@ onMounted(() => {
 @media (max-width: 991px) {
   .stat {
     height: auto;
-    padding-top: 20px;
-    padding-bottom: 20px;
+    padding-top: var(--pq-space-4);
+    padding-bottom: var(--pq-space-4);
   }
 
   .stat__value,

@@ -71,8 +71,8 @@ withDefaults(
 
 @media (max-width: 991px) {
   .gradient-band {
-    padding-top: 60px;
-    padding-bottom: 60px;
+    padding-top: var(--pq-space-12);
+    padding-bottom: var(--pq-space-12);
 
     /* Su iOS `fixed` non è supportato e produce uno sfondo che salta. */
     background-attachment: scroll;

@@ -130,7 +130,7 @@ test.describe('lingua', () => {
         await expect(page.locator('html')).toHaveAttribute('lang', code)
         // Il titolo del documento segue la lingua: se `useHead` ricevesse un
         // oggetto statico resterebbe fermo a quella dell'avvio.
-        await expect(page).toHaveTitle(`${title} · PostQron`)
+        await expect(page).toHaveTitle(`${title} · Postqron`)
       }
 
       await page.waitForLoadState('networkidle')

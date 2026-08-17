@@ -48,7 +48,7 @@ defineProps<{
 .testimonial {
   display: block;
   position: relative;
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
 }
 
 .testimonial__avatar {
@@ -95,11 +95,11 @@ defineProps<{
 
 /* Il rientro di 140px lascia posto all'esagono in sovrimpressione. */
 .testimonial__name {
-  margin-top: 20px;
-  margin-bottom: 5px;
-  padding-left: 140px;
+  margin-top: var(--pq-space-4);
+  margin-bottom: var(--pq-space-1);
+  padding-left: var(--pq-space-28);
   color: var(--pq-heading);
-  font-size: 16px;
+  font-size: var(--pq-text-base);
   font-style: normal;
 
   /* Nel tema il nome è un titolo: ne conserva l'interlinea, non quella del corpo. */
@@ -109,28 +109,28 @@ defineProps<{
 }
 
 .testimonial__role {
-  padding-right: 25px;
-  padding-left: 140px;
+  padding-right: var(--pq-space-5);
+  padding-left: var(--pq-space-28);
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.6px;
   transition: var(--pq-transition);
 }
 
 .testimonial__quote {
-  margin-top: 40px;
-  margin-bottom: 25px;
-  padding-right: 25px;
-  padding-left: 25px;
+  margin-top: var(--pq-space-8);
+  margin-bottom: var(--pq-space-5);
+  padding-right: var(--pq-space-5);
+  padding-left: var(--pq-space-5);
   color: var(--pq-text);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.6px;
   line-height: 26px;
   transition: var(--pq-transition);
 }
 
 .testimonial:hover .testimonial__name {
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 .testimonial:hover .testimonial__role,
