@@ -178,10 +178,11 @@ e2e: ## Test end-to-end dei frontend sull'output statico
 
 .PHONY: secrets
 secrets: ## Verifica che non ci siano segreti nel codice
-	@# `gitleaks protect --staged` (la versione precedente) in un hook pre-push
-	@# non scansiona nulla: al momento del push l'area di staging è vuota. Qui si
-	@# scansiona l'albero di lavoro, che è ciò che verrebbe pubblicato.
-	gitleaks dir . --no-banner --redact
+	@# La superficie da controllare sono i commit in partenza. Le due alternative
+	@# ovvie sono state entrambe provate e sono entrambe sbagliate: `gitleaks dir .`
+	@# includeva `.env` e i worktree delle altre issue, `gitleaks git` senza
+	@# intervallo l'intero archivio legacy. Dettaglio in scripts/secrets-scan.sh.
+	@scripts/secrets-scan.sh
 
 .PHONY: preflight
 preflight: ## Verifica strumenti e layout del monorepo
