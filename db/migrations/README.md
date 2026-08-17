@@ -55,6 +55,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0009 | `sessions`, `user_tokens` e le loro funzioni di pulizia |
 | 0010 | `jobs_unscheduled_idx`: i job in attesa della prima occorrenza |
 | 0011 | `github_webhook_deliveries` e la sua pulizia periodica |
+| 0012 | `workspace_secrets`: i segreti contro cui `cron.yaml` risolve `${VAR}` |
 
 ## Scelte di schema
 
