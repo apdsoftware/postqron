@@ -73,14 +73,15 @@ deleted.
 
 ### 4.3 Refunds and withdrawal
 
-If you are a consumer in the European Union you have a statutory right to withdraw
-within 14 days of purchase. Because the service is supplied immediately, you are asked
-to consent to immediate performance and acknowledge that doing so ends the withdrawal
-right once the service is fully performed.
+The rule is simple: **you can stop whenever you want, and the month you have already
+paid for runs to its end.** Nothing is refunded pro rata, and there is nothing to
+claim or negotiate.
 
-We do not offer refunds for periods already started. If you cancel, or if you withdraw as a consumer, the service continues until the end of the month you have already paid for and is not refunded pro rata. This does not affect refunds we owe you by law, or those we choose to make when the failure is ours.
-
-Refunds are processed by Paddle.
+If you are a consumer in the European Union you also have a statutory right to
+withdraw within 14 days of purchase. Because the service starts immediately, you are
+asked to consent to immediate performance; that consent ends the withdrawal right once
+the service has been fully performed. Where the law still requires us to refund you,
+we do, and Paddle processes it.
 
 ## 5. Availability
 
@@ -127,8 +128,14 @@ consequences of the work your jobs trigger on your own systems. **A scheduled re
 is not a guarantee that the work behind it succeeded**, and you should design your
 systems on that assumption.
 
-Our total liability in any twelve-month period is limited to
-the amount you paid us in the twelve months before the event giving rise to the claim.
+Beyond those exceptions, **our liability is excluded to the fullest extent permitted by
+applicable law**.
+
+We would rather say this plainly than bury it: Postqron is a scheduler priced from
+zero to a few tens of euros a month, and it cannot carry the risk of what depends on
+the jobs it runs. If a missed or duplicated execution would cause you material harm,
+the service is not the right place to put that dependency, and no wording here changes
+that engineering reality.
 
 ## 9. Changes to these terms
 

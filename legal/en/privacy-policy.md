@@ -88,11 +88,21 @@ We send email you need in order to use the service: welcome, failed-job alerts, 
 changes, security events. These are not marketing and you cannot unsubscribe from them
 without closing your account, because they are how the service tells you things.
 
-**We do not send marketing email in this version.** When we do, it will be on a
-separate legal basis — your consent, asked for explicitly and never bundled with
-accepting these terms — with an unsubscribe link in every message and a strict
-separation from the transactional email above. Adding it requires a new version of
-this policy, not a silent change of practice.
+### 2.8 Marketing email
+
+If you agree to it, we send you email about the product: new features, changes worth
+knowing about, occasionally something we have written.
+
+**This is separate from the email above in every respect.** The legal basis is your
+**consent** (Art. 6(1)(a)), asked for on its own and never bundled with accepting the
+terms or creating an account. Refusing costs you nothing: the service works the same.
+
+Every marketing message carries an unsubscribe link that works with one click and
+without signing in. Unsubscribing stops marketing email only — you keep receiving the
+transactional email the service needs to send you, because that is not marketing.
+
+We keep a record of when you consented and when you withdrew, which is how we can show
+that we had the right to write to you.
 
 ## 3. AI features: a transfer you should understand
 
