@@ -499,6 +499,36 @@ parte dell'offerta.
 
 ## 13. Qualità dell'interfaccia
 
+- **R53-bis — Prestazioni e reperibilità del sito pubblico.** Il sito è la prima
+  cosa che un potenziale cliente vede, ed è statico: non ha scuse per essere lento.
+
+  **Obiettivo misurabile: almeno 95/100 in tutte e quattro le categorie Lighthouse
+  — prestazioni, accessibilità, buone pratiche, SEO — in modalità mobile.** La
+  mobile è quella che vincola: la desktop passa quasi da sola e misurarla soltanto
+  significherebbe darsi un obiettivo già raggiunto.
+
+  La misura che conta è **sul sito pubblicato**, non sulla build locale: la
+  compressione e la rete di distribuzione di Cloudflare cambiano il risultato in
+  meglio, e una soglia tarata in locale sarebbe più severa del vero. Serve però anche
+  un controllo in locale, perché una regressione va vista prima del deploy.
+
+  Stato misurato il 2026-08-17, che dice dove sono i problemi:
+
+  | | |
+  |---|---|
+  | `hero.jpg`, elemento LCP | 208 KB, nessun formato moderno |
+  | Immagini in formato moderno | **zero** WebP o AVIF |
+  | Immagini senza dimensioni dichiarate | 9 — spostamenti di contenuto |
+  | JavaScript | 377 KB su 15 file, per un sito quasi tutto statico |
+  | `robots.txt`, `sitemap.xml` | assenti |
+  | Dati strutturati JSON-LD | assenti |
+
+- **R53-ter — Reperibilità.** `robots.txt` e una `sitemap.xml` che dichiara tutte le
+  rotte in tutte e cinque le lingue con i rispettivi `hreflang`; dati strutturati
+  JSON-LD coerenti con ciò che la pagina dice davvero — organizzazione, prodotto,
+  prezzi, FAQ. **I dati strutturati devono corrispondere al contenuto visibile:**
+  dichiarare prezzi o valutazioni che la pagina non mostra è una violazione delle
+  linee guida dei motori di ricerca, non un'ottimizzazione.
 - **R54 — Accessibilità.** L'interfaccia è conforme a **WCAG 2.2 livello AA**:
   contrasto, navigazione da tastiera, focus visibile, ruoli e nomi accessibili,
   rispetto della riduzione del movimento. È anche materia normata in UE.
