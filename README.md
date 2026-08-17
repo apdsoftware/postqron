@@ -173,6 +173,43 @@ porta è di qualcun altro.
 La soluzione è cambiare `POSTGRES_PORT` in `.env` — un valore solo, il resto lo
 eredita — non riusare la porta che si trova libera di rispondere.
 
+### Migrazioni
+
+Lo schema vive in [`db/migrations/`](db/migrations/README.md) come coppie di
+file `NNNN_descrizione.up.sql` / `.down.sql`, applicate in ordine dal tool
+`services/api/cmd/migrate`.
+
+```bash
+make migrate                          # applica tutte le pendenti
+go run ./cmd/migrate status           # elenco con stato (da services/api)
+go run ./cmd/migrate down             # annulla l'ultima applicata
+go run ./cmd/migrate down 3           # annulla le ultime tre
+```
+
+`make migrate` passa prima dalla guardia descritta sopra: applica le migrazioni
+solo dopo aver verificato che su `POSTGRES_HOST:POSTGRES_PORT` risponda il
+container di PostQron.
+
+Il tool compone il DSN da `internal/config` (AGENTS.md §7) e legge le
+`POSTGRES_*` dall'ambiente; quelle che mancano le prende dal `.env` più vicino,
+risalendo le directory, così `go run ./cmd/migrate` funziona da qualunque punto
+del monorepo.
+
+Se una `POSTGRES_*` è impostata nell'ambiente **con un valore diverso** da quello
+del `.env`, il comando si ferma. La ragione è la guardia qui sopra:
+`scripts/db-env.sh` legge le variabili con `set -a; . ./.env`, dando la
+precedenza al file, mentre il tool la darebbe all'ambiente. Un
+`POSTGRES_PORT=15432 make migrate` farebbe quindi verificare alla guardia la
+porta del `.env` e connettere il tool a un'altra: il controllo passerebbe su un
+server e la migrazione ne toccherebbe un altro. Per puntare altrove si cambia il
+valore in `.env` — che è l'unico posto in cui la connessione è descritta.
+
+Ogni migrazione gira nella propria transazione, ed è registrata in
+`schema_migrations` con il checksum dei due file. Modificare una migrazione già
+applicata la fa rifiutare al passaggio successivo: uno schema in staging o in
+produzione si corregge con una migrazione nuova, mai riscrivendo la vecchia. Un
+lock consultivo serializza due migratori sullo stesso database.
+
 ## CI
 
 La CI gira **esclusivamente in locale** (`make ci`). Non esistono workflow GitHub
