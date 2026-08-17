@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Postqron">
+  <!-- Postqron — marchio registrato. design/marchio/README.md -->
+  <title>Postqron</title>
+  <defs><linearGradient id="pq" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/></linearGradient></defs>
+  <path fill="url(#pq)" fill-rule="evenodd" d="M13.5 3H18.5A7.5 7.5 0 0 1 26 10.5V15.5A7.5 7.5 0 0 1 18.5 23H13.5A7.5 7.5 0 0 1 6 15.5V10.5A7.5 7.5 0 0 1 13.5 3ZM14.5 7H17.5A4.5 4.5 0 0 1 22 11.5V14.5A4.5 4.5 0 0 1 17.5 19H14.5A4.5 4.5 0 0 1 10 14.5V11.5A4.5 4.5 0 0 1 14.5 7Z"/><path fill="url(#pq)" d="M22 3h4v24a2 2 0 0 1-4 0Z"/>
+</svg>
