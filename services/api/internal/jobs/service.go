@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
@@ -109,6 +108,146 @@ func NewService(opts Options) (*Service, error) {
 	}, nil
 }
 
+// ------------------------------------------------------------------- portata
+
+// budgetBasisPlan è il piano da cui i piani «moltiplicati» prendono la propria
+// portata.
+//
+// Non è un numero scelto: R25-bis dice testualmente che il budget di Agency è
+// quello di Team applicato per workspace, perché «Agency non è Team con più
+// potenza, è Team moltiplicato» — un workspace Agency serve un cliente finale
+// con gli stessi job di un cliente Team, quindi non ha ragione di eseguire di
+// più. Qui c'è il **nome** del piano di riferimento, che è ciò che la spec
+// dichiara; i numeri restano nella tabella `plans`.
+const budgetBasisPlan = "team"
+
+// PlanBudget è la portata del piano di un utente, già risolta.
+//
+// «Risolta» significa che R25-bis è stato applicato: un piano che non dichiara
+// una portata propria ma include workspace isolati non è illimitato, prende
+// quella del piano che moltiplica.
+type PlanBudget struct {
+	// Plan è il piano dell'utente.
+	Plan Plan
+
+	// Rule è la portata concessa. Ha senso solo se Limited è vero.
+	Rule ratelimit.Rule
+
+	// Limited è falso quando dal listino non si ricava nessuna portata. In quel
+	// caso non si limita: inventare un numero sarebbe una decisione commerciale
+	// presa dal codice.
+	Limited bool
+
+	// PerWorkspace dice che Rule si applica **per workspace** e non per account
+	// (R25-bis). Oggi i due coincidono — il workspace di SPEC §9 è l'account,
+	// vedi la migrazione 0012 — quindi la chiave resta l'utente; quando R25
+	// introdurrà i workspace come entità, è questo campo a dire che la chiave
+	// deve diventare il workspace. La capacità totale dell'account scala allora
+	// col numero di workspace, cioè con ciò per cui l'agenzia paga.
+	PerWorkspace bool
+
+	// BasisPlan è il piano da cui la portata è stata presa, quando non è quella
+	// del piano dell'utente. Serve al messaggio di rifiuto: dire «il piano Agency
+	// consente 1.000 operazioni al secondo» senza dire da dove viene quel numero
+	// lo farebbe sembrare una riga di listino che non esiste.
+	BasisPlan Plan
+}
+
+// Reject costruisce il rifiuto dovuto all'esaurimento della portata.
+//
+// Il messaggio dice **quale piano concede cosa**, ed è l'unico punto del
+// prodotto in cui un limite tecnico è anche un'informazione commerciale: un 429
+// muto costringerebbe l'utente a indovinare se ha sbagliato lui o se deve
+// pagare. Su un piano che applica la portata per workspace non c'è nessun invito
+// all'upgrade, perché non ci sarebbe niente da comprare: la capacità di quel
+// piano cresce aggiungendo workspace, non cambiando riga di listino.
+func (b PlanBudget) Reject(limit LimitKind, operations string, retryAfter time.Duration) *PlanLimitError {
+	if retryAfter < time.Second {
+		retryAfter = time.Second
+	}
+
+	var message string
+	switch {
+	case b.PerWorkspace:
+		message = fmt.Sprintf(
+			"il piano %s applica per workspace la portata del piano %s, cioè %d %s ogni %s: riprova fra %s.",
+			b.Plan.label(), b.BasisPlan.label(), b.Rule.Burst, operations,
+			FormatDuration(b.Rule.Window), FormatDuration(retryAfter))
+	default:
+		message = fmt.Sprintf(
+			"il piano %s consente %d %s ogni %s: riprova fra %s, oppure passa a un piano superiore.",
+			b.Plan.label(), b.Rule.Burst, operations,
+			FormatDuration(b.Rule.Window), FormatDuration(retryAfter))
+	}
+
+	return &PlanLimitError{
+		Limit:      limit,
+		Plan:       b.Plan.Code,
+		RetryAfter: retryAfter,
+		message:    message,
+	}
+}
+
+// Budget restituisce la portata del piano dell'utente (R10, R15, R25-bis).
+//
+// È il punto da cui le quote di piano si applicano **fuori** da questo package:
+// le rotte dell'API pubblica ne hanno bisogno per rifiutare una scrittura prima
+// di eseguirla, e non devono per questo conoscere la matrice di SPEC §8.
+//
+// Costa una lettura del piano, e una seconda solo per i piani che moltiplicano
+// un altro piano. Chi la chiama a ogni richiesta deve tenersi il risultato per
+// un po': un limitatore che interroga il database per decidere se rifiutare ha
+// già speso ciò che doveva proteggere.
+func (s *Service) Budget(ctx context.Context, userID string) (PlanBudget, error) {
+	plan, err := s.store.PlanForUser(ctx, userID)
+	if err != nil {
+		return PlanBudget{}, err
+	}
+	return s.budgetFor(ctx, plan)
+}
+
+func (s *Service) budgetFor(ctx context.Context, plan Plan) (PlanBudget, error) {
+	if rule, ok := plan.Throughput(); ok {
+		return PlanBudget{Plan: plan, Rule: rule, Limited: true}, nil
+	}
+	if !plan.MultiWorkspace {
+		// Un piano senza portata propria e senza workspace da moltiplicare non
+		// dà appigli: non c'è niente da cui derivare, e non si inventa.
+		return PlanBudget{Plan: plan}, nil
+	}
+
+	basis, err := s.store.PlanByCode(ctx, budgetBasisPlan)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			return PlanBudget{}, err
+		}
+		// Il listino non ha più il piano di riferimento. Non limitare è la
+		// scelta giusta fra le due: rifiutare tutto il traffico di un cliente
+		// Agency perché una riga di `plans` è stata rinominata sarebbe un guasto
+		// molto più grave del limite mancato. Va detto, però, e non una volta
+		// sola: senza questo limite R25-bis non è applicato.
+		s.log.ErrorContext(ctx,
+			"portata non derivabile: il piano di riferimento di R25-bis non esiste nel listino",
+			slog.String("plan", plan.Code), slog.String("basis_plan", budgetBasisPlan))
+		return PlanBudget{Plan: plan}, nil
+	}
+
+	rule, ok := basis.Throughput()
+	if !ok {
+		s.log.ErrorContext(ctx,
+			"portata non derivabile: il piano di riferimento di R25-bis non dichiara né tetto né soglia",
+			slog.String("plan", plan.Code), slog.String("basis_plan", basis.Code))
+		return PlanBudget{Plan: plan}, nil
+	}
+	return PlanBudget{
+		Plan:         plan,
+		Rule:         rule,
+		Limited:      true,
+		PerWorkspace: true,
+		BasisPlan:    basis,
+	}, nil
+}
+
 // ------------------------------------------------------------------- lettura
 
 // Get restituisce un job dell'utente.
@@ -208,13 +347,35 @@ func (s *Service) Executions(ctx context.Context, userID, jobID string, opts Exe
 		return Page[Execution]{}, err
 	}
 
+	// La retention del piano si verifica **prima** della query, non filtrando le
+	// righe che tornano: una lettura che scandisce novanta giorni di partizioni
+	// per poi scartarne ottantasette ha già speso ciò che il limite doveva
+	// risparmiare (R10-bis, SPEC §8).
+	plan, err := s.store.PlanForUser(ctx, userID)
+	if err != nil {
+		return Page[Execution]{}, err
+	}
+	now := s.now()
+	if err := plan.CheckRetention(opts.Since, opts.Until, now); err != nil {
+		return Page[Execution]{}, err
+	}
+	since := opts.Since
+	if since.IsZero() {
+		// Nessuna finestra richiesta: quella predefinita è la retention del
+		// piano. Non è un rifiuto mascherato — non c'è niente che l'utente abbia
+		// chiesto e non stia ottenendo — ed è ciò che rende la risposta coerente
+		// con quella che darà la cancellazione periodica (#393) quando avrà
+		// girato.
+		since = plan.RetentionFloor(now)
+	}
+
 	limit := ClampLimit(opts.Limit)
 	filter := ExecutionFilter{
 		JobID:       job.ID,
 		Status:      opts.Status,
 		Environment: opts.Environment,
 		TriggeredBy: opts.TriggeredBy,
-		Since:       opts.Since,
+		Since:       since,
 		Until:       opts.Until,
 		Limit:       limit,
 	}
@@ -474,8 +635,9 @@ func (s *Service) Delete(ctx context.Context, userID, jobID string) error {
 //     di un'occorrenza schedulata, che è precisamente ciò per cui l'utente paga.
 //
 //  2. **Per utente, lo impone il budget aggregato del piano** — vedi
-//     [Plan.ManualBudget], che lo deriva dalla stessa matrice di SPEC §8 invece
-//     di aggiungerci una riga.
+//     [Plan.Throughput], che lo deriva dalla stessa matrice di SPEC §8 invece
+//     di aggiungerci una riga, e [Service.budgetFor], che per i piani venduti
+//     come illimitati applica R25-bis invece di lasciarli senza tetto.
 //
 // L'esecuzione resta **tracciata**: la riga porta `triggered_by = 'manual'` e si
 // rilegge da `GET /jobs/{id}/executions?trigger=manual`. Limitare senza
@@ -505,7 +667,11 @@ func (s *Service) Trigger(ctx context.Context, userID, jobID string, env Environ
 	if err != nil {
 		return Execution{}, err
 	}
-	if err := s.budget.check(plan, userID); err != nil {
+	budget, err := s.budgetFor(ctx, plan)
+	if err != nil {
+		return Execution{}, err
+	}
+	if err := s.budget.check(budget, userID); err != nil {
 		return Execution{}, err
 	}
 
@@ -648,74 +814,40 @@ func alignToSlot(t time.Time, interval time.Duration) time.Time {
 
 // triggerBudget applica il tetto aggregato ai trigger manuali di un utente.
 //
-// Un limitatore per codice di piano, perché la regola cambia con il piano e
-// [ratelimit.Limiter] ne applica una sola. La chiave dentro ciascuno è
-// l'utente.
+// Una regola per codice di piano, perché la regola cambia con il piano; la
+// chiave dentro ciascuna è l'utente. È esattamente la forma che
+// [ratelimit.Budget] mette a disposizione — questo tipo la scriveva a mano prima
+// che #398 la generalizzasse, e adesso resta solo la parte che riguarda i job:
+// come si deriva la regola e cosa si risponde quando scatta.
 //
 // È in memoria, con lo stesso ragionamento del limitatore dell'autenticazione:
 // l'API è un processo solo su una VPS (SPEC §2), e un contatore condiviso
 // costerebbe una scrittura per tentativo. Il tetto **per job**, che è quello che
 // conta davvero, è invece nel database e sopravvive ai riavvii.
-//
-// È anche il punto in cui la issue #398 innesta le quote generali di R10: la
-// forma — una regola derivata dal piano, applicata per chiave utente — è già
-// quella giusta, e resta da estendere alle altre operazioni.
 type triggerBudget struct {
-	now func() time.Time
-
-	mu       sync.Mutex
-	limiters map[string]*ratelimit.Limiter
+	limiter *ratelimit.Budget
 }
 
 func newTriggerBudget(now func() time.Time) *triggerBudget {
-	return &triggerBudget{now: now, limiters: map[string]*ratelimit.Limiter{}}
+	return &triggerBudget{limiter: ratelimit.NewBudget(ratelimit.WithClock(now))}
 }
 
-func (b *triggerBudget) check(plan Plan, userID string) error {
-	burst, window, ok := plan.ManualBudget()
-	if !ok {
-		// Il piano non dichiara né tetto né soglia di fair use: è venduto come
-		// illimitato e non c'è un numero da cui derivare. Inventarlo sarebbe una
-		// decisione commerciale presa dal codice.
+func (b *triggerBudget) check(budget PlanBudget, userID string) error {
+	if !budget.Limited {
+		// Dal listino non si ricava nessuna portata: vedi [Service.budgetFor],
+		// che ha già provato a derivarla e lo ha registrato nel log.
 		return nil
 	}
 
-	limiter := b.limiterFor(plan.Code, burst, window)
-	if limiter == nil {
-		return nil
-	}
-	if allowed, retryAfter := limiter.Allow(userID); !allowed {
-		return &PlanLimitError{
-			Limit:      LimitManualTrigger,
-			Plan:       plan.Code,
-			RetryAfter: retryAfter,
-			message: fmt.Sprintf(
-				"il piano %s consente %d esecuzioni manuali ogni %s in totale: riprova fra %s.",
-				plan.label(), burst, FormatDuration(window), FormatDuration(retryAfter)),
-		}
-	}
-	return nil
-}
-
-func (b *triggerBudget) limiterFor(planCode string, burst int, window time.Duration) *ratelimit.Limiter {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if limiter, ok := b.limiters[planCode]; ok {
-		return limiter
-	}
-	limiter, err := ratelimit.New(
-		ratelimit.Rule{Burst: burst, Window: window},
-		ratelimit.WithClock(b.now),
+	allowed, retryAfter := b.limiter.Allow(
+		"manual_trigger:"+budget.Plan.Code,
+		ratelimit.Fingerprint(userID),
+		budget.Rule,
 	)
-	if err != nil {
-		// Una riga di `plans` con `max_jobs = 0` non è costruibile (il CHECK lo
-		// vieta), ma la matrice è dati e non codice: se un giorno lo diventasse,
-		// il comportamento giusto è non limitare, non rifiutare tutto.
+	if allowed {
 		return nil
 	}
-	b.limiters[planCode] = limiter
-	return limiter
+	return budget.Reject(LimitManualTrigger, "esecuzioni manuali", retryAfter)
 }
 
 // ------------------------------------------------------------------ supporto

@@ -32,6 +32,9 @@ type Store struct {
 	// execs è indicizzato per chiave naturale, come in `job_executions`.
 	execs map[execKey]jobs.Execution
 	plans map[string]jobs.Plan
+	// byCode è il listino: i piani indicizzati per codice, che esistono anche
+	// senza un utente che li sottoscriva.
+	byCode map[string]jobs.Plan
 
 	// Now è l'orologio con cui vengono timbrati created_at e updated_at.
 	Now func() time.Time
@@ -58,6 +61,7 @@ func NewStore() *Store {
 		jobs:   map[string]jobs.Job{},
 		execs:  map[execKey]jobs.Execution{},
 		plans:  map[string]jobs.Plan{},
+		byCode: map[string]jobs.Plan{},
 		FailOn: map[string]error{},
 		Now:    func() time.Time { return time.Now().UTC() },
 	}
@@ -270,6 +274,43 @@ func (s *Store) PlanForUser(_ context.Context, userID string) (jobs.Plan, error)
 		return plan, nil
 	}
 	return jobs.FreePlan, nil
+}
+
+// PlanByCode legge una riga del listino per codice.
+//
+// L'archivio conosce i piani che i test gli hanno dato con [Store.SetPlan] o
+// [Store.SetPlanByCode], più `free`, che nel database esiste sempre. Un codice
+// mai visto risponde [jobs.ErrNotFound], che è ciò che fa la lettura vera: è la
+// condizione in cui la portata di R25-bis non è derivabile, e un doppio che
+// restituisse un piano vuoto renderebbe verde proprio il test che deve
+// verificare quel caso.
+func (s *Store) PlanByCode(_ context.Context, code string) (jobs.Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.fail("PlanByCode"); err != nil {
+		return jobs.Plan{}, err
+	}
+	if plan, ok := s.byCode[code]; ok {
+		return plan, nil
+	}
+	for _, plan := range s.plans {
+		if plan.Code == code {
+			return plan, nil
+		}
+	}
+	if code == jobs.FreePlan.Code {
+		return jobs.FreePlan, nil
+	}
+	return jobs.Plan{}, jobs.ErrNotFound
+}
+
+// SetPlanByCode aggiunge una riga al listino senza assegnarla a nessun utente.
+// Serve ai piani che ne moltiplicano un altro (R25-bis): il piano di
+// riferimento deve esistere anche se non lo sottoscrive nessuno.
+func (s *Store) SetPlanByCode(plan jobs.Plan) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.byCode[plan.Code] = plan
 }
 
 // ------------------------------------------------------------- esecuzioni

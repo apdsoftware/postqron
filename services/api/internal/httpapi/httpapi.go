@@ -21,6 +21,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
@@ -74,6 +75,15 @@ type Deps struct {
 	// TrustedProxies elenca le reti da cui il servizio accetta la testata
 	// `X-Forwarded-For`. Vuoto significa «nessuna»: vedi [ClientIP].
 	TrustedProxies []netip.Prefix
+
+	// RateLimits sostituisce i tetti tecnici predefiniti di R10. Il campo zero
+	// usa i valori del codice: vedi quota.go, dove è spiegato perché sono nel
+	// codice e non in configurazione.
+	RateLimits RateLimits
+
+	// Now sostituisce l'orologio dei limitatori. Serve ai test, che devono poter
+	// far passare una finestra senza aspettarla.
+	Now func() time.Time
 }
 
 // Health è il corpo della risposta di /healthz.

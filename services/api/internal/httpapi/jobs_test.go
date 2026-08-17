@@ -69,6 +69,10 @@ func newJobsFixture(t *testing.T) *jobsFixture {
 			t.Fatalf("jobs.NewService: %v", err)
 		}
 		deps.Jobs = svc
+		// Anche i limiti di R10 seguono l'orologio del test: sono limiti di
+		// frequenza, e un orologio fermo li rende deterministici invece che
+		// dipendenti da quanto è veloce la macchina che esegue la suite.
+		deps.Now = clock.Now
 	})
 
 	user, token := a.registerAndLogin()
@@ -457,6 +461,13 @@ func TestTettoAiJobDallAPI(t *testing.T) {
 		Code: "free", Name: "Free", MaxJobs: &max, MinInterval: time.Minute,
 	})
 	f.creaJob(corpoValido())
+
+	// La quota di scrittura di R10 nasce dalla stessa portata del piano — qui un
+	// job al minuto — e su un piano così stretto arriverebbe **prima** del tetto
+	// al numero di job. I due rifiuti indicano lo stesso rimedio (un piano
+	// superiore), ma solo uno dei due dice la verità sul perché: si lascia
+	// passare la finestra per leggere quello giusto. Vedi quota.go.
+	f.clock.avanza(time.Minute)
 
 	body := corpoValido()
 	body["name"] = "secondo"

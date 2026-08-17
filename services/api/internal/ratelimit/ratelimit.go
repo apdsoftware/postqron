@@ -7,8 +7,10 @@
 // il proprio.
 //
 // Il rate limiting *generale* delle API, con le quote per piano di SPEC §8
-// (R10), è la issue #398 e non sta qui. Quando arriverà, questo package è il
-// posto in cui aggiungerlo: l'algoritmo è lo stesso, cambiano le regole.
+// (R10), è arrivato con la issue #398 ed è qui, come previsto: l'algoritmo è lo
+// stesso, cambiano le regole. Vedi [Budget], che applica una regola **derivata
+// da un dato** — il piano dell'utente — invece di una costante del codice, e
+// [Fingerprint], che è la forma delle chiavi per utente.
 //
 // # Perché in memoria
 //
