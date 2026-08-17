@@ -33,6 +33,9 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
+	"github.com/apdsoftware/postqron/services/api/internal/secretspg"
 )
 
 // version è sovrascrivibile al build: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
@@ -98,11 +101,17 @@ func run() error {
 	// divergere, e nessun posto in cui accorgersene.
 	guard := netguard.New(netguard.Options{Logger: logger})
 
+	secretsService, err := newSecretsService(pool, logger)
+	if err != nil {
+		return err
+	}
+
 	eng, err := newEngine(engineOptions{
 		Pool:    pool,
 		Logger:  logger,
 		Clients: guard,
 		Targets: guard,
+		Secrets: secretsService,
 	})
 	if err != nil {
 		return err
@@ -142,9 +151,13 @@ func run() error {
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
-			Auth:           authService,
-			Jobs:           jobsService,
-			APIKeys:        apiKeysService,
+			Auth:    authService,
+			Jobs:    jobsService,
+			APIKeys: apiKeysService,
+			// Le rotte `/secrets` (R42) sono lo stesso servizio che il motore usa per
+			// risolvere: un segreto che l'utente non può creare è un segreto che il
+			// motore non risolverà mai.
+			Secrets:        secretsService,
 			GitHubWebhook:  gitHubWebhook,
 			TrustedProxies: trustedProxies,
 		}),
@@ -320,6 +333,38 @@ func newJobsService(pool *pgxpool.Pool, logger *slog.Logger, guard jobs.TargetGu
 		Logger:     logger,
 		Guard:      guard,
 		Dispatcher: dispatcher,
+	})
+}
+
+// newSecretsService costruisce i segreti del workspace (R42, R43).
+//
+// Il residuo di cablaggio è qui perché #458 aveva cmd/api fra i propri percorsi
+// vietati, e la issue #496 — che collega la risoluzione all'esecuzione — non può
+// farne a meno: senza questo servizio l'esecutore non parte affatto, per la
+// ragione scritta in [httpexec.Options].
+//
+// Il servizio è **uno solo** per il processo, e serve due utenti diversi: le
+// rotte `/secrets`, da cui l'utente li crea, e il motore, che li risolve al
+// momento di eseguire. Due istanze sarebbero due keyring liberi di divergere,
+// cioè un segreto creato con una chiave e illeggibile con l'altra.
+//
+// `ENCRYPTION_KEY` diventa così obbligatoria all'avvio (vedi [secretbox.EnvVar]).
+// Non c'è un modo sensato di degradare: senza chiave i segreti non si decifrano,
+// e un motore che eseguisse lo stesso manderebbe al bersaglio dell'utente la
+// stringa `${TOKEN}` al posto della sua credenziale.
+func newSecretsService(pool *pgxpool.Pool, logger *slog.Logger) (*secrets.Service, error) {
+	store, err := secretspg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	keyring, err := secretbox.KeyringFromEnv(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return secrets.NewService(secrets.Options{
+		Store:   store,
+		Keyring: keyring,
+		Logger:  logger,
 	})
 }
 

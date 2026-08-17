@@ -197,6 +197,7 @@ type bersaglio struct {
 type chiamata struct {
 	Method  string
 	Path    string
+	Query   string
 	Headers http.Header
 	Body    string
 }
@@ -213,12 +214,21 @@ func nuovoBersaglio(t *testing.T) *bersaglio {
 		b.ricevute = append(b.ricevute, chiamata{
 			Method:  r.Method,
 			Path:    r.URL.Path,
+			Query:   r.URL.RawQuery,
 			Headers: r.Header.Clone(),
 			Body:    string(corpo),
 		})
 		b.mu.Unlock()
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if r.URL.RawQuery != "" {
+			// Il bersaglio riflette la propria querystring quando ce n'è una. È il
+			// comportamento di parecchie API — l'eco della richiesta dentro il
+			// messaggio d'errore — ed è la via da cui un segreto risolto tornerebbe
+			// indietro fin dentro il registro delle esecuzioni (R43).
+			fmt.Fprintf(w, "eco:%s?%s", corpo, r.URL.RawQuery)
+			return
+		}
 		fmt.Fprintf(w, "eco:%s", corpo)
 	}))
 	t.Cleanup(b.Close)

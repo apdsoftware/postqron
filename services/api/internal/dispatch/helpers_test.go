@@ -16,7 +16,17 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
 	"github.com/apdsoftware/postqron/services/api/internal/migrate"
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
+
+// estratto costruisce il testo di prova da scrivere su una riga.
+//
+// Passa da un [secrets.Redactor] vuoto perché non esiste nessun altro modo di
+// ottenere un [secrets.Excerpt], ed è il punto della issue #496: nemmeno un test
+// può mettere del testo non redatto in un campo che finisce in `job_executions`.
+// Qui il redattore vuoto è onesto — questi testi li scrive la prova, e non c'è
+// nessun segreto da togliere.
+func estratto(s string) secrets.Excerpt { return secrets.Redactor{}.Excerpt([]byte(s), 0) }
 
 // TestMain carica il `.env` del monorepo: le POSTGRES_* che descrivono il
 // database di sviluppo stanno lì (AGENTS.md §7).

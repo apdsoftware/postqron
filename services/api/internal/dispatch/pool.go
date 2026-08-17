@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
 
 // Options configura il pool. Store ed Executor sono obbligatori; tutto il resto
@@ -249,7 +250,16 @@ func (p *Pool) run(occ scheduler.Occurrence) {
 		p.log.Error("dispatch: esecuzione andata in panico",
 			slog.String("occorrenza", occ.String()), slog.Any("panico", r))
 		if claimed {
-			p.finish(occ, Record{Outcome: Failed, Error: fmt.Sprintf("esecuzione interrotta da un errore interno: %v", r)})
+			// Il valore del panico è l'unico testo di questa funzione che non
+			// nasce qui, e nessuno può redigerlo: chi è andato in panico non ha
+			// restituito niente, tantomeno un redattore. Ci si scrive lo stesso,
+			// perché l'alternativa è un'esecuzione fallita senza un motivo visibile
+			// — e un panico porta con sé un errore del runtime, non il contenuto
+			// della richiesta.
+			p.finish(occ, Record{
+				Outcome: Failed,
+				Error:   ownText(fmt.Sprintf("esecuzione interrotta da un errore interno: %v", r)),
+			})
 		}
 	}()
 
@@ -294,7 +304,10 @@ func (p *Pool) run(occ scheduler.Occurrence) {
 	// scritto il motivo.
 	if err := p.guard.Allow(p.ctx, occ); err != nil {
 		p.counters.blocked.Add(1)
-		p.finish(occ, Record{Outcome: Failed, Error: fmt.Sprintf("destinazione rifiutata: %v", err)})
+		// Il testo è composto qui a partire dall'URL del job **a riposo**, dove i
+		// riferimenti ai segreti non sono ancora stati espansi: il guard viene
+		// chiamato prima dell'esecuzione, e chi risolve è l'esecutore.
+		p.finish(occ, Record{Outcome: Failed, Error: ownText(fmt.Sprintf("destinazione rifiutata: %v", err))})
 		return
 	}
 
@@ -325,23 +338,57 @@ func (p *Pool) execute(occ scheduler.Occurrence) (Result, error) {
 //
 // La regola sta qui e non nell'esecutore perché è una regola sugli stati di
 // `job_executions`, e chi fa la chiamata HTTP non deve conoscerli.
+//
+// `err.Error()` non compare in questa funzione, e non è una dimenticanza: è la
+// quarta clausola di [Executor]. L'errore dice **quale** esito scrivere, il testo
+// da scrivere arriva già redatto in [Result.ErrorText]. Prima della issue #496
+// il messaggio finiva dritto nella colonna `error`, che l'utente rilegge
+// dall'API — e da quando i segreti vengono risolti in esecuzione quel messaggio
+// può contenerli.
 func record(res Result, err error) Record {
 	rec := Record{ResponseStatus: res.ResponseStatus, ResponseExcerpt: res.ResponseExcerpt}
 	switch {
 	case err == nil && res.ResponseStatus >= 400:
 		rec.Outcome = Failed
-		rec.Error = fmt.Sprintf("risposta HTTP %d", res.ResponseStatus)
+		rec.Error = ownText(fmt.Sprintf("risposta HTTP %d", res.ResponseStatus))
 	case err == nil:
 		rec.Outcome = Succeeded
 	case errors.Is(err, context.DeadlineExceeded):
 		rec.Outcome = TimedOut
-		rec.Error = err.Error()
+		rec.Error = executorText(res)
 	default:
 		rec.Outcome = Failed
-		rec.Error = err.Error()
+		rec.Error = executorText(res)
 	}
 	return rec
 }
+
+// executorText è il testo che l'esecutore ha redatto per il proprio errore.
+//
+// Il ripiego serve al caso in cui un esecutore restituisca un errore senza il
+// testo: la riga si chiude lo stesso, con scritto che è andata male e che il
+// dettaglio non è arrivato. Non ci finisce `err.Error()` nemmeno lì — un
+// esecutore che non rispetta la quarta clausola del contratto è esattamente
+// quello di cui non ci si può fidare per la redazione.
+func executorText(res Result) secrets.Excerpt {
+	if !res.ErrorText.Empty() {
+		return res.ErrorText
+	}
+	return ownText("esecuzione non riuscita: chi l'ha eseguita non ne ha riportato il testo")
+}
+
+// ownText è l'estratto di un testo composto da questo package.
+//
+// Passa da un [secrets.Redactor] vuoto perché [secrets.Excerpt] non è
+// costruibile in nessun altro modo, ed è precisamente il punto: non esiste una
+// scorciatoia per scrivere del testo grezzo sulla riga, nemmeno qui dentro.
+//
+// Il redattore vuoto non toglie niente, e qui è la scelta giusta invece che una
+// deroga: questi testi nascono dagli stati di questo package e dai campi
+// dell'occorrenza **a riposo**, dove i `${VAR}` non sono ancora stati espansi.
+// Nessun valore di segreto ci può transitare — chi li conosce è [Executor], e
+// per l'appunto redige il proprio.
+func ownText(s string) secrets.Excerpt { return secrets.Redactor{}.Excerpt([]byte(s), 0) }
 
 func (p *Pool) finish(occ scheduler.Occurrence, rec Record) {
 	ctx, cancel := p.storeCtx()

@@ -84,6 +84,19 @@
 // riga che nessuno chiude più, dentro l'indice che deve restare piccolo, e
 // un'esecuzione che l'utente vede eternamente in corso.
 //
+// # Che cosa si scrive nella riga, e perché non è una stringa
+//
+// I due testi che l'esecuzione lascia sulla riga — l'estratto della risposta e
+// il testo dell'errore — sono [secrets.Excerpt], non `string`. Questo package
+// non conosce i segreti del workspace e non può redigerli: li risolve chi
+// esegue, ed è quindi chi esegue a doverli togliere. Un tipo che non si può
+// costruire senza passare dalla redazione è il modo di chiederglielo una volta
+// sola, al compilatore, invece che a ogni revisione (R43, issue #496).
+//
+// La conseguenza pratica sta in [record]: il messaggio dell'`error` restituito
+// dall'esecutore **non viene mai scritto**. L'errore serve a classificare
+// l'esito, il testo arriva da [Result.ErrorText].
+//
 // # Che cosa non c'è
 //
 // L'esecuzione HTTP vera è la issue #390 e sta dietro [Executor]; il blocco
@@ -97,6 +110,7 @@ import (
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
 
 // Outcome è l'esito di un'occorrenza. I valori coincidono con quelli del tipo
@@ -124,20 +138,41 @@ const (
 // con errore nullo, ed è questo package a deciderne l'esito. La distinzione
 // serve a chi implementa [Executor], che non deve conoscere gli stati di
 // `job_executions`.
+//
+// # I due testi sono [secrets.Excerpt] e non stringhe
+//
+// È la garanzia di R43 spostata sul compilatore (issue #496). Entrambi i campi
+// finiscono in `job_executions`, che l'utente rilegge dall'API e che restiamo a
+// conservare (privacy policy §2.2); entrambi nascono da testo che **non
+// controlliamo** — la risposta del bersaglio e l'errore di chi sta sotto — e che
+// può contenere il valore di un segreto risolto in esecuzione.
+//
+// [secrets.Excerpt] non è costruibile fuori da internal/secrets: l'unico modo di
+// ottenerne uno con del testo dentro è chiamare [secrets.Redactor.Excerpt] o
+// [secrets.Redactor.ErrorText]. Con questi due campi tipati così, un esecutore
+// che salta la redazione **non compila**. Con delle `string` sarebbe stata una
+// regola da ricordare in revisione, e le regole da ricordare si dimenticano.
 type Result struct {
 	// ResponseStatus è lo status HTTP. Zero significa «nessuna risposta»: la
 	// colonna resta NULL.
 	ResponseStatus int
-	// ResponseExcerpt è l'estratto della risposta da conservare (R6). Il
-	// troncamento al limite dello schema è compito dello store, non di chi
-	// esegue: il tetto è una regola della tabella.
-	ResponseExcerpt string
+	// ResponseExcerpt è l'estratto della risposta da conservare (R6), già
+	// redatto. Il troncamento al limite dello schema è compito dello store, non
+	// di chi esegue: il tetto è una regola della tabella.
+	ResponseExcerpt secrets.Excerpt
+	// ErrorText è il testo dell'errore da conservare, già redatto.
+	//
+	// Va valorizzato **insieme** all'errore restituito da [Executor.Execute], ed
+	// è l'unico testo che questo package scrive nella colonna `error` per un
+	// guasto dell'esecuzione: il messaggio dell'`error` non ci arriva mai. Vedi
+	// la quarta clausola di [Executor].
+	ErrorText secrets.Excerpt
 }
 
 // Executor esegue una singola occorrenza. È l'implementazione HTTP della issue
 // #390; qui è un'interfaccia perché il worker pool è verificabile senza rete.
 //
-// Il contratto ha tre clausole:
+// Il contratto ha quattro clausole:
 //
 //  1. **Rispettare il contesto.** Il pool passa un contesto con la scadenza del
 //     job (R40) e lo annulla all'arresto. Un esecutore che lo ignora tiene
@@ -146,6 +181,15 @@ type Result struct {
 //     dall'UPDATE condizionato che la prende fino alla scrittura dell'esito.
 //  3. **Errore uguale «non è arrivata risposta».** Una risposta con status ≥ 400
 //     è un [Result] con errore nullo, non un errore.
+//  4. **Chi restituisce un errore ne porta anche il testo**, redatto, in
+//     [Result.ErrorText]. L'`error` serve a questo package solo per *classificare*
+//     l'esito — `errors.Is(err, context.DeadlineExceeded)` distingue `timed_out`
+//     da `failed` — e il suo messaggio non viene mai scritto sulla riga. Il
+//     motivo è che quel messaggio nasce fuori di qui: è l'errore di un driver, di
+//     una libreria TLS, di un redirect, e nessuno di loro ha promesso di non
+//     citare l'indirizzo a cui stava andando, che da #458 in poi contiene i
+//     segreti del workspace risolti (R43). Solo chi ha risolto quei valori
+//     possiede il redattore che li riconosce.
 type Executor interface {
 	Execute(ctx context.Context, occ scheduler.Occurrence) (Result, error)
 }
@@ -195,9 +239,12 @@ type Record struct {
 	// un CHECK, e una violazione farebbe perdere l'intero esito invece del solo
 	// status.
 	ResponseStatus int
-	// ResponseExcerpt ed Error sono troncati dallo store al limite dello schema.
-	ResponseExcerpt string
-	Error           string
+	// ResponseExcerpt ed Error sono i due testi che l'utente rilegge dall'API, e
+	// sono [secrets.Excerpt] per la ragione spiegata in [Result]: un percorso che
+	// ci scrive del testo non redatto non compila. Il troncamento al limite dello
+	// schema è dello store.
+	ResponseExcerpt secrets.Excerpt
+	Error           secrets.Excerpt
 }
 
 // Store è ciò che il pool sa di `job_executions`: quattro transizioni di stato,
@@ -221,6 +268,11 @@ type Store interface {
 	Finish(ctx context.Context, occ scheduler.Occurrence, rec Record) (bool, error)
 	// Skip chiude come `skipped` un'occorrenza ancora `pending`, senza averla
 	// mai fatta partire.
+	//
+	// `reason` è una `string` e non un [secrets.Excerpt] perché lo scarto avviene
+	// **prima** dell'esecuzione: il testo lo compone questo package, e l'unico
+	// motivo che esiste è il job messo in pausa. Ciò che arriva dall'esecutore
+	// passa invece da [Record], dove i due testi sono tipati.
 	Skip(ctx context.Context, occ scheduler.Occurrence, reason string) (bool, error)
 	// Release riporta a `pending` un'occorrenza presa e non portata a termine,
 	// perché il recupero dello scheduler la ritrovi.

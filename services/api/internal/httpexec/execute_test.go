@@ -41,7 +41,7 @@ func TestLaRichiestaPortaMetodoHeaderECorpo(t *testing.T) {
 	if res.ResponseStatus != http.StatusCreated {
 		t.Errorf("status = %d, atteso %d", res.ResponseStatus, http.StatusCreated)
 	}
-	if res.ResponseExcerpt != "ricevuto" {
+	if res.ResponseExcerpt.String() != "ricevuto" {
 		t.Errorf("estratto = %q, atteso %q", res.ResponseExcerpt, "ricevuto")
 	}
 
@@ -123,8 +123,8 @@ func TestUnaRispostaEnormeNonArrivaInMemoria(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if len(res.ResponseExcerpt) != tetto {
-		t.Errorf("estratto di %d byte, atteso il tetto di %d", len(res.ResponseExcerpt), tetto)
+	if got := len(res.ResponseExcerpt.String()); got != tetto {
+		t.Errorf("estratto di %d byte, atteso il tetto di %d", got, tetto)
 	}
 }
 
@@ -150,13 +150,13 @@ func TestUnCorpoBinarioRestaScrivibile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !utf8.ValidString(res.ResponseExcerpt) {
+	if !utf8.ValidString(res.ResponseExcerpt.String()) {
 		t.Errorf("estratto non UTF-8 valido: %q", res.ResponseExcerpt)
 	}
-	if strings.ContainsRune(res.ResponseExcerpt, 0) {
+	if strings.ContainsRune(res.ResponseExcerpt.String(), 0) {
 		t.Errorf("estratto con NUL: PostgreSQL rifiuterebbe la scrittura dell'esito: %q", res.ResponseExcerpt)
 	}
-	if !strings.Contains(res.ResponseExcerpt, "ok") {
+	if !strings.Contains(res.ResponseExcerpt.String(), "ok") {
 		t.Errorf("la parte leggibile è andata persa: %q", res.ResponseExcerpt)
 	}
 }
@@ -243,7 +243,7 @@ func TestUnoStatusDiErroreNonEUnErroreDellEsecutore(t *testing.T) {
 	if res.ResponseStatus != http.StatusInternalServerError {
 		t.Errorf("status = %d, atteso 500", res.ResponseStatus)
 	}
-	if res.ResponseExcerpt != "boom" {
+	if res.ResponseExcerpt.String() != "boom" {
 		t.Errorf("estratto = %q, atteso %q", res.ResponseExcerpt, "boom")
 	}
 }
@@ -360,7 +360,7 @@ func TestIlRedirectVieneSeguitoQuandoIlClientLoConsente(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.ResponseExcerpt != "arrivato" {
+	if res.ResponseExcerpt.String() != "arrivato" {
 		t.Errorf("estratto = %q, atteso %q", res.ResponseExcerpt, "arrivato")
 	}
 
@@ -404,8 +404,24 @@ func TestUnURLIllegibileNonProduceUnaRichiesta(t *testing.T) {
 func TestSenzaGuardNonSiCostruisce(t *testing.T) {
 	t.Parallel()
 
-	if _, err := httpexec.New(httpexec.Options{}); err == nil {
+	if _, err := httpexec.New(httpexec.Options{Secrets: segretiDiProva(t, nil)}); err == nil {
 		t.Fatal("New ha accettato un esecutore senza guard")
+	}
+}
+
+// TestSenzaSecretsNonSiCostruisce è la stessa scelta di [TestSenzaGuardNonSiCostruisce]
+// applicata alla risoluzione (R43).
+//
+// Anche qui il default plausibile è quello sbagliato: non risolvere niente
+// significa mandare al bersaglio una testata `Authorization: Bearer ${TOKEN}`
+// scritta così com'è — una credenziale sbagliata a ogni esecuzione, per un job
+// che l'utente vede configurato correttamente. Un esecutore senza risoluzione
+// non deve esistere, non deve limitarsi a comportarsi male.
+func TestSenzaSecretsNonSiCostruisce(t *testing.T) {
+	t.Parallel()
+
+	if _, err := httpexec.New(httpexec.Options{Guard: &guardDiProva{client: &http.Client{}}}); err == nil {
+		t.Fatal("New ha accettato un esecutore che non risolve i segreti del workspace")
 	}
 }
 
@@ -419,7 +435,7 @@ func TestIlClientSiChiedeUnaVoltaSola(t *testing.T) {
 	defer target.Close()
 
 	guard := &guardDiProva{client: target.Client()}
-	exec, err := httpexec.New(httpexec.Options{Guard: guard})
+	exec, err := httpexec.New(httpexec.Options{Guard: guard, Secrets: segretiDiProva(t, nil)})
 	if err != nil {
 		t.Fatalf("httpexec.New: %v", err)
 	}
