@@ -52,6 +52,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0006 | `job_executions` partizionata e funzioni di manutenzione |
 | 0007 | `ai_credentials` |
 | 0008 | `audit_log`, `notifications` |
+| 0009 | `sessions`, `user_tokens` e le loro funzioni di pulizia |
 
 ## Scelte di schema
 
@@ -119,6 +120,25 @@ indice: `jobs_due_idx` è parziale su `(next_run_at)` e contiene solo i job
 abilitati, non archiviati e con una prossima occorrenza — il dispatch la
 interroga in continuazione, e l'indice cresce con quei job soltanto, non con il
 catalogo. Per i log, l'indice è la chiave primaria di `job_executions`.
+
+**Sessioni e token monouso conservati come impronta.** `sessions.token_hash` e
+`user_tokens.token_hash` non contengono il valore che il client possiede ma il suo
+HMAC-SHA256 sotto una chiave derivata da `SESSION_SECRET`: un dump del database non
+contiene sessioni utilizzabili né link di recupero password validi. Non è Argon2 —
+i token hanno 256 bit di entropia da CSPRNG, quindi non c'è nulla da indovinare e
+un KDF lento andrebbe pagato a ogni richiesta autenticata invece di una volta per
+login. La chiave serve a due cose che uno SHA-256 semplice non darebbe: ruotare
+`SESSION_SECRET` invalida tutte le sessioni in un colpo senza toccare le tabelle, e
+chi ottiene soltanto un backup non ha il materiale per verificare ipotesi sui
+token.
+
+**Un'unica tabella per i due tipi di token monouso.** `user_tokens` copre conferma
+dell'indirizzo e recupero password, distinti da `purpose`: le colonne sono le
+stesse e il ciclo di vita è lo stesso (nasce, scade, si consuma una volta). Il
+consumo è un `UPDATE ... WHERE consumed_at IS NULL ... RETURNING`, non una SELECT
+seguita da un UPDATE, perché due richieste concorrenti con lo stesso token devono
+produrre un vincitore e un rifiuto — con due istruzioni separate un link di
+recupero servirebbe due volte.
 
 **Ambienti.** `jobs.environments` è un array di `environment` (R23): la relazione
 ha al massimo due elementi da un dominio chiuso, e una tabella di collegamento

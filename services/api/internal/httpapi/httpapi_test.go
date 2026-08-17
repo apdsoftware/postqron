@@ -18,7 +18,7 @@ func newRouter(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("configurazione di default non valida: %v", err)
 	}
-	return httpapi.NewRouter(cfg, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return httpapi.NewRouter(cfg, "test", slog.New(slog.NewTextHandler(io.Discard, nil)), httpapi.Deps{})
 }
 
 func TestHealthz(t *testing.T) {
