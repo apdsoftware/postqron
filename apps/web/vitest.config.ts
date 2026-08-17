@@ -1,11 +1,12 @@
-import { defineConfig } from 'vitest/config'
+import { defineVitestConfig } from '@nuxt/test-utils/config'
 
-// I test di questo scaffold coprono utility pure: nessun runtime Nuxt, quindi
-// nessun ambiente browser da simulare. I test di componenti arriveranno con le
-// issue di UI, tramite @nuxt/test-utils.
-export default defineConfig({
+// I test girano nell'ambiente Nuxt: i componenti del design system usano gli
+// import automatici (`computed`, `ref`) e i componenti globali (`NuxtLink`,
+// `HexIcon`), e riprodurli a mano nel test significherebbe provare qualcosa di
+// diverso da ciò che la build produce.
+export default defineVitestConfig({
   test: {
-    environment: 'node',
+    environment: 'nuxt',
     include: ['test/**/*.test.ts'],
   },
 })

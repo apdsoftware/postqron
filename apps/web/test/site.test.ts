@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canonicalUrl } from '../utils/site'
+import { canonicalUrl } from '~/utils/site'
 
 describe('canonicalUrl', () => {
   it('unisce origin e percorso', () => {

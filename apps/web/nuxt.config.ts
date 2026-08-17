@@ -12,7 +12,21 @@ export default defineNuxtConfig({
   // Pre-rendering in build, nessun rendering a runtime.
   ssr: true,
 
+  // I componenti sono raggruppati per ruolo (ui, layout, home) ma il nome resta
+  // quello del file: `<FeatureCard>`, non `<UiFeatureCard>`. I nomi sono già
+  // univoci e il prefisso della cartella non aggiungerebbe informazione.
+  components: [{ path: '~/components', pathPrefix: false }],
+
   devtools: { enabled: true },
+
+  // I fogli globali del design system, nell'ordine in cui devono cascare:
+  // token, poi @font-face, poi reset e primitive di layout.
+  css: [
+    '~/assets/css/tokens.css',
+    '~/assets/css/fonts.css',
+    '~/assets/css/base.css',
+    '~/assets/css/layout.css',
+  ],
 
   // I valori pubblici vengono incorporati nel bundle al momento della build:
   // su hosting statico non esiste un processo che li possa leggere a runtime.
