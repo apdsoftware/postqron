@@ -234,6 +234,48 @@ li mostra, non li applica.
 
 ---
 
+## 8-bis. Multilingua
+
+Il prodotto è multilingua fin dall'inizio, non come aggiunta successiva.
+
+- **Lingue supportate:** inglese, italiano, spagnolo, tedesco, francese.
+- **Lingua predefinita: inglese.** L'inglese è la **lingua sorgente** dei contenuti:
+  si scrive in inglese e si traduce, non il contrario.
+- **R31 — Rilevamento dalla lingua del browser.** Al primo accesso la lingua si
+  deduce dalle preferenze del browser; se nessuna corrisponde, si usa l'inglese.
+- **R32 — Selettore di lingua** presente nell'interfaccia, su sito pubblico e
+  applicazione. La scelta esplicita dell'utente prevale sempre sul rilevamento
+  automatico e persiste fra le visite.
+- **R33 — Lingua nelle impostazioni utente.** L'utente autenticato imposta la
+  propria lingua predefinita nel profilo; vale su tutte le sue sessioni e
+  **determina la lingua delle email transazionali** (R19–R21).
+
+### Vincoli che il modello statico impone
+
+Entrambi i frontend sono generati staticamente (SPEC §2): non esiste un server che
+legga `Accept-Language` e risponda di conseguenza. Ne discende che:
+
+- **Le rotte sono prefissate per lingua** — `/en/...`, `/it/...`, `/es/...`,
+  `/de/...`, `/fr/...` — e ogni lingua viene pre-renderizzata. Il numero di rotte
+  generate si moltiplica per cinque.
+- **Il rilevamento avviene lato client**, con un reindirizzamento dalla radice alla
+  lingua scelta. La radice `/` non deve mostrare contenuto proprio: serve solo a
+  smistare, altrimenti diventa una sesta variante da mantenere.
+- **SEO:** ogni pagina dichiara `hreflang` verso le altre lingue e un `canonical`
+  proprio. Senza, le cinque versioni competono fra loro nei motori di ricerca.
+- **Nessuna stringa nei componenti.** I testi vivono in file di traduzione; un
+  componente che contiene una frase è un difetto, perché non è traducibile.
+
+### Costo non tecnico
+
+Le **pagine legali** (§4.1) in cinque lingue non sono una traduzione automatica:
+Privacy Policy, Termini e Condizioni e Cookie Policy hanno valore legale in ogni
+giurisdizione in cui sono pubblicate. Vanno tradotte e riviste da chi ne risponde,
+non da un agente. Lo stesso vale, in misura minore, per i testi commerciali dei
+piani.
+
+---
+
 ## 9. Schema `cron.yaml`
 
 File nella radice del repository dell'utente, letto a ogni push (R11–R13).
