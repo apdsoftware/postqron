@@ -65,13 +65,14 @@ func newToken() (string, error) {
 //     non ha il materiale per verificare alcuna ipotesi sui token, nemmeno se
 //     in futuro qualcuno accorciasse [tokenBytes].
 //
-// Le due chiavi sono derivate con HKDF da segreti di dominio diversi invece di
-// usare SESSION_SECRET direttamente per entrambe: un token di recupero password
-// e un token di sessione non devono poter essere scambiati l'uno per l'altro
-// nemmeno in presenza di un bug che confonda le due tabelle.
+// Le chiavi sono derivate con HKDF da segreti di dominio diversi invece di
+// usare SESSION_SECRET direttamente per tutte: un token di recupero password,
+// un token di sessione e una chiave API non devono poter essere scambiati l'uno
+// per l'altro nemmeno in presenza di un bug che confonda le tabelle.
 type Keyring struct {
 	sessionKey   []byte
 	userTokenKey []byte
+	apiKeyKey    []byte
 }
 
 // NewKeyring deriva le chiavi da un segreto.
@@ -89,7 +90,11 @@ func NewKeyring(secret string) (Keyring, error) {
 	if err != nil {
 		return Keyring{}, err
 	}
-	return Keyring{sessionKey: sessionKey, userTokenKey: userTokenKey}, nil
+	apiKeyKey, err := deriveKey(secret, "postqron/v1/api-key")
+	if err != nil {
+		return Keyring{}, err
+	}
+	return Keyring{sessionKey: sessionKey, userTokenKey: userTokenKey, apiKeyKey: apiKeyKey}, nil
 }
 
 // KeyringFromEnv legge SESSION_SECRET e ne deriva le chiavi.
@@ -113,8 +118,30 @@ func (k Keyring) SessionHash(token string) string { return mac(k.sessionKey, tok
 // password).
 func (k Keyring) UserTokenHash(token string) string { return mac(k.userTokenKey, token) }
 
+// APIKeyHash è l'impronta con cui una chiave API è cercata nel database (R9).
+//
+// È la stessa costruzione dei token di sessione, e per la stessa ragione: una
+// chiave API è un segreto opaco con la sua entropia già piena, non una password.
+// L'impronta essendo **deterministica** è anche ciò che rende la ricerca una
+// lettura indicizzata dell'unico `api_keys_key_hash_key` invece di una scansione
+// di tutte le chiavi — che è l'alternativa in cui si finisce se a riposo si
+// conserva un hash con salt per riga.
+//
+// Il dominio HKDF è distinto da quello delle sessioni: l'impronta di un token di
+// sessione non è utilizzabile come chiave API e viceversa, anche a parità di
+// segreto in chiaro.
+func (k Keyring) APIKeyHash(token string) string { return mac(k.apiKeyKey, token) }
+
 // valid indica se il keyring è stato inizializzato.
-func (k Keyring) valid() bool { return len(k.sessionKey) > 0 && len(k.userTokenKey) > 0 }
+func (k Keyring) valid() bool {
+	return len(k.sessionKey) > 0 && len(k.userTokenKey) > 0 && len(k.apiKeyKey) > 0
+}
+
+// Valid indica se il keyring è utilizzabile. La espone perché anche i servizi
+// fuori da questo package (internal/apikeys) ne dipendono e devono poter
+// rifiutare all'avvio un keyring non inizializzato, invece di scoprirlo alla
+// prima richiesta autenticata.
+func (k Keyring) Valid() bool { return k.valid() }
 
 func mac(key []byte, token string) string {
 	m := hmac.New(sha256.New, key)

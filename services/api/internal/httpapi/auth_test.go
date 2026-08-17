@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
+	"github.com/apdsoftware/postqron/services/api/internal/apikeystest"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/authtest"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
@@ -44,6 +46,14 @@ type api struct {
 	mailer  *auth.MemoryMailer
 	svc     *auth.Service
 	logs    *bytes.Buffer
+
+	// Le chiavi API (R9) sono agganciate a ogni router costruito qui, e non solo a
+	// quello dei loro test: è ciò che rende vero, per tutte le suite insieme, che
+	// aggiungere il riconoscimento delle chiavi non ha cambiato il comportamento
+	// delle rotte autenticate con la sessione.
+	keys      *apikeys.Service
+	keysStore *apikeystest.Store
+	keyring   auth.Keyring
 }
 
 // newAPI costruisce il router con l'autenticazione agganciata a un archivio in
@@ -73,7 +83,25 @@ func newAPI(t *testing.T, tune ...func(*config.Config, *auth.Options, *httpapi.D
 	opts := auth.Options{
 		Store: store, Hasher: hasher, Keyring: keyring, Mailer: mailer, Logger: logger,
 	}
-	deps := httpapi.Deps{}
+
+	// Le chiavi API (R9) usano lo stesso keyring dell'autenticazione e lo stesso
+	// archivio degli utenti: è la configurazione d'esercizio, dove risolvere il
+	// proprietario di una chiave è leggere una riga di `users`.
+	//
+	// Sono agganciate *prima* di `tune`, così che un test possa azzerarle per
+	// verificare come si comporta un router senza il servizio delle chiavi.
+	keysStore := apikeystest.NewStore()
+	keysSvc, err := apikeys.NewService(apikeys.Options{
+		Store:   keysStore,
+		Users:   store,
+		Keyring: keyring,
+		Logger:  logger,
+	})
+	if err != nil {
+		t.Fatalf("apikeys.NewService: %v", err)
+	}
+
+	deps := httpapi.Deps{APIKeys: keysSvc}
 	for _, fn := range tune {
 		fn(&cfg, &opts, &deps)
 	}
@@ -88,6 +116,7 @@ func newAPI(t *testing.T, tune ...func(*config.Config, *auth.Options, *httpapi.D
 	return &api{
 		t: t, handler: httpapi.NewRouter(cfg, "test", logger, deps),
 		store: store, mailer: mailer, svc: svc, logs: logs,
+		keys: keysSvc, keysStore: keysStore, keyring: keyring,
 	}
 }
 

@@ -1,7 +1,12 @@
 // Package httpapi espone il router HTTP del servizio.
 //
-// Contiene l'health check, le rotte di autenticazione (R14) e le rotte REST dei
-// job, delle esecuzioni e del trigger manuale (R8).
+// Contiene l'health check, le rotte di autenticazione (R14), le rotte REST dei
+// job, delle esecuzioni e del trigger manuale (R8), e quelle delle chiavi API
+// (R9).
+//
+// Il riconoscimento del chiamante è in un solo punto — il guard di identity.go —
+// e con esso l'applicazione degli scope: è quel punto a rendere vero, per tutte
+// le rotte insieme, che una chiave di sola lettura non può scrivere.
 package httpapi
 
 import (
@@ -17,6 +22,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
@@ -43,6 +49,13 @@ type Deps struct {
 	// test dell'health check, non quella normale.
 	Jobs *jobs.Service
 
+	// APIKeys può essere nil: in quel caso le rotte `/keys` non vengono
+	// registrate e nessuna richiesta si può autenticare con una chiave (R9). Le
+	// rotte dei job restano raggiungibili con la sessione, quindi la dashboard
+	// funziona comunque — ed è per questo che la mancanza si nota nel log
+	// all'avvio invece di far fallire la costruzione del router.
+	APIKeys *apikeys.Service
+
 	// TrustedProxies elenca le reti da cui il servizio accetta la testata
 	// `X-Forwarded-For`. Vuoto significa «nessuna»: vedi [ClientIP].
 	TrustedProxies []netip.Prefix
@@ -68,7 +81,7 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 	})
 
 	if deps.Auth != nil {
-		guard := newGuard(cfg, logger, deps.Auth)
+		guard := newGuard(cfg, logger, deps)
 		newAuthAPI(guard, logger, deps).routes(mux)
 
 		// Le rotte dei job vivono dietro lo stesso guard: senza autenticazione
@@ -78,6 +91,14 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 			newJobsAPI(guard, logger, deps.Jobs).routes(mux)
 		} else {
 			logger.Warn("rotte dei job non registrate: nessun servizio jobs configurato")
+		}
+
+		// Le rotte delle chiavi stanno dietro lo stesso guard, e deliberatamente
+		// solo dietro la *sessione*: vedi keysAPI.routes.
+		if deps.APIKeys != nil {
+			newKeysAPI(guard, logger, deps.APIKeys).routes(mux)
+		} else {
+			logger.Warn("rotte delle chiavi API non registrate: nessun servizio apikeys configurato")
 		}
 	} else {
 		logger.Warn("rotte di autenticazione non registrate: nessun servizio auth configurato")
@@ -113,6 +134,12 @@ type ErrorDetail struct {
 	Limit      string           `json:"limit,omitempty"`
 	Plan       string           `json:"plan,omitempty"`
 	RetryAfter int              `json:"retry_after,omitempty"`
+
+	// Scope è il permesso che mancava alla chiave API (R9). Ripete in forma
+	// leggibile dal codice ciò che la testata `WWW-Authenticate` già dice, così che
+	// un client possa spiegare all'utente quale chiave gli serve senza analizzare
+	// una testata.
+	Scope string `json:"scope,omitempty"`
 }
 
 // FieldErrorBody è un motivo di rifiuto ancorato al campo che lo causa.

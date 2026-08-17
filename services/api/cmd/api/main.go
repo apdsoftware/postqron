@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/apdsoftware/postqron/services/api/internal/apikeypg"
+	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/authpg"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
@@ -87,6 +89,11 @@ func run() error {
 		return err
 	}
 
+	apiKeysService, err := newAPIKeysService(pool, logger)
+	if err != nil {
+		return err
+	}
+
 	trustedProxies, err := httpapi.ParseTrustedProxies(os.Getenv(trustedProxiesEnvVar))
 	if err != nil {
 		return err
@@ -97,6 +104,7 @@ func run() error {
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
 			Auth:           authService,
 			Jobs:           jobsService,
+			APIKeys:        apiKeysService,
 			TrustedProxies: trustedProxies,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -193,6 +201,40 @@ func newMailer(workdir string, cfg config.Config, logger *slog.Logger) (auth.Mai
 	default:
 		return nil, err
 	}
+}
+
+// newAPIKeysService costruisce le chiavi API (R9).
+//
+// Il keyring è lo stesso dell'autenticazione, ricavato dallo stesso
+// SESSION_SECRET: le impronte delle chiavi API e quelle dei token di sessione
+// sono HMAC sotto chiavi HKDF diverse derivate da lì (vedi
+// [auth.Keyring.APIKeyHash]). La conseguenza operativa va conosciuta:
+// **cambiare SESSION_SECRET invalida anche tutte le chiavi API**, non solo le
+// sessioni. È la stessa leva d'emergenza, con un costo più alto — le chiavi le
+// devono rigenerare gli utenti — e per questo va usata sapendolo.
+//
+// `Users` è lo store dell'autenticazione: risolvere il proprietario di una
+// chiave è leggere una riga di `users`, e duplicare quella query qui farebbe
+// divergere le due letture al primo cambio di `deleted_at`.
+func newAPIKeysService(pool *pgxpool.Pool, logger *slog.Logger) (*apikeys.Service, error) {
+	store, err := apikeypg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	users, err := authpg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	keyring, err := auth.KeyringFromEnv(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return apikeys.NewService(apikeys.Options{
+		Store:   store,
+		Users:   users,
+		Keyring: keyring,
+		Logger:  logger,
+	})
 }
 
 // newJobsService costruisce le rotte dei job (R8).

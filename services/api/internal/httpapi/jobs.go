@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 )
 
@@ -46,6 +47,8 @@ const maxJobRequestBody = 64 << 10
 //	400 invalid_cursor              cursore di paginazione non valido
 //	400 empty_patch                 modifica senza campi
 //	401 unauthenticated             sessione assente o scaduta
+//	401 invalid_api_key             chiave API assente, revocata o scaduta (R9)
+//	403 insufficient_scope          la chiave non ha il permesso richiesto (R9)
 //	403 plan_limit_jobs             tetto al numero di job (R15)
 //	403 plan_limit_resolution       risoluzione minima del piano (R15, R22)
 //	403 plan_limit_environments     ambienti non inclusi nel piano (R23)
@@ -70,20 +73,32 @@ func newJobsAPI(guard *guard, logger *slog.Logger, svc *jobs.Service) *jobsAPI {
 	return &jobsAPI{guard: guard, svc: svc, log: logger}
 }
 
+// routes registra le rotte con lo scope che ciascuna richiede (R9).
+//
+// Lo scope sta qui, accanto al metodo e al percorso, e non dentro l'handler:
+// così l'elenco dei permessi dell'API si legge in dodici righe, e una rotta
+// registrata senza scope si vede a occhio. L'applicazione è in guard.scoped
+// (identity.go), che è l'unico punto da cui passano tutte queste rotte.
+//
+// Le sessioni passano da tutte: gli scope limitano le deleghe, non il titolare.
 func (a *jobsAPI) routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /jobs", a.identified(a.list))
-	mux.HandleFunc("POST /jobs", a.identified(a.create))
-	mux.HandleFunc("GET /jobs/{id}", a.identified(a.get))
-	mux.HandleFunc("PATCH /jobs/{id}", a.identified(a.update))
-	mux.HandleFunc("DELETE /jobs/{id}", a.identified(a.delete))
+	mux.HandleFunc("GET /jobs", a.scoped(apikeys.ScopeJobsRead, a.list))
+	mux.HandleFunc("POST /jobs", a.scoped(apikeys.ScopeJobsWrite, a.create))
+	mux.HandleFunc("GET /jobs/{id}", a.scoped(apikeys.ScopeJobsRead, a.get))
+	mux.HandleFunc("PATCH /jobs/{id}", a.scoped(apikeys.ScopeJobsWrite, a.update))
+	mux.HandleFunc("DELETE /jobs/{id}", a.scoped(apikeys.ScopeJobsWrite, a.delete))
 
 	// Le esecuzioni sono una sottorisorsa del job, e il trigger manuale ne crea
 	// una: `POST` sulla stessa collezione che `GET` elenca. Una rotta
 	// `/jobs/{id}/trigger` sarebbe un verbo travestito da risorsa, e nasconderebbe
 	// che ciò che si ottiene è esattamente una riga del registro — con la stessa
 	// forma, lo stesso identificativo naturale e lo stesso tetto.
-	mux.HandleFunc("GET /jobs/{id}/executions", a.identified(a.listExecutions))
-	mux.HandleFunc("POST /jobs/{id}/executions", a.identified(a.trigger))
+	//
+	// Il trigger ha uno scope proprio, distinto da `jobs:write`: cambiare la
+	// definizione di un job e far partire adesso una chiamata verso l'esterno sono
+	// due poteri diversi, e una chiave da cruscotto vuole il secondo senza il primo.
+	mux.HandleFunc("GET /jobs/{id}/executions", a.scoped(apikeys.ScopeExecutionsRead, a.listExecutions))
+	mux.HandleFunc("POST /jobs/{id}/executions", a.scoped(apikeys.ScopeExecutionsTrigger, a.trigger))
 }
 
 // ------------------------------------------------------------------ handler
