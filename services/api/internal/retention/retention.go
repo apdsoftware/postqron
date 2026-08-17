@@ -168,6 +168,10 @@ type Options struct {
 	// [DefaultDaysAhead].
 	DaysAhead int
 
+	// Observer riceve il resoconto di ogni passata (R7). Nil significa «nessuno
+	// guarda».
+	Observer Observer
+
 	// Now è l'orologio, iniettabile per i test. Nil significa [time.Now].
 	//
 	// È l'orologio **della retention**: decide il taglio delle partizioni e il
@@ -177,11 +181,28 @@ type Options struct {
 	Now func() time.Time
 }
 
+// Observer riceve il resoconto delle passate. Serve alle metriche (R7): la
+// manutenzione è invisibile finché funziona, e il momento in cui smette di
+// funzionare è quello in cui nessuno la sta guardando.
+//
+// Il metodo è chiamato dal ciclo di [Service.Run] e deve tornare subito.
+type Observer interface {
+	// Swept è chiamato alla fine di ogni passata, riuscita o no. `err` è
+	// l'errore complessivo della passata, nil se è arrivata in fondo.
+	Swept(st Stats, err error)
+}
+
+// nopObserver è l'osservatore di default: non guarda niente.
+type nopObserver struct{}
+
+func (nopObserver) Swept(Stats, error) {}
+
 // Service applica la retention. Va costruito con [New] e acceso con
 // [Service.Run].
 type Service struct {
 	pool *pgxpool.Pool
 	log  *slog.Logger
+	obs  Observer
 
 	interval    time.Duration
 	batch       int
@@ -207,6 +228,7 @@ func New(opts Options) (*Service, error) {
 	s := &Service{
 		pool:        opts.Pool,
 		log:         opts.Logger,
+		obs:         opts.Observer,
 		interval:    opts.Interval,
 		batch:       opts.Batch,
 		pause:       opts.Pause,
@@ -217,6 +239,9 @@ func New(opts Options) (*Service, error) {
 	}
 	if s.log == nil {
 		s.log = slog.Default()
+	}
+	if s.obs == nil {
+		s.obs = nopObserver{}
 	}
 	if s.interval == 0 {
 		s.interval = DefaultInterval
@@ -365,6 +390,7 @@ func (s *Service) Run(ctx context.Context) error {
 func (s *Service) sweepAndLog(ctx context.Context) {
 	started := s.now()
 	stats, err := s.Sweep(ctx)
+	s.obs.Swept(stats, err)
 	if err != nil {
 		if ctx.Err() != nil {
 			// L'arresto del processo ha interrotto la passata a metà. Non è un
