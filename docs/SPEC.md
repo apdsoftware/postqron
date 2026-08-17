@@ -124,6 +124,29 @@ produzione: il backend Go è l'unica origin dinamica.
 
 ## 4. Interfacce
 
+### 4.0 Identità di marca
+
+- **R34 — Marchio proprio.** PostQron ha un logo originale: simbolo, logotipo,
+  varianti (positiva, negativa, monocromatica), dimensioni minime e favicon.
+  **Vincolo:** il marchio attualmente in uso è il ridisegno di quello del template
+  Hexagon. La licenza ThemeForest copre l'uso del template in un prodotto finale, ma
+  il marchio dell'autore non è nostro e non è distintivo — ce l'ha chiunque abbia
+  comprato lo stesso tema. **Va sostituito prima di qualunque pubblicazione.**
+- **R35 — Sistema visivo dichiarato.** Palette, tipografia, scala tipografica,
+  spaziature e raggi vivono come token, non come valori sparsi nei componenti.
+  Palette e tipografia attuali derivano dal template: vanno confermate come scelta
+  deliberata o sostituite, non ereditate per inerzia.
+- **R36 — Tono di voce.** Registro, persona e regole di scrittura dell'interfaccia,
+  definiti in **inglese** come lingua sorgente (§8-bis) e coerenti nelle cinque
+  lingue. Serve anche agli agenti: senza, ogni issue inventa il proprio.
+- **R37 — Nessun contenuto segnaposto in produzione.** Testimonianze, fotografie,
+  mockup di prodotto e dati di esempio provenienti dal template non devono
+  raggiungere il sito pubblicato. Il contenuto segnaposto va marcato come dato, non
+  segnalato con un commento.
+
+> L'identità di marca è una **decisione di business**: un agente può produrre
+> proposte e applicare in modo coerente una scelta fatta, non deciderla.
+
 ### 4.1 Sito pubblico — postqron.com
 
 - Template ThemeForest **Hexagon** (riferimento demo: `blue-index.html`), adattato
