@@ -1,0 +1,375 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "mailronix — Invio transazionale programmatico",
+    "version": "1.0.0",
+    "description": "Documenta l'unica superficie API di mailronix raggiungibile da un\nsistema esterno tramite API key: `POST /email/send` (ADR-0029, esteso\nda ADR-0030 con template grafici e variabili).\n\nOgni altro endpoint del backend (gestione API key, template, campagne,\ncontatti, billing, area riservata) richiede una sessione browser\nautenticata via cookie ed è un'azione di prodotto, non una superficie\ndi integrazione server-to-server — deliberatamente fuori perimetro di\nquesto documento (ADR-0032).\n"
+  },
+  "servers": [
+    {
+      "url": "https://api.mailronix.com",
+      "description": "Produzione"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "Sviluppo locale"
+    }
+  ],
+  "paths": {
+    "/email/send": {
+      "post": {
+        "operationId": "sendTransactionalEmail",
+        "summary": "Invia un'email transazionale",
+        "description": "Accoda un'email transazionale per l'invio. La categoria è sempre\n`transaction_receipt`, determinata esclusivamente lato server —\nnon esiste alcun modo di selezionarla dalla richiesta.\n\nIl corpo del messaggio si specifica in una delle due modalità\nseguenti, mai entrambe nella stessa richiesta:\n\n- **Contenuto diretto**: `subject` e almeno uno tra `html_body`/\n  `text_body`.\n- **Da template**: `template_id` (creato in console,\n  `POST /email-templates`, fuori perimetro di questo documento) e\n  `variables`, una mappa `nome → valore` sostituita nei\n  segnaposto `{{nome}}` del template.\n\nLa risposta di successo è **identica** indipendentemente dal\nfatto che il destinatario sia effettivamente recapitabile o si\ntrovi in una suppression list per bounce/complaint pregressi\n(ADR-0017): nessun campo della risposta permette di distinguere\ni due casi, per non offrire a un chiamante un modo di verificare\nl'esistenza/validità di un indirizzo email altrui.\n",
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendRequest"
+              },
+              "examples": {
+                "contenutoDiretto": {
+                  "summary": "Contenuto diretto (senza template)",
+                  "value": {
+                    "from": "notifiche@cliente-esempio.com",
+                    "to": "utente@destinatario.com",
+                    "subject": "Conferma ordine #4821",
+                    "html_body": "<p>Il tuo ordine #4821 è confermato.</p>"
+                  }
+                },
+                "daTemplate": {
+                  "summary": "Da template con variabili",
+                  "value": {
+                    "from": "notifiche@cliente-esempio.com",
+                    "to": "utente@destinatario.com",
+                    "template_id": "5f1d6c2e-3b4a-4f0e-9c1a-2d8e7f6a1b3c",
+                    "variables": {
+                      "nome_cliente": "Maria",
+                      "numero_ordine": "4821"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accodata per l'invio. Identica sia che il destinatario venga effettivamente recapitato sia che sia silenziosamente scartato per suppression list (ADR-0017) — vedi descrizione sopra.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResponse"
+                },
+                "example": {
+                  "status": "queued",
+                  "email_log_id": "9c4e2f1a-7d3b-4a5e-8f6c-1b2a3d4e5f6a"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Richiesta non valida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "invalidRequest": {
+                    "summary": "Payload malformato o campi incompatibili/mancanti",
+                    "description": "`from`/`to` mancanti, corpo JSON non valido, oppure `template_id` presente insieme a `subject`/`html_body`/ `text_body` (mutuamente esclusivi), oppure nessuna delle due modalità è completa (né contenuto diretto valido né `template_id`).",
+                    "value": {
+                      "error": {
+                        "code": "invalid_request",
+                        "message": "from e to sono obbligatori."
+                      }
+                    }
+                  },
+                  "missingTemplateVariable": {
+                    "summary": "Variabile del template non fornita",
+                    "value": {
+                      "error": {
+                        "code": "missing_template_variable",
+                        "message": "Il template referenzia una variabile non fornita."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nessuna autenticazione valida — né sessione cookie né API key (mancante, malformata, sconosciuta o revocata).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "unauthenticated",
+                    "message": "Autenticazione richiesta."
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Richiesta rifiutata da un gate applicativo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "domainNotVerified": {
+                    "summary": "Dominio del mittente non verificato",
+                    "value": {
+                      "error": {
+                        "code": "domain_not_verified",
+                        "message": "Il dominio del mittente non è verificato per questo tenant."
+                      }
+                    }
+                  },
+                  "tenantSuspended": {
+                    "summary": "Tenant sospeso",
+                    "value": {
+                      "error": {
+                        "code": "tenant_suspended",
+                        "message": "Il tenant è sospeso."
+                      }
+                    }
+                  },
+                  "freeDailyRecipientsExceeded": {
+                    "summary": "Limite giornaliero di destinatari unici del piano Free raggiunto",
+                    "value": {
+                      "error": {
+                        "code": "free_daily_recipients_exceeded",
+                        "message": "Limite giornaliero di destinatari unici del piano Free raggiunto."
+                      }
+                    }
+                  },
+                  "planLimitExceeded": {
+                    "summary": "Limite mensile del piano superato",
+                    "value": {
+                      "error": {
+                        "code": "plan_limit_exceeded",
+                        "message": "Limite mensile del piano superato."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`template_id` inesistente, oppure appartenente a un altro tenant (stessa risposta in entrambi i casi, per non rivelare l'esistenza di template altrui).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "template_not_found",
+                    "message": "Template non trovato."
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit per chiave API superato. Applicabile solo quando l'autenticazione avviene via `Authorization: Bearer` — il limite è per chiave, non per IP, e non si applica all'autenticazione via sessione cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "rate_limited",
+                    "message": "Troppe richieste, riprova più tardi."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "internal_error",
+                    "message": "Errore interno."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Verifica della chiave API o dello stato del tenant temporaneamente non disponibile. Applicabile solo all'autenticazione via API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "auth_unavailable",
+                    "message": "Verifica della chiave non disponibile."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key generata dalla console (`POST /api-keys`, fuori perimetro di questo documento), formato `mrx_live_<segreto>`. Mostrata in chiaro una sola volta al momento della creazione. Autentica esclusivamente `POST /email/send` — nessun altro endpoint accetta questo meccanismo."
+      },
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "mailronix_session",
+        "description": "Sessione browser autenticata della console — usarla per testare questo endpoint dagli strumenti di sviluppo del browser mentre si è loggati; un'integrazione server-to-server userà normalmente `apiKey`."
+      }
+    },
+    "schemas": {
+      "SendRequestDirect": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "subject"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "email",
+            "description": "Indirizzo mittente. Il dominio deve essere verificato per il tenant."
+          },
+          "to": {
+            "type": "string",
+            "format": "email"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "html_body": {
+            "type": "string",
+            "description": "Corpo HTML. Obbligatorio se `text_body` è assente."
+          },
+          "text_body": {
+            "type": "string",
+            "description": "Corpo testo semplice. Obbligatorio se `html_body` è assente."
+          }
+        },
+        "description": "Almeno uno tra `html_body`/`text_body` è obbligatorio insieme a `subject`. Non deve comparire `template_id`."
+      },
+      "SendRequestTemplate": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "template_id"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "email"
+          },
+          "to": {
+            "type": "string",
+            "format": "email"
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id di un template creato in console (`POST /email-templates`, fuori perimetro di questo documento), di proprietà dello stesso tenant a cui appartiene la chiave/sessione usata."
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Mappa `nome variabile → valore`, sostituita nei segnaposto `{{nome_variabile}}` del template. Una variabile referenziata dal template ma assente qui produce `400 missing_template_variable`."
+          }
+        },
+        "description": "Alternativa a `SendRequestDirect`: non devono comparire `subject`/ `html_body`/`text_body`."
+      },
+      "SendRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SendRequestDirect"
+          },
+          {
+            "$ref": "#/components/schemas/SendRequestTemplate"
+          }
+        ]
+      },
+      "SendResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "email_log_id"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued"
+            ]
+          },
+          "email_log_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Codice stabile da usare per il branching applicativo — `message` è testo descrittivo (in italiano), non pensato per essere parsato."
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

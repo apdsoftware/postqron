@@ -108,6 +108,15 @@ produzione: il backend Go è l'unica origin dinamica.
 - **R20 — Compilazione lato backend.** Go compila dinamicamente l'HTML e lo invia
   come **payload completo** all'API di Mailronix, che funge **esclusivamente** da
   motore di recapito. Nessuna logica di template risiede su Mailronix.
+  L'integrazione usa `POST /email/send` in modalità a contenuto diretto, con
+  autenticazione `Authorization: Bearer`; contratto completo in
+  [`reference/mailronix-openapi.json`](reference/mailronix-openapi.json) e vincoli
+  operativi in [`CREDENTIALS.md`](CREDENTIALS.md) §2.
+- **R20.1 — Il recapito non è osservabile dalla risposta.** Mailronix risponde `202`
+  in modo identico sia che l'email venga recapitata sia che il destinatario sia in
+  suppression list. Nessuna logica di prodotto può dedurre il recapito dalla risposta
+  all'invio: si registra `email_log_id` e nulla di più. Un alert di job fallito
+  (R21) va quindi progettato senza assumere che l'email sia arrivata.
 - **R21 — Eventi coperti:** onboarding/benvenuto, alert di job fallito, notifiche di
   variazione piano, eventi di sicurezza.
 

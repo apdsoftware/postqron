@@ -73,14 +73,48 @@ Motore di recapito. L'HTML lo compiliamo noi (R20): a Mailronix serve solo invia
 4. Definisci il mittente: `noreply@postqron.com` per le transazionali.
 
 ```
-MAILRONIX_API_KEY=
-MAILRONIX_API_URL=
+MAILRONIX_API_KEY=          # formato mrx_live_<segreto>
+MAILRONIX_API_URL=https://api.mailronix.com
 MAILRONIX_FROM_EMAIL=noreply@postqron.com
 MAILRONIX_FROM_NAME=PostQron
 ```
 
-> Confermami l'URL base dell'API e il nome esatto dell'header di autenticazione: non
-> sono documentati pubblicamente e l'agente di #419 non può indovinarli.
+### Contratto dell'API
+
+Specifica completa in [`docs/reference/mailronix-openapi.json`](reference/mailronix-openapi.json).
+
+**Esiste un solo endpoint** raggiungibile con API key: `POST /email/send`. Tutto il
+resto della console richiede una sessione browser.
+
+```
+POST https://api.mailronix.com/email/send
+Authorization: Bearer mrx_live_<segreto>
+Content-Type: application/json
+
+{"from": "noreply@postqron.com", "to": "utente@example.com",
+ "subject": "…", "html_body": "<html>…</html>"}
+```
+
+Risposta `202`: `{"status": "queued", "email_log_id": "<uuid>"}`.
+
+**Usiamo la modalità a contenuto diretto**, non i template Mailronix: l'HTML lo compila
+il backend Go (R20) e Mailronix resta solo motore di recapito. `template_id` è
+mutuamente esclusivo con `subject`/`html_body`/`text_body`.
+
+### Quattro vincoli che il client deve rispettare
+
+1. **`202` non significa recapitato.** La risposta è identica anche se il destinatario
+   è in suppression list per bounce o reclami precedenti: è deliberato, per non offrire
+   un modo di verificare l'esistenza di indirizzi altrui. Il recapito non è osservabile
+   dalla risposta — registra `email_log_id` e non dedurne il successo.
+2. **Un solo destinatario per chiamata.** `to` è una stringa, non un array.
+3. **Solo alcuni errori sono ritentabili.** `429 rate_limited` (il limite è per chiave,
+   non per IP) e `503 auth_unavailable` sono transitori. `400`, `403` e `404` no:
+   ritentarli consuma quota senza cambiare esito.
+4. **Il dominio del mittente dev'essere verificato**, altrimenti `403
+   domain_not_verified`. La verifica passa dai record SPF e DKIM su Cloudflare —
+   quindi **finché il token Cloudflare non è valido (§4) nessuna email parte davvero**,
+   anche con il client implementato correttamente.
 
 ---
 
