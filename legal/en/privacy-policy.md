@@ -1,7 +1,7 @@
 ---
 document: privacy-policy
 version: 1.0.0
-effective_date: [[DA CONFERMARE: data di entrata in vigore, da fissare al lancio]]
+effective_date: 2026-08-17
 language: en
 ---
 
@@ -13,7 +13,7 @@ about it. It is written to be read, not to be survived.
 ## 1. Who is responsible
 
 The controller of your personal data is
-Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224.
+Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy — VAT 03835250162, REA BG 431224.
 
 You can reach us at
 privacy@postqron.com.
@@ -130,7 +130,7 @@ processing agreement.
 | Hetzner | Servers and database | Germany |
 | Cloudflare | DNS, TLS, CDN, static hosting, edge protection | Global edge network |
 | Paddle | Merchant of Record: payments, invoicing, tax | United Kingdom |
-| Mailronix | Transactional email delivery | European Union â operated by Apdsoftware, the same entity that operates Postqron |
+| Mailronix | Transactional email delivery | European Union — operated by Apdsoftware, the same entity that operates Postqron |
 | GitHub | Repository synchronisation, only if you connect one | United States |
 
 We keep this list current. If we add or change a provider in a way that affects you,
@@ -203,4 +203,4 @@ ask for your consent again.
 ---
 
 **Contact:** privacy@postqron.com
-**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy — VAT 03835250162, REA BG 431224

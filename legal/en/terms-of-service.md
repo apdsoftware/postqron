@@ -1,7 +1,7 @@
 ---
 document: terms-of-service
 version: 1.0.0
-effective_date: [[DA CONFERMARE: data di entrata in vigore, da fissare al lancio]]
+effective_date: 2026-08-17
 language: en
 ---
 
@@ -14,7 +14,7 @@ together with the [Acceptable Use Policy](acceptable-use-policy.md) and the
 ## 1. Who you are contracting with
 
 Postqron is operated by
-Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224
+Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy — VAT 03835250162, REA BG 431224
 ("we", "us").
 
 **Purchases are made through Paddle.** Paddle acts as Merchant of Record: when you buy
@@ -170,4 +170,4 @@ of the country where you live, and may bring proceedings before your local court
 ---
 
 **Contact:** hello@postqron.com
-**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy — VAT 03835250162, REA BG 431224

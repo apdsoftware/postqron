@@ -1,7 +1,7 @@
 ---
 document: cookie-policy
 version: 1.0.0
-effective_date: [[DA CONFERMARE: data di entrata in vigore, da fissare al lancio]]
+effective_date: 2026-08-17
 language: en
 ---
 
@@ -79,4 +79,4 @@ changes reset consent.
 ---
 
 **Contact:** privacy@postqron.com
-**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy — VAT 03835250162, REA BG 431224

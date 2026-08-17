@@ -35,11 +35,19 @@ verifica l'assenza prima del deploy (#473).
 
 ### Stato attuale
 
-Resta aperta la sola **data di entrata in vigore**, che si fissa al lancio. Tutto il
-resto è compilato con i dati di Apdsoftware e le decisioni prese il 2026-08-17:
-giurisdizione italiana e foro di Bergamo, Hetzner in Germania, Paddle nel Regno Unito,
-Mailronix operato dalla stessa entità che opera Postqron, nessun rimborso pro-rata,
-nessun DPO nominato.
+**Nessun segnaposto aperto.** I quattro documenti sono alla versione `1.0.0` con data
+di entrata in vigore `2026-08-17`.
+
+Sulla data: è una proprietà della **versione del documento**, non del lancio. Il
+momento in cui un utente è vincolato è quello in cui accetta, e viene registrato per
+utente con versione e lingua (R46) — quindi datare la 1.0.0 al giorno in cui è stata
+completata è corretto anche con il sito non ancora pubblico. Se la revisione legale
+cambia i testi, cambia la versione e con essa la data, che è già la regola qui sopra.
+
+Le decisioni incorporate: giurisdizione italiana e foro di Bergamo, Hetzner in
+Germania, Paddle nel Regno Unito, Mailronix operato dalla stessa entità che opera
+Postqron, nessun rimborso pro-rata, responsabilità esclusa nella misura massima
+consentita, nessun DPO nominato, piani a pagamento riservati all'uso professionale.
 
 ## Rapporto con Paddle
 
