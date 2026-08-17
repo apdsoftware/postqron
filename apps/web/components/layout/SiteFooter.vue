@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { footerNav } from '~/content/navigation'
-import { company, socialLinks } from '~/content/company'
+import { socialLinks } from '~/content/social'
+
+const { content, href } = useSiteLocale()
 
 const year = new Date().getFullYear()
 </script>
 
 <template>
   <footer
-    id="contatti"
+    id="contact"
     class="site-footer"
   >
     <div class="container">
@@ -18,12 +19,12 @@ const year = new Date().getFullYear()
             class="site-footer__logo"
           />
           <p class="site-footer__about">
-            {{ company.about }}
+            {{ content.company.about }}
           </p>
         </div>
 
         <div
-          v-for="group in footerNav"
+          v-for="group in content.nav.footer"
           :key="group.title"
           class="col-lg-2 col-md-4 col-sm-6 col-6"
         >
@@ -35,7 +36,7 @@ const year = new Date().getFullYear()
               v-for="item in group.items"
               :key="item.label"
             >
-              <NuxtLink :to="item.to!">
+              <NuxtLink :to="href(item.to!)">
                 <span class="site-footer__nav-icon"><HexIcon name="angleRight" /></span>
                 <span class="site-footer__nav-label">{{ item.label }}</span>
               </NuxtLink>
@@ -45,13 +46,13 @@ const year = new Date().getFullYear()
 
         <div class="col-lg-3 col-md-4 col-sm-12">
           <h2 class="site-footer__title">
-            Contatti
+            {{ content.ui.contactTitle }}
           </h2>
           <address class="site-footer__address">
-            <p>{{ company.legalName }}<br>{{ company.address }}</p>
+            <p>{{ content.company.legalName }}<br>{{ content.company.address }}</p>
             <p>
-              <span>Email: </span>
-              <a :href="`mailto:${company.email}`">{{ company.email }}</a>
+              <span>{{ content.ui.emailPrefix }}</span>
+              <a :href="`mailto:${content.company.email}`">{{ content.company.email }}</a>
             </p>
             <ul class="site-footer__social">
               <li
@@ -77,7 +78,7 @@ const year = new Date().getFullYear()
       <div class="row">
         <div class="col-lg-12">
           <p class="site-footer__copyright">
-            © {{ year }} {{ company.legalName }}. Tutti i diritti riservati.
+            © {{ year }} {{ content.company.legalName }}. {{ content.ui.rightsReserved }}
           </p>
         </div>
       </div>

@@ -6,15 +6,25 @@ defineProps<{
   role: string
   quote: string
   avatar: string
+  /** Testo alternativo del ritratto, già composto da `ui.photoOf`. */
+  photoAlt: string
+  /**
+   * Citazione inventata. Il markup lo espone come `data-placeholder`: è così
+   * che il percorso di deploy (#426) può accorgersene senza leggere i testi.
+   */
+  placeholder: boolean
 }>()
 </script>
 
 <template>
-  <div class="testimonial">
+  <div
+    class="testimonial"
+    :data-placeholder="placeholder ? 'true' : undefined"
+  >
     <div class="testimonial__avatar">
       <HexagonAvatar
         :src="avatar"
-        :alt="`Foto di ${name}`"
+        :alt="photoAlt"
       />
     </div>
     <blockquote class="testimonial__body">

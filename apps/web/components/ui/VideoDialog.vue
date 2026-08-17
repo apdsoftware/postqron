@@ -6,6 +6,8 @@ const props = defineProps<{
   embedSrc: string
   /** Titolo del video, letto dagli screen reader e usato come `title` dell'iframe. */
   title: string
+  /** Etichetta del pulsante di chiusura: arriva da `ui.closeVideo`. */
+  closeLabel: string
 }>()
 
 /** Sotto questa larghezza il tema rinuncia alla lightbox e segue il link. */
@@ -62,7 +64,7 @@ function close() {
         class="video-dialog__close"
         @click="close"
       >
-        Chiudi
+        {{ closeLabel }}
       </button>
       <iframe
         v-if="isOpen"

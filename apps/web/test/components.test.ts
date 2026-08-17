@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import HexIcon from '~/components/ui/HexIcon.vue'
 import HexagonAvatar from '~/components/ui/HexagonAvatar.vue'
 import HexagonShape from '~/components/ui/HexagonShape.vue'
+import LineButton from '~/components/ui/LineButton.vue'
 import PricingCard from '~/components/ui/PricingCard.vue'
 import TestimonialCard from '~/components/ui/TestimonialCard.vue'
 import { hexIcons } from '~/utils/icons'
@@ -68,21 +69,33 @@ describe('HexagonShape', () => {
   })
 })
 
+const testimonial = {
+  name: 'Giulia Tomassini',
+  role: 'Backend lead',
+  quote: 'Ora la verità sta nel repository.',
+  avatar: '/img/people/1.svg',
+  photoAlt: 'Foto di Giulia Tomassini',
+  placeholder: true,
+}
+
 describe('TestimonialCard', () => {
   it('cita nome, ruolo e testo dentro un blockquote', () => {
-    const wrapper = mount(TestimonialCard, {
-      props: {
-        name: 'Giulia Tomassini',
-        role: 'Backend lead',
-        quote: 'Ora la verità sta nel repository.',
-        avatar: '/img/people/1.svg',
-      },
-    })
+    const wrapper = mount(TestimonialCard, { props: testimonial })
 
     expect(wrapper.find('blockquote cite').text()).toBe('Giulia Tomassini')
     expect(wrapper.text()).toContain('Backend lead')
     expect(wrapper.find('blockquote p').text()).toBe('Ora la verità sta nel repository.')
     expect(wrapper.find('img').attributes('alt')).toBe('Foto di Giulia Tomassini')
+  })
+
+  it('marca nel markup le citazioni inventate, e solo quelle', () => {
+    // È il punto in cui la finzione smette di essere un commento nel file dei
+    // contenuti e diventa qualcosa che il percorso di deploy (#426) può vedere.
+    const invented = mount(TestimonialCard, { props: testimonial })
+    expect(invented.attributes('data-placeholder')).toBe('true')
+
+    const real = mount(TestimonialCard, { props: { ...testimonial, placeholder: false } })
+    expect(real.attributes('data-placeholder')).toBeUndefined()
   })
 })
 
@@ -99,9 +112,11 @@ const plan: PricingPlan = {
   ],
 }
 
+const href = '/it/#welcome'
+
 describe('PricingCard', () => {
   it('distingue le voci comprese da quelle escluse', () => {
-    const wrapper = mount(PricingCard, { props: { plan, position: 2 } })
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href } })
     const items = wrapper.findAll('li')
 
     expect(items).toHaveLength(2)
@@ -110,21 +125,40 @@ describe('PricingCard', () => {
   })
 
   it('mostra prezzo, periodo e posizione nel listino', () => {
-    const wrapper = mount(PricingCard, { props: { plan, position: 2 } })
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href } })
 
     expect(wrapper.text()).toContain('$')
     expect(wrapper.text()).toContain('12')
     expect(wrapper.text()).toContain('/mese')
     expect(wrapper.find('.pricing__position').text()).toBe('2')
+    expect(wrapper.find('.pricing__prefix').exists()).toBe(false)
+  })
+
+  it('antepone il qualificatore ai piani che partono da una soglia', () => {
+    // SPEC §8 dichiara Agency «da $99/mese»: un `$99` secco prometterebbe un
+    // prezzo fisso che non esiste.
+    const wrapper = mount(PricingCard, {
+      props: { plan: { ...plan, pricePrefix: 'da', price: '99' }, position: 4, href },
+    })
+
+    expect(wrapper.find('.pricing__prefix').text()).toBe('da')
+  })
+
+  it('manda il pulsante alla destinazione già tradotta in lingua', () => {
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href } })
+
+    // La destinazione arriva prefissata dalla pagina: la card non conosce la
+    // lingua, e `plan.ctaTo` da solo punterebbe fuori da tutte e cinque.
+    expect(wrapper.findComponent(LineButton).props('to')).toBe(href)
   })
 
   it('evidenzia il piano in vetrina e ne rende pieno il pulsante', () => {
-    const plain = mount(PricingCard, { props: { plan, position: 1 } })
+    const plain = mount(PricingCard, { props: { plan, position: 1, href } })
     expect(plain.classes()).not.toContain('is-featured')
     expect(plain.find('.line-button').classes()).toContain('line-button--outline')
 
     const featured = mount(PricingCard, {
-      props: { plan: { ...plan, featured: true }, position: 2 },
+      props: { plan: { ...plan, featured: true }, position: 2, href },
     })
     expect(featured.classes()).toContain('is-featured')
     expect(featured.find('.line-button').classes()).toContain('line-button--solid')

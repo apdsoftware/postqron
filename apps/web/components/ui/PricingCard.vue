@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import type { PricingPlan } from '~/types/content'
 
-withDefaults(
-  defineProps<{
-    plan: PricingPlan
-    /** Posizione nel listino: è il numero dentro l'esagono. */
-    position: number
-  }>(),
-  {},
-)
+defineProps<{
+  plan: PricingPlan
+  /** Posizione nel listino: è il numero dentro l'esagono. */
+  position: number
+  /** Destinazione del pulsante, già prefissata con la lingua corrente. */
+  href: string
+}>()
 </script>
 
 <template>
@@ -32,6 +31,10 @@ withDefaults(
 
     <div class="pricing__body">
       <p class="pricing__price">
+        <span
+          v-if="plan.pricePrefix"
+          class="pricing__prefix"
+        >{{ plan.pricePrefix }}</span>
         <span class="pricing__currency">{{ plan.currency }}</span>
         <span class="pricing__amount">{{ plan.price }}</span>
         <span class="pricing__period">{{ plan.period }}</span>
@@ -49,7 +52,7 @@ withDefaults(
 
     <footer class="pricing__footer">
       <LineButton
-        :to="plan.ctaTo"
+        :to="href"
         :variant="plan.featured ? 'solid' : 'outline'"
       >
         {{ plan.ctaLabel }}
@@ -128,6 +131,19 @@ withDefaults(
   margin-bottom: 30px;
   color: var(--pq-primary);
   text-align: center;
+}
+
+/*
+ * «da», «from», «ab»: sta sulla stessa riga del prezzo, alla quota del simbolo
+ * di valuta e nella stessa misura, perché è un qualificatore della cifra e non
+ * un'etichetta a sé.
+ */
+.pricing__prefix {
+  position: relative;
+  top: -15px;
+  margin-right: 4px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .pricing__currency {

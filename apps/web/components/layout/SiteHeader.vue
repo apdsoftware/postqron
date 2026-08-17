@@ -1,13 +1,40 @@
 <script setup lang="ts">
-import { mainNav, navCta } from '~/content/navigation'
+import type { LocaleCode } from '~/utils/locale'
+import { LOCALES, localePath, stripLocale } from '~/utils/locale'
 
 /** Scorrimento oltre il quale l'header diventa una barra bianca compatta. */
 const STICKY_OFFSET = 30
+
+const route = useRoute()
+const { locale, content, href } = useSiteLocale()
 
 const isScrolled = useScrolledPast(STICKY_OFFSET)
 const isMenuOpen = ref(false)
 /** Indice del sottomenu aperto sotto i 992px, dove la tendina è a scatto. */
 const openSubmenu = ref<number | null>(null)
+
+/**
+ * Il selettore di lingua è l'ultima tendina della barra e ne condivide stato e
+ * stile: sotto i 992px si apre a scatto come le altre, sopra al passaggio del
+ * mouse. L'indice viene dopo quelli del menu, che è esattamente il posto che
+ * occupa nel markup.
+ */
+const languageSubmenuIndex = computed(() => content.value.nav.main.length)
+
+const currentLanguage = computed(
+  () => LOCALES.find(entry => entry.code === locale.value) ?? LOCALES[0]!,
+)
+
+/**
+ * Indirizzo della pagina corrente in un'altra lingua.
+ *
+ * Si ricava dal percorso senza prefisso, non da una tabella di corrispondenze:
+ * la struttura delle rotte è la stessa in tutte e cinque le lingue, quindi
+ * `/it/prezzi/` è `/es/prezzi/` finché i percorsi non verranno tradotti.
+ */
+function localeHref(code: LocaleCode) {
+  return localePath(stripLocale(route.path), code)
+}
 
 function closeMenu() {
   isMenuOpen.value = false
@@ -16,6 +43,16 @@ function closeMenu() {
 
 function toggleSubmenu(index: number) {
   openSubmenu.value = openSubmenu.value === index ? null : index
+}
+
+/**
+ * R32: la scelta esplicita prevale sul rilevamento e persiste fra le visite.
+ * La navigazione la fa il `NuxtLink`; qui si registra soltanto che è stata una
+ * scelta e non un rilevamento.
+ */
+function chooseLocale(code: LocaleCode) {
+  rememberLocale(code)
+  closeMenu()
 }
 </script>
 
@@ -27,9 +64,9 @@ function toggleSubmenu(index: number) {
     <div class="container">
       <nav class="site-header__nav">
         <NuxtLink
-          to="/"
+          :to="href('/')"
           class="site-header__logo"
-          aria-label="PostQron, torna alla home"
+          :aria-label="content.ui.homeLink"
         >
           <SiteLogo :height="37" />
         </NuxtLink>
@@ -43,7 +80,7 @@ function toggleSubmenu(index: number) {
           @click="isMenuOpen = !isMenuOpen"
         >
           <span class="site-header__bars" />
-          <span class="visually-hidden">Menu</span>
+          <span class="visually-hidden">{{ content.ui.menu }}</span>
         </button>
 
         <ul
@@ -52,13 +89,13 @@ function toggleSubmenu(index: number) {
           :class="{ 'is-open': isMenuOpen }"
         >
           <li
-            v-for="(item, index) in mainNav"
+            v-for="(item, index) in content.nav.main"
             :key="item.label"
             :class="{ 'has-submenu': item.children, 'is-expanded': openSubmenu === index }"
           >
             <NuxtLink
               v-if="item.to"
-              :to="item.to"
+              :to="href(item.to)"
               @click="closeMenu"
             >
               {{ item.label }}
@@ -85,7 +122,7 @@ function toggleSubmenu(index: number) {
                   :key="child.label"
                 >
                   <NuxtLink
-                    :to="child.to!"
+                    :to="href(child.to!)"
                     @click="closeMenu"
                   >{{ child.label }}</NuxtLink>
                 </li>
@@ -93,13 +130,47 @@ function toggleSubmenu(index: number) {
             </template>
           </li>
 
+          <!--
+            Selettore di lingua (R32). Le voci non sono tradotte: ogni lingua si
+            chiama con il proprio nome, che è la sola forma riconoscibile da chi
+            non capisce quella corrente.
+          -->
+          <li
+            class="has-submenu"
+            :class="{ 'is-expanded': openSubmenu === languageSubmenuIndex }"
+          >
+            <button
+              type="button"
+              :aria-expanded="openSubmenu === languageSubmenuIndex"
+              @click="toggleSubmenu(languageSubmenuIndex)"
+            >
+              <span class="visually-hidden">{{ content.ui.language }}: </span>
+              <span :lang="currentLanguage.htmlLang">{{ currentLanguage.label }}</span>
+              <span class="site-header__caret"><HexIcon name="angleDown" /></span>
+            </button>
+            <ul class="site-header__submenu">
+              <li
+                v-for="entry in LOCALES"
+                :key="entry.code"
+              >
+                <NuxtLink
+                  :to="localeHref(entry.code)"
+                  :hreflang="entry.htmlLang"
+                  :lang="entry.htmlLang"
+                  :aria-current="entry.code === locale ? 'true' : undefined"
+                  @click="chooseLocale(entry.code)"
+                >{{ entry.label }}</NuxtLink>
+              </li>
+            </ul>
+          </li>
+
           <li>
             <NuxtLink
-              :to="navCta.to"
+              :to="href(content.nav.cta.to)"
               class="site-header__cta"
               @click="closeMenu"
             >
-              <span>{{ navCta.label }}</span>
+              <span>{{ content.nav.cta.label }}</span>
             </NuxtLink>
           </li>
         </ul>

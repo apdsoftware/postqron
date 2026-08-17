@@ -3,7 +3,10 @@ defineProps<{
   title: string
   excerpt: string
   image: string
+  /** Destinazione già prefissata con la lingua corrente. */
   to: string
+  /** Invito in fondo alla card: arriva da `ui.readMore`. */
+  ctaLabel: string
 }>()
 </script>
 
@@ -37,7 +40,7 @@ defineProps<{
       :to="to"
       class="article-card__cta"
     >
-      Leggi
+      {{ ctaLabel }}
     </LineButton>
   </article>
 </template>

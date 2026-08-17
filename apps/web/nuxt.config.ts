@@ -6,6 +6,8 @@
 // resta alcun server Nitro in produzione. Non introdurre `server/` API routes,
 // `defineEventHandler` o rotte non pre-renderizzabili: l'unica origin dinamica
 // è il backend Go.
+import { LOCALE_CODES, localePath } from './utils/locale'
+
 export default defineNuxtConfig({
   modules: ['@nuxt/eslint'],
 
@@ -43,7 +45,15 @@ export default defineNuxtConfig({
   nitro: {
     prerender: {
       crawlLinks: true,
-      routes: ['/'],
+
+      // Il numero di rotte generate si moltiplica per cinque (SPEC §8-bis). La
+      // radice non basta come punto di partenza: è una pagina di smistamento
+      // che reindirizza da JavaScript, e il crawler non esegue JavaScript. Le
+      // cinque home sono quindi dichiarate qui, e da lì il crawler raggiunge
+      // tutto il resto seguendo i link — che, essendo prefissati per lingua,
+      // restano dentro la lingua da cui partono.
+      routes: ['/', ...LOCALE_CODES.map(locale => localePath('/', locale))],
+
       // Una rotta che non si pre-renderizza è un errore di build, non un
       // fallback silenzioso su SSR.
       failOnError: true,
