@@ -10,7 +10,7 @@ import SiteLogo from '~/components/ui/SiteLogo.vue'
 import PricingCard from '~/components/ui/PricingCard.vue'
 import TestimonialCard from '~/components/ui/TestimonialCard.vue'
 import { hexIcons } from '~/utils/icons'
-import { MARCHIO, SIMBOLO_TRACCIATI } from '~/utils/marchio'
+import { MARCHIO, SIMBOLO_STROKE, SIMBOLO_TRACCIATI } from '~/utils/marchio'
 import type { PricingPlan } from '~/types/content'
 
 describe('HexIcon', () => {
@@ -247,17 +247,33 @@ describe('SiteLogo', () => {
   })
 
   it('dipinge il simbolo col gradiente solo nella variante primaria', () => {
-    const primaria = mount(SiteLogo)
-    const riferimenti = primaria.findAll('.site-logo__mark')
-      .map(nodo => nodo.attributes('fill'))
-    expect(riferimenti.every(fill => fill?.startsWith('url(#'))).toBe(true)
+    // La vernice sta su `fill` o su `stroke` secondo che il simbolo sia un
+    // pieno o un tratto: si guarda quella che il simbolo usa davvero.
+    const vernice = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAll('.site-logo__mark')
+        .map(nodo => nodo.attributes(SIMBOLO_STROKE ? 'stroke' : 'fill'))
 
-    // Invertita e monocromatica prendono il colore dal CSS, non dall'attributo:
-    // è ciò che permette all'header di cambiarlo allo scorrimento.
+    expect(vernice(mount(SiteLogo)).every(v => v?.startsWith('url(#'))).toBe(true)
+    expect(vernice(mount(SiteLogo, { props: { variant: 'mono' } })))
+      .toEqual(SIMBOLO_TRACCIATI.map(() => 'currentcolor'))
+
     for (const variant of ['invertita', 'mono'] as const) {
-      const wrapper = mount(SiteLogo, { props: { variant } })
-      expect(wrapper.find('.site-logo__mark').attributes('fill')).toBeUndefined()
-      expect(wrapper.classes()).toContain(`site-logo--${variant}`)
+      expect(mount(SiteLogo, { props: { variant } }).classes())
+        .toContain(`site-logo--${variant}`)
+    }
+  })
+
+  it('non contorna i simboli pieni, e non riempie quelli a tratto', () => {
+    // Un `stroke` su un tracciato pieno lo ingrasserebbe di un'unità sulle 32
+    // della griglia, che a 16 px è mezzo pixel su tutto il perimetro.
+    const marchio = mount(SiteLogo).find('.site-logo__mark')
+    if (SIMBOLO_STROKE) {
+      expect(marchio.attributes('fill')).toBe('none')
+      expect(Number(marchio.attributes('stroke-width'))).toBe(SIMBOLO_STROKE)
+    }
+    else {
+      expect(marchio.attributes('stroke')).toBeUndefined()
+      expect(marchio.attributes('stroke-width')).toBeUndefined()
     }
   })
 
@@ -276,13 +292,10 @@ describe('SiteLogo', () => {
     expect(ids[0]).not.toBe(ids[1])
   })
 
-  it('disegna il simbolo al posto della q, non accanto alla parola', () => {
-    const wrapper = mount(SiteLogo)
-    const tracciati = wrapper.findAll('path').map(nodo => nodo.attributes('d'))
-    expect(tracciati).toContain(MARCHIO.lettere.prima)
-    expect(tracciati).toContain(MARCHIO.lettere.dopo)
-    expect(tracciati).toContain(SIMBOLO_TRACCIATI[0])
-    // Sette lettere disegnate più le due parti del simbolo: la q non c'è.
-    expect(tracciati).toHaveLength(4)
+  it('disegna il simbolo e il logotipo, e nient\'altro', () => {
+    const tracciati = mount(SiteLogo).findAll('path').map(nodo => nodo.attributes('d'))
+    expect(tracciati).toContain(MARCHIO.lettere)
+    for (const d of SIMBOLO_TRACCIATI) expect(tracciati).toContain(d)
+    expect(tracciati).toHaveLength(SIMBOLO_TRACCIATI.length + 1)
   })
 })

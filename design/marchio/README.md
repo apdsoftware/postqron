@@ -7,55 +7,65 @@ non era nostro: ce l'ha chiunque abbia comprato lo stesso tema.
 Il nome si scrive **`Postqron`** — P maiuscola, resto minuscolo. Mai `PostQron`,
 mai `POSTQRON`, mai `postQron`.
 
+> **Stato: proposta.** In `lab/candidati.html` ci sono sei direzioni, una per
+> famiglia di identità. Qui è cablata quella consigliata — il gallo. La scelta
+> definitiva è del proprietario del prodotto: si cambia `SCELTO` in
+> [`tools/marchio.py`](tools/marchio.py) e si rilancia `esporta.py`, e kit,
+> favicon, icona, card e sito si rifanno da soli.
+
 ---
 
 ## 1. L'idea
 
-Postqron non esegue richieste a orario: fa vivere le schedulazioni **come codice
-nel repository di chi le scrive**. Il `cron.yaml` viene riletto a ogni push, e
-la revisione di un cronjob passa da una pull request. Il marchio doveva dire
-questo, non «tempo»: di orologi il mercato è pieno.
+La ricognizione sui venti servizi del vicinato sta in
+[`PANORAMA.md`](PANORAMA.md). In due righe: nella fascia cron l'orologio è il
+default e un passo più in là lo è la spirale astratta, mentre **il carattere non
+ce l'ha nessuno**. Fly.io dimostra che in questo mercato una figura riconoscibile
+si fa ricordare; nella fascia cron di affetto non ce n'è un grammo.
 
-Il simbolo è la **q di Postqron disegnata come un blocco di configurazione**.
+Il simbolo è **la testa di un gallo, di profilo**.
 
-- L'occhiello è un rettangolo a lati dritti e angoli raccordati — un campo di
-  testo, non un quadrante.
-- La controforma è quadrata, come un valore dentro un campo.
-- L'asta scende sotto la riga: la `q` è l'unica lettera del nome che lo fa, ed è
-  l'unico appiglio tipografico che il nome offre.
+Non è una trovata: è l'unico animale che il prodotto ha già. È l'essere vivente
+che canta a ora fissa — la definizione di un cronjob prima che i computer
+esistessero — e in questa categoria non lo ha nessuno. Fra tutte le direzioni
+possibili, è la sola che un concorrente non potrebbe copiare senza che si veda
+che ha copiato.
 
-Il simbolo non sta **accanto** al logotipo: ne prende il posto al centro, dove la
-`q` sta nel nome. Sono un oggetto solo, non due oggetti che ripetono la stessa
-forma a mezzo centimetro di distanza — ed è il motivo per cui non esiste un
-lockup «simbolo + logotipo» da comporre a mano, con le sue proporzioni da
-sbagliare.
+Il gallo non parla della configurazione come codice: parla di puntualità e lo fa
+con una faccia. È una scelta di registro prima che di forma.
 
 ## 2. Costruzione
 
-Il simbolo vive su una **griglia di 32 unità** per lato.
+Il simbolo vive su una **griglia di 32 unità** per lato, e la sua sagoma è **un
+tracciato solo** più la controforma dell'occhio.
 
-| Elemento | Misura |
-|---|---|
-| Occhiello, ingombro | 20 × 20 unità |
-| Parete dell'occhiello | 4 unità |
-| Controforma | 12 × 12 unità |
-| Raccordo esterno / interno | 7,5 / 4,5 unità |
-| Asta | 4 unità di larghezza, fino a 3 unità dal bordo inferiore |
-| Inchiostro totale | 20 × 26 unità |
+Il contorno si costruisce camminando lungo il cerchio della testa — centro
+(14,6 · 19,2), raggio 7,9 — e sostituendo tre archi con altrettanti elementi:
 
-La parete di 4 unità non è arbitraria: innestata nel logotipo vale 108 unità di
-em contro le 100 dell'asta delle lettere, cioè lo stesso peso a meno dell'8 %.
-A 5 unità la `q` pesava visibilmente più del resto della parola.
+| Elemento | Dove | Come |
+|---|---|---|
+| Cresta | 234° → 312° | tre gobbe da 4,3 unità di freccia |
+| Becco | 342° → 22° | due rette fino a una punta a 5,4 unità dalla testa |
+| Bargiglio | 36° → 76° | una gobba da 3,0 unità |
+| Occhio | (17,4 · 16,6) | controforma circolare di raggio 2,3 |
 
-Il raggio è il parametro che è costato più prove. Sotto le 6 unità il simbolo
-innestato si legge come **il quadratino del glifo mancante**; sopra le 9 smette
-di dire «blocco» e torna a dire «cerchio». A 7,5 i lati restano dritti e gli
-angoli non sono più spigoli.
+Disegnare l'unione di cerchi a mano avrebbe voluto dire calcolarne le
+intersezioni; percorrerla no. La gobba si dichiara per **freccia** e non per
+raggio, perché la freccia è la misura che interessa a chi disegna — e perché
+oltre la metà della corda serve l'arco maggiore: i primi tentativi di cresta
+erano tre gobbe da mezzo millimetro proprio per quello.
+
+Sotto le 4 unità di griglia un dettaglio vale meno di 2 px a 16 px di resa, ed è
+il motivo per cui qui non ci sono piume, narici né bargigli doppi.
 
 Il **logotipo** è disegnato, non composto: sono tracciati, non testo. Vengono da
-Quicksand (SIL OFL) al peso 600 con crenatura −15/1000 di em, poi corretti. Un
-logotipo composto a runtime dipende dal caricamento del font e, nel frattempo,
-mostra il nome nel carattere di sistema.
+Quicksand (SIL OFL) al peso 600 con crenatura −15/1000 di em. Un logotipo
+composto a runtime dipende dal caricamento del font e, nel frattempo, mostra il
+nome nel carattere di sistema.
+
+Il **lockup** è il simbolo a sinistra e il logotipo a destra, allineati
+sull'estensione verticale reale del disegno — dall'altezza delle maiuscole al
+fondo della discendente — e non sull'altezza nominale dei riquadri.
 
 ## 3. Varianti
 
@@ -67,22 +77,20 @@ mostra il nome nel carattere di sistema.
 
 Nel sito si scelgono con la prop `variant` di `<SiteLogo>`: `primaria`,
 `invertita`, `mono`. In stampa il componente passa da solo al nero: molti
-browser scartano le vernici non piatte, e il gradiente sparirebbe lasciando
-«Post ron».
+browser scartano le vernici non piatte, e il gradiente sparirebbe.
 
 ## 4. Spazio di rispetto
 
-Attorno al marchio resta libero **almeno un occhiello** — l'altezza della `x`,
-cioè l'ingombro del quadrato del simbolo. Sul lato dell'asta si misura dal fondo
-della discendente, non dalla linea di base.
+Attorno al marchio resta libero **almeno mezza testa** — cioè metà dell'altezza
+del simbolo, su tutti e quattro i lati.
 
 ```
         ┌───────────────────────┐
-        │        ↕ 1 occhiello  │
+        │      ↕ ½ testa        │
         │   ┌───────────────┐   │
-   1 →  │   │   Postqron    │   │  ← 1
+   ½ →  │   │ 🐓 Postqron   │   │  ← ½
         │   └───────────────┘   │
-        │        ↕ 1 occhiello  │
+        │      ↕ ½ testa        │
         └───────────────────────┘
 ```
 
@@ -93,47 +101,47 @@ quest'area.
 
 | Uso | Minimo |
 |---|---|
-| Marchio completo, a schermo | **96 px** di larghezza (≈ 21 px di altezza) |
-| Marchio completo, a stampa | **26 mm** di larghezza |
-| Simbolo solo, a schermo | **16 px** |
-| Simbolo solo, a stampa | **5 mm** |
+| Marchio completo, a schermo | **120 px** di larghezza (≈ 20 px di altezza) |
+| Marchio completo, a stampa | **32 mm** di larghezza |
+| Simbolo solo, a schermo | **20 px** |
+| Simbolo solo, a stampa | **6 mm** |
 
-Sotto i 96 px il marchio completo non si legge più: si usa il **simbolo da
-solo**, che è disegnato apposta per reggere i 16 px della favicon — la misura a
-cui la maggior parte delle persone lo vedrà più spesso.
+**Sotto i 20 px il simbolo perde l'occhio e diventa una macchia**: sotto quella
+soglia si usa l'**icona applicazione** — campo pieno, simbolo in negativo — che
+alla stessa misura conserva la sagoma perché il contrasto lo dà lo sfondo.
+È il limite reale di questa direzione, non un dettaglio di prudenza.
 
 ## 6. Usi vietati
 
-- **Non ricomporre il logotipo** scrivendo «Postqron» in Quicksand: il logotipo
-  ha crenatura propria e la `q` è il simbolo.
-- **Non usare il simbolo accanto alla parola intera** («◻ Postqron»): la `q`
-  comparirebbe due volte.
-- **Non ruotare, inclinare, specchiare, deformare.** L'altezza e la larghezza si
-  cambiano insieme.
+- **Non ricomporre il logotipo** scrivendo «Postqron» in Quicksand: ha crenatura
+  propria.
+- **Non ruotare, inclinare, specchiare, deformare.** Il gallo guarda a destra:
+  girarlo verso sinistra lo fa sembrare un altro animale.
 - **Non ridisegnare il gradiente**: due sole fermate, ciano `#0fb4e5` →
   viola `#743fe5`, sull'asse basso-sinistra → alto-destra.
-- **Non mettere la variante primaria su fondi pieni o su fotografie**: il viola
-  del gradiente sparisce sullo scuro. Lì si usa l'invertita.
-- **Non aggiungere ombre, contorni, bagliori, sfumature interne.**
+- **Non mettere la variante primaria su fondi pieni o su fotografie**: lì si usa
+  l'invertita.
+- **Non aggiungere ombre, contorni, bagliori, occhi che ammiccano, cappelli di
+  Natale.** Se il gallo va animato o vestito, si disegna un'illustrazione a
+  parte: il marchio resta il marchio.
+- **Non contornare il simbolo pieno**: un tratto da un'unità sulle 32 della
+  griglia è mezzo pixel su tutto il perimetro a 16 px, e lo ingrassa.
 - **Non racchiuderlo in un riquadro** che non sia l'icona applicazione.
-- **Non cambiarne i colori** per adattarlo a una campagna o a un fondo colorato:
-  esiste la monocromatica.
 - **Non tradurre il nome** né aggiungergli un sottotitolo dentro il lockup.
 
 ## 7. Testo alternativo
 
 Il marchio è un'immagine di testo: chi non lo vede deve ricevere **il nome, non
-la descrizione del disegno**.
+la descrizione del disegno**. Nessun «logo con un gallo».
 
 - Il marchio **dentro un link già etichettato** — quello dell'header, che dice
   «Postqron, torna alla home» — è **decorativo**: `aria-hidden="true"`.
   Etichettarlo di nuovo lo fa annunciare due volte.
 - Il marchio **da solo**, come nel footer, porta il nome del prodotto:
   `<SiteLogo :label="content.company.name" />`.
-- Il testo alternativo è **`Postqron`**, e basta. Non «logo Postqron»: il lettore
-  di schermo annuncia già che si tratta di un'immagine.
-- La card social dichiara `og:image:alt` uguale a `Postqron`, perché è ciò che
-  l'immagine contiene.
+- Il testo alternativo è **`Postqron`**, e basta: il lettore di schermo annuncia
+  già che si tratta di un'immagine.
+- La card social dichiara `og:image:alt` uguale a `Postqron`.
 
 ## 8. Sistema visivo
 
@@ -147,19 +155,18 @@ prima che del sito e vivono in entrambi i posti — `--pq-accent-start` e
 
 ```
 design/marchio/
-├── svg/     kit vettoriale — è ciò che si consegna a chi chiede «il logo»
-├── png/     icona applicazione e card social, rasterizzate
-├── tools/   la costruzione: da qui escono sia il kit sia gli asset del sito
-└── lab/     pagine di prova (generate)
+├── PANORAMA.md  la ricognizione sul vicinato, e dove c'è spazio
+├── svg/         kit vettoriale — è ciò che si consegna a chi chiede «il logo»
+├── png/         icona applicazione e card social, rasterizzate
+├── tools/       la costruzione: da qui escono sia il kit sia gli asset del sito
+└── lab/         pagine di prova (generate)
 ```
 
 | File | Cos'è |
 |---|---|
-| `svg/postqron-marchio.svg` | marchio completo, primaria |
-| `svg/postqron-marchio-invertito.svg` | marchio completo, invertita |
-| `svg/postqron-marchio-mono.svg` | marchio completo, monocromatica |
+| `svg/postqron-marchio*.svg` | marchio completo, nelle tre varianti |
 | `svg/postqron-simbolo*.svg` | solo simbolo, nelle tre varianti |
-| `svg/postqron-logotipo.svg` | sole lettere, `q` compresa — per chi ha già il simbolo accanto |
+| `svg/postqron-logotipo.svg` | sole lettere — per chi ha già il simbolo accanto |
 | `svg/postqron-icona.svg` | icona applicazione, campo pieno |
 | `svg/postqron-card-social.svg` | card 1200×630 |
 | `png/postqron-icona-{256,512}.png` | icona applicazione rasterizzata |
@@ -176,7 +183,7 @@ cd design/marchio/tools
 python3 esporta.py            # SVG del kit, favicon, modulo TypeScript
 python3 esporta.py --servi    # come sopra, poi apri l'indirizzo che stampa
                               # per rifare i PNG e il .ico
-python3 proposte.py           # la pagina delle tre direzioni
+python3 candidati.py          # la pagina delle sei direzioni
 ```
 
 Serve `fonttools` e `pillow`. I PNG li disegna un browser e non un convertitore
@@ -185,20 +192,21 @@ raster e vettore non possono divergere.
 
 ## 10. Cosa è stato scartato
 
-Due direzioni sono arrivate finite alla pagina di prova e non sono state scelte
-— stanno in `lab/proposte.html`, con questa.
+**Il giro «config as code»** — tre direzioni finite, in `lab/proposte.html`: la
+q disegnata come blocco di configurazione, la rotaia con le righe rientrate, il
+gradino. Cadute per il concetto, non per l'esecuzione: la configurazione come
+codice non è la storia che il prodotto vuole raccontare.
 
-- **Indent** — una rotaia verticale e tre righe rientrate. Dice «configurazione
-  come codice» nel modo più diretto di tutti e regge benissimo i 16 px. Legge
-  però come l'icona «vista a elenco» di una barra strumenti: competente e
-  dimenticabile, che è esattamente il difetto da cui si veniva.
-- **Gradino** — l'indentazione in un tratto solo. Il più insolito dei tre, ma è
-  alto e stretto, non sta bene accanto alla parola, e a mente fredda si legge
-  come un tubo o una zeta.
+**Le altre cinque famiglie di questo giro**, in `lab/candidati.html`, ognuna con
+il suo costo scritto accanto: il timbro postale (un anello è la forma che regge
+peggio i 16 px, e assomiglia a un quadrante), il francobollo (a 16 px la
+dentellatura sparisce e resta un quadrato), l'onda quadra (regge benissimo le
+misure piccole ma dice «monitoraggio» più che «cron»), la P sola (competente e
+dimenticabile), il solo logotipo (rinuncia all'avatar, all'adesivo, all'icona).
 
-Prima ancora, e documentati in [`../marchio-proposte/`](../marchio-proposte/),
-erano caduti la Q su ramo git (leggeva come una lente d'ingrandimento), le
-graffe (si sfaldano a 16 px) e il chevron in cerchio (l'icona di ricarica).
-Questo giro ne ha aggiunti altri: l'asterisco dei cinque campi di cron legge come
-un **aeroplano**, il monogramma `Pq` rotazionale come una **N**, la coda della q
-che gira a destra rifà la **padella**.
+**Le letture involontarie**, tutte scoperte a schermo e nessuna nel codice: la Q
+su ramo git leggeva come una lente d'ingrandimento, le graffe si sfaldavano a
+16 px, il chevron in cerchio era l'icona di ricarica, l'asterisco dei cinque
+campi di cron un **aeroplano**, il monogramma `Pq` rotazionale una **N**, la
+coda della q girata a destra una **padella**, e il francobollo a tacche
+semicircolari un **sole**.

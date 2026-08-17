@@ -42,24 +42,23 @@ def doc(viewbox: str, corpo: str, titolo: str = "Postqron", larghezza: str = "",
 
 def simbolo_doc(paint: str, uid: str = "pq") -> str:
     defs = f"  <defs>{M.gradiente(uid)}</defs>\n" if paint.startswith("url") else ""
-    return doc("0 0 32 32", defs + "  " + M.simbolo_svg("blocco", paint))
+    return doc("0 0 32 32", defs + "  " + M.simbolo_svg(M.SCELTO, paint))
 
 
 def marchio_doc(colore_testo: str, paint: str, uid: str = "pq") -> str:
-    lg = M.logotipo_innestato()
+    """Il marchio completo: simbolo e logotipo affiancati."""
+    lk = M.lockup(M.SCELTO, 600, -15, coda=False)
     alto, basso = M.CAP, M.DESC
-    larghezza = round(lg["advance"])
     defs = f"  <defs>{M.gradiente(uid)}</defs>\n" if paint.startswith("url") else ""
     corpo = (
         defs
         + f'  <g transform="translate(0 {alto})">\n'
-        f'    <path d="{lg["prima"]}" fill="{colore_testo}"/>\n'
-        f'    <g transform="{lg["dopo_transform"]}">'
-        f'<path d="{lg["dopo"]}" fill="{colore_testo}"/></g>\n'
-        f'    <g transform="{lg["simbolo_transform"]}">'
-        f'{M.simbolo_svg("blocco", paint)}</g>\n  </g>'
+        f'    <g transform="{lk["simbolo_transform"]}">'
+        f'{M.simbolo_svg(M.SCELTO, paint)}</g>\n'
+        f'    <g transform="{lk["logo_transform"]}">'
+        f'<path d="{lk["logo"]["d"]}" fill="{colore_testo}"/></g>\n  </g>'
     )
-    return doc(f"0 0 {larghezza} {alto + basso}", corpo)
+    return doc(f"0 0 {round(lk['larghezza'])} {alto + basso}", corpo)
 
 
 def logotipo_doc(colore: str) -> str:
@@ -81,22 +80,25 @@ def icona_doc() -> str:
     trasparenza. Un simbolo su fondo trasparente diventerebbe quindi un simbolo
     su fondo nero o bianco a seconda del sistema: il fondo va dichiarato qui.
     """
-    scala = 0.5  # il simbolo occupa metà del lato: è il rapporto delle icone iOS
-    k = 512 * scala / 26  # inchiostro del simbolo: 26 unità di griglia
-    dx = 256 - 32 * k / 2
-    dy = 256 - 32 * k / 2
+    x0, y0, x1, y1 = M.SIMBOLI[M.SCELTO]["ink"]
+    # Il simbolo occupa il 52% del lato, che è la proporzione delle icone iOS:
+    # la maschera di sistema mangia gli angoli, e un disegno più grande ci
+    # finisce dentro.
+    k = 512 * 0.52 / max(x1 - x0, y1 - y0)
+    dx = 256 - (x0 + x1) / 2 * k
+    dy = 256 - (y0 + y1) / 2 * k
     corpo = (
         f"  <defs>{M.gradiente('pq-icona')}</defs>\n"
         f'  <rect width="512" height="512" fill="url(#pq-icona)"/>\n'
         f'  <g transform="translate({dx:.1f} {dy:.1f}) scale({k:.4f})">'
-        f'{M.simbolo_svg("blocco", "#fff")}</g>'
+        f'{M.simbolo_svg(M.SCELTO, "#fff")}</g>'
     )
     return doc("0 0 512 512", corpo, larghezza="512", altezza="512")
 
 
 def card_doc() -> str:
     """Card social 1200×630 (Open Graph): marchio in negativo su fondo profondo."""
-    lg = M.logotipo_innestato()
+    lk = M.lockup(M.SCELTO, 600, -15, coda=False)
     dominio = M.logotipo(500, 20, coda=False, testo="postqron.com")
 
     # Il marchio è alto 132 px, misurati dall'altezza delle maiuscole al fondo
@@ -104,7 +106,7 @@ def card_doc() -> str:
     # Tutte le coordinate sono riferite alla linea di base, non al riquadro:
     # è ciò che tiene allineate due composizioni di corpo diverso.
     k = 132 / (M.CAP + M.DESC)
-    x = (1200 - lg["advance"] * k) / 2
+    x = (1200 - lk["larghezza"] * k) / 2
     base = 218 + M.CAP * k
 
     kd = 24 / M.CAP
@@ -128,9 +130,8 @@ def card_doc() -> str:
   <ellipse cx="960" cy="120" rx="620" ry="420" fill="url(#pq-alone)"/>
   <ellipse cx="180" cy="600" rx="560" ry="380" fill="url(#pq-alone2)"/>
   <g transform="translate({x:.1f} {base:.1f}) scale({k:.5f})">
-    <path d="{lg["prima"]}" fill="#fff"/>
-    <g transform="{lg["dopo_transform"]}"><path d="{lg["dopo"]}" fill="#fff"/></g>
-    <g transform="{lg["simbolo_transform"]}">{M.simbolo_svg("blocco", "#fff")}</g>
+    <g transform="{lk["simbolo_transform"]}">{M.simbolo_svg(M.SCELTO, "#fff")}</g>
+    <g transform="{lk["logo_transform"]}"><path d="{lk["logo"]["d"]}" fill="#fff"/></g>
   </g>
   <g transform="translate({xd:.1f} {based:.1f}) scale({kd:.5f})" opacity="0.6">
     <path d="{dominio["d"]}" fill="#fff"/>
@@ -276,8 +277,9 @@ def modulo_ts() -> str:
     ricopiati lì a mano: sarebbero una seconda sorgente destinata a divergere
     dal kit in `design/marchio/`. Questo file li importa da lì.
     """
-    lg = M.logotipo_innestato()
-    occhiello, asta = M.blocco_tracciati()
+    lk = M.lockup(M.SCELTO, 600, -15, coda=False)
+    simbolo = M.SIMBOLI[M.SCELTO]
+    tracciati = ",\n  ".join(f"'{d}'" for d in simbolo["tracciati"])
     return f"""/*
  * Geometrie del marchio Postqron.
  *
@@ -289,31 +291,35 @@ def modulo_ts() -> str:
 /** Riquadro del simbolo: griglia quadrata di 32 unità. */
 export const SIMBOLO_VIEWBOX = '0 0 32 32'
 
-/** Occhiello (con controforma in evenodd) e asta discendente. */
+/**
+ * Tracciati del simbolo, con le controforme come sottotracciati in `evenodd`.
+ *
+ * Sono uno o due e non venti: forme separate prenderebbero ognuna il proprio
+ * riquadro di gradiente, e il marchio diventerebbe un collage di sfumature.
+ */
 export const SIMBOLO_TRACCIATI = [
-  '{occhiello}',
-  '{asta}',
+  {tracciati},
 ] as const
 
+/** Spessore del tratto, o 0 se il simbolo è un pieno. */
+export const SIMBOLO_STROKE = {simbolo["stroke"]:g}
+
 /**
- * Marchio completo: «Postqron» con il simbolo al posto della q.
+ * Marchio completo: simbolo e logotipo affiancati.
  *
  * Il riquadro va dall'altezza delle maiuscole al fondo della discendente, che
  * è l'estensione verticale reale del disegno: chi lo compone gli dà un'altezza
  * e ottiene la proporzione giusta senza conoscerne la costruzione.
  */
 export const MARCHIO = {{
-  viewBox: '0 0 {round(lg["advance"])} {M.CAP + M.DESC}',
-  larghezza: {round(lg["advance"])},
+  viewBox: '0 0 {round(lk["larghezza"])} {M.CAP + M.DESC}',
+  larghezza: {round(lk["larghezza"])},
   altezza: {M.CAP + M.DESC},
-  /** Le lettere, in due gruppi: quelle prima della q e quelle dopo. */
-  lettere: {{
-    prima: '{lg["prima"]}',
-    dopo: '{lg["dopo"]}',
-    dopoTransform: '{lg["dopo_transform"]}',
-  }},
-  /** Il simbolo, portato dalla griglia 32×32 alla cassa della q. */
-  simboloTransform: '{lg["simbolo_transform"]}',
+  /** Dal riquadro da 32 del simbolo alla cassa del logotipo. */
+  simboloTransform: '{lk["simbolo_transform"]}',
+  /** Le lettere, e dove cominciano. */
+  logoTransform: '{lk["logo_transform"]}',
+  lettere: '{lk["logo"]["d"]}',
   /** Le lettere sono disegnate sulla linea di base, non sul bordo del riquadro. */
   lineaDiBase: {M.CAP},
 }} as const

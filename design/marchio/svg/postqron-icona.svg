@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Postqron">
   <!-- Postqron — marchio registrato. design/marchio/README.md -->
   <title>Postqron</title>
-  <defs><linearGradient id="pq-icona" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/></linearGradient></defs>
+  <defs><linearGradient id="pq-icona" gradientUnits="userSpaceOnUse" x1="0" y1="32" x2="32" y2="0"><stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/></linearGradient></defs>
   <rect width="512" height="512" fill="url(#pq-icona)"/>
-  <g transform="translate(98.5 98.5) scale(9.8462)"><path fill="#fff" fill-rule="evenodd" d="M13.5 3H18.5A7.5 7.5 0 0 1 26 10.5V15.5A7.5 7.5 0 0 1 18.5 23H13.5A7.5 7.5 0 0 1 6 15.5V10.5A7.5 7.5 0 0 1 13.5 3ZM14.5 7H17.5A4.5 4.5 0 0 1 22 11.5V14.5A4.5 4.5 0 0 1 17.5 19H14.5A4.5 4.5 0 0 1 10 14.5V11.5A4.5 4.5 0 0 1 14.5 7Z"/><path fill="#fff" d="M22 3h4v24a2 2 0 0 1-4 0Z"/></g>
+  <g transform="translate(63.3 68.4) scale(11.2338)"><path fill="#fff" fill-rule="evenodd" d="M7.18 21.90A7.90 7.90 0 0 1 9.52 13.15A2.52 2.52 0 1 1 13.23 11.42A2.52 2.52 0 1 1 16.78 11.61A2.52 2.52 0 1 1 19.89 13.33A7.90 7.90 0 0 1 22.11 16.76L27.90 20.20L21.92 22.16A7.90 7.90 0 0 1 20.99 23.84A2.72 2.72 0 1 1 16.51 26.87A7.90 7.90 0 0 1 7.18 21.90ZM15.10 16.60A2.30 2.30 0 0 0 19.70 16.60A2.30 2.30 0 0 0 15.10 16.60Z"/></g>
 </svg>

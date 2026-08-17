@@ -8,6 +8,7 @@ cambia ovunque, e non esiste la copia dimenticata che diverge in silenzio.
 """
 from __future__ import annotations
 
+from simboli import CANDIDATI
 from wordmark import wordmark
 
 # ------------------------------------------------------------------- palette
@@ -19,100 +20,47 @@ CAP = 700  # altezza delle maiuscole di Quicksand, in unità di em (upem 1000)
 DESC = 200  # profondità della discendente della q
 
 
-def gradiente(uid: str) -> str:
+def gradiente(uid: str, lato: float = 32,
+              box: tuple[float, float, float, float] | None = None) -> str:
+    """
+    Gradiente del marchio, in coordinate utente e non per oggetto.
+
+    Con `objectBoundingBox` — il valore predefinito — ogni forma del simbolo
+    prenderebbe la sfumatura intera sul proprio riquadro: la cresta del gallo
+    partirebbe dal ciano e ripartirebbe dal ciano anche il becco. Ancorandolo
+    alla griglia da 32 la sfumatura è una sola, e attraversa il disegno.
+    """
+    x0, y0, x1, y1 = box or (0.0, lato, lato, 0.0)
     return (
-        f'<linearGradient id="{uid}" x1="0" y1="1" x2="1" y2="0">'
+        f'<linearGradient id="{uid}" gradientUnits="userSpaceOnUse"'
+        f' x1="{x0:g}" y1="{y0:g}" x2="{x1:g}" y2="{y1:g}">'
         f'<stop offset="0" stop-color="{CIANO}"/>'
         f'<stop offset="1" stop-color="{VIOLA}"/></linearGradient>'
     )
 
 
 # ------------------------------------------------------------------- simboli
-#
-# Tre direzioni, tutte su griglia 32×32 con lo stesso spessore di tratto (5
-# unità = 2,5 px a 16 px di resa). Lo spessore non è arbitrario: sotto le 2 px
-# il rendering subpixel lo sfoca e il marchio diventa una macchia grigia.
 
-def blocco_tracciati(rx: float = 7.5, rxc: float = 4.5) -> list[str]:
-    """
-    I due tracciati del simbolo, già traslati nel riquadro 32×32.
+SIMBOLI = CANDIDATI
 
-    Occhiello: rettangolo di 20×20 unità, parete di 4, controforma di 12×12.
-    Asta: 4 unità di larghezza, scende fino a 3 unità dal bordo inferiore.
-
-    Il raggio è l'unico parametro davvero in discussione. Troppo piccolo e il
-    simbolo innestato nel logotipo si legge come il quadratino del glifo
-    mancante; troppo grande e smette di dire «blocco» e torna a dire «cerchio».
-    A 7,5 i lati restano dritti e gli angoli non sono più spigoli: è il punto in
-    cui il simbolo è insieme una lettera e un campo di testo.
-    """
-    def rettangolo(x0: float, y0: float, x1: float, y1: float, r: float) -> str:
-        x0, y0, x1, y1 = x0 + 3, y0 - 1, x1 + 3, y1 - 1
-        return (
-            f"M{x0 + r:g} {y0:g}H{x1 - r:g}A{r:g} {r:g} 0 0 1 {x1:g} {y0 + r:g}"
-            f"V{y1 - r:g}A{r:g} {r:g} 0 0 1 {x1 - r:g} {y1:g}H{x0 + r:g}"
-            f"A{r:g} {r:g} 0 0 1 {x0:g} {y1 - r:g}V{y0 + r:g}"
-            f"A{r:g} {r:g} 0 0 1 {x0 + r:g} {y0:g}Z"
-        )
-
-    return [
-        rettangolo(3, 4, 23, 24, rx) + rettangolo(7, 8, 19, 20, rxc),
-        "M22 3h4v24a2 2 0 0 1-4 0Z",
-    ]
+#: Direzione in produzione. Cambiare questa riga e rilanciare `esporta.py`
+#: rifà kit, favicon, icona, card e il modulo TypeScript del sito.
+SCELTO = "gallo"
 
 
-def _blocco(rx: float = 7.5, rxc: float = 4.5) -> str:
-    occhiello, asta = blocco_tracciati(rx, rxc)
-    return (
-        f'<path fill="{{paint}}" fill-rule="evenodd" d="{occhiello}"/>'
-        f'<path fill="{{paint}}" d="{asta}"/>'
-    )
-
-
-SIMBOLI: dict[str, dict] = {
-    "blocco": {
-        "nome": "Blocco",
-        "sottotitolo": "la q come blocco di configurazione",
-        # Occhiello quadrato con controforma quadrata: un campo, non un
-        # quadrante. L'asta scende sotto la riga — è ciò che la q fa nel nome.
-        "ink": (6, 3, 26, 29),
-        # Parete di 4 unità: innestata nel logotipo vale 108 unità di em contro
-        # le 100 dell'asta delle lettere. Con 5 la q pesava visibilmente più del
-        # resto della parola; con 4 la controforma cresce anche a 16 px.
-        "markup": _blocco(7.5, 4.5),
-    },
-    "indent": {
-        "nome": "Indent",
-        "sottotitolo": "la rotaia e le righe rientrate",
-        "ink": (3, 4, 29, 28),
-        "markup": """<g fill="{paint}">
-  <rect x="3" y="4" width="5" height="24" rx="2.5"/>
-  <rect x="12" y="4" width="17" height="5" rx="2.5"/>
-  <rect x="16" y="13.5" width="13" height="5" rx="2.5"/>
-  <rect x="16" y="23" width="8" height="5" rx="2.5"/>
-</g>""",
-    },
-    "gradino": {
-        "nome": "Gradino",
-        "sottotitolo": "l'indentazione in un tratto solo",
-        "ink": (3.5, 3.5, 28.5, 28.5),
-        "markup": """<path d="M6 6h7v10h7v10h6" fill="none" stroke="{paint}"
-      stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>""",
-    },
-}
-
-
-def simbolo_svg(chiave: str, paint: str, uid: str = "") -> str:
+def simbolo_svg(chiave: str, paint: str) -> str:
     """Contenuto SVG del simbolo, senza il tag <svg> né i <defs>."""
-    return SIMBOLI[chiave]["markup"].format(paint=paint)
-
-
-def simbolo(chiave: str, paint: str, uid: str, extra: str = "") -> str:
-    defs = f"<defs>{gradiente(uid)}</defs>" if paint.startswith("url") else ""
-    return (
-        f'<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" {extra}>'
-        f"{defs}{simbolo_svg(chiave, paint)}</svg>"
+    s = SIMBOLI[chiave]
+    if s["stroke"]:
+        comune = (f'fill="none" stroke="{paint}" stroke-width="{s["stroke"]:g}"'
+                  ' stroke-linecap="round" stroke-linejoin="round"')
+        return "".join(f'<path {comune} d="{d}"/>' for d in s["tracciati"])
+    return "".join(
+        f'<path fill="{paint}" fill-rule="evenodd" d="{d}"/>' for d in s["tracciati"]
     )
+
+
+
 
 
 # ------------------------------------------------------------------ logotipo

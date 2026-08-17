@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MARCHIO, SIMBOLO_TRACCIATI } from '~/utils/marchio'
+import { MARCHIO, SIMBOLO_STROKE, SIMBOLO_TRACCIATI } from '~/utils/marchio'
 
 /**
  * Marchio Postqron (R34).
@@ -14,7 +14,7 @@ import { MARCHIO, SIMBOLO_TRACCIATI } from '~/utils/marchio'
  * sistema. Il disegno arriva da `~/utils/marchio`, generato dal kit in
  * `design/marchio/` — le regole d'uso stanno nel README di quella cartella.
  */
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** Altezza resa, in pixel. Copre dalle maiuscole al fondo della discendente. */
     height?: number
@@ -41,6 +41,21 @@ withDefaults(
  * il render del server e quello del client.
  */
 const uid = useId()
+
+/*
+ * La vernice del simbolo si calcola qui e non nel CSS: un simbolo a tratto e
+ * uno pieno vogliono proprietà diverse — `stroke` contro `fill` — e regole che
+ * le dichiarassero entrambe finirebbero per contornare di un'unità anche i
+ * simboli pieni, che sullo spazio da 32 è un ingrassamento visibile.
+ */
+const vernice = computed(() => ({
+  primaria: `url(#${uid})`,
+  invertita: 'var(--pq-logo-ink-inverted)',
+  mono: 'currentcolor',
+}[props.variant]))
+
+const riempimento = computed(() => (SIMBOLO_STROKE ? 'none' : vernice.value))
+const contorno = computed(() => (SIMBOLO_STROKE ? vernice.value : undefined))
 </script>
 
 <template>
@@ -56,11 +71,18 @@ const uid = useId()
   >
     <title v-if="label">{{ label }}</title>
     <defs>
+      <!--
+        Coordinate utente e non riquadro dell'oggetto: le forme del simbolo si
+        sovrappongono, e con `objectBoundingBox` ognuna prenderebbe la sfumatura
+        intera sul proprio riquadro invece di una sfumatura sola attraverso il
+        disegno.
+      -->
       <linearGradient
         :id="uid"
+        gradientUnits="userSpaceOnUse"
         x1="0"
-        y1="1"
-        x2="1"
+        y1="32"
+        x2="32"
         y2="0"
       >
         <stop
@@ -76,29 +98,25 @@ const uid = useId()
 
     <!-- Le lettere sono disegnate sulla linea di base: il gruppo la porta a posto. -->
     <g :transform="`translate(0 ${MARCHIO.lineaDiBase})`">
-      <path
-        class="site-logo__word"
-        :d="MARCHIO.lettere.prima"
-      />
-      <g :transform="MARCHIO.lettere.dopoTransform">
+      <g :transform="MARCHIO.simboloTransform">
         <path
-          class="site-logo__word"
-          :d="MARCHIO.lettere.dopo"
+          v-for="d in SIMBOLO_TRACCIATI"
+          :key="d"
+          class="site-logo__mark"
+          fill-rule="evenodd"
+          :fill="riempimento"
+          :stroke="contorno"
+          :stroke-width="SIMBOLO_STROKE || undefined"
+          :stroke-linecap="SIMBOLO_STROKE ? 'round' : undefined"
+          :stroke-linejoin="SIMBOLO_STROKE ? 'round' : undefined"
+          :d="d"
         />
       </g>
 
-      <!-- Il simbolo prende il posto della q: è la stessa lettera, disegnata. -->
-      <g :transform="MARCHIO.simboloTransform">
+      <g :transform="MARCHIO.logoTransform">
         <path
-          class="site-logo__mark"
-          fill-rule="evenodd"
-          :fill="variant === 'primaria' ? `url(#${uid})` : undefined"
-          :d="SIMBOLO_TRACCIATI[0]"
-        />
-        <path
-          class="site-logo__mark"
-          :fill="variant === 'primaria' ? `url(#${uid})` : undefined"
-          :d="SIMBOLO_TRACCIATI[1]"
+          class="site-logo__word"
+          :d="MARCHIO.lettere"
         />
       </g>
     </g>
@@ -115,8 +133,7 @@ const uid = useId()
   transition: var(--pq-transition);
 }
 
-.site-logo--invertita .site-logo__word,
-.site-logo--invertita .site-logo__mark {
+.site-logo--invertita .site-logo__word {
   fill: var(--pq-logo-ink-inverted);
 }
 
@@ -125,18 +142,17 @@ const uid = useId()
  * della stampa, dove il gradiente diventa una macchia grigia, e quella di
  * qualunque contesto a un solo inchiostro.
  */
-.site-logo--mono .site-logo__word,
-.site-logo--mono .site-logo__mark {
+.site-logo--mono .site-logo__word {
   fill: currentcolor;
 }
 
 /*
  * Alla stampa il gradiente non arriva: molti browser scartano gli sfondi e le
- * vernici non piatte, e il simbolo sparirebbe lasciando «Post ron».
+ * vernici non piatte, e il simbolo sparirebbe. Il colore del testo attorno,
+ * invece, ci arriva sempre: basta chiedere la monocromatica.
  */
 @media print {
-  .site-logo__word,
-  .site-logo__mark {
+  .site-logo__word {
     fill: var(--pq-ink-solid);
   }
 }
