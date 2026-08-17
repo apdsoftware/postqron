@@ -140,6 +140,36 @@ Le dipendenze nelle tabelle usano sempre la numerazione del backlog.
 
 ---
 
+## E11 — Funzionalità introdotte dai piani (2026-08-17)
+
+Il listino approvato (SPEC §8) introduce requisiti che il backlog originale non copriva.
+
+| # | Issue | Req | Dip. | Prov. |
+|---|---|---|---|---|
+| 46 | Modalità a intervallo (`every`) per risoluzione fino a 1 secondo | R22 | 6, 7 | C |
+| 47 | Ambienti staging/production: modello dati, routing e alert separati | R23 | 4, 13 | C |
+| 48 | Team, inviti e RBAC (Admin, Developer, Viewer) | R24 | 14, 17 | C |
+| 49 | Multi-workspace isolati con fatturazione unificata | R25 | 35, 48 | C |
+| 50 | IP statico dedicato per le chiamate in uscita | R26 | 43 | C |
+| 51 | Export delle esecuzioni in CSV e JSON | R27 | 11 | C |
+| 52 | Metriche: durata media, tasso di fallimento, andamento | R28 | 11, 12 | C |
+| 53 | Alert verso webhook esterni (Slack, Discord) | R29 | 12, 38 | C |
+| 54 | AI debugging: analisi dei log di errore con la chiave BYOK | R30 | 42, 11 | C |
+| 55 | UI di ambienti, team e metriche nella dashboard | R23, R24, R28 | 24, 47, 48, 52 | C/X |
+
+### Impatto sulle issue esistenti
+
+- **Issue 5 e 6 (`#387`, `#388`) — ambito modificato.** Le espressioni cron si fermano a
+  1 minuto: non bastano per i 10 secondi del piano Pro e il secondo del piano Team. Lo
+  scheduler deve trattare `schedule` (cron) ed `every` (intervallo) come due modalità
+  della stessa astrazione, decise a monte del dispatch. Progettare per entrambe **da
+  subito**: aggiungerlo dopo significa riscrivere il cuore del motore.
+- **Issue 16 (`#398`)** applica la matrice di limiti di SPEC §8, non un placeholder.
+- **Issue 40 (`#422`)** implementa lo schema di SPEC §9, con `schedule` ed `every`
+  mutuamente esclusivi.
+
+---
+
 ## Ordine di esecuzione
 
 **Onda 1 (nessuna dipendenza, parallelizzabile):** 1 → poi 2, 3 in parallelo.

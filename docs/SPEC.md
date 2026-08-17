@@ -167,14 +167,138 @@ Stesso template Flowbite.
 
 ---
 
-## 7. Punti aperti (richiedono decisione umana)
+## 7. Decisioni prese
 
-Questi punti bloccano le issue collegate e non possono essere risolti da un agente.
+| # | Argomento | Decisione | Data |
+|---|---|---|---|
+| Q1 | Template Hexagon | Riproduzione **fedele** del demo `blue-index.html`. Mirror di riferimento in `design/hexagon/`. | 2026-08-17 |
+| Q2 | Piani e prezzi | Quattro piani: Free, Pro, Team, Agency — vedi §8. | 2026-08-17 |
+| Q3 | Credenziali | Procedura in [`docs/CREDENTIALS.md`](CREDENTIALS.md). **In attesa dei valori.** | 2026-08-17 |
+| Q4 | Schema `cron.yaml` | Definito in §9. | 2026-08-17 |
+| Q5 | Target dei job | **Solo HTTP/webhook.** Nessuna esecuzione di comandi o container — vedi §10. | 2026-08-17 |
 
-| # | Argomento | Domanda |
-|---|---|---|
-| Q1 | Template Hexagon | I file del template acquistato su ThemeForest non sono nel repository. Dove reperirli? |
-| Q2 | Piani e prezzi | Quanti piani, con quali limiti (job, frequenza minima, retention) e a che prezzo? |
-| Q3 | Credenziali | Account e chiavi API di Paddle, Mailronix, Hetzner, Cloudflare e GitHub App. |
-| Q4 | Schema `cron.yaml` | Formato esatto del file di configurazione utente. |
-| Q5 | Target dei job | Solo webhook HTTP, o anche esecuzione di comandi/container? |
+---
+
+## 8. Piani e limiti
+
+Quattro livelli, modello freemium. I limiti sono applicati **lato backend** (R15): la UI
+li mostra, non li applica.
+
+| | **Free** | **Pro** | **Team** | **Agency** |
+|---|---|---|---|---|
+| Prezzo | $0 | $12/mese · $120/anno | $39/mese | da $99/mese |
+| Target | side-project | freelance in produzione | startup e PMI | agenzie e scale-up |
+| Cronjob | 20 | 200 | illimitati (fair use: 1.000 task) | illimitati |
+| **Risoluzione minima** | **1 minuto** | **10 secondi** | **1 secondo** | 1 secondo |
+| Retention log | 3 giorni | 15 giorni | 30 giorni + export CSV/JSON | 90 giorni + export |
+| Repository `cron.yaml` | 1 | illimitati | illimitati | illimitati |
+| Membri | 1 | 1 | 5 inclusi | 5+ |
+| Ambienti | singolo | staging + production | staging + production | staging + production |
+| AI debugging (BYOK) | — | ✓ | ✓ | ✓ |
+| Alert | email | email + webhook (Slack/Discord) | avanzati per membro e ambiente | avanzati |
+| RBAC | — | — | Admin / Developer / Viewer | ✓ |
+| Metriche e grafici | — | — | ✓ | ✓ |
+| Multi-workspace | — | — | — | ✓ isolati, fatturazione unificata |
+| IP statico dedicato in uscita | — | — | — | ✓ |
+| Supporto | — | — | — | prioritario |
+
+### Requisiti che i piani introducono
+
+- **R22 — Risoluzione sub-minuto.** Il motore deve schedulare fino a 1 secondo. Le
+  espressioni cron hanno granularità minima di 1 minuto e **non sono sufficienti**:
+  serve una modalità a intervallo affiancata a quella cron (§9).
+- **R23 — Ambienti.** Un job appartiene a uno o più ambienti (`staging`,
+  `production`) con routing e alert separati.
+- **R24 — Team e RBAC.** Ruoli Admin, Developer e Viewer, con inviti e permessi
+  applicati lato backend.
+- **R25 — Multi-workspace.** Workspace isolati sotto un unico account padre, con
+  fatturazione Paddle unificata e separazione netta dei dati fra workspace.
+- **R26 — IP statico in uscita.** Le chiamate dei job dei piani Agency escono da un
+  IP dedicato e stabile, dichiarabile nei firewall dei clienti.
+- **R27 — Export dei log.** Esportazione delle esecuzioni in CSV e JSON.
+- **R28 — Metriche.** Durata media, tasso di fallimento e andamento per job e per
+  ambiente.
+- **R29 — Alert su webhook.** Notifiche di fallimento verso webhook esterni
+  (Slack, Discord), configurabili per membro e per ambiente.
+- **R30 — AI debugging (BYOK).** Analisi dei log di errore tramite la chiave AI
+  dell'utente. La chiave resta cifrata e non viene mai loggata (R18).
+
+---
+
+## 9. Schema `cron.yaml`
+
+File nella radice del repository dell'utente, letto a ogni push (R11–R13).
+
+```yaml
+version: 1
+
+defaults:
+  timezone: Europe/Rome
+  timeout: 30s
+  retries: { max: 3, backoff: exponential }
+
+jobs:
+  - name: daily-digest          # identità stabile del job: chiave della riconciliazione
+    schedule: "0 9 * * *"       # espressione cron — granularità 1 minuto
+    timezone: Europe/Rome       # sovrascrive defaults
+    environments: [production]
+    request:
+      url: https://api.example.com/tasks/digest
+      method: POST
+      headers:
+        Authorization: "Bearer ${DIGEST_TOKEN}"   # segreto del workspace, mai in chiaro
+      body: '{"kind":"daily"}'
+    timeout: 60s
+    retries: { max: 5, backoff: exponential }
+    alerts:
+      on_failure: [email, slack]
+
+  - name: healthcheck
+    every: 10s                  # modalità a intervallo — risoluzione sub-minuto
+    environments: [staging, production]
+    request:
+      url: https://api.example.com/health
+      method: GET
+    timeout: 5s
+```
+
+### Regole
+
+- **`schedule` ed `every` sono mutuamente esclusivi.** `schedule` accetta un'espressione
+  cron a 5 campi (minimo 1 minuto); `every` accetta una durata (`1s`, `10s`, `5m`, `1h`)
+  e serve la risoluzione sub-minuto di R22. Un job che dichiara entrambi, o nessuno dei
+  due, è un errore di validazione.
+- **`name` è l'identità del job**, unica nel file: è la chiave su cui la riconciliazione
+  decide se creare, aggiornare o disattivare (R13). Rinominare un job equivale a
+  cancellarlo e crearne un altro.
+- **I segreti non stanno nel file.** `${VAR}` è risolto contro i segreti del workspace
+  al momento dell'esecuzione. Un riferimento non risolvibile fa fallire la validazione,
+  non l'esecuzione.
+- **La validazione è totale.** Un file non valido non modifica lo stato esistente: gli
+  errori vengono riportati all'utente con riga e colonna (R13).
+- `version` è obbligatorio: consente evoluzioni future dello schema senza rompere i
+  file esistenti.
+- Limiti di piano e risoluzione minima sono verificati al momento del sync: un `every:
+  1s` su piano Free viene rifiutato con un messaggio esplicito, non silenziosamente
+  degradato.
+
+---
+
+## 10. Target dei job: solo HTTP
+
+PostQron esegue **esclusivamente chiamate HTTP** verso endpoint dell'utente. Non
+esegue comandi shell, script o container.
+
+**Motivazione.** Eseguire codice arbitrario dell'utente significa isolamento a livello
+di container o microVM, gestione di immagini, quote di CPU e memoria, e una superficie
+di sicurezza che su una singola VPS Hetzner condivisa non è difendibile. È un prodotto
+diverso, con costi infrastrutturali di un altro ordine di grandezza.
+
+**Posizionamento di mercato.** La divisione è netta: gli scheduler puri sono
+HTTP-only — Upstash QStash invia solo richieste HTTP, Google Cloud Scheduler supporta
+HTTP/S e Pub/Sub, EasyCron e cron-job.org sono servizi HTTP. Chi esegue comandi shell
+(Render) lo fa perché ospita già il codice dell'utente in container effimeri: è una
+funzione della piattaforma di hosting, non dello scheduler.
+
+L'IP statico dedicato del piano Agency (R26) ha senso proprio in questo modello: è
+utile perché le chiamate escono verso i clienti e devono attraversarne i firewall.
