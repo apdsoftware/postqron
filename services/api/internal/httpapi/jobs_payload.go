@@ -44,10 +44,34 @@ type JobResponse struct {
 	// fatte nel file, invece di scoprirlo da un 409 dopo aver compilato un form.
 	RepositoryID string `json:"repository_id,omitempty"`
 
+	// Suspended è valorizzato quando è stato **un cambio di piano** a spegnere il
+	// job (R58), non l'utente. Senza, `enabled: false` sarebbe indistinguibile
+	// da una pausa che l'utente ricorda di aver messo — ed è esattamente la
+	// differenza che R58 pretende venga detta: «l'interfaccia deve dirlo, non
+	// limitarsi a rifiutare».
+	Suspended *SuspensionResponse `json:"suspended,omitempty"`
+
 	NextRunAt  *time.Time `json:"next_run_at"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// SuspensionResponse dice **perché** un job è stato spento da noi, cioè cosa
+// serve per riaccenderlo (R58).
+//
+// `reason` è stabile e non tradotto, come ogni codice di questa API: è su quello
+// che il client decide se mostrare «scegli quali riaccendere» oppure «cambia la
+// schedulazione», che sono due schermate diverse perché sono due rimedi diversi.
+//
+//	plan_job_limit   i job attivi superavano il tetto del piano. Se ne
+//	                 riaccendono quanti il piano ne consente.
+//	plan_resolution  la schedulazione è più fitta di quanto il piano consenta.
+//	                 Va cambiata: non è una questione di posto, e riaccenderne
+//	                 un altro non ne libera.
+type SuspensionResponse struct {
+	At     time.Time `json:"at"`
+	Reason string    `json:"reason"`
 }
 
 // TargetResponse è il bersaglio HTTP del job (SPEC §10).
@@ -145,6 +169,12 @@ func jobResponse(job jobs.Job) JobResponse {
 		ArchivedAt:   job.ArchivedAt,
 		CreatedAt:    job.CreatedAt,
 		UpdatedAt:    job.UpdatedAt,
+	}
+	if job.Suspended() {
+		out.Suspended = &SuspensionResponse{
+			At:     *job.SuspendedAt,
+			Reason: string(job.SuspendedReason),
+		}
 	}
 	if out.Request.Headers == nil {
 		out.Request.Headers = map[string]string{}

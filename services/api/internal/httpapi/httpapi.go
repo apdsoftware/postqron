@@ -25,9 +25,11 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
+	"github.com/apdsoftware/postqron/services/api/internal/billing"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
+	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
 
@@ -65,6 +67,21 @@ type Deps struct {
 	// webhook meno sicuro, è un endpoint pubblico che accetta qualunque cosa, e
 	// non registrarlo è l'unica alternativa accettabile a registrarlo verificato.
 	GitHubWebhook *githubhook.Service
+
+	// PaddleWebhook può essere nil: in quel caso la rotta `/webhooks/paddle` non
+	// viene registrata e risponde 404 (R16). Vale la stessa regola del webhook
+	// GitHub, con la posta in gioco più alta: un webhook di fatturazione senza
+	// segreto non è un webhook meno sicuro, è un modo per farsi regalare un piano
+	// a pagamento da chiunque conosca l'indirizzo. Nil è la configurazione di chi
+	// non ha `PADDLE_WEBHOOK_SECRET`, e non registrare la rotta è l'unica
+	// alternativa accettabile a registrarne una verificata.
+	PaddleWebhook *paddle.Service
+
+	// Billing può essere nil: in quel caso le rotte `/billing` non vengono
+	// registrate. Senza, la dashboard non mostra il piano e nessuno può
+	// comprare — ma i job continuano a girare con gli entitlement che hanno, che
+	// è la degradazione giusta per una macchina di sviluppo senza Paddle.
+	Billing *billing.Service
 
 	// Secrets può essere nil: in quel caso le rotte `/secrets` non vengono
 	// registrate (R42). I job continuano a girare, ma quelli che riferiscono un
@@ -133,6 +150,20 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 		} else {
 			logger.Warn("rotte dei segreti del workspace non registrate: nessun servizio secrets configurato")
 		}
+
+		// La fatturazione sta dietro lo stesso guard e, come le due sopra, solo
+		// dietro la *sessione*: vedi billingAPI.routes.
+		if deps.Billing != nil {
+			newBillingAPI(guard, logger, deps.Billing).routes(mux)
+			if !deps.Billing.CanSell() {
+				// Le rotte esistono comunque: `GET /billing/subscription` funziona e
+				// dice il piano in forza, che su questa macchina è quello che l'utente
+				// ha e basta. È il checkout a rispondere 503.
+				logger.Info("fatturazione attiva senza catalogo: il piano si legge, non si compra")
+			}
+		} else {
+			logger.Warn("rotte di fatturazione non registrate: nessun servizio billing configurato")
+		}
 	} else {
 		logger.Warn("rotte di autenticazione non registrate: nessun servizio auth configurato")
 	}
@@ -148,6 +179,19 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 		}
 	} else {
 		logger.Warn("rotta del webhook GitHub non registrata: nessun servizio githubhook configurato")
+	}
+
+	// Il webhook Paddle sta **fuori** dal guard per la stessa ragione di quello
+	// GitHub: la richiesta arriva da Paddle, che non ha né una sessione né una
+	// chiave API, e la sua credenziale è la firma del corpo. Vedi
+	// webhooks_paddle.go.
+	if deps.PaddleWebhook != nil {
+		newPaddleWebhookAPI(logger, deps.PaddleWebhook).routes(mux)
+		if !deps.PaddleWebhook.HasSink() {
+			logger.Info("webhook Paddle attivo senza consumatore: gli eventi vengono verificati e registrati, non applicati")
+		}
+	} else {
+		logger.Warn("rotta del webhook Paddle non registrata: nessun servizio paddle configurato")
 	}
 
 	return withCORS(cfg, mux)
