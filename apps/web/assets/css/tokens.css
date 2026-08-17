@@ -1,0 +1,73 @@
+/*
+ * Token del design system Hexagon.
+ *
+ * Ogni valore è estratto da `design/hexagon/assets/css/blue.css`, che resta la
+ * fonte di verità visiva (design/README.md). I nomi sono semantici: nel CSS dei
+ * componenti si usano solo questi token, mai i literal esadecimali, così una
+ * revisione della palette non richiede una caccia al colore in tutto il sito.
+ */
+:root {
+  /* tipografia */
+  --pq-font: 'Quicksand', sans-serif;
+
+  /* superfici */
+  --pq-page: #f7fafd; /* sfondo del documento */
+  --pq-surface: #fff; /* sezioni bianche, card prezzi */
+  --pq-surface-soft: #f9faff; /* card funzionalità e testimonianze */
+  --pq-surface-tint: #f4f8fb; /* footer, blockquote */
+
+  /* testo */
+  --pq-heading: #3b566e; /* titoli di sezione e card */
+  --pq-heading-hero: #1e3056; /* h1 dell'hero */
+  --pq-text: #6f8ba4; /* testo corrente */
+  --pq-text-hero: #697ba2; /* paragrafo dell'hero */
+  --pq-text-on-gradient: #c7e5ff; /* testo su fondo gradiente */
+  --pq-text-disabled: #bcd2e6; /* voci di piano non incluse */
+
+  /* accenti */
+  --pq-primary: #4278e5;
+  --pq-gradient: linear-gradient(135deg, #0fb4e5 0%, #743fe5 100%);
+  --pq-gradient-band: linear-gradient(127deg, #0fb4e5 0%, #743fe5 91%);
+
+  /* bordi */
+  --pq-border: #e2ebff; /* separatori su fondo chiaro */
+  --pq-border-input: #ccdff9;
+  --pq-border-footer: #dae6fd;
+  --pq-border-hairline: #f5f5f5;
+
+  /* profondità */
+  --pq-shadow-card: 0 2px 48px 0 rgb(0 0 0 / 6%);
+  --pq-shadow-header: 0 2px 28px 0 rgb(0 0 0 / 6%);
+
+  /* forme */
+  --pq-radius: 5px;
+  --pq-radius-sm: 4px;
+  --pq-radius-pill: 100px;
+
+  /* movimento */
+  --pq-transition: all 0.3s ease 0s;
+
+  /* header fisso: serve anche allo scroll-margin delle ancore */
+  --pq-header-height: 100px;
+  --pq-header-height-compact: 80px;
+}
+
+/*
+ * Il template anima ogni transizione con `all .3s`. Chi ha chiesto meno
+ * movimento al sistema operativo non deve subirlo: si azzerano transizioni e
+ * animazioni invece di riscriverle una per una.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pq-transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
