@@ -32,6 +32,15 @@ export const en: SiteContent = {
     contactTitle: 'Contact',
     emailPrefix: 'Email: ',
     rightsReserved: 'All rights reserved.',
+    cookiePreferences: 'Cookie preferences',
+  },
+
+  cookieBanner: {
+    title: 'Your cookie choice',
+    description: 'We use necessary cookies to make the site work. Optional technologies stay blocked unless you accept them.',
+    accept: 'Accept optional cookies',
+    reject: 'Reject optional cookies',
+    policyLink: 'Read the Cookie Policy',
   },
 
   legal: {

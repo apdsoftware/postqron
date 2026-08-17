@@ -26,6 +26,15 @@ export const es: SiteContent = {
     contactTitle: 'Contacto',
     emailPrefix: 'Correo: ',
     rightsReserved: 'Todos los derechos reservados.',
+    cookiePreferences: 'Preferencias de cookies',
+  },
+
+  cookieBanner: {
+    title: 'Tu elección de cookies',
+    description: 'Usamos cookies necesarias para que el sitio funcione. Las tecnologías opcionales permanecen bloqueadas salvo que las aceptes.',
+    accept: 'Aceptar cookies opcionales',
+    reject: 'Rechazar cookies opcionales',
+    policyLink: 'Leer la Política de cookies',
   },
 
   legal: {

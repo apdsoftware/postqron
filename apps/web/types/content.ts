@@ -238,6 +238,15 @@ export interface UiLabels {
   emailPrefix: string
   /** Formula di copyright dopo l'anno e la ragione sociale. */
   rightsReserved: string
+  cookiePreferences: string
+}
+
+export interface CookieBannerContent {
+  title: string
+  description: string
+  accept: string
+  reject: string
+  policyLink: string
 }
 
 export interface SiteContent {
@@ -253,6 +262,7 @@ export interface SiteContent {
     versionLabel: string
     effectiveDateLabel: string
   }
+  cookieBanner: CookieBannerContent
   nav: {
     main: readonly NavItem[]
     cta: Required<Pick<NavItem, 'label' | 'to'>>

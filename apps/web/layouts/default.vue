@@ -23,5 +23,8 @@ useHead({
       <slot />
     </main>
     <SiteFooter />
+    <ClientOnly>
+      <CookieBanner />
+    </ClientOnly>
   </div>
 </template>
