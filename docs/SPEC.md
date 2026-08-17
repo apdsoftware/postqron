@@ -502,12 +502,20 @@ parte dell'offerta.
   consumatori l'Unione Europea richiede che il prezzo esposto sia quello finale,
   comprensivo di imposta; verso le imprese il netto è corretto ed è il numero utile,
   perché è quello che l'acquirente detrae.
-  La posizione regge solo se è praticata, non solo dichiarata:
-  - i Termini dichiarano che il servizio è offerto a professionisti e organizzazioni;
-  - la registrazione chiede **conferma esplicita di uso professionale**, non una
-    casella preselezionata sepolta nel modulo;
-  - il checkout raccoglie i dati di fatturazione aziendali, partita IVA compresa dove
-    prevista, e Paddle applica l'inversione contabile dove dovuta.
+  **Il vincolo sta all'acquisto, non alla registrazione.** Il piano Free è aperto a
+  chiunque e non è un acquisto: nessun prezzo pagato, nessuna cifra da esporre.
+  Chiedere lo status professionale per aprire un account gratuito sarebbe attrito senza
+  contropartita. La difesa serve dove nasce il problema — al checkout:
+  - i Termini dichiarano che **i piani a pagamento** sono offerti a professionisti e
+    organizzazioni;
+  - il checkout chiede **conferma esplicita di agire nell'esercizio di un'attività**,
+    non una casella preselezionata sepolta nel modulo;
+  - raccoglie i dati di fatturazione e la **partita IVA dove esiste**, con inversione
+    contabile applicata da Paddle dove dovuta.
+
+  La partita IVA **non va resa obbligatoria**: diversi regimi minimi europei ne sono
+  privi — i *Kleinunternehmer* tedeschi, per esempio — e pretenderla escluderebbe
+  acquirenti legittimi. Si conferma sempre lo status, si raccoglie il numero quando c'è.
 
   Dichiarare l'uso professionale e poi lasciar acquistare chiunque senza chiederlo è
   la posizione peggiore delle due: si perde la difesa senza guadagnare il mercato.

@@ -40,17 +40,20 @@ believe your account has been compromised.
 You must be at least 16 years old and, if you act for an organisation, authorised to
 bind it.
 
-**Postqron is offered for professional use.** It is a tool for developers, businesses
-and organisations, and by creating an account you confirm that you are using it in the
-course of a trade, business, craft or profession — not as a consumer. This is why our
-prices are shown excluding VAT: for a business, the net figure is the one that
-matters, because it is the one you deduct.
+**The free plan is open to anyone.** Use it for a side project, to try the service, or
+because it is enough for what you need. Nothing here asks you to be a business to
+create an account.
 
-We are not trying to be clever with this. If you are buying as a private individual
-for purely personal purposes, this is not the right service for you, and the consumer
-protections you would otherwise have — including the withdrawal rights described in
-§4.3 — are drafted on the assumption that they do not apply. Where the law says
-otherwise for your situation, the law wins.
+**Paid plans are offered for professional use.** When you buy one, you confirm that
+you are acting in the course of a trade, business, craft or profession. This is why
+our prices are shown excluding VAT: for someone who runs a business, the net figure is
+the one that matters, because it is the one you deduct. We ask you to confirm this at
+checkout, and we collect your VAT number where you have one — some perfectly legitimate
+small-business regimes across Europe do not issue one, so we ask for it, we do not
+require it.
+
+Where the law grants you consumer protections despite that confirmation, the law
+wins — including the withdrawal rights in §4.3.
 
 ## 4. Plans, limits and payment
 
