@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := dotenv.LoadNearest(workdir); err != nil {
+	if _, err := dotenv.LoadNearest(workdir); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 var databaseCounter atomic.Int64
 
 // migrationsDir individua db/migrations risalendo dalla directory del test.
-func migrationsDir(t *testing.T) string {
+func migrationsDir(t testing.TB) string {
 	t.Helper()
 	dir, err := migrate.FindDir(".")
 	if err != nil {
@@ -46,7 +46,7 @@ func migrationsDir(t *testing.T) string {
 }
 
 // loadMigrations legge le migrazioni reali del repository.
-func loadMigrations(t *testing.T) []migrate.Migration {
+func loadMigrations(t testing.TB) []migrate.Migration {
 	t.Helper()
 	migrations, err := migrate.Load(migrationsDir(t))
 	if err != nil {
@@ -65,7 +65,15 @@ func loadMigrations(t *testing.T) []migrate.Migration {
 // `make ci` deve restare verde su una macchina senza `make db-up`, ma non deve
 // dare l'impressione di aver verificato lo schema quando non l'ha fatto — il
 // messaggio di skip lo dice.
-func newTestDatabase(t *testing.T) *pgxpool.Pool {
+func newTestDatabase(t testing.TB) *pgxpool.Pool {
+	t.Helper()
+	return newTestDatabaseWithConns(t, 2)
+}
+
+// newTestDatabaseWithConns è la stessa cosa con il pool dimensionato dal
+// chiamante. I benchmark hanno bisogno di più connessioni dei test: con un pool
+// stretto misurerebbero l'attesa sul pool invece della contesa sul database.
+func newTestDatabaseWithConns(t testing.TB, maxConns int32) *pgxpool.Pool {
 	t.Helper()
 	ctx := t.Context()
 
@@ -95,7 +103,7 @@ func newTestDatabase(t *testing.T) *pgxpool.Pool {
 	target := cfg.Postgres
 	target.Database = name
 	pool, err := database.Open(ctx, target, database.Options{
-		MaxConns:        2,
+		MaxConns:        maxConns,
 		ApplicationName: "postqron-test",
 	})
 	if err != nil {
@@ -123,7 +131,7 @@ func newTestDatabase(t *testing.T) *pgxpool.Pool {
 
 // testDatabaseName compone un nome legale e riconoscibile: il limite di
 // PostgreSQL è 63 byte, e il nome del test può essere lungo.
-func testDatabaseName(t *testing.T) string {
+func testDatabaseName(t testing.TB) string {
 	t.Helper()
 	sanitized := strings.Map(func(r rune) rune {
 		switch {
@@ -145,7 +153,7 @@ func testDatabaseName(t *testing.T) string {
 
 // applyAll applica tutte le migrazioni reali sul database indicato e
 // restituisce il migratore, per i test che vogliono proseguire da lì.
-func applyAll(t *testing.T, pool *pgxpool.Pool) *migrate.Migrator {
+func applyAll(t testing.TB, pool *pgxpool.Pool) *migrate.Migrator {
 	t.Helper()
 	conn, err := pool.Acquire(t.Context())
 	if err != nil {
@@ -161,7 +169,7 @@ func applyAll(t *testing.T, pool *pgxpool.Pool) *migrate.Migrator {
 }
 
 // writeMigrations scrive una coppia up/down in una directory temporanea.
-func writeMigrations(t *testing.T, files map[string]string) string {
+func writeMigrations(t testing.TB, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for name, content := range files {

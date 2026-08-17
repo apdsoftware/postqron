@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/apdsoftware/postqron/services/api/internal/config"
@@ -58,13 +59,18 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 	// In sviluppo le POSTGRES_* stanno nel `.env` che Docker Compose ha già
 	// usato per creare il container: senza rileggerlo qui, il tool cercherebbe
-	// il database su valori di default che nessuno ha scelto. L'ambiente
-	// esplicito resta prioritario, e in produzione il file non esiste.
+	// il database su valori di default che nessuno ha scelto. Riempie solo ciò
+	// che manca — in produzione il file non esiste — e le divergenze sulla
+	// connessione fermano il comando invece di risolversi in silenzio.
 	workdir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	if err := dotenv.LoadNearest(workdir); err != nil {
+	conflicts, err := dotenv.LoadNearest(workdir)
+	if err != nil {
+		return err
+	}
+	if err := refuseConnectionConflicts(conflicts); err != nil {
 		return err
 	}
 
@@ -137,6 +143,51 @@ func run(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("comando sconosciuto: %q", command)
 		}
 	})
+}
+
+// refuseConnectionConflicts ferma il tool quando ambiente e `.env` descrivono
+// due database diversi.
+//
+// Il motivo non è di gusto. `make migrate` esegue prima `scripts/db-guard.sh`,
+// che verifica che su `POSTGRES_HOST:POSTGRES_PORT` risponda il container di
+// PostQron e non un altro PostgreSQL in ascolto sulla stessa porta. Quello
+// script legge le variabili con `set -a; . ./.env`, cioè dando la precedenza al
+// **file**; questo tool la dà all'**ambiente**. Finché i due valori coincidono
+// la differenza è invisibile, ma un `POSTGRES_PORT=15432 make migrate` farebbe
+// controllare alla guardia la porta del `.env` e connettere il tool a un'altra:
+// la verifica passerebbe su un server e la migrazione andrebbe su un altro.
+//
+// Rifiutare è preferibile sia al vincere dell'ambiente — che aggira in silenzio
+// una guardia esistente — sia al vincere del file, che ignorerebbe senza dirlo
+// una variabile impostata di proposito. La via d'uscita è quella che il
+// progetto indica ovunque: cambiare il valore in `.env`, che è l'unico posto in
+// cui la connessione è descritta (AGENTS.md §7).
+//
+// Il controllo riguarda le sole `POSTGRES_*`: sono quelle che decidono su quale
+// database si sta per scrivere. Una `POSTQRON_LOG_LEVEL` divergente non fa
+// danni e non merita un blocco.
+func refuseConnectionConflicts(conflicts []dotenv.Conflict) error {
+	var relevant []dotenv.Conflict
+	for _, conflict := range conflicts {
+		if strings.HasPrefix(conflict.Key, "POSTGRES_") {
+			relevant = append(relevant, conflict)
+		}
+	}
+	if len(relevant) == 0 {
+		return nil
+	}
+
+	var detail strings.Builder
+	for _, conflict := range relevant {
+		fmt.Fprintf(&detail, "\n  %s", conflict)
+	}
+	return fmt.Errorf(
+		"l'ambiente e il .env descrivono connessioni diverse:%s\n"+
+			"`make migrate` verifica l'identità del container leggendo il .env, ma il tool "+
+			"userebbe l'ambiente: la guardia controllerebbe un server e la migrazione ne "+
+			"toccherebbe un altro. Cambia il valore in .env — è l'unico posto in cui la "+
+			"connessione è descritta — oppure togli la variabile dall'ambiente",
+		detail.String())
 }
 
 // parseCount legge l'argomento numerico opzionale di `up` e `down`.

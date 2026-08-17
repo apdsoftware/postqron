@@ -61,9 +61,9 @@ func TestParseRejectsMalformedLines(t *testing.T) {
 	}
 }
 
-// L'ambiente esplicito vince sul file: un `POSTGRES_PORT=5544 make migrate`
-// deve avere effetto, altrimenti il file diventerebbe una sorgente silenziosa
-// che sovrascrive una scelta deliberata.
+// Il file riempie ciò che manca e non sovrascrive mai: sarebbe una sorgente
+// silenziosa che annulla una scelta deliberata. Dove i due valori divergono, il
+// pacchetto lo riporta al chiamante invece di decidere al posto suo.
 func TestLoadDoesNotOverrideExistingVariables(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".env")
@@ -76,7 +76,8 @@ func TestLoadDoesNotOverrideExistingVariables(t *testing.T) {
 	os.Unsetenv("POSTQRON_TEST_NUOVA")
 	t.Cleanup(func() { os.Unsetenv("POSTQRON_TEST_NUOVA") })
 
-	if err := dotenv.Load(path); err != nil {
+	conflicts, err := dotenv.Load(path)
+	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
@@ -86,12 +87,40 @@ func TestLoadDoesNotOverrideExistingVariables(t *testing.T) {
 	if got := os.Getenv("POSTQRON_TEST_NUOVA"); got != "dal_file" {
 		t.Errorf("la variabile mancante non è stata impostata: %q", got)
 	}
+
+	// La divergenza non viene applicata, ma dev'essere segnalata: è ciò su cui
+	// `cmd/migrate` si ferma quando riguarda la connessione al database.
+	if len(conflicts) != 1 {
+		t.Fatalf("conflitti = %v, atteso esattamente quello su POSTQRON_TEST_ESISTENTE", conflicts)
+	}
+	want := dotenv.Conflict{Key: "POSTQRON_TEST_ESISTENTE", Environment: "dall_ambiente", File: "dal_file"}
+	if conflicts[0] != want {
+		t.Errorf("conflitto = %+v, atteso %+v", conflicts[0], want)
+	}
+}
+
+// Un valore identico nei due posti non è una divergenza: è la normalità di
+// `set -a && . ./.env && make migrate`, e bloccarla sarebbe rumore.
+func TestLoadDoesNotReportIdenticalValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("POSTQRON_TEST_UGUALE=stesso\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("POSTQRON_TEST_UGUALE", "stesso")
+
+	conflicts, err := dotenv.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Errorf("conflitti inattesi: %v", conflicts)
+	}
 }
 
 // In produzione la configurazione arriva dall'ambiente e il file non esiste:
 // non trovarlo non è un errore.
 func TestLoadIgnoresMissingFile(t *testing.T) {
-	if err := dotenv.Load(filepath.Join(t.TempDir(), ".env")); err != nil {
+	if _, err := dotenv.Load(filepath.Join(t.TempDir(), ".env")); err != nil {
 		t.Fatalf("un file assente non dev'essere un errore: %v", err)
 	}
 }
@@ -101,7 +130,7 @@ func TestLoadReportsMalformedFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("questa riga non ha un uguale\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := dotenv.Load(path)
+	_, err := dotenv.Load(path)
 	if err == nil {
 		t.Fatal("atteso un errore sul file malformato")
 	}
@@ -125,7 +154,7 @@ func TestLoadNearestWalksUp(t *testing.T) {
 	os.Unsetenv("POSTQRON_TEST_RISALITA")
 	t.Cleanup(func() { os.Unsetenv("POSTQRON_TEST_RISALITA") })
 
-	if err := dotenv.LoadNearest(nested); err != nil {
+	if _, err := dotenv.LoadNearest(nested); err != nil {
 		t.Fatalf("LoadNearest: %v", err)
 	}
 	if got := os.Getenv("POSTQRON_TEST_RISALITA"); got != "trovata" {
@@ -136,7 +165,7 @@ func TestLoadNearestWalksUp(t *testing.T) {
 func TestLoadNearestIgnoresAbsentFile(t *testing.T) {
 	// Una directory temporanea può avere un `.env` in un antenato solo per una
 	// coincidenza del filesystem di prova: la radice del sistema non ne ha.
-	if err := dotenv.LoadNearest(string(filepath.Separator)); err != nil {
+	if _, err := dotenv.LoadNearest(string(filepath.Separator)); err != nil {
 		t.Fatalf("assenza di .env non dev'essere un errore: %v", err)
 	}
 }

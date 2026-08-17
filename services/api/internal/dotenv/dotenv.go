@@ -19,47 +19,78 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
+
+// Conflict è una variabile che l'ambiente e il file definiscono entrambi, con
+// valori diversi.
+//
+// Non è di per sé un errore — l'ambiente vince, ed è spesso ciò che si vuole —
+// ma per le variabili che decidono *quale* database si sta per toccare è
+// un'ambiguità che il chiamante deve poter vedere invece di subire: gli script
+// bash del progetto (`scripts/db-env.sh`) risolvono la stessa coppia nel verso
+// opposto, dando la precedenza al file.
+type Conflict struct {
+	// Key è il nome della variabile.
+	Key string
+	// Environment è il valore già presente nell'ambiente, quello che vince.
+	Environment string
+	// File è il valore scritto nel `.env`, che resta inapplicato.
+	File string
+}
+
+func (c Conflict) String() string {
+	return fmt.Sprintf("%s: ambiente %q, .env %q", c.Key, c.Environment, c.File)
+}
 
 // Load legge il file indicato e imposta le variabili che mancano
 // nell'ambiente. Un file assente non è un errore: in produzione la
 // configurazione arriva dall'ambiente e il file non esiste.
-func Load(path string) error {
+//
+// Restituisce le variabili che il file e l'ambiente definiscono in modo
+// diverso, ordinate per nome. Il valore applicato resta quello dell'ambiente.
+func Load(path string) ([]Conflict, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
 	values, err := Parse(file)
 	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+
+	var conflicts []Conflict
 	for key, value := range values {
-		if _, present := os.LookupEnv(key); present {
+		if current, present := os.LookupEnv(key); present {
+			if current != value {
+				conflicts = append(conflicts, Conflict{Key: key, Environment: current, File: value})
+			}
 			continue
 		}
 		if err := os.Setenv(key, value); err != nil {
-			return fmt.Errorf("%s: %s: %w", path, key, err)
+			return nil, fmt.Errorf("%s: %s: %w", path, key, err)
 		}
 	}
-	return nil
+	slices.SortFunc(conflicts, func(a, b Conflict) int { return strings.Compare(a.Key, b.Key) })
+	return conflicts, nil
 }
 
 // LoadNearest cerca un `.env` a partire da start e risalendo le directory
 // padre, e carica il primo che trova. Rende `go run ./cmd/migrate` equivalente
 // da qualunque punto del monorepo lo si lanci.
-func LoadNearest(start string) error {
+func LoadNearest(start string) ([]Conflict, error) {
 	path, err := find(start, ".env")
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	return Load(path)
 }

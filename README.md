@@ -193,8 +193,16 @@ container di PostQron.
 Il tool compone il DSN da `internal/config` (AGENTS.md §7) e legge le
 `POSTGRES_*` dall'ambiente; quelle che mancano le prende dal `.env` più vicino,
 risalendo le directory, così `go run ./cmd/migrate` funziona da qualunque punto
-del monorepo. **L'ambiente esplicito ha la precedenza sul file** — al contrario
-di `scripts/db-env.sh`, che fa l'opposto: vedi la nota qui sotto.
+del monorepo.
+
+Se una `POSTGRES_*` è impostata nell'ambiente **con un valore diverso** da quello
+del `.env`, il comando si ferma. La ragione è la guardia qui sopra:
+`scripts/db-env.sh` legge le variabili con `set -a; . ./.env`, dando la
+precedenza al file, mentre il tool la darebbe all'ambiente. Un
+`POSTGRES_PORT=15432 make migrate` farebbe quindi verificare alla guardia la
+porta del `.env` e connettere il tool a un'altra: il controllo passerebbe su un
+server e la migrazione ne toccherebbe un altro. Per puntare altrove si cambia il
+valore in `.env` — che è l'unico posto in cui la connessione è descritta.
 
 Ogni migrazione gira nella propria transazione, ed è registrata in
 `schema_migrations` con il checksum dei due file. Modificare una migrazione già

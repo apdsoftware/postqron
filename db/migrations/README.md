@@ -70,9 +70,34 @@ chiave primaria è la quaterna naturale `(job_id, scheduled_for, environment,
 attempt)`, che fa tre lavori con un indice solo — identifica la riga, è il lock
 di idempotenza di R4 (il motore inserisce prima di dispatchare, e un duplicato
 trova il conflitto), e il suo prefisso `(job_id, scheduled_for)` serve la query
-calda dei log per job ordinati per data. Un `id uuid` avrebbe aggiunto un secondo
-indice, con inserimenti sparsi, sull'unica tabella dove il costo si paga
-decine di migliaia di volte al giorno.
+calda dei log per job ordinati per data.
+
+L'alternativa con `id uuid` avrebbe comunque avuto bisogno dell'indice naturale
+— serve a R4 e ai log — quindi il suo costo è esattamente un secondo btree, con
+inserimenti in posizione casuale. Misurato su 500.000 righe distribuite su 200
+job, PostgreSQL 17 in Docker (tre ripetizioni, ordine invertito per escludere
+l'effetto della cache):
+
+| | inserimento di 500k righe | heap | indici | totale |
+|---|---|---|---|---|
+| chiave naturale | **0,73–0,79 s** | 33 MB | 42 MB | **75 MB** |
+| `id uuid` + indice naturale | 1,74–2,00 s | 40 MB | 61 MB | 102 MB |
+
+Circa 2,4 volte il tempo e il 36% di spazio in più, su una tabella che è l'unica
+del sistema a crescere di decine di migliaia di righe al giorno per job.
+
+Il rovescio di una chiave ordinata è la contesa sulla pagina di destra
+dell'indice. Non si manifesta: la colonna di testa è `job_id`, un uuid casuale,
+quindi job diversi scrivono su rami diversi del btree e solo le occorrenze di uno
+stesso job sono monotone. Il benchmark `BenchmarkOccurrenceInsert` misura i due
+casi separatamente e non trova differenza — a ~69 µs per inserimento il costo
+dominante è il flush del WAL, non la posizione nell'indice.
+
+**Riconoscere il conflitto di idempotenza.** Il codice SQLSTATE è `23505`. Il
+*nome* del vincolo violato è però quello della partizione
+(`job_executions_20260817_pkey`), non `job_executions_pkey`: confrontarlo con una
+costante funziona in un test su tabella semplice e fallisce in produzione. Vedi
+`TestLosingWorkerGetsARecognisableConflict`.
 
 **Retention per partizioni.** `job_executions` è partizionata per giorno su
 `scheduled_for`. La retention lunga si applica eliminando partizioni intere
