@@ -27,6 +27,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/config"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
 
 // maxRequestBody è la dimensione massima di un corpo JSON accettato.
@@ -63,6 +64,12 @@ type Deps struct {
 	// webhook meno sicuro, è un endpoint pubblico che accetta qualunque cosa, e
 	// non registrarlo è l'unica alternativa accettabile a registrarlo verificato.
 	GitHubWebhook *githubhook.Service
+
+	// Secrets può essere nil: in quel caso le rotte `/secrets` non vengono
+	// registrate (R42). I job continuano a girare, ma quelli che riferiscono un
+	// `${VAR}` falliscono la risoluzione — e nessuno può creare il segreto che
+	// manca. La mancanza si nota nel log all'avvio.
+	Secrets *secrets.Service
 
 	// TrustedProxies elenca le reti da cui il servizio accetta la testata
 	// `X-Forwarded-For`. Vuoto significa «nessuna»: vedi [ClientIP].
@@ -107,6 +114,14 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 			newKeysAPI(guard, logger, deps.APIKeys).routes(mux)
 		} else {
 			logger.Warn("rotte delle chiavi API non registrate: nessun servizio apikeys configurato")
+		}
+
+		// I segreti del workspace stanno dietro lo stesso guard, e come le chiavi
+		// solo dietro la *sessione*: vedi secretsAPI.routes.
+		if deps.Secrets != nil {
+			newSecretsAPI(guard, logger, deps.Secrets).routes(mux)
+		} else {
+			logger.Warn("rotte dei segreti del workspace non registrate: nessun servizio secrets configurato")
 		}
 	} else {
 		logger.Warn("rotte di autenticazione non registrate: nessun servizio auth configurato")
