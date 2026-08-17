@@ -5,6 +5,7 @@
 // La chiamata all'health check è volutamente lato client: la dashboard è una SPA
 // statica e ogni dato dinamico passa dal backend Go.
 const { public: config } = useRuntimeConfig()
+const { t } = useLocale()
 
 type Health = { status: string, env: string, version: string }
 
@@ -18,37 +19,44 @@ async function checkHealth() {
   try {
     health.value = await $fetch<Health>(apiUrl('/healthz', config.apiBaseUrl))
   }
-  catch (cause) {
+  catch {
+    /*
+     * Il messaggio dell'eccezione arriva da `$fetch` ed è in inglese, sempre:
+     * mostrarlo significherebbe una frase non tradotta in mezzo a quattro
+     * lingue. Resta nella console del browser per chi sviluppa; all'utente va
+     * il testo tradotto.
+     */
     health.value = null
-    error.value = cause instanceof Error ? cause.message : 'Backend non raggiungibile'
+    error.value = t.value.home.unreachable
   }
   finally {
     pending.value = false
   }
 }
 
-useHead({ title: 'Dashboard' })
+/*
+ * Titolo reattivo: `useHead` con un oggetto statico lo fisserebbe alla lingua
+ * dell'avvio, e cambiando lingua la scheda del browser resterebbe indietro.
+ */
+useHead(computed(() => ({ title: t.value.home.title })))
 </script>
 
 <template>
-  <main class="shell">
-    <h1>PostQron · Dashboard</h1>
-    <p>
-      Scaffold del monorepo. Il template Flowbite, l'autenticazione e la gestione
-      dei cronjob arrivano con le issue dedicate.
-    </p>
+  <main class="page">
+    <h1>{{ t.home.title }}</h1>
+    <p>{{ t.home.intro }}</p>
 
     <section>
-      <h2>Backend</h2>
+      <h2>{{ t.home.backendTitle }}</h2>
       <p class="mono">
-        API: {{ config.apiBaseUrl }}
+        {{ t.home.apiBaseLabel }}: {{ config.apiBaseUrl }}
       </p>
       <button
         type="button"
         :disabled="pending"
         @click="checkHealth"
       >
-        {{ pending ? 'Verifico…' : 'Verifica health check' }}
+        {{ pending ? t.home.checking : t.home.check }}
       </button>
       <p
         v-if="health"
@@ -67,12 +75,10 @@ useHead({ title: 'Dashboard' })
 </template>
 
 <style scoped>
-.shell {
+.page {
   margin: 0 auto;
   max-width: 42rem;
-  padding: 4rem 1.5rem;
-  font-family: system-ui, sans-serif;
-  line-height: 1.6;
+  padding: 3rem 1.5rem;
 }
 
 .mono {
