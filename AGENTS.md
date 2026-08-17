@@ -90,7 +90,34 @@ I punti già noti come bloccanti sono elencati in [`docs/SPEC.md`](docs/SPEC.md)
 
 ---
 
-## 7. Convenzioni
+## 7. Convenzioni condivise (vincolanti fra issue)
+
+Queste scelte attraversano più issue: un agente che le contraddice rompe il lavoro di
+un altro, anche se la sua PR passa la CI da sola.
+
+### Connessione al database
+
+**Le variabili `POSTGRES_*` sono l'unica fonte di verità.** Non esiste, e non va
+introdotta, una variabile `DATABASE_URL` già formata:
+
+```
+POSTGRES_HOST  POSTGRES_PORT  POSTGRES_DB  POSTGRES_USER  POSTGRES_PASSWORD  POSTGRES_SSLMODE
+```
+
+Docker Compose le usa per creare e pubblicare il container; **API e tool di migrazione
+compongono il DSN da queste**. Il motivo è che un DSN precomposto duplica host, porta e
+credenziali in un secondo posto, e le due copie divergono in silenzio: è già successo
+durante la issue 3, con la porta del container spostata sulla 5433 e il DSN rimasto
+sulla 5432.
+
+L'interpolazione (`DATABASE_URL=postgres://...@${POSTGRES_PORT}/...`) non è una via
+d'uscita: Docker Compose espande `${...}` leggendo il `.env`, un client Go che carica lo
+stesso file in genere no — lo stesso file significherebbe due cose diverse a seconda di
+chi lo legge.
+
+---
+
+## 8. Convenzioni di stile
 
 - Commit in stile Conventional Commits: `feat(engine): ...`, `fix(api): ...`.
 - Go: `gofmt`, errori sempre gestiti, `context.Context` propagato.
