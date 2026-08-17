@@ -40,9 +40,12 @@ services:
       - -c
       - log_timezone=UTC
 
-    # Bind sul solo loopback: il database di sviluppo non va esposto in rete.
+    # Host e porta di pubblicazione vengono dalle stesse variabili che l'API usa
+    # per comporre il proprio DSN (vedi .env.example): non esiste un secondo
+    # posto in cui la porta possa essere scritta e divergere da questo.
+    # Il default resta il loopback: il database di sviluppo non va esposto in rete.
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
 
     volumes:
       - postgres-data:/var/lib/postgresql/data

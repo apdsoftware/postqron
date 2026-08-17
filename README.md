@@ -70,22 +70,51 @@ Le credenziali arrivano da `.env`, che **non** è versionato; il modello è
 
 | Variabile | Default | Descrizione |
 |---|---|---|
+| `POSTGRES_HOST` | `127.0.0.1` | indirizzo di pubblicazione del container |
+| `POSTGRES_PORT` | `5432` | porta sull'host |
 | `POSTGRES_DB` | `postqron` | nome del database |
 | `POSTGRES_USER` | `postqron` | utente proprietario |
 | `POSTGRES_PASSWORD` | — | obbligatoria: senza, il container non parte |
-| `POSTGRES_PORT` | `5432` | porta sull'host, esposta solo su `127.0.0.1` |
-| `DATABASE_URL` | — | stringa di connessione per API e migrazioni |
+| `POSTGRES_SSLMODE` | `disable` | in locale la connessione è in chiaro sul loopback |
 
 Utente, password e nome del database vengono applicati **solo al primo avvio**,
 quando `initdb` crea il volume. Per applicare valori nuovi serve ripartire da
 zero.
 
+#### Una sola fonte di verità per la connessione
+
+Queste variabili sono l'**unica** descrizione della connessione. Compose le usa
+per creare e pubblicare il container; API e tool di migrazione compongono da esse
+il proprio DSN. Cambiare porta significa toccare un solo valore.
+
+Nel repository **non esiste un `DATABASE_URL` già formato**, ed è deliberato: un
+URL che ripete host, porta e credenziali è una seconda copia libera di divergere
+dalla prima. Basta spostare il container su un'altra porta e dimenticarsi di
+aggiornare l'URL perché le migrazioni finiscano su un PostgreSQL diverso — quello
+di un altro progetto ancora in ascolto sulla porta vecchia, per esempio — senza
+un errore che lo segnali, se le credenziali per caso combaciano.
+
+Interpolare l'URL non risolve: Compose espande `${...}` quando legge il `.env`,
+un client Go che carica lo stesso file in genere no. Lo stesso file
+significherebbe due cose diverse a seconda di chi lo legge.
+
+Se ti serve un URL per uno strumento esterno, componilo al momento invece di
+salvarlo:
+
+```bash
+set -a && . ./.env && set +a
+export DSN="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB?sslmode=$POSTGRES_SSLMODE"
+```
+
 ### Stato e dati
 
 ```bash
-docker compose ps                                    # stato e healthcheck
-docker compose exec postgres psql -U postqron        # shell psql
-docker compose logs -f postgres                      # log del container
+docker compose ps                # stato e healthcheck
+docker compose logs -f postgres  # log del container
+
+# shell psql: utente e database vengono dall'ambiente del container,
+# così restano allineati al .env anche se li hai cambiati
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 I dati vivono nel volume `postqron-postgres-data` e sopravvivono a `make
