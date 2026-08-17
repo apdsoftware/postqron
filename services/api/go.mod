@@ -2,6 +2,11 @@ module github.com/apdsoftware/postqron/services/api
 
 go 1.26
 
+// Ripetuta anche qui, e non solo in go.work: il workspace governa chi compila
+// dalla radice, questa riga governa chi compila il modulo da solo (`cd
+// services/api && go build`) o lo importa da fuori. Vedi go.work per il perché.
+toolchain go1.26.6
+
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	golang.org/x/crypto v0.54.0

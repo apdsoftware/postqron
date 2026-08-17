@@ -34,6 +34,10 @@ Prerequisiti: Go ≥ 1.26, Node ≥ 22, pnpm ≥ 11,
 [gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`),
 Docker (solo per il database).
 
+La **versione** di Go non va scelta a mano: `go.work` e `services/api/go.mod`
+fissano la toolchain con la direttiva `toolchain`, e il comando `go` scarica da
+sé quella richiesta. Basta averne una ≥ 1.26 per far partire il meccanismo.
+
 ```bash
 cp .env.example .env   # configurazione locale (ignorata da git)
 make setup     # installa dipendenze, scarica il browser e2e, installa l'hook
