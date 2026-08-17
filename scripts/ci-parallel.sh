@@ -32,6 +32,22 @@
 # significherebbe che poche riesecuzioni verdi — ed è la prima cosa che si fa
 # davanti a un rosso intermittente — spingono fuori proprio il log da leggere.
 #
+# Il terzo esito (issue #511). Un job può non essere passato né fallito: non aver
+# potuto controllare. Succede a govulncheck, che senza rete non scarica il
+# database delle vulnerabilità, e succederebbe a qualunque altro controllo che
+# dipende da una risorsa esterna. Le due alternative sono entrambe peggiori:
+# farlo fallire rende impossibile spingere da offline — e chi deve farlo toglie
+# il controllo dalla CI — mentre farlo passare in silenzio produce un verde che
+# non ha verificato niente, che è il guasto da cui nasce la issue. Qui la corsa
+# resta verde, ma il riepilogo marca il job ⚠, ne stampa l'output e lascia il
+# promemoria in `degradato-ultima-corsa.txt`, che `make ci` ripete in fondo:
+# dopo gli e2e il riepilogo è scorso via da un pezzo.
+#
+# Il segnale è un file e non un codice di uscita perché i job sono target make, e
+# make non lascia passare il codice della ricetta: qualunque comando fallisca,
+# esce 2. A ogni job si assegna quindi un percorso in CI_DEGRADED_MARKER; se al
+# termine quel file esiste, il job dichiara di non aver controllato.
+#
 # Uso: scripts/ci-parallel.sh <target-make> [<target-make>...]
 #
 # Ambiente:
@@ -59,6 +75,12 @@ unset MAKEFLAGS MFLAGS MAKELEVEL
 logroot=${CI_LOG_DIR:-$ROOT/.ci-logs}
 keep_failed=${CI_LOG_KEEP_FAILED:-10}
 keep_passed=${CI_LOG_KEEP_PASSED:-3}
+
+# Il promemoria della corsa precedente non deve sopravvivere a questa: sta fuori
+# dalle directory datate proprio perché `make ci` lo trova a percorso fisso, e a
+# percorso fisso un file vecchio è indistinguibile da uno nuovo.
+promemoria="$logroot/degradato-ultima-corsa.txt"
+rm -f "$promemoria"
 
 targets=("$@")
 
@@ -102,6 +124,7 @@ pids=()
 for target in "${targets[@]}"; do
   (
     start=$SECONDS
+    export CI_DEGRADED_MARKER="$logdir/$target.degradato"
     "$MAKE_BIN" "$target" >"$logdir/$target.log" 2>&1
     status=$?
     echo $((SECONDS - start)) >"$logdir/$target.time"
@@ -111,23 +134,48 @@ for target in "${targets[@]}"; do
 done
 
 failed=()
+degraded=()
 for i in "${!targets[@]}"; do
   target=${targets[$i]}
-  if wait "${pids[$i]}"; then
-    ok=1
-  else
-    ok=0
-    failed+=("$target")
-  fi
+  stato=0
+  wait "${pids[$i]}" || stato=$?
   elapsed=$(cat "$logdir/$target.time" 2>/dev/null || echo '?')
-  if [ "$ok" -eq 1 ]; then
-    riga=$(printf '  ✓ %-14s %ss' "$target" "$elapsed")
-  else
+  if [ "$stato" -ne 0 ]; then
+    failed+=("$target")
     riga=$(printf '  ✗ %-14s %ss  → %s' "$target" "$elapsed" "$logdir/$target.log")
+  elif [ -f "$logdir/$target.degradato" ]; then
+    degraded+=("$target")
+    riga=$(printf '  ⚠ %-14s %ss  → controllo incompleto: %s' \
+      "$target" "$elapsed" "$logdir/$target.log")
+  else
+    riga=$(printf '  ✓ %-14s %ss' "$target" "$elapsed")
   fi
   echo "$riga"
   echo "$riga" >>"$corsa"
 done
+
+# I degradati stampano l'output anche a corsa verde: è l'unico modo perché chi
+# ha lanciato la CI sappia *cosa* non è stato controllato. Il riepilogo da solo
+# direbbe che qualcosa manca, non che manca il controllo delle vulnerabilità.
+if [ ${#degraded[@]} -gt 0 ]; then
+  {
+    echo ""
+    echo "controlli incompleti: ${degraded[*]}"
+  } >>"$corsa"
+  for target in "${degraded[@]}"; do
+    echo ""
+    echo "──────── $target: controllo incompleto ────────"
+    cat "$logdir/$target.log"
+  done
+  {
+    echo ""
+    echo "⚠ controlli incompleti: ${degraded[*]}"
+    echo "  Questa corsa non li ha eseguiti: il verde non li include."
+    for target in "${degraded[@]}"; do
+      echo "    $logdir/$target.log"
+    done
+  } | tee "$promemoria"
+fi
 
 # La rotazione gira sempre, anche sulla corsa verde: è l'unico momento in cui si
 # sa se questa corsa va contata fra le rosse o fra le verdi.

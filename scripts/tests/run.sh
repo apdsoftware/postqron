@@ -244,6 +244,100 @@ else
   fail "tetto rosse=2 ma dopo quattro fallimenti ci sono $(conta_corse "$tetto") corse"
 fi
 
+echo "→ vulnerabilità note (issue #511)"
+
+# Le due fixture sono output reali di `govulncheck -format json ./...` su questo
+# modulo, ridotti agli OSV citati dai finding: una scattata con go1.26.5 (le
+# sette della issue, tutte raggiungibili) e una con go1.26.6 (nessuna
+# raggiungibile, resta la sola GO-2026-5932 su x/crypto, che non chiamiamo e per
+# cui non esiste una versione corretta).
+#
+# Il caso che conta è il secondo: dimostra che il controllo *non* si ferma su una
+# vulnerabilità irraggiungibile. Se lo facesse, la CI sarebbe rossa per sempre
+# per un pacchetto che non importiamo — e sarebbe disattivata entro la settimana.
+fixtures="$ROOT/scripts/tests/fixtures"
+report() { node "$ROOT/scripts/vulncheck-report.mjs" <"$1"; }
+
+expect_exit 1 "fallisce sulle vulnerabilità raggiungibili" \
+  -- report "$fixtures/govulncheck-raggiungibili.json"
+expect_exit 0 "non fallisce su una vulnerabilità che non chiamiamo" \
+  -- report "$fixtures/govulncheck-irraggiungibili.json"
+
+# Fallire non basta: deve dire dove. Un rapporto senza il file da aprire manda a
+# rieseguire govulncheck a mano, ed è il momento in cui il controllo diventa un
+# fastidio.
+rapporto=$(report "$fixtures/govulncheck-raggiungibili.json" 2>&1)
+case "$rapporto" in
+  *"internal/httpexec/execute.go:56"*) pass "il rapporto indica il punto di chiamata" ;;
+  *) fail "il rapporto non nomina il file da cui parte la chiamata" ;;
+esac
+case "$rapporto" in
+  *GO-2026-5932*) pass "elenca anche le irraggiungibili, senza farne un blocco" ;;
+  *) fail "le vulnerabilità irraggiungibili spariscono dal rapporto" ;;
+esac
+
+# Le tre forme di verde falso, che sono il vero guasto da evitare: un output
+# vuoto, uno troncato a metà e uno prodotto da una scansione che non ha risolto i
+# simboli (`-scan module`), dove *niente* risulterebbe raggiungibile.
+expect_exit 2 "un output vuoto non è un verde" -- report /dev/null
+
+troncato="$TMP/troncato.json"
+head -c 400 "$fixtures/govulncheck-raggiungibili.json" >"$troncato"
+expect_exit 2 "un output troncato non è un verde" -- report "$troncato"
+
+livello="$TMP/livello-modulo.json"
+sed 's/"scan_level": "symbol"/"scan_level": "module"/' \
+  "$fixtures/govulncheck-irraggiungibili.json" >"$livello"
+expect_exit 2 "una scansione senza simboli non è un verde" -- report "$livello"
+
+# Rete assente: il controllo non deve né fallire né tacere. Qui il database è
+# irraggiungibile davvero — la porta 1 di localhost non risponde — e la sonda
+# dello script se ne accorge prima di govulncheck, che direbbe soltanto
+# «creating client: unrecognized vulndb format».
+senza_rete() { VULN_DB=http://127.0.0.1:1 VULN_PROBE_TIMEOUT=3 "$ROOT/scripts/vulncheck.sh"; }
+expect_exit 3 "senza database esce 3 (degradato), non 0 e non 1" -- senza_rete
+
+avviso=$(senza_rete 2>&1)
+case "$avviso" in
+  *"CONTROLLO NON ESEGUITO"*) pass "senza database lo dice a chiare lettere" ;;
+  *) fail "il degrado non è visibile nell'output" ;;
+esac
+
+# E il degrado deve arrivare fino al riepilogo della corsa: un job degradato non
+# è un fallimento (la CI resta verde) ma non è nemmeno un ✓. Il target finto usa
+# lo stesso protocollo del vero — il file in CI_DEGRADED_MARKER — perché il
+# codice di uscita non uscirebbe da make, che esce 2 e basta.
+cat >>"$TMP/make/Makefile" <<'MAKEFILE'
+degradato:
+	@echo "controllo non eseguito"; : >"$$CI_DEGRADED_MARKER"
+MAKEFILE
+
+expect_exit 0 "un job degradato non fa fallire la corsa" -- run_parallel ok degradato
+
+degradi="$TMP/ci-logs-degradati"
+riepilogo=$(run_parallel_in "$degradi" 3 10 -- ok degradato 2>&1)
+case "$riepilogo" in
+  *"⚠ degradato"*) pass "il riepilogo marca il job degradato con ⚠" ;;
+  *) fail "il job degradato compare nel riepilogo come gli altri" ;;
+esac
+case "$riepilogo" in
+  *"controllo non eseguito"*) pass "stampa l'output del job degradato anche a corsa verde" ;;
+  *) fail "l'output del job degradato non viene stampato" ;;
+esac
+if [ -f "$degradi/degradato-ultima-corsa.txt" ]; then
+  pass "lascia il promemoria che \`make ci\` ripete in fondo"
+else
+  fail "manca il promemoria dei controlli degradati sotto $degradi"
+fi
+# Il promemoria sta a percorso fisso: se sopravvivesse alla corsa successiva,
+# `make ci` segnalerebbe per sempre un degrado avvenuto una volta sola.
+run_parallel_in "$degradi" 3 10 -- ok >/dev/null 2>&1
+if [ -f "$degradi/degradato-ultima-corsa.txt" ]; then
+  fail "il promemoria è sopravvissuto a una corsa senza degradi"
+else
+  pass "una corsa pulita cancella il promemoria precedente"
+fi
+
 echo "→ server statico dei test e2e"
 
 mkdir -p "$TMP/site/sub"

@@ -32,7 +32,9 @@ docs/              SPEC.md (contratto funzionale) e BACKLOG.md (issue)
 
 Prerequisiti: Go ≥ 1.26, Node ≥ 22, pnpm ≥ 11,
 [gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`),
-Docker (solo per il database).
+[govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)
+(`go install golang.org/x/vuln/cmd/govulncheck@latest`), Docker (solo per il
+database).
 
 La **versione** di Go non va scelta a mano: `go.work` e `services/api/go.mod`
 fissano la toolchain con la direttiva `toolchain`, e il comando `go` scarica da
@@ -226,11 +228,12 @@ preflight                      strumenti e layout del monorepo
 ├─ ci-go          services/api  go vet · gofmt · go build · go test -race
 ├─ ci-web         apps/web      eslint · nuxt typecheck · vitest · nuxt generate
 ├─ ci-dashboard   apps/dashboard  idem                                   in parallelo
-└─ ci-root        radice        prettier · tsc (e2e) · gitleaks · test degli script
+├─ ci-root        radice        prettier · tsc (e2e) · gitleaks · test degli script
+└─ ci-vuln        services/api  govulncheck
 e2e                            Playwright sull'output statico delle due app
 ```
 
-I quattro job girano in parallelo, uno per componente. La partizione non è per
+I cinque job girano in parallelo, uno per componente. La partizione non è per
 fase (prima tutti i lint, poi tutti i test) perché dentro una singola app Nuxt le
 fasi si contendono la directory `.nuxt`; fra componenti diversi non c'è nulla di
 condiviso. Gli e2e restano a valle: servono le build di entrambe le app.
@@ -251,11 +254,13 @@ riporta ora, ramo, revisione, stato dell'albero e componenti eseguiti in
 parallelo. Il riepilogo finale stampa il percorso dei log dei job falliti.
 
 ```
-.ci-logs/20260817-181205-45123/
-├─ corsa.txt        contesto: ora, ramo, revisione, componenti in parallelo
-├─ ci-go.log        output integrale del job
-├─ ci-web.log
-└─ esito            ok | ko
+.ci-logs/
+├─ degradato-ultima-corsa.txt   solo se un controllo non ha potuto controllare
+└─ 20260817-181205-45123/
+   ├─ corsa.txt     contesto: ora, ramo, revisione, componenti in parallelo
+   ├─ ci-go.log     output integrale del job
+   ├─ ci-web.log
+   └─ esito         ok | ko
 ```
 
 Serve perché i log **sopravvivano alla riesecuzione**: un fallimento
@@ -268,6 +273,34 @@ un rosso intermittente la prima cosa che si fa è rilanciare, e con un tetto uni
 le riesecuzioni verdi spingerebbero fuori proprio il log da leggere. I tetti si
 cambiano con `CI_LOG_KEEP_FAILED` e `CI_LOG_KEEP_PASSED`, la radice con
 `CI_LOG_DIR`.
+
+### Vulnerabilità note (`make vulncheck`)
+
+`ci-vuln` esegue [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)
+su `services/api`. Costa circa 2 secondi e gira in parallelo ai job più lunghi:
+il tempo aggiunto alla corsa completa non è misurabile.
+
+Due comportamenti da conoscere.
+
+**Fallisce solo sul raggiungibile.** govulncheck distingue le vulnerabilità che
+il nostro codice *chiama* da quelle che stanno in moduli che importiamo e non
+tocchiamo. Solo le prime fermano la CI; le seconde compaiono nel rapporto con un
+`⚠`. Oggi è il caso di `GO-2026-5932` su `golang.org/x/crypto`: riguarda il
+pacchetto `openpgp`, che non importiamo, ed è dichiarata senza versione corretta.
+Se bloccasse, la CI sarebbe rossa per sempre per qualcosa che non possiamo
+sistemare — e il primo che deve spingere una correzione urgente commenterebbe la
+riga nel `Makefile`.
+
+**Senza rete non mente.** Il database delle vulnerabilità si scarica. Se non è
+raggiungibile il job non fallisce e non passa: risulta `⚠ controllo incompleto`
+nel riepilogo, la corsa resta verde e `make ci` ripete l'avviso in fondo, dopo
+gli e2e. Il verde di quella corsa non include il controllo delle vulnerabilità, e
+lo dice.
+
+```
+  ✓ ci-go          33s
+  ⚠ ci-vuln        0s  → controllo incompleto: .ci-logs/…/ci-vuln.log
+```
 
 ### La CI pretende i componenti
 

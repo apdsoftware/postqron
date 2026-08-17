@@ -33,7 +33,7 @@ JS_SCRIPTS=${JS_SCRIPTS:-}
 
 # Strumenti necessari a `make ci`. Docker non è nell'elenco: la CI non tocca il
 # database, i target db-* si controllano da soli.
-REQUIRED_TOOLS=${REQUIRED_TOOLS:-pnpm node go gitleaks}
+REQUIRED_TOOLS=${REQUIRED_TOOLS:-pnpm node go gitleaks govulncheck}
 
 errors=0
 
@@ -44,8 +44,23 @@ fail() {
 
 # ------------------------------------------------------------------ strumenti
 
+# `go install` non mette i binari nel PATH: li mette in $(go env GOBIN), o in
+# $(go env GOPATH)/bin, che su molte macchine nel PATH non c'è. Cercare solo con
+# `command -v` direbbe «govulncheck non installato» a chi ce l'ha, e la CI non
+# partirebbe per un problema che non esiste.
+ha_strumento() {
+  command -v "$1" >/dev/null 2>&1 && return 0
+  command -v go >/dev/null 2>&1 || return 1
+  local gobin gopath
+  gobin=$(go env GOBIN 2>/dev/null)
+  gopath=$(go env GOPATH 2>/dev/null)
+  [ -n "$gobin" ] && [ -x "$gobin/$1" ] && return 0
+  [ -n "$gopath" ] && [ -x "$gopath/bin/$1" ] && return 0
+  return 1
+}
+
 for tool in $REQUIRED_TOOLS; do
-  command -v "$tool" >/dev/null 2>&1 || fail "$tool non installato (vedi README § Sviluppo)"
+  ha_strumento "$tool" || fail "$tool non installato (vedi README § Sviluppo)"
 done
 
 # ------------------------------------------------------------------- layout
