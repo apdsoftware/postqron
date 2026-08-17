@@ -269,7 +269,7 @@ li mostra, non li applica.
 
 | | **Free** | **Pro** | **Team** | **Agency** |
 |---|---|---|---|---|
-| Prezzo | €0 | €12/mese · €120/anno | €39/mese | da €99/mese |
+| Prezzo | €0 | €9/mese · €90/anno | €29/mese | da €79/mese |
 | Target | side-project | freelance in produzione | startup e PMI | agenzie e scale-up |
 | Cronjob | 20 | 200 | illimitati (fair use: 1.000 task) | illimitati |
 | **Risoluzione minima** | **1 minuto** | **10 secondi** | **1 secondo** | 1 secondo |
@@ -493,8 +493,11 @@ parte dell'offerta.
 - **R61 — Valuta unica in euro.** I prezzi sono in **euro** e **non seguono la
   lingua**: le cinque localizzazioni (§8-bis) mostrano gli stessi importi. La
   conversione e la presentazione in valuta locale, dove avvengono, sono competenza di
-  Paddle in quanto Merchant of Record — non nostra. Il catalogo Paddle è la fonte di
-  verità e riporta €12, €120, €39, €99: qualunque cifra diversa nell'interfaccia è
-  un difetto, e ogni simbolo `$` è un residuo da correggere.
+  Paddle in quanto Merchant of Record — non nostra. Il **catalogo Paddle è la fonte
+  di verità**: qualunque cifra diversa nell'interfaccia è un difetto, e ogni simbolo
+  `$` è un residuo da correggere.
+  I prezzi non inseguono il cambio: sono punti scelti, non conversioni ricalcolate.
+  L'annuale di Pro è esattamente **dieci mensilità**, cioè due mesi in regalo — una
+  promessa leggibile dal cliente che gli arrotondamenti futuri non devono rompere.
 - **R62 — Fatturazione annuale solo su Pro.** È una scelta deliberata, non una
   lacuna: Team e Agency sono esclusivamente mensili.

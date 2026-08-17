@@ -45,7 +45,7 @@ Merchant of Record: checkout, sottoscrizioni, MRR.
    `https://api.postqron.com/webhooks/paddle`, sottoscrivi gli eventi di sottoscrizione
    e transazione, e copia il **signing secret**.
 7. **Catalogo prodotti:** crea i tre piani a pagamento con i prezzi di SPEC §8 — Pro
-   $12/mese e $120/anno, Team $39/mese, Agency da $99/mese. Annota i `price_id` di
+   €9/mese e €90/anno, Team €29/mese, Agency da €79/mese. Annota i `price_id` di
    ciascuno: il codice referenzia quelli, non i prezzi.
 
 ```
