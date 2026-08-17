@@ -1,3 +1,10 @@
 go 1.26
 
+// La toolchain sta scritta qui, non nella macchina di chi compila: `go` scarica
+// da sé la versione richiesta (GOTOOLCHAIN=auto). Sette vulnerabilità della
+// libreria standard raggiunte dal nostro codice sono corrette in go1.26.6
+// (issue #511): con la sola direttiva `go 1.26` chiunque avesse installato
+// go1.26.5 le avrebbe ricompilate dentro il binario senza accorgersene.
+toolchain go1.26.6
+
 use ./services/api

@@ -261,6 +261,10 @@ Stesso template Flowbite.
 - Audit log su eventi sensibili: impersonificazione, cambio piano, revoca chiavi.
 - Verifica della firma su tutti i webhook in ingresso (GitHub, Paddle).
 - Backup del database e rate limiting sulle API pubbliche.
+- Vulnerabilità note delle dipendenze Go controllate a ogni push (`govulncheck`
+  nella CI locale): bloccano solo se il nostro codice le raggiunge, e quando il
+  database delle vulnerabilità non è raggiungibile la CI lo dichiara invece di
+  passare in silenzio.
 
 ---
 

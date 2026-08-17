@@ -1,0 +1,975 @@
+{
+  "config": {
+    "protocol_version": "v1.0.0",
+    "scanner_name": "govulncheck",
+    "scanner_version": "v1.6.0",
+    "db": "https://vuln.go.dev",
+    "db_last_modified": "2026-08-14T16:22:54Z",
+    "go_version": "go1.26.5",
+    "scan_level": "symbol",
+    "scan_mode": "source"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-5932",
+    "summary": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-5026",
+    "summary": "Invoking failure to reject ASCII-only Punycode-encoded labels in golang.org/x/net/idna"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-5942",
+    "summary": "Parsing an invalid SVCB or HTTPS RR can panic in golang.org/x/net/dns/dnsmessage"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-5972",
+    "summary": "Enforce maximum recursion depth in encoding/asn1"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-6088",
+    "summary": "Add recursion depth guard during decode in encoding/xml"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-6089",
+    "summary": "Apply ReadHeaderTimeout when doing unencrypted HTTP/2 check in net/http"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-6090",
+    "summary": "Limit handshake messages we are willing to accept post-handshake in crypto/tls"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-6091",
+    "summary": "Fix Javascript regexp context tracking in html/template"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-6218",
+    "summary": "Avoid quadratic complexity in resolvePath in net/url"
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5932",
+    "trace": [
+      {
+        "module": "golang.org/x/crypto",
+        "version": "v0.54.0"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5026",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5942",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5972",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6088",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6089",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6090",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6091",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6218",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6088",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "encoding/xml"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5942",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6218",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/url"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6090",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "crypto/tls"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5972",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "encoding/asn1"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5026",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6089",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6091",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "html/template"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6090",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "crypto/tls",
+        "function": "DialContext",
+        "receiver": "*Dialer",
+        "position": {
+          "filename": "src/crypto/tls/tls.go",
+          "offset": 7434,
+          "line": 229,
+          "column": 18
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "dialTLSWithContext",
+        "receiver": "*http2Transport",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 350623,
+          "line": 10729,
+          "column": 31
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "dialTLS",
+        "receiver": "*http2Transport",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 274138,
+          "line": 8051,
+          "column": 36
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "dialClientConn",
+        "receiver": "*http2Transport",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 273329,
+          "line": 8023,
+          "column": 25
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "getClientConn",
+        "receiver": "*http2clientConnPool",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 42489,
+          "line": 790,
+          "column": 32
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "GetClientConn",
+        "receiver": "*http2clientConnPool",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 42030,
+          "line": 776,
+          "column": 24
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "RoundTripOpt",
+        "receiver": "*http2Transport",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 269007,
+          "line": 7894,
+          "column": 40
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "RoundTrip",
+        "receiver": "*http2unencryptedTransport",
+        "position": {
+          "filename": "src/net/http/h2_bundle.go",
+          "offset": 257437,
+          "line": 7585,
+          "column": 42
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "roundTrip",
+        "receiver": "*Transport",
+        "position": {
+          "filename": "src/net/http/transport.go",
+          "offset": 24844,
+          "line": 702,
+          "column": 35
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "RoundTrip",
+        "receiver": "*Transport",
+        "position": {
+          "filename": "src/net/http/roundtrip.go",
+          "offset": 1026,
+          "line": 33,
+          "column": 20
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "send",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 9196,
+          "line": 264,
+          "column": 26
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "send",
+        "receiver": "*Client",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 7086,
+          "line": 185,
+          "column": 30
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "do",
+        "receiver": "*Client",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 25008,
+          "line": 733,
+          "column": 36
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "Do",
+        "receiver": "*Client",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 20795,
+          "line": 592,
+          "column": 13
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/httpexec",
+        "function": "Execute",
+        "receiver": "*Executor",
+        "position": {
+          "filename": "internal/httpexec/execute.go",
+          "offset": 2432,
+          "line": 56,
+          "column": 26
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6089",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "ListenAndServe",
+        "receiver": "*Server",
+        "position": {
+          "filename": "src/net/http/server.go",
+          "offset": 110448,
+          "line": 3348,
+          "column": 18
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/cmd/api",
+        "function": "run$2",
+        "position": {
+          "filename": "cmd/api/main.go",
+          "offset": 8697,
+          "line": 228,
+          "column": 31
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/cmd/api",
+        "function": "run",
+        "position": {
+          "filename": "cmd/api/main.go",
+          "offset": 8212,
+          "line": 218,
+          "column": 2
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/cmd/api",
+        "function": "main",
+        "position": {
+          "filename": "cmd/api/main.go",
+          "offset": 2669,
+          "line": 59,
+          "column": 15
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6088",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "encoding/xml",
+        "function": "Unmarshal",
+        "position": {
+          "filename": "src/encoding/xml/read.go",
+          "offset": 5762,
+          "line": 133,
+          "column": 6
+        }
+      },
+      {
+        "module": "github.com/jackc/pgx/v5",
+        "version": "v5.10.0",
+        "package": "github.com/jackc/pgx/v5/pgtype",
+        "function": "initDefaultMap$1",
+        "position": {
+          "filename": "pgtype/pgtype_default.go",
+          "offset": 5767,
+          "line": 110,
+          "column": 24
+        }
+      },
+      {
+        "module": "github.com/jackc/pgx/v5",
+        "version": "v5.10.0",
+        "package": "github.com/jackc/pgx/v5/pgtype",
+        "function": "Scan",
+        "receiver": "*scanPlanXMLToXMLUnmarshal",
+        "position": {
+          "filename": "pgtype/xml.go",
+          "offset": 4674,
+          "line": 177,
+          "column": 20
+        }
+      },
+      {
+        "module": "github.com/jackc/pgx/v5",
+        "version": "v5.10.0",
+        "package": "github.com/jackc/pgx/v5",
+        "function": "Scan",
+        "receiver": "*baseRows",
+        "position": {
+          "filename": "rows.go",
+          "offset": 8397,
+          "line": 281,
+          "column": 32
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/migrate",
+        "function": "Applied",
+        "receiver": "*Migrator",
+        "position": {
+          "filename": "internal/migrate/migrate.go",
+          "offset": 4617,
+          "line": 142,
+          "column": 22
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5026",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "Do",
+        "receiver": "*Client",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 20745,
+          "line": 591,
+          "column": 18
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/httpexec",
+        "function": "Execute",
+        "receiver": "*Executor",
+        "position": {
+          "filename": "internal/httpexec/execute.go",
+          "offset": 2432,
+          "line": 56,
+          "column": 26
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6090",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "crypto/tls",
+        "function": "Write",
+        "receiver": "*Conn",
+        "position": {
+          "filename": "src/crypto/tls/conn.go",
+          "offset": 38821,
+          "line": 1202,
+          "column": 16
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "fmt",
+        "function": "Fprintf",
+        "position": {
+          "filename": "src/fmt/print.go",
+          "offset": 6683,
+          "line": 225,
+          "column": 18
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/migrate",
+        "function": "Status",
+        "receiver": "*Migrator",
+        "position": {
+          "filename": "internal/migrate/migrate.go",
+          "offset": 11980,
+          "line": 387,
+          "column": 15
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6090",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "crypto/tls",
+        "function": "HandshakeContext",
+        "receiver": "*Conn",
+        "position": {
+          "filename": "src/crypto/tls/conn.go",
+          "offset": 48010,
+          "line": 1513,
+          "column": 16
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "serve",
+        "receiver": "*conn",
+        "position": {
+          "filename": "src/net/http/server.go",
+          "offset": 60439,
+          "line": 1931,
+          "column": 37
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "Serve",
+        "receiver": "*Server",
+        "position": {
+          "filename": "src/net/http/server.go",
+          "offset": 113952,
+          "line": 3464,
+          "column": 3
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "ListenAndServe",
+        "receiver": "*Server",
+        "position": {
+          "filename": "src/net/http/server.go",
+          "offset": 110661,
+          "line": 3360,
+          "column": 16
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/cmd/api",
+        "function": "run$2",
+        "position": {
+          "filename": "cmd/api/main.go",
+          "offset": 8697,
+          "line": 228,
+          "column": 31
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/cmd/api",
+        "function": "run",
+        "position": {
+          "filename": "cmd/api/main.go",
+          "offset": 8212,
+          "line": 218,
+          "column": 2
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/cmd/api",
+        "function": "main",
+        "position": {
+          "filename": "cmd/api/main.go",
+          "offset": 2669,
+          "line": 59,
+          "column": 15
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6090",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "crypto/tls",
+        "function": "Read",
+        "receiver": "*Conn",
+        "position": {
+          "filename": "src/crypto/tls/conn.go",
+          "offset": 43704,
+          "line": 1379,
+          "column": 16
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "io",
+        "function": "ReadAtLeast",
+        "position": {
+          "filename": "src/io/io.go",
+          "offset": 12184,
+          "line": 335,
+          "column": 19
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "io",
+        "function": "ReadFull",
+        "position": {
+          "filename": "src/io/io.go",
+          "offset": 12810,
+          "line": 354,
+          "column": 20
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/auth",
+        "function": "deriveKey",
+        "position": {
+          "filename": "internal/auth/token.go",
+          "offset": 6335,
+          "line": 156,
+          "column": 26
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/auth",
+        "function": "NewKeyring",
+        "position": {
+          "filename": "internal/auth/token.go",
+          "offset": 3322,
+          "line": 85,
+          "column": 30
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5972",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "encoding/asn1",
+        "function": "Unmarshal",
+        "position": {
+          "filename": "src/encoding/asn1/asn1.go",
+          "offset": 33808,
+          "line": 1140,
+          "column": 6
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "crypto/x509",
+        "function": "ParsePKCS1PrivateKey",
+        "position": {
+          "filename": "src/crypto/x509/pkcs1.go",
+          "offset": 1532,
+          "line": 56,
+          "column": 29
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/githubapp",
+        "function": "ParsePrivateKey",
+        "position": {
+          "filename": "internal/githubapp/githubapp.go",
+          "offset": 8517,
+          "line": 239,
+          "column": 42
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6218",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/url",
+        "function": "Parse",
+        "receiver": "*URL",
+        "position": {
+          "filename": "src/net/url/url.go",
+          "offset": 31244,
+          "line": 1098,
+          "column": 15
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "do",
+        "receiver": "*Client",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 22354,
+          "line": 650,
+          "column": 27
+        }
+      },
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "net/http",
+        "function": "Do",
+        "receiver": "*Client",
+        "position": {
+          "filename": "src/net/http/client.go",
+          "offset": 20795,
+          "line": 592,
+          "column": 13
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/httpexec",
+        "function": "Execute",
+        "receiver": "*Executor",
+        "position": {
+          "filename": "internal/httpexec/execute.go",
+          "offset": 2432,
+          "line": 56,
+          "column": 26
+        }
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-6091",
+    "fixed_version": "v1.26.6",
+    "trace": [
+      {
+        "module": "stdlib",
+        "version": "v1.26.5",
+        "package": "html/template",
+        "function": "ExecuteTemplate",
+        "receiver": "*Template",
+        "position": {
+          "filename": "src/html/template/template.go",
+          "offset": 4100,
+          "line": 134,
+          "column": 20
+        }
+      },
+      {
+        "module": "github.com/apdsoftware/postqron/services/api",
+        "package": "github.com/apdsoftware/postqron/services/api/internal/emailrender",
+        "function": "Render",
+        "receiver": "*Renderer",
+        "position": {
+          "filename": "internal/emailrender/emailrender.go",
+          "offset": 7152,
+          "line": 224,
+          "column": 41
+        }
+      }
+    ]
+  }
+}

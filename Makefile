@@ -30,6 +30,12 @@ JS_SCRIPTS     := lint typecheck test generate
 # Il preflight legge il manifest dall'ambiente.
 export REQUIRED_DIRS REQUIRED_FILES JS_APPS JS_SCRIPTS
 
+# Radice degli artefatti della CI. Dichiarata qui e non solo dentro
+# ci-parallel.sh perché `make ci` deve leggere allo stesso percorso il
+# promemoria dei controlli degradati (vedi il target `ci`).
+CI_LOG_DIR ?= $(CURDIR)/.ci-logs
+export CI_LOG_DIR
+
 .PHONY: help
 help: ## Mostra questo elenco
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -43,6 +49,13 @@ setup: ## Installa le dipendenze e prepara l'ambiente
 	@command -v go   >/dev/null || { echo "go non installato"; exit 1; }
 	@command -v gitleaks >/dev/null || { \
 		echo "gitleaks non installato — serve alla CI (\`brew install gitleaks\`)"; exit 1; }
+	@# govulncheck si installa con `go install`, che lo mette in $$(go env
+	@# GOPATH)/bin senza toccare l'installazione di sistema — e quella directory
+	@# non è nel PATH di tutte le shell, quindi si guarda anche lì (come fa il
+	@# preflight).
+	@command -v govulncheck >/dev/null || [ -x "$$(go env GOPATH)/bin/govulncheck" ] || { \
+		echo "govulncheck non installato — serve alla CI:"; \
+		echo "  go install golang.org/x/vuln/cmd/govulncheck@latest"; exit 1; }
 	pnpm install --frozen-lockfile
 	go work sync
 	@# Il browser dei test e2e. Scarica solo se manca dalla cache di Playwright.
@@ -176,6 +189,23 @@ e2e: ## Test end-to-end dei frontend sull'output statico
 	done
 	pnpm exec playwright test
 
+.PHONY: vulncheck
+vulncheck: ## Vulnerabilità note nelle dipendenze Go (govulncheck)
+	@# Fallisce solo sulle vulnerabilità che il nostro codice raggiunge davvero, e
+	@# quando la rete non c'è esce 3 invece di mentire. Il perché di entrambe le
+	@# scelte sta in scripts/vulncheck.sh.
+	@#
+	@# Il 3 si ferma qui: senza rete il controllo non ha potuto controllare, e non
+	@# è un motivo per rifiutare un push. Diventa un file, perché è l'unico
+	@# segnale che esce da una ricetta — make esce 2 qualunque cosa restituisca il
+	@# comando, quindi un codice di uscita non arriverebbe mai al runner. Il
+	@# percorso lo assegna scripts/ci-parallel.sh, che sul quel file marca il job
+	@# ⚠ nel riepilogo; fuori dalla CI la variabile non c'è e resta il solo
+	@# avviso a schermo.
+	@scripts/vulncheck.sh $(GO_DIR); rc=$$?; \
+	if [ $$rc -ne 3 ]; then exit $$rc; fi; \
+	if [ -n "$$CI_DEGRADED_MARKER" ]; then : >"$$CI_DEGRADED_MARKER"; fi
+
 .PHONY: secrets
 secrets: ## Verifica che non ci siano segreti nel codice
 	@# La superficie da controllare sono i commit in partenza. Le due alternative
@@ -201,10 +231,19 @@ ci-selftest: ## Test degli script della CI
 # Gli e2e restano a valle: hanno bisogno dell'output di `nuxt generate` di
 # entrambe le app, quindi non possono partire finché le build non sono finite.
 
-CI_JOBS := ci-go ci-web ci-dashboard ci-root
+CI_JOBS := ci-go ci-web ci-dashboard ci-root ci-vuln
 
 .PHONY: ci-go
 ci-go: lint-go build-go test-go
+
+# govulncheck sta in un job suo e non dentro ci-go per due motivi. Ricompila il
+# modulo per intero: in coda a lint/build/test allungherebbe il componente più
+# lungo, in parallelo alle build Nuxt il tempo aggiunto alla corsa è quasi tutto
+# assorbito. E il suo codice di uscita 3 significa «non ho potuto controllare»
+# (vedi scripts/ci-parallel.sh): dentro una ricetta con altri comandi sarebbe
+# indistinguibile da un 3 qualsiasi.
+.PHONY: ci-vuln
+ci-vuln: vulncheck
 
 .PHONY: ci-web
 ci-web: lint-web typecheck-web test-web build-web
@@ -222,6 +261,12 @@ ci: ## Pipeline completa — deve passare prima del merge
 	@$(MAKE) e2e
 	@echo ""
 	@echo "  ✓ CI locale superata"
+	@# Un controllo che non ha potuto controllare (govulncheck senza rete) lo dice
+	@# nel riepilogo dei job, ma fra quel riepilogo e qui ci sono gli e2e: dopo
+	@# qualche centinaio di righe «✓ CI locale superata» sarebbe l'unica cosa che
+	@# resta letta. Il promemoria viene cancellato all'inizio di ogni corsa.
+	@[ -f "$(CI_LOG_DIR)/degradato-ultima-corsa.txt" ] \
+		&& cat "$(CI_LOG_DIR)/degradato-ultima-corsa.txt" || true
 
 # ---------------------------------------------------------------- sviluppo
 
