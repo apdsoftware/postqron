@@ -4,16 +4,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
-	"github.com/apdsoftware/postqron/services/api/internal/config"
 )
-
-// SessionCookieName è il nome del cookie che porta il token di sessione.
-const SessionCookieName = "pq_session"
 
 // maxUserAgentLength tronca la stringa dichiarata dal client prima di
 // conservarla: è un valore arbitrario che finisce in una colonna di testo, e non
@@ -21,32 +16,18 @@ const SessionCookieName = "pq_session"
 const maxUserAgentLength = 400
 
 // authAPI raccoglie le rotte di autenticazione (R14).
+//
+// Il riconoscimento del chiamante e la gestione del cookie stanno nel [guard],
+// che le rotte dei job usano a loro volta: vedi identity.go.
 type authAPI struct {
-	svc      *auth.Service
-	log      *slog.Logger
-	deps     Deps
-	secure   bool
-	sameSite http.SameSite
+	*guard
+	svc  *auth.Service
+	log  *slog.Logger
+	deps Deps
 }
 
-func newAuthAPI(cfg config.Config, logger *slog.Logger, deps Deps) *authAPI {
-	return &authAPI{
-		svc:  deps.Auth,
-		log:  logger,
-		deps: deps,
-		// `Secure` in produzione e in staging, non in sviluppo: su
-		// http://localhost un cookie Secure non verrebbe mai memorizzato, e il
-		// risultato sarebbe uno sviluppatore che disattiva il flag per far
-		// funzionare le cose in locale — cioè che lo disattiva anche altrove.
-		secure: cfg.Env != config.EnvDevelopment,
-		// Lax e non Strict: con Strict il cookie non viaggia quando l'utente
-		// arriva sulla dashboard da un link esterno (per esempio quello di
-		// un'email di alert), e si troverebbe scollegato senza capire perché. Lax
-		// blocca comunque le richieste POST cross-site, che sono quelle che
-		// contano per il CSRF; il resto lo chiude il controllo sul Content-Type
-		// in decodeJSON.
-		sameSite: http.SameSiteLaxMode,
-	}
+func newAuthAPI(guard *guard, logger *slog.Logger, deps Deps) *authAPI {
+	return &authAPI{guard: guard, svc: deps.Auth, log: logger, deps: deps}
 }
 
 func (a *authAPI) routes(mux *http.ServeMux) {
@@ -346,77 +327,7 @@ func (a *authAPI) resendVerification(w http.ResponseWriter, r *http.Request, use
 	writeJSON(w, r, a.log, http.StatusAccepted, accepted())
 }
 
-// ---------------------------------------------------------------- middleware
-
-// authHandler è un handler che ha bisogno dell'utente collegato.
-type authHandler func(w http.ResponseWriter, r *http.Request, user auth.User, session auth.Session)
-
-// authenticated rifiuta le richieste senza una sessione valida.
-func (a *authAPI) authenticated(next authHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user, session, err := a.svc.Authenticate(r.Context(), a.sessionToken(r))
-		if err != nil {
-			if errors.Is(err, auth.ErrUnauthenticated) {
-				// Il cookie che il client ha mandato non vale più: cancellarlo
-				// evita che continui a inviarlo a ogni richiesta successiva.
-				a.clearSessionCookie(w)
-			}
-			a.fail(w, r, err)
-			return
-		}
-		next(w, r, user, session)
-	}
-}
-
 // ------------------------------------------------------------------- supporto
-
-// sessionToken legge il token dal cookie o dalla testata Authorization.
-//
-// Il cookie è la strada dei browser: `HttpOnly` mette il token fuori dalla
-// portata di JavaScript, quindi una XSS sulla dashboard non se lo porta via —
-// cosa che accadrebbe se il token stesse in localStorage. `Authorization:
-// Bearer` c'è per i client che non sono browser e non hanno un cookie jar.
-//
-// Il cookie ha la precedenza: se ci sono entrambi, la sessione del browser è
-// quella che l'utente si aspetta di usare.
-func (a *authAPI) sessionToken(r *http.Request) string {
-	if cookie, err := r.Cookie(SessionCookieName); err == nil && cookie.Value != "" {
-		return cookie.Value
-	}
-	header := r.Header.Get("Authorization")
-	if scheme, value, found := strings.Cut(header, " "); found && strings.EqualFold(scheme, "Bearer") {
-		return strings.TrimSpace(value)
-	}
-	return ""
-}
-
-func (a *authAPI) setSessionCookie(w http.ResponseWriter, result auth.LoginResult) {
-	http.SetCookie(w, &http.Cookie{
-		Name:  SessionCookieName,
-		Value: result.Token,
-		Path:  "/",
-		// La scadenza del cookie segue quella della sessione nel database. Se le
-		// due divergessero, la più corta vincerebbe comunque: la verifica vera è
-		// quella lato server.
-		Expires:  result.Session.ExpiresAt,
-		MaxAge:   int(time.Until(result.Session.ExpiresAt).Seconds()),
-		HttpOnly: true,
-		Secure:   a.secure,
-		SameSite: a.sameSite,
-	})
-}
-
-func (a *authAPI) clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   a.secure,
-		SameSite: a.sameSite,
-	})
-}
 
 // client raccoglie provenienza e user agent della richiesta.
 func (a *authAPI) client(r *http.Request) auth.Client {
@@ -446,57 +357,11 @@ func (a *authAPI) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 
 // fail traduce un errore del servizio in una risposta HTTP.
 //
-// È l'unico posto in cui la corrispondenza fra errore e status esiste, e questo è
-// voluto: la proprietà «un login mancato risponde 401 con lo stesso codice
-// qualunque sia la causa» si verifica leggendo questa funzione, non ispezionando
-// dieci handler.
+// La corrispondenza vera sta in writeAuthError (identity.go): qui resta solo il
+// ripiego sull'errore interno, il cui messaggio non esce mai — potrebbe
+// contenere dettagli sul database. Nel log ci va tutto.
 func (a *authAPI) fail(w http.ResponseWriter, r *http.Request, err error) {
-	var limited *auth.RateLimitedError
-	switch {
-	case errors.As(err, &limited):
-		// Retry-After in secondi: è la forma che i client capiscono senza
-		// interpretare una data.
-		w.Header().Set("Retry-After", strconv.Itoa(int(limited.RetryAfter.Seconds())))
-		writeError(w, r, a.log, http.StatusTooManyRequests, "rate_limited",
-			"Troppi tentativi. Riprova più tardi.")
-
-	case errors.Is(err, auth.ErrInvalidCredentials):
-		writeError(w, r, a.log, http.StatusUnauthorized, "invalid_credentials",
-			"Email o password non corretti.")
-
-	case errors.Is(err, auth.ErrUnauthenticated):
-		writeError(w, r, a.log, http.StatusUnauthorized, "unauthenticated",
-			"Sessione assente o scaduta.")
-
-	case errors.Is(err, auth.ErrAccountSuspended):
-		writeError(w, r, a.log, http.StatusForbidden, "account_suspended",
-			"Account sospeso. Contatta l'assistenza.")
-
-	case errors.Is(err, auth.ErrInvalidToken):
-		writeError(w, r, a.log, http.StatusBadRequest, "invalid_token",
-			"Link non valido o scaduto. Richiedine uno nuovo.")
-
-	case errors.Is(err, auth.ErrInvalidEmail):
-		writeError(w, r, a.log, http.StatusBadRequest, "invalid_email",
-			"Indirizzo email non valido.")
-
-	case errors.Is(err, auth.ErrPasswordTooShort),
-		errors.Is(err, auth.ErrPasswordTooLong),
-		errors.Is(err, auth.ErrPasswordBlank):
-		writeError(w, r, a.log, http.StatusBadRequest, "weak_password", err.Error())
-
-	case errors.Is(err, auth.ErrSessionNotFound):
-		writeError(w, r, a.log, http.StatusNotFound, "session_not_found",
-			"Sessione non trovata.")
-
-	default:
-		// Il messaggio dell'errore interno non esce: potrebbe contenere
-		// dettagli sul database. Nel log ci va tutto.
-		a.log.ErrorContext(r.Context(), "errore interno nell'autenticazione",
-			slog.String("path", r.URL.Path), slog.Any("error", err))
-		writeError(w, r, a.log, http.StatusInternalServerError, "internal_error",
-			"Errore interno. Riprova più tardi.")
-	}
+	a.guard.failAuth(w, r, err)
 }
 
 func sessionResponse(s auth.Session, current bool) SessionResponse {

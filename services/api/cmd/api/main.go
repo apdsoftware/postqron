@@ -21,6 +21,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/database"
 	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
+	"github.com/apdsoftware/postqron/services/api/internal/jobs"
+	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 )
 
@@ -80,6 +82,11 @@ func run() error {
 		return err
 	}
 
+	jobsService, err := newJobsService(pool, logger)
+	if err != nil {
+		return err
+	}
+
 	trustedProxies, err := httpapi.ParseTrustedProxies(os.Getenv(trustedProxiesEnvVar))
 	if err != nil {
 		return err
@@ -89,6 +96,7 @@ func run() error {
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
 			Auth:           authService,
+			Jobs:           jobsService,
 			TrustedProxies: trustedProxies,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -185,6 +193,22 @@ func newMailer(workdir string, cfg config.Config, logger *slog.Logger) (auth.Mai
 	default:
 		return nil, err
 	}
+}
+
+// newJobsService costruisce le rotte dei job (R8).
+//
+// Guard e Dispatcher restano nil, ed è il punto in cui due issue si innestano:
+// il blocco SSRF di R38 (#455) fornirà un [jobs.TargetGuard], e il worker pool
+// (#389) un [jobs.Dispatcher] che esegue le occorrenze manuali. Vedi
+// [jobs.Dispatcher] per il motivo per cui la seconda **non** è opzionale come
+// sembra: lo scheduler di #388 non raccoglie i trigger manuali, per scelta
+// dichiarata.
+func newJobsService(pool *pgxpool.Pool, logger *slog.Logger) (*jobs.Service, error) {
+	store, err := jobspg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	return jobs.NewService(jobs.Options{Store: store, Logger: logger})
 }
 
 func newLogger(cfg config.Config) *slog.Logger {
