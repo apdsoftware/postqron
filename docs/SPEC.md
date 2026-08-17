@@ -563,14 +563,27 @@ parte dell'offerta.
   partito.
 
   Tre conseguenze da rispettare:
-  - **Se i job attivi rientrano già nel nuovo tetto, non si tocca niente.** Fermare
-    tutto quando non serve sarebbe un danno gratuito.
+  - **Se i job attivi rientrano già nel nuovo tetto, non si sospende nulla *per il
+    numero*.** Fermare tutto quando non serve sarebbe un danno gratuito.
   - **Nulla viene cancellato.** I job sospesi restano visibili, modificabili ed
     esportabili, con il loro storico di esecuzioni.
   - **La risoluzione è un secondo vincolo, indipendente dal numero.** Un job
     `every: 1s` non è riattivabile su un piano che si ferma al minuto, nemmeno se c'è
     posto: va prima cambiata la schedulazione. L'interfaccia deve dirlo, non
     limitarsi a rifiutare.
+
+    **Indipendente vuol dire che si applica anche quando il numero non sfora.** Al
+    downgrade, un job più fitto di quanto il piano di destinazione consenta **viene
+    sospeso** anche se i job attivi rientrano tutti nel tetto. Qui la sospensione è
+    **selettiva**, non totale: si ferma quel job e basta, perché a differenza del
+    numero non c'è nessuna scelta da offrire all'utente — non esiste un
+    sottoinsieme fra cui scegliere, esiste un job che quel piano non può eseguire.
+
+    La ragione sta nei Termini §4: «*a plan's job count, minimum interval and log
+    retention are real ceilings*». Un `every: 1s` che continuasse a girare su un
+    piano fermo al minuto renderebbe falsa quella frase, e con lei R15 — il tetto
+    tecnico smetterebbe di essere applicato dal motore e tornerebbe a essere una
+    dichiarazione sul sito.
 
   Lo stesso comportamento vale per il **mancato pagamento** e per la **scadenza**
   dell'abbonamento, che portano al piano Free. Nessuna cancellazione silenziosa di
