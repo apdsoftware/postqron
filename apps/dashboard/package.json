@@ -21,7 +21,10 @@
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
+    "@tailwindcss/vite": "^4.3.3",
     "eslint": "^10.8.1",
+    "flowbite": "^4.0.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
     "vue-tsc": "^3.3.10"

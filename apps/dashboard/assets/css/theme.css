@@ -1,0 +1,99 @@
+/*
+ * Tema della dashboard — Tailwind CSS 4 + Flowbite (SPEC §4.2).
+ *
+ * Questo file è il gemello di `src/style.css` del template
+ * `themesberg/flowbite-admin-dashboard`: stesse direttive, stesso ordine, stessi
+ * nomi di token. Chi conosce il template ritrova qui ciò che si aspetta, e una
+ * porzione di markup copiata da lì rende come nell'originale senza aggiustamenti.
+ *
+ * ## Perché Tailwind e non i token CSS del sito pubblico
+ *
+ * `apps/web` ha un design system proprio (`assets/css/tokens.css`, R35) perché
+ * porta il template Hexagon, che è CSS scritto a mano. Il template Flowbite *è*
+ * Tailwind: le sue classi sono utility, e riscriverle in CSS a mano significa
+ * riscrivere il template. Le due app quindi non condividono il foglio di stile —
+ * condividono le **decisioni**, che è cosa diversa: sotto, la palette primaria è
+ * quella del marchio, non quella di Flowbite.
+ *
+ * ## Cosa è ereditato e cosa è deciso (R35)
+ *
+ * - **Palette primaria: sostituita.** Il template usa il blu di Tailwind
+ *   (`#3b82f6`); qui la rampa è ancorata a `--pq-primary` (`#4278e5`), il blu del
+ *   marchio dichiarato in `apps/web/assets/css/tokens.css`. Sono vicini, ed è
+ *   proprio per questo che ereditarlo sarebbe stato facile e sbagliato: la
+ *   dashboard si apre subito dopo il sito, e due blu quasi uguali si notano.
+ * - **Grigi: ereditati.** Sono quelli di Tailwind, e sono la struttura del
+ *   template (bordi, superfici, testo secondario, tutte le varianti `dark:`).
+ *   Sostituirli sarebbe ridisegnare Flowbite, non vestirlo.
+ * - **Carattere: deciso, e non è un webfont.** Il template chiede Inter e poi
+ *   elenca uno stack di sistema come ripiego: qui resta solo il ripiego. Un
+ *   webfont costa una richiesta prima del primo testo leggibile, e la dashboard
+ *   la paga a ogni avvio per un pubblico già autenticato che non deve essere
+ *   sedotto — al contrario del sito pubblico, dove Quicksand è il marchio e vale
+ *   il suo peso (R53-bis). Su macOS, Windows e Android lo stack di sistema
+ *   risolve rispettivamente in SF Pro, Segoe UI e Roboto: caratteri da
+ *   interfaccia, che è ciò per cui il template usa Inter. È un token: se un
+ *   giorno la scelta cambia, cambia questa riga.
+ */
+@import 'tailwindcss';
+@plugin 'flowbite/plugin';
+
+/*
+ * Tema scuro guidato da una classe sull'elemento radice, non da
+ * `prefers-color-scheme`.
+ *
+ * È la variante che usa il template, ed è anche l'unica compatibile con un
+ * interruttore: `@media (prefers-color-scheme)` dice cosa vuole il sistema
+ * operativo e non è sovrascrivibile da chi vuole il contrario solo qui. La
+ * preferenza di sistema resta il valore iniziale — la applica
+ * `composables/useColorScheme.ts`, che è anche il solo posto che scrive la
+ * classe.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /*
+   * Rampa primaria ancorata al blu del marchio: `--color-primary-600` è
+   * esattamente `--pq-primary` del sito pubblico. Gli altri gradini sono lo
+   * stesso colore a luminosità crescente e decrescente (HSL 220°), così i
+   * `hover:bg-primary-800` e i `focus:ring-primary-500` del template restano
+   * coerenti fra loro invece di essere dieci colori scelti uno per uno.
+   */
+  --color-primary-50: #f2f5fd;
+  --color-primary-100: #e0e9fb;
+  --color-primary-200: #c0d2f6;
+  --color-primary-300: #98b5f1;
+  --color-primary-400: #6f99eb;
+  --color-primary-500: #5989e8;
+  --color-primary-600: #4278e5;
+  --color-primary-700: #205bcf;
+  --color-primary-800: #1c48a0;
+  --color-primary-900: #183877;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', roboto, 'Helvetica Neue', arial,
+    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+  --font-body: var(--font-sans);
+  --font-mono:
+    ui-monospace, 'SFMono-Regular', menlo, monaco, consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
+
+/*
+ * Chi ha chiesto meno movimento al sistema operativo non deve subirlo (R54).
+ * Le utility di transizione del template — `transition duration-75`,
+ * `transition-width` sulla barra laterale — sono decorative: azzerarle non
+ * toglie informazione, e riscriverle una per una con la variante
+ * `motion-safe:` significherebbe ricordarsene a ogni componente nuovo.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
