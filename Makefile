@@ -105,4 +105,7 @@ dev: ## Avvia backend e frontend in parallelo
 .PHONY: clean
 clean: ## Rimuove artefatti di build
 	@rm -rf $(WEB_DIR)/.output $(WEB_DIR)/.nuxt $(DSH_DIR)/.output $(DSH_DIR)/.nuxt
+	@# `nuxi generate` lascia un symlink `dist` -> `.output/public`: senza
+	@# rimuoverlo resterebbe pendente.
+	@rm -f $(WEB_DIR)/dist $(DSH_DIR)/dist
 	$(call if_dir,$(GO_DIR),go clean -cache -testcache)

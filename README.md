@@ -30,6 +30,8 @@ docs/              SPEC.md (contratto funzionale) e BACKLOG.md (issue)
 
 ## Sviluppo
 
+Prerequisiti: Go ≥ 1.26, Node ≥ 22, pnpm ≥ 11, Docker (solo per il database).
+
 ```bash
 cp .env.example .env   # configurazione locale (ignorata da git)
 make setup     # installa dipendenze e prepara l'ambiente
@@ -38,6 +40,22 @@ make migrate   # applica le migrazioni
 make dev       # avvia API Go + frontend in parallelo
 make ci        # pipeline completa: lint + test + build
 ```
+
+`make dev` avvia tre processi:
+
+| Processo | Porta | Comando |
+|---|---|---|
+| API Go (`services/api`) | 8080 | `pnpm run dev:api` |
+| Sito pubblico (`apps/web`) | 3000 | `pnpm run dev:web` |
+| Dashboard (`apps/dashboard`) | 3001 | `pnpm run dev:dashboard` |
+
+### Build statica dei frontend
+
+`make build` esegue `nuxi generate` su entrambe le app e produce output
+interamente statico in `apps/*/.output/public`, senza server Nitro. Il sito
+pubblico è pre-renderizzato (SSR solo in build, per la SEO), la dashboard è una
+SPA. Il backend Go è l'unica origin dinamica — vedi
+[docs/SPEC.md §2](docs/SPEC.md) e [infra/README.md](infra/README.md).
 
 ## Database locale
 

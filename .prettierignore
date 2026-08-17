@@ -1,0 +1,16 @@
+# Prettier si occupa solo dei file di configurazione JSON e YAML di root.
+#
+# Tutto il resto ha già il suo formattatore o la sua convenzione:
+# - app Nuxt        → ESLint stylistic (`pnpm lint`)
+# - backend Go      → gofmt
+# - Markdown        → formattazione manuale. La documentazione di questo repo usa
+#                     tabelle in stile compatto (`|---|---|`); Prettier le
+#                     espanderebbe, sporcando i diff di SPEC, BACKLOG e AGENTS,
+#                     che non vanno riscritti automaticamente (AGENTS.md §1).
+# - design/hexagon  → mirror del template acquistato, va lasciato byte per byte
+#                     come l'originale (e contiene CSS e JS minificati).
+*
+!*.json
+!*.yaml
+!*.yml
+pnpm-lock.yaml
