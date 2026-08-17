@@ -26,6 +26,18 @@ export function canonicalUrl(path: string, siteUrl: string): string {
   return segments.length === 0 ? `${base}/` : `${base}/${segments.join('/')}/`
 }
 
+/**
+ * Indirizzo assoluto di un file statico — la card social, un'immagine.
+ *
+ * Non è `canonicalUrl`: quella chiude sempre con lo slash perché una rotta
+ * pre-renderizzata è una directory, mentre `/social-card.png/` è un indirizzo
+ * che non esiste. Un crawler che lo chiede riceve un 404 e mostra
+ * un'anteprima muta.
+ */
+export function assetUrl(path: string, siteUrl: string): string {
+  return `${siteUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+}
+
 export interface AlternateLink {
   hreflang: string
   href: string

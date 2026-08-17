@@ -1,13 +1,16 @@
 import { mount } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import HexIcon from '~/components/ui/HexIcon.vue'
 import HexagonAvatar from '~/components/ui/HexagonAvatar.vue'
 import HexagonShape from '~/components/ui/HexagonShape.vue'
 import LineButton from '~/components/ui/LineButton.vue'
+import SiteLogo from '~/components/ui/SiteLogo.vue'
 import PricingCard from '~/components/ui/PricingCard.vue'
 import TestimonialCard from '~/components/ui/TestimonialCard.vue'
 import { hexIcons } from '~/utils/icons'
+import { MARCHIO, SIMBOLO_TRACCIATI } from '~/utils/marchio'
 import type { PricingPlan } from '~/types/content'
 
 describe('HexIcon', () => {
@@ -216,5 +219,70 @@ describe('PricingCard', () => {
     })
     expect(featured.classes()).toContain('is-featured')
     expect(featured.find('.line-button').classes()).toContain('line-button--solid')
+  })
+})
+
+describe('SiteLogo', () => {
+  it('tiene le proporzioni del disegno a qualunque altezza', () => {
+    const wrapper = mount(SiteLogo, { props: { height: 90 } })
+    expect(wrapper.attributes('viewBox')).toBe(MARCHIO.viewBox)
+    expect(Number(wrapper.attributes('width'))).toBeCloseTo(
+      (90 * MARCHIO.larghezza) / MARCHIO.altezza,
+      5,
+    )
+  })
+
+  it('è decorativo dentro un contenitore già etichettato', () => {
+    const wrapper = mount(SiteLogo)
+    expect(wrapper.attributes('aria-hidden')).toBe('true')
+    expect(wrapper.attributes('role')).toBeUndefined()
+    expect(wrapper.find('title').exists()).toBe(false)
+  })
+
+  it('porta il nome del prodotto quando sta da solo', () => {
+    const wrapper = mount(SiteLogo, { props: { label: 'Postqron' } })
+    expect(wrapper.attributes('role')).toBe('img')
+    expect(wrapper.attributes('aria-hidden')).toBeUndefined()
+    expect(wrapper.find('title').text()).toBe('Postqron')
+  })
+
+  it('dipinge il simbolo col gradiente solo nella variante primaria', () => {
+    const primaria = mount(SiteLogo)
+    const riferimenti = primaria.findAll('.site-logo__mark')
+      .map(nodo => nodo.attributes('fill'))
+    expect(riferimenti.every(fill => fill?.startsWith('url(#'))).toBe(true)
+
+    // Invertita e monocromatica prendono il colore dal CSS, non dall'attributo:
+    // è ciò che permette all'header di cambiarlo allo scorrimento.
+    for (const variant of ['invertita', 'mono'] as const) {
+      const wrapper = mount(SiteLogo, { props: { variant } })
+      expect(wrapper.find('.site-logo__mark').attributes('fill')).toBeUndefined()
+      expect(wrapper.classes()).toContain(`site-logo--${variant}`)
+    }
+  })
+
+  it('dà a ogni istanza un gradiente con id proprio', () => {
+    // Header e footer stanno nella stessa pagina: con due id uguali il secondo
+    // marchio erediterebbe il gradiente del primo, e la trasformazione dei
+    // colori sarebbe quella sbagliata.
+    // I due marchi vanno montati nella *stessa* applicazione: `useId()` conta
+    // per applicazione, e due `mount()` separati ripartirebbero entrambi da uno.
+    const Pagina = defineComponent({ render: () => h('div', [h(SiteLogo), h(SiteLogo)]) })
+    const ids = mount(Pagina)
+      .findAll('linearGradient')
+      .map(nodo => nodo.attributes('id'))
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[0]).not.toBe(ids[1])
+  })
+
+  it('disegna il simbolo al posto della q, non accanto alla parola', () => {
+    const wrapper = mount(SiteLogo)
+    const tracciati = wrapper.findAll('path').map(nodo => nodo.attributes('d'))
+    expect(tracciati).toContain(MARCHIO.lettere.prima)
+    expect(tracciati).toContain(MARCHIO.lettere.dopo)
+    expect(tracciati).toContain(SIMBOLO_TRACCIATI[0])
+    // Sette lettere disegnate più le due parti del simbolo: la q non c'è.
+    expect(tracciati).toHaveLength(4)
   })
 })

@@ -68,7 +68,7 @@ function chooseLocale(code: LocaleCode) {
           class="site-header__logo"
           :aria-label="content.ui.homeLink"
         >
-          <SiteLogo :height="37" />
+          <SiteLogo :height="34" />
         </NuxtLink>
 
         <button
@@ -198,7 +198,7 @@ function chooseLocale(code: LocaleCode) {
 
 .site-header__logo {
   float: left;
-  margin-top: 30px;
+  margin-top: var(--pq-space-6);
   transition: var(--pq-transition);
 }
 
@@ -218,8 +218,8 @@ function chooseLocale(code: LocaleCode) {
 }
 
 .site-header__menu > li {
-  padding-right: 20px;
-  padding-left: 20px;
+  padding-right: var(--pq-space-4);
+  padding-left: var(--pq-space-4);
 }
 
 .site-header__menu > li:last-child {
@@ -233,10 +233,10 @@ function chooseLocale(code: LocaleCode) {
   padding: 0;
   border: none;
   background: none;
-  color: #fff;
+  color: var(--pq-text-inverted);
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--pq-text-xs);
+  font-weight: var(--pq-weight-medium);
   letter-spacing: 1px;
   line-height: 40px;
   cursor: pointer;
@@ -262,11 +262,11 @@ function chooseLocale(code: LocaleCode) {
 .site-header__menu a.site-header__cta {
   position: relative;
   height: 30px;
-  margin-top: 5px;
-  padding-right: 25px;
-  padding-left: 25px;
+  margin-top: var(--pq-space-1);
+  padding-right: var(--pq-space-5);
+  padding-left: var(--pq-space-5);
   overflow: hidden;
-  border: 1px solid #fff;
+  border: 1px solid var(--pq-text-inverted);
   border-radius: var(--pq-radius-pill);
   letter-spacing: 0.5px;
   line-height: 29px;
@@ -278,7 +278,7 @@ function chooseLocale(code: LocaleCode) {
   inset: 0;
   z-index: 1;
   opacity: 0.19;
-  background: #fff;
+  background: var(--pq-surface);
 }
 
 .site-header__cta span {
@@ -287,7 +287,7 @@ function chooseLocale(code: LocaleCode) {
 }
 
 .site-header__menu a.site-header__cta:hover {
-  background: #fff;
+  background: var(--pq-surface);
   color: var(--pq-primary);
 }
 
@@ -298,7 +298,7 @@ function chooseLocale(code: LocaleCode) {
 .site-header.is-scrolled .site-header__menu a.site-header__cta:hover {
   border-color: var(--pq-primary);
   background: var(--pq-primary);
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 /*
@@ -307,14 +307,14 @@ function chooseLocale(code: LocaleCode) {
  */
 .site-header__menu > li.has-submenu {
   position: relative;
-  padding-right: 35px;
+  padding-right: var(--pq-space-7);
 }
 
 .site-header__caret {
   position: absolute;
   top: 12px;
   right: 18px;
-  font-size: 12px;
+  font-size: var(--pq-text-2xs);
   line-height: 1.5;
 }
 
@@ -351,10 +351,10 @@ function chooseLocale(code: LocaleCode) {
 .site-header__menu .site-header__submenu a {
   position: relative;
   height: 40px;
-  padding-left: 20px;
+  padding-left: var(--pq-space-4);
   background: var(--pq-surface);
   color: var(--pq-heading);
-  font-size: 13px;
+  font-size: var(--pq-text-xs);
   line-height: 40px;
 }
 
@@ -369,7 +369,7 @@ function chooseLocale(code: LocaleCode) {
 }
 
 .site-header__menu .site-header__submenu a:hover {
-  padding-left: 25px;
+  padding-left: var(--pq-space-5);
   background: var(--pq-border-hairline);
 }
 
@@ -448,7 +448,7 @@ function chooseLocale(code: LocaleCode) {
   }
 
   .site-header__menu > li.has-submenu {
-    padding-right: 20px;
+    padding-right: var(--pq-space-4);
   }
 
   .site-header__caret {
@@ -475,7 +475,7 @@ function chooseLocale(code: LocaleCode) {
   .site-header__logo,
   .site-header.is-scrolled .site-header__logo {
     margin-top: 22px;
-    margin-left: 30px;
+    margin-left: var(--pq-space-6);
   }
 
   .site-header__trigger {
@@ -487,7 +487,7 @@ function chooseLocale(code: LocaleCode) {
     display: none;
     float: none;
     width: 100%;
-    margin-top: 80px;
+    margin-top: var(--pq-space-16);
   }
 
   .site-header__menu.is-open {
@@ -511,7 +511,7 @@ function chooseLocale(code: LocaleCode) {
     width: 100%;
     height: 50px;
     margin-top: 0;
-    padding: 0 0 0 30px;
+    padding: 0 0 0 var(--pq-space-6);
     border: none;
     border-radius: 0;
     background: var(--pq-surface);
@@ -535,7 +535,7 @@ function chooseLocale(code: LocaleCode) {
   .site-header__caret {
     top: 15px;
     right: 25px;
-    font-size: 14px;
+    font-size: var(--pq-text-xs);
   }
 
   /*
@@ -562,11 +562,11 @@ function chooseLocale(code: LocaleCode) {
   }
 
   .site-header__menu .site-header__submenu a {
-    padding-left: 50px;
+    padding-left: var(--pq-space-10);
   }
 
   .site-header__menu .site-header__submenu a:hover {
-    padding-left: 50px;
+    padding-left: var(--pq-space-10);
   }
 
   .site-header__submenu a:hover::before {
