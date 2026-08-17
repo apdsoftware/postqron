@@ -172,7 +172,7 @@ func (s *Store) Purge(ctx context.Context, grace time.Duration) (int64, error) {
 }
 
 // Le colonne facoltative della 0013 hanno vincoli che la stringa vuota viola
-// (`paddle_subscription_id <> ''`): il valore assente si scrive NULL.
+// (`paddle_subscription_id <> ”`): il valore assente si scrive NULL.
 func nullText(value string) *string {
 	if value == "" {
 		return nil
