@@ -10,10 +10,11 @@
  * L'inglese è la lingua sorgente: si scrive lì e si traduce da lì.
  *
  * La struttura segue l'interfaccia, non le pagine: `shell` è ciò che si vede su
- * ogni schermata, `home` è la schermata iniziale. Le sezioni della dashboard
- * vera — job, esecuzioni, chiavi API — aggiungeranno una chiave ciascuna con le
- * issue che le portano.
+ * ogni schermata, `home` e `notFound` sono due schermate. Le sezioni della
+ * dashboard vera — job, esecuzioni, chiavi API — aggiungeranno una chiave
+ * ciascuna con le issue che le portano, più una voce in `shell.nav`.
  */
+import type { NavId } from '~/utils/navigation'
 
 /** Testi presenti su ogni schermata, indipendenti dalla rotta. */
 export interface ShellContent {
@@ -24,9 +25,39 @@ export interface ShellContent {
    * usa uno screen reader sente un elenco di parole senza sapere cosa scelgono.
    */
   languageLabel: string
+
+  /**
+   * Collegamento che salta la navigazione e porta al contenuto (R54, WCAG 2.2
+   * 2.4.1). Chi naviga da tastiera altrimenti attraversa barra superiore e
+   * barra laterale a ogni cambio di pagina prima di arrivare a leggere.
+   */
+  skipToContent: string
+
+  /** Nome accessibile della navigazione principale. */
+  navigationLabel: string
+
+  /** Etichette del pulsante che apre e chiude la barra laterale sul telefono. */
+  openNavigation: string
+  closeNavigation: string
+
+  /**
+   * Nomi delle sezioni, uno per voce del registro in `utils/navigation.ts`.
+   *
+   * `Record<NavId, string>` è la garanzia strutturale: una sezione aggiunta al
+   * registro senza il testo non compila, in nessuna delle cinque lingue.
+   */
+  nav: Record<NavId, string>
+
+  /**
+   * Etichette dell'interruttore del tema. Dicono **dove si va**, non dove si è:
+   * il pulsante è un'azione, e «tema scuro» su un'interfaccia già scura
+   * sembrerebbe uno stato.
+   */
+  toLightTheme: string
+  toDarkTheme: string
 }
 
-/** Schermata iniziale. Resta lo scaffold finché non arriva il layout Flowbite. */
+/** Schermata iniziale. */
 export interface HomeContent {
   title: string
   intro: string
@@ -40,7 +71,16 @@ export interface HomeContent {
   unreachable: string
 }
 
+/** Indirizzo che non corrisponde a nessuna schermata. */
+export interface NotFoundContent {
+  title: string
+  intro: string
+  /** Collegamento di rientro alla panoramica. */
+  back: string
+}
+
 export interface DashboardContent {
   shell: ShellContent
   home: HomeContent
+  notFound: NotFoundContent
 }

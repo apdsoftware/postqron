@@ -7,6 +7,7 @@
 // una SPA statica (vedi public/_redirects per il fallback di routing).
 // Non introdurre `server/` API routes: nessun Nitro gira in produzione.
 import tailwindcss from '@tailwindcss/vite'
+import { COLOR_SCHEME_BOOT_SCRIPT } from './utils/color-scheme'
 
 export default defineNuxtConfig({
   modules: ['@nuxt/eslint'],
@@ -18,6 +19,14 @@ export default defineNuxtConfig({
   components: [{ path: '~/components', pathPrefix: false }],
 
   devtools: { enabled: true },
+
+  // Il tema, applicato prima del primo pixel: il perché sta in
+  // `utils/color-scheme.ts`, accanto al frammento.
+  app: {
+    head: {
+      script: [{ innerHTML: COLOR_SCHEME_BOOT_SCRIPT, tagPosition: 'head' }],
+    },
+  },
 
   // Il tema Tailwind/Flowbite. È l'unico foglio globale: tutto il resto sono
   // utility nel markup, che è il modo in cui il template è scritto.
