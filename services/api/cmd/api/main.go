@@ -21,6 +21,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/database"
 	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
+	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 )
 
 // version è sovrascrivibile al build: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
@@ -74,7 +75,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	authService, err := newAuthService(pool, logger)
+	authService, err := newAuthService(pool, workdir, cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -138,10 +139,7 @@ func run() error {
 }
 
 // newAuthService costruisce l'autenticazione (R14).
-//
-// Il Mailer è [auth.LogMailer]: il client Mailronix è la issue #419 e i template
-// la #418. Quando arriveranno, questa è l'unica riga da cambiare.
-func newAuthService(pool *pgxpool.Pool, logger *slog.Logger) (*auth.Service, error) {
+func newAuthService(pool *pgxpool.Pool, workdir string, cfg config.Config, logger *slog.Logger) (*auth.Service, error) {
 	store, err := authpg.New(pool)
 	if err != nil {
 		return nil, err
@@ -154,13 +152,39 @@ func newAuthService(pool *pgxpool.Pool, logger *slog.Logger) (*auth.Service, err
 	if err != nil {
 		return nil, err
 	}
+	mailer, err := newMailer(workdir, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
 	return auth.NewService(auth.Options{
 		Store:   store,
 		Hasher:  hasher,
 		Keyring: keyring,
-		Mailer:  auth.LogMailer{Logger: logger},
+		Mailer:  mailer,
 		Logger:  logger,
 	})
+}
+
+// newMailer costruisce il recapito delle email (R20, issue #419).
+//
+// Senza MAILRONIX_API_KEY si ripiega su [auth.LogMailer], che registra e non
+// recapita: in sviluppo nessuno vuole che `go run ./cmd/api` pretenda la chiave
+// di un servizio esterno, e chi ha bisogno di un token di reset lo legge dal
+// database. In produzione, invece, la stessa mancanza è un errore d'avvio: un
+// servizio che accetta registrazioni senza poter mandare l'email di verifica è
+// rotto in un modo che nessuno si accorge di aver causato.
+func newMailer(workdir string, cfg config.Config, logger *slog.Logger) (auth.Mailer, error) {
+	mailer, err := mailronix.NewMailerFromEnv(os.Getenv, workdir, logger)
+	switch {
+	case err == nil:
+		return mailer, nil
+	case errors.Is(err, mailronix.ErrNotConfigured) && !cfg.IsProduction():
+		logger.Warn("email non recapitate: "+mailronix.EnvAPIKey+" non impostata",
+			slog.String("env", cfg.Env))
+		return auth.LogMailer{Logger: logger}, nil
+	default:
+		return nil, err
+	}
 }
 
 func newLogger(cfg config.Config) *slog.Logger {
