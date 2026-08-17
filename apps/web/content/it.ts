@@ -26,6 +26,15 @@ export const it: SiteContent = {
     contactTitle: 'Contatti',
     emailPrefix: 'Email: ',
     rightsReserved: 'Tutti i diritti riservati.',
+    cookiePreferences: 'Preferenze cookie',
+  },
+
+  cookieBanner: {
+    title: 'La tua scelta sui cookie',
+    description: 'Usiamo cookie necessari per far funzionare il sito. Le tecnologie facoltative restano bloccate salvo tua accettazione.',
+    accept: 'Accetta cookie facoltativi',
+    reject: 'Rifiuta cookie facoltativi',
+    policyLink: 'Leggi la Cookie Policy',
   },
 
   legal: {

@@ -4,6 +4,10 @@ import { socialLinks } from '~/content/social'
 const { content, href } = useSiteLocale()
 
 const year = new Date().getFullYear()
+
+function openCookiePreferences() {
+  window.dispatchEvent(new Event('postqron:cookie-preferences'))
+}
 </script>
 
 <template>
@@ -84,6 +88,13 @@ const year = new Date().getFullYear()
         <div class="col-lg-12">
           <p class="site-footer__copyright">
             © {{ year }} {{ content.company.legalName }}. {{ content.ui.rightsReserved }}
+            <button
+              class="site-footer__cookie-preferences"
+              type="button"
+              @click="openCookiePreferences"
+            >
+              {{ content.ui.cookiePreferences }}
+            </button>
           </p>
         </div>
       </div>
@@ -106,6 +117,22 @@ const year = new Date().getFullYear()
   font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   line-height: 26px;
+}
+
+.site-footer__cookie-preferences {
+  padding: 0;
+  border: 0;
+  margin-left: var(--pq-space-2);
+  background: transparent;
+  color: var(--pq-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.site-footer__cookie-preferences:focus-visible {
+  outline: none;
+  box-shadow: var(--pq-ring-strong);
 }
 
 .site-footer__title {

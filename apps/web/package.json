@@ -8,6 +8,7 @@
     "postinstall": "nuxt prepare",
     "dev": "nuxt dev --port 3000",
     "generate": "nuxt generate",
+    "postgenerate": "find .output -mindepth 1 -maxdepth 1 ! -name public -delete",
     "preview": "nuxt preview",
     "lint": "nuxt prepare && eslint .",
     "format": "nuxt prepare && eslint . --fix",
