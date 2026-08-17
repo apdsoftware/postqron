@@ -21,8 +21,12 @@ type Options struct {
 	Executor Executor
 	// Guard è il controllo sugli indirizzi di destinazione (R38, issue #455).
 	// Se manca non blocca niente: vedi [Guard].
-	Guard  Guard
-	Logger *slog.Logger
+	Guard Guard
+	// Alerter riceve i fallimenti definitivi (R21). Se manca non si avvisa
+	// nessuno, che è la configurazione normale dei test e di una macchina senza
+	// email configurate.
+	Alerter Alerter
+	Logger  *slog.Logger
 
 	// Workers è quanti worker girano insieme.
 	Workers int
@@ -63,10 +67,11 @@ type Options struct {
 // Implementa [scheduler.Dispatcher]: è il valore da passare a
 // [scheduler.Options.Dispatcher].
 type Pool struct {
-	store Store
-	exec  Executor
-	guard Guard
-	log   *slog.Logger
+	store   Store
+	exec    Executor
+	guard   Guard
+	alerter Alerter
+	log     *slog.Logger
 
 	workers      int
 	drainTimeout time.Duration
@@ -144,6 +149,7 @@ func New(opts Options) (*Pool, error) {
 		store:        opts.Store,
 		exec:         opts.Executor,
 		guard:        opts.Guard,
+		alerter:      opts.Alerter,
 		log:          opts.Logger,
 		workers:      intOr(opts.Workers, DefaultWorkers),
 		drainTimeout: durationOr(opts.DrainTimeout, DefaultDrainTimeout),

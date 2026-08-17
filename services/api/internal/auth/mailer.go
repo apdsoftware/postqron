@@ -36,6 +36,20 @@ const (
 	// token: è un avviso, e serve perché un cambio password non richiesto è il
 	// primo segno di un account compromesso.
 	KindPasswordChanged MessageKind = "password_changed"
+
+	// KindWelcome è il benvenuto di R21, e parte alla **conferma
+	// dell'indirizzo**, non alla registrazione.
+	//
+	// I due momenti non sono intercambiabili. Alla registrazione l'indirizzo è
+	// una stringa che qualcuno ha scritto in un modulo: mandarci subito due
+	// email — la conferma e il benvenuto — significa raddoppiare il volume verso
+	// indirizzi che possono non esistere, che è il modo più semplice di
+	// accumulare bounce e finire in suppression list. Alla conferma, invece,
+	// l'indirizzo ha dimostrato di funzionare e l'account è reale: è il primo
+	// momento in cui il benvenuto ha un destinatario vero e qualcosa da dire.
+	//
+	// Non contiene token: il token è quello che l'utente ha appena consumato.
+	KindWelcome MessageKind = "welcome"
 )
 
 // Message è quanto l'autenticazione sa dire sull'email da recapitare.

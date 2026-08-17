@@ -74,6 +74,10 @@ func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, perma
 			slog.String("occorrenza", occ.String()),
 			slog.Int("tentativo", int(occ.Attempt)),
 			slog.String("motivo", decision.Reason.String()))
+		// Qui la catena è chiusa: è il momento in cui il fallimento diventa una
+		// notizia per l'utente (R21). Prima no — un fallimento seguito da un
+		// tentativo è il funzionamento normale di R5, non un guasto.
+		p.alert(occ, rec, res)
 		return
 	}
 
@@ -84,6 +88,12 @@ func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, perma
 			slog.Int("tentativo", int(occ.Attempt)),
 			slog.Duration("attesa", decision.Delay),
 			slog.Time("occorrenza_successiva", at))
+		// Anche qui non ci sarà un altro tentativo *di questa occorrenza*, e il
+		// fallimento va raccontato. È il caso dei job a risoluzione di secondo,
+		// dove morde quasi sempre: senza la politica anti-spam di internal/notify
+		// sarebbe un avviso al secondo, ed è esattamente il motivo per cui quella
+		// politica sta lì e non qui.
+		p.alert(occ, rec, res)
 		return
 	}
 

@@ -892,6 +892,16 @@ func (s *Service) VerifyEmail(ctx context.Context, token string, client Client) 
 		return fmt.Errorf("conferma dell'indirizzo: %w", err)
 	}
 	s.log.InfoContext(ctx, "indirizzo confermato", slog.String("user_id", consumed.UserID))
+
+	// Il benvenuto parte adesso, non alla registrazione: è il primo istante in
+	// cui si sa che l'indirizzo esiste davvero. Vedi [KindWelcome].
+	//
+	// Il messaggio non porta l'indirizzo, e non è una dimenticanza: la coda
+	// delle notifiche è per utente, e lo rilegge insieme alla lingua del profilo
+	// al momento dell'invio. Un `ConsumeUserToken` non restituisce l'indirizzo,
+	// e andarlo a leggere qui vorrebbe dire una query in più per un dato che
+	// verrà riletto comunque.
+	s.dispatch(ctx, Message{Kind: KindWelcome, UserID: consumed.UserID})
 	return nil
 }
 

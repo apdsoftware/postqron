@@ -39,6 +39,11 @@ type Options struct {
 	// aprire un checkout vero credendo di provare.
 	Environment string
 
+	// Notifier comunica all'utente le variazioni di piano (R21). Può essere nil:
+	// su una macchina senza email configurate il piano si applica lo stesso, e
+	// deve.
+	Notifier Notifier
+
 	Logger *slog.Logger
 
 	// Now sostituisce l'orologio. Serve ai test.
@@ -51,6 +56,7 @@ type Service struct {
 	catalog     paddle.Catalog
 	clientToken string
 	environment string
+	notifier    Notifier
 	log         *slog.Logger
 	now         func() time.Time
 }
@@ -65,6 +71,7 @@ func NewService(opts Options) (*Service, error) {
 		catalog:     opts.Catalog,
 		clientToken: strings.TrimSpace(opts.ClientToken),
 		environment: strings.TrimSpace(opts.Environment),
+		notifier:    opts.Notifier,
 		log:         opts.Logger,
 		now:         opts.Now,
 	}
@@ -137,7 +144,82 @@ func (s *Service) ApplySubscription(ctx context.Context, sub paddle.Subscription
 		slog.String("plan", result.PlanCode),
 		slog.String("status", change.Status),
 		slog.String("subscription_id", change.PaddleSubscriptionID))
+
+	s.announce(ctx, result, suspension, change.OccurredAt)
 	return true, nil
+}
+
+// announce comunica all'utente la variazione, se c'è stata (R21).
+//
+// **Non restituisce un errore, e non è una svista.** Il pagamento è avvenuto, il
+// piano è scritto e i job sono stati sospesi: se questa funzione risalisse un
+// errore, il livello HTTP risponderebbe 500 e Paddle ripeterebbe la consegna di
+// un evento che è già stato applicato per intero. Un'email che non parte è un
+// guasto da registrare, non un motivo per rimettere in discussione una
+// fatturazione andata a buon fine.
+//
+// L'ordine conta: si comunica **dopo** aver applicato R58, perché l'email deve
+// dire quanti job sono stati fermati, e prima di conoscere quel numero
+// racconterebbe metà della storia proprio nel caso in cui l'altra metà è
+// l'unica azione richiesta all'utente.
+func (s *Service) announce(ctx context.Context, result SaveResult, suspension Suspension, occurredAt time.Time) {
+	if s.notifier == nil {
+		return
+	}
+	if result.PreviousPlanCode == result.PlanCode {
+		// Un rinnovo non è una variazione. Il controllo è anche a valle, ma
+		// farlo qui risparmia due letture di listino per ogni rinnovo di ogni
+		// abbonamento, che è l'evento Paddle più frequente che esista.
+		return
+	}
+
+	previous, err := s.planName(ctx, result.PreviousPlanCode)
+	if err != nil {
+		s.log.ErrorContext(ctx, "variazione di piano non comunicata: listino illeggibile",
+			slog.String("user_id", result.UserID), slog.Any("error", err))
+		return
+	}
+	next, err := s.planName(ctx, result.PlanCode)
+	if err != nil {
+		s.log.ErrorContext(ctx, "variazione di piano non comunicata: listino illeggibile",
+			slog.String("user_id", result.UserID), slog.Any("error", err))
+		return
+	}
+
+	effective := occurredAt
+	if effective.IsZero() {
+		effective = s.now()
+	}
+
+	if err := s.notifier.PlanChanged(ctx, PlanChangeNotice{
+		UserID:                result.UserID,
+		PreviousPlan:          previous,
+		NewPlan:               next,
+		EffectiveAt:           effective,
+		SuspendedByJobLimit:   suspension.ByJobLimit,
+		SuspendedByResolution: suspension.ByResolution,
+	}); err != nil {
+		s.log.ErrorContext(ctx, "variazione di piano non comunicata",
+			slog.String("user_id", result.UserID),
+			slog.String("plan", result.PlanCode),
+			slog.Any("error", err))
+	}
+}
+
+// planName traduce un codice di piano nel nome che l'utente legge in listino.
+//
+// Un piano ritirato dal listino resta leggibile — la 0003 lo rende non pubblico,
+// non lo cancella — quindi questa lettura riesce anche per chi sta uscendo da un
+// piano che non si vende più.
+func (s *Service) planName(ctx context.Context, code string) (string, error) {
+	plan, err := s.store.Plan(ctx, code)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(plan.Name) == "" {
+		return code, nil
+	}
+	return plan.Name, nil
 }
 
 // translate converte una sottoscrizione Paddle in una scrittura.

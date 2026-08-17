@@ -21,7 +21,11 @@ import (
 type registro struct {
 	filigrane map[string]time.Time
 	utenti    map[string]string // sottoscrizione Paddle -> utente
-	piani     map[string]billing.PlanSummary
+	// pianoPerUtente è il piano in forza: serve a restituire
+	// `PreviousPlanCode`, che è ciò che permette di distinguere una variazione
+	// da un rinnovo.
+	pianoPerUtente map[string]string
+	piani          map[string]billing.PlanSummary
 
 	scritture []billing.SubscriptionChange
 	limiti    []string // piani contro cui R58 è stato applicato
@@ -33,8 +37,9 @@ type registro struct {
 
 func nuovoRegistro() *registro {
 	return &registro{
-		filigrane: map[string]time.Time{},
-		utenti:    map[string]string{},
+		filigrane:      map[string]time.Time{},
+		utenti:         map[string]string{},
+		pianoPerUtente: map[string]string{},
 		piani: map[string]billing.PlanSummary{
 			"free":   {Code: "free", Name: "Free", IsPublic: true},
 			"pro":    {Code: "pro", Name: "Pro", IsPublic: true},
@@ -57,10 +62,21 @@ func (r *registro) SaveSubscription(_ context.Context, change billing.Subscripti
 		return billing.SaveResult{}, billing.ErrUnknownSubscriber
 	}
 
+	precedente, aveva := r.pianoPerUtente[userID]
+	if !aveva {
+		precedente = paddle.PlanFree
+	}
+
 	r.filigrane[change.PaddleSubscriptionID] = change.OccurredAt
 	r.utenti[change.PaddleSubscriptionID] = userID
+	r.pianoPerUtente[userID] = change.PlanCode
 	r.scritture = append(r.scritture, change)
-	return billing.SaveResult{Applied: true, UserID: userID, PlanCode: change.PlanCode}, nil
+	return billing.SaveResult{
+		Applied:          true,
+		UserID:           userID,
+		PlanCode:         change.PlanCode,
+		PreviousPlanCode: precedente,
+	}, nil
 }
 
 func (r *registro) EnforcePlanLimits(_ context.Context, _, planCode string, _ time.Time) (billing.Suspension, error) {
