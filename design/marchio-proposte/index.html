@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Postqron — proposte di marchio</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#4278e5; --deep:#1e3056; --text:#6f8ba4;
+    --page:#f7fafd; --border:#e2ebff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:40px;background:var(--page);
+       font-family:Quicksand,system-ui,sans-serif;color:var(--deep)}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--text);font-size:14px;margin:0 0 32px}
+  .row{display:grid;grid-template-columns:150px 1fr;gap:24px;align-items:center;
+       background:#fff;border:1px solid var(--border);border-radius:14px;
+       padding:22px 26px;margin-bottom:16px}
+  .name{font-weight:600;font-size:15px}
+  .name span{display:block;font-weight:400;font-size:12.5px;color:var(--text);margin-top:5px;line-height:1.45}
+  .tests{display:flex;align-items:center;gap:34px;flex-wrap:wrap}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:7px}
+  .cap{font-size:10px;color:#9db0c4;letter-spacing:.04em;text-transform:uppercase}
+  .dark{background:var(--deep);border-radius:9px;padding:9px}
+  .lock{display:flex;align-items:center;gap:9px}
+  .word{font-weight:600;font-size:23px;letter-spacing:-.015em}
+</style>
+</head>
+<body>
+<h1>Postqron — quattro direzioni per il marchio</h1>
+<p class="sub">Concetto <em>config as code</em> · palette attuale · ogni proposta in colore, monocromatica, invertita e a 16&nbsp;px</p>
+
+<!-- ============ definizioni riutilizzabili ============ -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/>
+    </linearGradient>
+
+    <!-- A · graffe con battito -->
+    <g id="A">
+      <path d="M20 7 C14 7 16 21 8.5 24 C16 27 14 41 20 41" fill="none"
+            stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
+      <path d="M28 7 C34 7 32 21 39.5 24 C32 27 34 41 28 41" fill="none"
+            stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
+      <circle cx="17.5" cy="24" r="2.1" fill="currentColor"/>
+      <circle cx="24"   cy="24" r="3.3" fill="currentColor"/>
+      <circle cx="30.5" cy="24" r="2.1" fill="currentColor"/>
+    </g>
+
+    <!-- B · la Q come nodo di commit -->
+    <g id="B">
+      <path d="M24 8 A 13 13 0 1 1 23.9 8" fill="none"
+            stroke="currentColor" stroke-width="4"/>
+      <path d="M31.5 31.5 L39 39" fill="none"
+            stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="24" cy="21" r="4.2" fill="currentColor"/>
+    </g>
+
+    <!-- C · chevron ricorsivo -->
+    <g id="C">
+      <path d="M38.5 24 A 14.5 14.5 0 1 1 33 12.6" fill="none"
+            stroke="currentColor" stroke-width="3.8" stroke-linecap="round"/>
+      <path d="M31.5 6.5 L34.5 13.4 L27.4 15.6" fill="none"
+            stroke="currentColor" stroke-width="3.8"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M19 18.5 L25 24 L19 29.5" fill="none"
+            stroke="currentColor" stroke-width="3.8"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <!-- D · parentesi quadre come quadrante -->
+    <g id="D">
+      <path d="M19 7 H9.5 V41 H19" fill="none"
+            stroke="currentColor" stroke-width="3.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M29 7 H38.5 V41 H29" fill="none"
+            stroke="currentColor" stroke-width="3.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M24 24 V15.5 M24 24 L30 27.5" fill="none"
+            stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
+    </g>
+  </defs>
+</svg>
+
+<div id="out"></div>
+
+<script>
+const props = [
+  ['A','Graffe con battito','Le graffe della configurazione racchiudono tre punti di ritmo diverso: il file e la ricorrenza nello stesso segno.'],
+  ['B','La Q come nodo di commit','La lettera del nome diventa un nodo su un ramo git. La coda della Q è la linea del branch.'],
+  ['C','Chevron ricorsivo','Il prompt del terminale chiuso in un ciclo: un comando che si ripete.'],
+  ['D','Quadranti fra parentesi','Le parentesi quadre di un array racchiudono le lancette. Struttura e tempo.'],
+];
+document.getElementById('out').innerHTML = props.map(([id,nome,desc]) => `
+  <div class="row">
+    <div class="name">${id} · ${nome}<span>${desc}</span></div>
+    <div class="tests">
+      <div class="cell"><div class="cap">colore</div>
+        <svg width="52" height="52" viewBox="0 0 48 48" style="color:url(#g)">
+          <g style="color:#4278e5"><use href="#${id}"/></g></svg></div>
+      <div class="cell"><div class="cap">gradiente</div>
+        <svg width="52" height="52" viewBox="0 0 48 48"><g fill="url(#g)" stroke="url(#g)"
+          style="color:#743fe5"><use href="#${id}"/></g></svg></div>
+      <div class="cell"><div class="cap">mono</div>
+        <svg width="52" height="52" viewBox="0 0 48 48" style="color:#1e3056"><use href="#${id}"/></svg></div>
+      <div class="cell"><div class="cap">invertita</div>
+        <div class="dark"><svg width="52" height="52" viewBox="0 0 48 48" style="color:#fff"><use href="#${id}"/></svg></div></div>
+      <div class="cell"><div class="cap">16 px</div>
+        <svg width="16" height="16" viewBox="0 0 48 48" style="color:#1e3056"><use href="#${id}"/></svg></div>
+      <div class="cell"><div class="cap">lockup</div>
+        <div class="lock">
+          <svg width="34" height="34" viewBox="0 0 48 48" style="color:#4278e5"><use href="#${id}"/></svg>
+          <span class="word">Postqron</span></div></div>
+    </div>
+  </div>`).join('');
+</script>
+</body>
+</html>
