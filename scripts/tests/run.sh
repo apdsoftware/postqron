@@ -399,6 +399,62 @@ else
   fail "il server statico non è partito in modalità spa"
 fi
 
+# La misura di R53-bis in locale dipende da --compress: se smettesse di
+# comprimere in silenzio, il punteggio Lighthouse crollerebbe e sembrerebbe una
+# regressione del sito. Serve anche il verso opposto — la modalità di default
+# non deve comprimere, perché i tetti di peso degli e2e contano byte di build.
+printf 'body { color: red }\n' >"$TMP/site/style.css"
+head -c 4096 /dev/zero | tr '\0' 'a' >"$TMP/site/font.woff2"
+
+if start_server --compress; then
+  encoding=$(curl -s -o /dev/null -D - -H 'accept-encoding: br, gzip' \
+    "http://127.0.0.1:$SERVER_PORT/style.css" | sed -n 's/^[Cc]ontent-[Ee]ncoding: *\([a-z]*\).*/\1/p')
+  [ "$encoding" = "br" ] \
+    && pass "con --compress il CSS esce in brotli" \
+    || fail "con --compress il CSS dovrebbe uscire in brotli (ha risposto '$encoding')"
+
+  encoding=$(curl -s -o /dev/null -D - -H 'accept-encoding: gzip' \
+    "http://127.0.0.1:$SERVER_PORT/" | sed -n 's/^[Cc]ontent-[Ee]ncoding: *\([a-z]*\).*/\1/p')
+  [ "$encoding" = "gzip" ] \
+    && pass "senza brotli fra le codifiche accettate ricade su gzip" \
+    || fail "avrebbe dovuto ricadere su gzip (ha risposto '$encoding')"
+
+  # Il corpo deve restare leggibile: comprimere senza dichiararlo, o dichiararlo
+  # senza comprimere, darebbe misure plausibili e sbagliate.
+  # La decompressione la fa Node e non `curl --compressed`: il curl di sistema
+  # non supporta brotli ovunque, e il test fallirebbe per la macchina.
+  body=$(curl -s -H 'accept-encoding: br' "http://127.0.0.1:$SERVER_PORT/style.css" \
+    | node -e 'const c=[];process.stdin.on("data",d=>c.push(d)).on("end",()=>process.stdout.write(require("node:zlib").brotliDecompressSync(Buffer.concat(c))))')
+  body=${body%$'\n'}
+  [ "$body" = "body { color: red }" ] \
+    && pass "il corpo compresso si decomprime nell'originale" \
+    || fail "il corpo compresso non torna l'originale (ha dato '$body')"
+
+  encoding=$(curl -s -o /dev/null -D - -H 'accept-encoding: br, gzip' \
+    "http://127.0.0.1:$SERVER_PORT/font.woff2" | sed -n 's/^[Cc]ontent-[Ee]ncoding: *\([a-z]*\).*/\1/p')
+  [ -z "$encoding" ] \
+    && pass "i formati già compressi restano intatti" \
+    || fail "woff2 non va ricompresso (ha risposto '$encoding')"
+
+  kill "$SERVER_PID" 2>/dev/null
+  wait "$SERVER_PID" 2>/dev/null
+else
+  fail "il server statico non è partito in modalità compress"
+fi
+
+if start_server; then
+  encoding=$(curl -s -o /dev/null -D - -H 'accept-encoding: br, gzip' \
+    "http://127.0.0.1:$SERVER_PORT/style.css" | sed -n 's/^[Cc]ontent-[Ee]ncoding: *\([a-z]*\).*/\1/p')
+  [ -z "$encoding" ] \
+    && pass "senza --compress il corpo esce non compresso" \
+    || fail "senza --compress non deve esserci content-encoding (ha risposto '$encoding')"
+
+  kill "$SERVER_PID" 2>/dev/null
+  wait "$SERVER_PID" 2>/dev/null
+else
+  fail "il server statico non è ripartito in modalità semplice"
+fi
+
 echo "→ ambiente database"
 
 # Senza .env i target db-* devono fermarsi con un messaggio utile, non tentare

@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import { collectPageErrors } from './support/page-errors'
 
@@ -235,6 +239,136 @@ test.describe('peso delle immagini (R53-bis)', () => {
     // sola immagine che conta per la metrica.
     expect(await hero.getAttribute('loading')).toBeNull()
   })
+})
+
+test.describe('peso del JavaScript (R53-bis)', () => {
+  /**
+   * Gli script che una pagina carica *per rendersi*: il modulo d'ingresso e i
+   * `modulepreload` che l'HTML pre-renderizzato dichiara accanto.
+   *
+   * Non «tutto ciò che il browser scarica», che sarebbe la misura sbagliata:
+   * dopo il caricamento Nuxt precarica in sottofondo i chunk delle rotte
+   * collegate, compresa la pagina legale. Quel traffico è a bassa priorità e non
+   * ritarda niente — contarlo qui direbbe che spostare codice fuori dal percorso
+   * critico non serve, che è il contrario di quel che misura Lighthouse.
+   */
+  const criticalScripts = async (request: APIRequestContext, path: string) => {
+    const html = await (await request.get(path)).text()
+    const sources = [
+      ...[...html.matchAll(/<script[^>]*\bsrc="([^"]+\.js)"/g)].map(match => match[1]!),
+      ...[...html.matchAll(/<link\b[^>]*\brel="modulepreload"[^>]*\bhref="([^"]+\.js)"/g)].map(match => match[1]!),
+    ]
+    expect(new Set(sources).size, `nessuno script critico dichiarato da ${path}`).toBeGreaterThan(0)
+
+    const bodies = await Promise.all([...new Set(sources)].map(async src => (await request.get(src)).text()))
+    return { sources: [...new Set(sources)], code: bodies.join('\n'), bytes: bodies.reduce((sum, body) => sum + Buffer.byteLength(body), 0) }
+  }
+
+  /**
+   * Tetto sul JavaScript del percorso critico della home, non compresso.
+   *
+   * Misurato il 2026-08-17 su questa build: 285 KB su 12 file, dopo aver tolto
+   * dal percorso critico `marked` e i quattro Markdown legali (#513), che da
+   * soli ne valevano 66. Il numero è non compresso perché è quello che la build
+   * produce: comprimerlo qui legherebbe la soglia al livello di zlib invece che
+   * al codice.
+   *
+   * Il margine è stretto di proposito. Quasi tutti i 285 KB sono il runtime di
+   * Vue, Nuxt e vue-router — roba che non si lima: se questo tetto salta, non è
+   * il framework che è cresciuto di 15 KB, è entrata una dipendenza nuova, o è
+   * tornata a incrociare il manifesto delle rotte una che stava in un chunk pigro.
+   */
+  const JS_BUDGET = 300 * 1024
+
+  test('la home non supera il tetto di peso del JavaScript', async ({ request }) => {
+    const { sources, bytes } = await criticalScripts(request, '/it/')
+
+    expect(bytes, `JavaScript critico della home: ${Math.round(bytes / 1024)} KB su ${sources.length} file`)
+      .toBeLessThanOrEqual(JS_BUDGET)
+  })
+
+  test('il Markdown legale e il suo convertitore restano fuori dalla home, ma non dalla pagina legale', async ({ request }) => {
+    // `definePageMeta` viene estratta nel manifesto delle rotte, che sta nel
+    // bundle d'ingresso: basta che la `validate` della rotta legale chiami una
+    // funzione di `utils/legal.ts` perché `marked` e i quattro documenti — 66 KB
+    // — finiscano nel percorso critico di ogni pagina del sito. È già successo,
+    // non si vede leggendo il diff, e il solo tetto di peso qui sopra lo
+    // assorbirebbe in silenzio.
+    //
+    // La sonda sul testo si ricava dal documento invece di essere copiata: così
+    // riscrivere la privacy policy non fa fallire un test sulle prestazioni.
+    const markdown = readFileSync(resolve(fileURLToPath(new URL('.', import.meta.url)), '../legal/en/privacy-policy.md'), 'utf8')
+    const prose = markdown.split('\n').filter(line => /^[A-Za-z][A-Za-z0-9 ,.:;()-]{60,}$/.test(line))
+      .sort((a, b) => b.length - a.length)[0]
+    expect(prose, 'nessuna riga di prosa utilizzabile come sonda').toBeTruthy()
+
+    const home = await criticalScripts(request, '/it/')
+    expect(home.code, 'il testo dei documenti legali è nel percorso critico della home').not.toContain(prose!)
+    // `walkTokens` è una chiave delle opzioni di `marked`, che la minificazione
+    // non tocca. Se una versione futura la rinominasse, questo controllo
+    // smetterebbe di provare qualcosa: il compagno qui sotto se ne accorge.
+    expect(home.code, 'il convertitore Markdown è nel percorso critico della home').not.toContain('walkTokens')
+
+    const legal = await criticalScripts(request, '/it/legal/privacy-policy/')
+    expect(legal.code, 'la pagina legale non riceve più il testo del documento').toContain(prose!)
+    expect(legal.code, 'la pagina legale non riceve più il convertitore Markdown').toContain('walkTokens')
+  })
+
+  test('la pagina legale si idrata e mostra il documento convertito', async ({ page }) => {
+    // Il chunk pigro deve arrivare: se `marked` fosse stato tolto invece che
+    // spostato, il pre-renderizzato sembrerebbe a posto e l'idratazione
+    // fallirebbe qui.
+    const errors = collectPageErrors(page)
+
+    await page.goto('/it/legal/privacy-policy/')
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.locator('.legal-document__body h2').first()).toHaveText(/\S/)
+    expect(errors).toEqual([])
+  })
+})
+
+test.describe('carattere e stabilità del layout (R53-bis)', () => {
+  for (const locale of LOCALES) {
+    test(`/${locale}/ precarica il sottoinsieme latino di Quicksand, e solo quello`, async ({ request }) => {
+      // Il precarico è ciò che tiene il CLS a zero: senza, il carattere si
+      // scopre dopo il CSS, `font-display: swap` disegna il testo con quello di
+      // sistema e all'arrivo di Quicksand ogni parola si sposta dentro la
+      // propria riga. È una riga di `useHead()` in app.vue: sparisce senza far
+      // fallire niente, e il costo si vede solo rimisurando.
+      const html = await (await request.get(`/${locale}/`)).text()
+      const preloads = [...html.matchAll(/<link\b[^>]*\brel="preload"[^>]*>/g)].map(match => match[0])
+        .filter(tag => /\bas="font"/.test(tag))
+
+      expect(preloads, `precarichi di carattere su /${locale}/`).toHaveLength(1)
+      expect(preloads[0]).toContain('type="font/woff2"')
+      // Senza `crossorigin` il browser scarica il carattere due volte: i
+      // caratteri si richiedono sempre in modalità anonima, e un precarico che
+      // non lo dichiara non corrisponde alla richiesta vera.
+      expect(preloads[0]).toContain('crossorigin')
+
+      const href = /href="([^"]+)"/.exec(preloads[0]!)?.[1]
+      expect(href, 'il precarico deve indicare il sottoinsieme latino, non il latin-ext')
+        .toMatch(/quicksand-latin\.[A-Za-z0-9_-]+\.woff2$/)
+
+      // Il nome porta l'impronta del contenuto: se il precarico indicasse una
+      // versione vecchia il browser scaricherebbe due caratteri invece di uno,
+      // e la pagina resterebbe più lenta di prima.
+      expect((await request.get(href!)).status()).toBe(200)
+
+      // I fogli globali piccoli Nuxt li incorpora in un `<style>`: la @font-face
+      // sta lì, non in un file collegato. Vanno guardati tutti e due, altrimenti
+      // il controllo passerebbe per il motivo sbagliato.
+      const css = [...html.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/g)].map(match => match[1]!)
+      const sheets = [
+        ...[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]!),
+        ...await Promise.all(css.map(async src => (await request.get(src)).text())),
+      ].join('\n')
+
+      expect(sheets, 'nessuna @font-face nel CSS servito').toContain('@font-face')
+      expect(sheets, 'il precarico non corrisponde all\'URL che la @font-face chiede').toContain(href!)
+    })
+  }
 })
 
 test.describe('markup delle immagini servite', () => {

@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { isLocaleCode } from '~/utils/locale'
-import { isLegalDocument, legalDocument } from '~/utils/legal'
+// `isLegalDocumentId` arriva da `legal-documents` e non da `legal`: la `validate`
+// qui sotto viene estratta nel manifesto delle rotte, che sta nel bundle
+// d'ingresso di ogni pagina. Importarla da `legal` porterebbe `marked` e i
+// quattro Markdown sulla home.
+import { isLegalDocumentId } from '~/utils/legal-documents'
+import { legalDocument } from '~/utils/legal'
 
 definePageMeta({
-  validate: route => isLocaleCode(route.params.locale) && isLegalDocument(route.params.document),
+  validate: route => isLocaleCode(route.params.locale) && isLegalDocumentId(route.params.document),
   key: route => `${String(route.params.locale)}:${String(route.params.document)}`,
 })
 
 const route = useRoute()
 const { locale, content } = useSiteLocale()
 const documentId = computed(() => {
-  if (!isLegalDocument(route.params.document)) throw createError({ statusCode: 404 })
+  if (!isLegalDocumentId(route.params.document)) throw createError({ statusCode: 404 })
   return route.params.document
 })
 const document = computed(() => legalDocument(documentId.value, locale.value))
