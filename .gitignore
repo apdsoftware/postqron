@@ -32,3 +32,6 @@ playwright-report/
 
 # Archivi legacy (mai versionare)
 *.bundle
+
+# Worktree delle issue in lavorazione (AGENTS.md §3)
+.worktrees/

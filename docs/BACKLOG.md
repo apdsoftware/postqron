@@ -6,6 +6,10 @@ provider ammesso secondo le regole di [AGENTS.md](../AGENTS.md) §4.
 
 Legenda provider: **C** = `claude` obbligatorio · **C/X** = `claude` o `codex`.
 
+**Numerazione GitHub:** la issue `N` di questo backlog corrisponde alla issue GitHub
+**`#(382 + N)`** su `apdsoftware/postqron` — la issue 1 è `#383`, la 45 è `#427`.
+Le dipendenze nelle tabelle usano sempre la numerazione del backlog.
+
 ---
 
 ## E0 — Fondamenta (blocca tutto il resto)
@@ -74,7 +78,7 @@ Legenda provider: **C** = `claude` obbligatorio · **C/X** = `claude` o `codex`.
 | 26 | CRUD cronjob con validazione dell'espressione cron e anteprima esecuzioni | §4.2 | 13, 24 | C/X |
 | 27 | Vista log in tempo reale con filtri e dettaglio del tentativo | §4.2 | 18, 24 | C/X |
 | 28 | UI billing Paddle: upgrade, downgrade, stato sottoscrizione | R16 | 35, 24 | C/X |
-| 29 | Impostazioni: chiavi API PostQron e chiave AI (BYOK) | R9, R18 | 15, 33 | C/X |
+| 29 | Impostazioni: chiavi API PostQron e chiave AI (BYOK) | R9, R18 | 15, 42 | C/X |
 
 ---
 
