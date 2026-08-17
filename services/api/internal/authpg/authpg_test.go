@@ -263,7 +263,7 @@ func newSession(t *testing.T, store *authpg.Store, userID, tokenHash string, at 
 		LastUsedAt: at,
 		ExpiresAt:  at.Add(30 * 24 * time.Hour),
 		IPAddress:  &testIP,
-		UserAgent:  "PostQron-Test/1.0",
+		UserAgent:  "Postqron-Test/1.0",
 	})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -282,7 +282,7 @@ func TestCicloDiVitaDiUnaSessione(t *testing.T) {
 	if session.IPAddress == nil || *session.IPAddress != testIP {
 		t.Errorf("ip_address = %v, atteso %v", session.IPAddress, testIP)
 	}
-	if session.UserAgent != "PostQron-Test/1.0" {
+	if session.UserAgent != "Postqron-Test/1.0" {
 		t.Errorf("user_agent = %q", session.UserAgent)
 	}
 	if session.RevokedAt != nil {

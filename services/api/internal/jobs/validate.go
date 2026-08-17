@@ -75,7 +75,7 @@ var reservedHeaders = []string{
 
 // TargetGuard decide se un URL di destinazione è raggiungibile.
 //
-// PostQron esegue richieste verso URL scelti dall'utente **dalla stessa
+// Postqron esegue richieste verso URL scelti dall'utente **dalla stessa
 // macchina su cui girano API e database** (SPEC §3.7): senza questo controllo il
 // prodotto è uno strumento d'attacco. Il controllo vero — indirizzo risolto e
 // non nome, ripetuto su ogni redirect — è la issue #455 e non sta qui.
@@ -270,7 +270,7 @@ func (j *Job) validateURL(ctx context.Context, invalid *ValidationError, guard T
 	}
 	scheme := strings.ToLower(target.Scheme)
 	if scheme != "http" && scheme != "https" {
-		// È anche `jobs_url_scheme_check`: PostQron non esegue comandi né
+		// È anche `jobs_url_scheme_check`: Postqron non esegue comandi né
 		// container, solo HTTP (SPEC §10).
 		invalid.add("request.url", "unsupported_scheme",
 			"sono ammessi solo gli schemi http e https: %q non è un target eseguibile.", target.Scheme)

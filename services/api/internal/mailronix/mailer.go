@@ -205,7 +205,7 @@ const (
 // pagina che esiste, una con i link vuoti a `#ZgotmplZ`.
 func DefaultSite() emailrender.Site {
 	return emailrender.Site{
-		ProductName:   "PostQron",
+		ProductName:   "Postqron",
 		PublicBaseURL: "https://postqron.com",
 		AppBaseURL:    "https://app.postqron.com",
 		SupportEmail:  "support@postqron.com",

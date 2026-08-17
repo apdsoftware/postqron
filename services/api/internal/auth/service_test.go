@@ -203,7 +203,7 @@ const (
 
 var testClient = auth.Client{
 	IP:        netip.MustParseAddr("203.0.113.7"),
-	UserAgent: "PostQron-Test/1.0",
+	UserAgent: "Postqron-Test/1.0",
 }
 
 // register crea un account e restituisce l'utente.
@@ -1104,7 +1104,7 @@ func TestRequestPasswordResetIgnoraIGuastiDellInvio(t *testing.T) {
 	}
 }
 
-// Il limite per indirizzo email è quello che impedisce di usare PostQron per
+// Il limite per indirizzo email è quello che impedisce di usare Postqron per
 // bombardare la casella di qualcun altro.
 func TestRequestPasswordResetELimitato(t *testing.T) {
 	f := newFixture(t, func(o *auth.Options) {

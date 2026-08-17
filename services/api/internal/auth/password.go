@@ -16,7 +16,7 @@ import (
 
 // ----------------------------------------------------------------- algoritmo
 
-// Argon2id è l'algoritmo di hashing delle password di PostQron.
+// Argon2id è l'algoritmo di hashing delle password di Postqron.
 //
 // # Perché Argon2id
 //
@@ -52,7 +52,7 @@ import (
 //     OWASP per Argon2id. Non si è scelto un valore più alto (per esempio i
 //     64 MiB che si vedono spesso) per un motivo misurabile e non estetico: il
 //     costo per l'attaccante cresce con la memoria, ma per il difensore cresce
-//     con memoria × login concorrenti, e l'API di PostQron condivide la VPS con
+//     con memoria × login concorrenti, e l'API di Postqron condivide la VPS con
 //     PostgreSQL (SPEC §2, e vedi il commento sul pool in internal/database).
 //     A 19 MiB, [maxConcurrentHashes] login simultanei costano ~150 MiB di
 //     picco; a 64 MiB costerebbero mezzo gigabyte, e la difesa si trasformerebbe

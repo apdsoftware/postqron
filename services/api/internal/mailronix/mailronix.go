@@ -77,12 +77,12 @@ const Path = "/email/send"
 // DefaultBaseURL è la produzione di Mailronix.
 const DefaultBaseURL = "https://api.mailronix.com"
 
-// DefaultUserAgent identifica PostQron alla protezione bot di Cloudflare.
+// DefaultUserAgent identifica Postqron alla protezione bot di Cloudflare.
 //
 // Non è un dettaglio estetico: senza uno User-Agent esplicito la richiesta si
 // ferma al blocco di Cloudflare con `403 error code: 1010` e non raggiunge mai
 // Mailronix. Vedi la sezione «Il tranello di Cloudflare» nella doc del package.
-const DefaultUserAgent = "PostQron/1.0 (+https://postqron.com)"
+const DefaultUserAgent = "Postqron/1.0 (+https://postqron.com)"
 
 // StatusQueued è l'unico valore che `status` può assumere in una risposta 202.
 const StatusQueued = "queued"

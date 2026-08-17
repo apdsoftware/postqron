@@ -1,4 +1,4 @@
-// Package emailrender compila le email transazionali di PostQron a partire dai
+// Package emailrender compila le email transazionali di Postqron a partire dai
 // template versionati in emails/templates/ (R19, R20).
 //
 // # Che cosa produce, e che cosa non fa

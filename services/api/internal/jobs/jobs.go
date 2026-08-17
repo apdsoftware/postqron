@@ -58,7 +58,7 @@ func EnvironmentRank(e Environment) int {
 }
 
 // Method è un metodo HTTP ammesso come target (tipo `http_method`).
-// PostQron esegue esclusivamente chiamate HTTP: nessun comando, nessun
+// Postqron esegue esclusivamente chiamate HTTP: nessun comando, nessun
 // container (SPEC §10).
 type Method string
 

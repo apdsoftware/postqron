@@ -1,4 +1,4 @@
-// Command migrate applica e annulla le migrazioni versionate di PostQron.
+// Command migrate applica e annulla le migrazioni versionate di Postqron.
 //
 //	migrate up [n]      applica le migrazioni pendenti, tutte oppure le prime n
 //	migrate down [n]    annulla le ultime migrazioni applicate, di default una
@@ -150,7 +150,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 //
 // Il motivo non è di gusto. `make migrate` esegue prima `scripts/db-guard.sh`,
 // che verifica che su `POSTGRES_HOST:POSTGRES_PORT` risponda il container di
-// PostQron e non un altro PostgreSQL in ascolto sulla stessa porta. Quello
+// Postqron e non un altro PostgreSQL in ascolto sulla stessa porta. Quello
 // script legge le variabili con `set -a; . ./.env`, cioè dando la precedenza al
 // **file**; questo tool la dà all'**ambiente**. Finché i due valori coincidono
 // la differenza è invisibile, ma un `POSTGRES_PORT=15432 make migrate` farebbe

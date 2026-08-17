@@ -1,4 +1,4 @@
-# PostQron — Specifica Funzionale
+# Postqron — Specifica Funzionale
 
 > Fonte di verità del progetto. Ogni issue deve riferirsi a un requisito di questo
 > documento. Modifiche alla spec richiedono approvazione umana.
@@ -9,9 +9,9 @@ Versione: 1.0 · Data: 2026-08-17
 
 ## 1. Panoramica
 
-**PostQron** è un SaaS developer-first per la gestione, la sincronizzazione e il
+**Postqron** è un SaaS developer-first per la gestione, la sincronizzazione e il
 monitoraggio di cronjob. L'utente definisce job schedulati (via UI o via file
-`cron.yaml` nel proprio repository GitHub), PostQron li esegue in modo affidabile,
+`cron.yaml` nel proprio repository GitHub), Postqron li esegue in modo affidabile,
 applica retry sugli errori, registra i log e notifica i fallimenti.
 
 - **Dominio:** postqron.com
@@ -124,7 +124,7 @@ produzione: il backend Go è l'unica origin dinamica.
 
 ### 3.7 Sicurezza dell'esecuzione
 
-PostQron esegue richieste HTTP verso URL scelti dall'utente, **dalla stessa macchina
+Postqron esegue richieste HTTP verso URL scelti dall'utente, **dalla stessa macchina
 su cui girano l'API e il database** (§2). Senza i vincoli che seguono il prodotto è
 uno strumento d'attacco, non un servizio.
 
@@ -177,7 +177,7 @@ funzionalità a sé, non un dettaglio del parser.
 
 ### 4.0 Identità di marca
 
-- **R34 — Marchio proprio.** PostQron ha un logo originale: simbolo, logotipo,
+- **R34 — Marchio proprio.** Postqron ha un logo originale: simbolo, logotipo,
   varianti (positiva, negativa, monocromatica), dimensioni minime e favicon.
   **Vincolo:** il marchio attualmente in uso è il ridisegno di quello del template
   Hexagon. La licenza ThemeForest copre l'uso del template in un prodotto finale, ma
@@ -216,7 +216,7 @@ Template [`themesberg/flowbite-admin-dashboard`](https://github.com/themesberg/f
 - **Log in tempo reale** delle esecuzioni.
 - Integrazione Paddle per upgrade e downgrade.
 - Inserimento API key AI (BYOK).
-- Gestione delle proprie chiavi API PostQron.
+- Gestione delle proprie chiavi API Postqron.
 
 ### 4.3 Dashboard amministratore
 
@@ -422,7 +422,7 @@ jobs:
 
 ## 10. Target dei job: solo HTTP
 
-PostQron esegue **esclusivamente chiamate HTTP** verso endpoint dell'utente. Non
+Postqron esegue **esclusivamente chiamate HTTP** verso endpoint dell'utente. Non
 esegue comandi shell, script o container.
 
 **Motivazione.** Eseguire codice arbitrario dell'utente significa isolamento a livello
@@ -463,7 +463,7 @@ Il prodotto vende affidabilità: ciò che promette dev'essere misurabile e mante
 
 ## 12. API pubblica
 
-PostQron è un prodotto *developer-first*: l'API non è un dettaglio realizzativo, è
+Postqron è un prodotto *developer-first*: l'API non è un dettaglio realizzativo, è
 parte dell'offerta.
 
 - **R51 — Contratto documentato.** L'API pubblica ha una specifica OpenAPI
@@ -508,7 +508,7 @@ parte dell'offerta.
   punto in cui compare una cifra. Un «€9/mese» privo di indicazione è un difetto.
   L'indicazione è **testo tradotto**, non un suffisso fisso: «+ VAT», «+ IVA»,
   «+ MwSt.», «+ TVA» seguono le regole di §8-bis come qualunque altra stringa.
-- **R63 — PostQron è offerto per uso professionale.** Questa non è una preferenza
+- **R63 — Postqron è offerto per uso professionale.** Questa non è una preferenza
   commerciale, è **il presupposto che rende legittima l'esposizione del netto**. Verso i
   consumatori l'Unione Europea richiede che il prezzo esposto sia quello finale,
   comprensivo di imposta; verso le imprese il netto è corretto ed è il numero utile,

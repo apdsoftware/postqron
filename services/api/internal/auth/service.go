@@ -1,4 +1,4 @@
-// Package auth implementa l'autenticazione degli utenti di PostQron (R14):
+// Package auth implementa l'autenticazione degli utenti di Postqron (R14):
 // registrazione, login, logout, gestione delle sessioni e recupero password.
 //
 // Il package contiene la logica e non conosce né HTTP né PostgreSQL: le rotte
@@ -101,7 +101,7 @@ func (e *RateLimitedError) Error() string {
 // discutere, non una variabile d'ambiente da girare in produzione.
 const (
 	// DefaultSessionTTL è la vita massima di una sessione, indipendentemente
-	// dall'uso. Trenta giorni sono un compromesso: PostQron è uno strumento che
+	// dall'uso. Trenta giorni sono un compromesso: Postqron è uno strumento che
 	// si consulta a intermittenza, e un mese di «resta collegato» è quanto un
 	// utente si aspetta da una dashboard operativa.
 	DefaultSessionTTL = 30 * 24 * time.Hour
@@ -152,7 +152,7 @@ type Limits struct {
 	// indirizzo.
 	PasswordResetPerIP ratelimit.Rule
 	// PasswordResetPerAccount limita le richieste di recupero verso uno stesso
-	// indirizzo email. È il limite che impedisce di usare PostQron per
+	// indirizzo email. È il limite che impedisce di usare Postqron per
 	// bombardare di email la casella di qualcun altro.
 	PasswordResetPerAccount ratelimit.Rule
 	// TokenPerIP limita i tentativi di usare un token monouso (conferma

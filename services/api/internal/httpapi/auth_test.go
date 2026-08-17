@@ -109,7 +109,7 @@ func (a *api) do(method, path string, body any, prepare ...func(*http.Request)) 
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.RemoteAddr = "203.0.113.7:54321"
-	req.Header.Set("User-Agent", "PostQron-Test/1.0")
+	req.Header.Set("User-Agent", "Postqron-Test/1.0")
 	for _, fn := range prepare {
 		fn(req)
 	}

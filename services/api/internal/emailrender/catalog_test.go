@@ -82,7 +82,7 @@ func TestFallsBackToEnglishKeyByKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !strings.Contains(message.Text, "Benvenuto in PostQron") {
+	if !strings.Contains(message.Text, "Benvenuto in Postqron") {
 		t.Errorf("il titolo tradotto non compare:\n%s", message.Text)
 	}
 	if !strings.Contains(message.Text, "Your account is ready.") {

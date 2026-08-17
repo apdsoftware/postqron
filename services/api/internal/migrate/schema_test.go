@@ -100,7 +100,7 @@ func TestJobIntervalAcceptsOneSecondAndRefusesZero(t *testing.T) {
 	}
 }
 
-// SPEC §10: PostQron chiama endpoint HTTP e nient'altro.
+// SPEC §10: Postqron chiama endpoint HTTP e nient'altro.
 func TestJobTargetMustBeHTTP(t *testing.T) {
 	fixture := newSchemaFixture(t)
 	ctx := t.Context()

@@ -1,4 +1,4 @@
-// Command api avvia il servizio HTTP di PostQron: API REST e, in seguito,
+// Command api avvia il servizio HTTP di Postqron: API REST e, in seguito,
 // motore cron. È l'unica origin dinamica del prodotto — i frontend sono
 // statici (vedi docs/SPEC.md §2).
 package main

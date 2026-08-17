@@ -1,4 +1,4 @@
-// Package migrate applica e annulla le migrazioni versionate di PostQron.
+// Package migrate applica e annulla le migrazioni versionate di Postqron.
 //
 // Le regole che il package fa rispettare sono quelle di db/migrations/README.md
 // e di AGENTS.md §8:

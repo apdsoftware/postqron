@@ -59,7 +59,7 @@ CREATE TABLE jobs (
 
     -- ------------------------------------------------------------------ target
 
-    -- Solo HTTP/HTTPS: PostQron non esegue comandi né container (SPEC §10).
+    -- Solo HTTP/HTTPS: Postqron non esegue comandi né container (SPEC §10).
     url text NOT NULL CONSTRAINT jobs_url_scheme_check CHECK (url ~* '^https?://'),
     method http_method NOT NULL DEFAULT 'POST',
 

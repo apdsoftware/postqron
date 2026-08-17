@@ -13,7 +13,7 @@ import (
 // testSite non è il sito vero: gli URL servono solo a rendere verificabile il
 // prefisso di lingua nei link.
 var testSite = emailrender.Site{
-	ProductName:   "PostQron",
+	ProductName:   "Postqron",
 	PublicBaseURL: "https://postqron.test",
 	AppBaseURL:    "https://app.postqron.test",
 	SupportEmail:  "support@postqron.test",
@@ -140,13 +140,13 @@ func TestRenderWelcome(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 
-	if message.Subject != "Welcome to PostQron" {
+	if message.Subject != "Welcome to Postqron" {
 		t.Errorf("oggetto = %q", message.Subject)
 	}
 	if !strings.Contains(message.Text, "Hi Sam,") {
 		t.Errorf("manca il saluto con il nome:\n%s", message.Text)
 	}
-	if !strings.Contains(message.HTML, "<title>Welcome to PostQron</title>") {
+	if !strings.Contains(message.HTML, "<title>Welcome to Postqron</title>") {
 		t.Error("il <title> non riporta l'oggetto")
 	}
 	// Il pulsante punta alla dashboard, nella lingua del messaggio.
@@ -159,7 +159,7 @@ func TestRenderWelcome(t *testing.T) {
 	if !strings.Contains(message.HTML, "support@postqron.test") {
 		t.Error("il piè di pagina non riporta l'indirizzo di supporto")
 	}
-	if !strings.Contains(message.HTML, "2026 PostQron") {
+	if !strings.Contains(message.HTML, "2026 Postqron") {
 		t.Error("il piè di pagina non riporta l'anno dell'orologio iniettato")
 	}
 }
@@ -251,7 +251,7 @@ func TestRenderPlanChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if message.Subject != "Your PostQron plan is now Pro" {
+	if message.Subject != "Your Postqron plan is now Pro" {
 		t.Errorf("oggetto = %q", message.Subject)
 	}
 	if !strings.Contains(message.Text, "Your account moved from Free to Pro.") {
@@ -273,7 +273,7 @@ func TestRenderSecurityAlert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if message.Subject != "Security alert on your PostQron account" {
+	if message.Subject != "Security alert on your Postqron account" {
 		t.Errorf("oggetto = %q", message.Subject)
 	}
 	if !strings.Contains(message.Text, "An API key of your account was revoked.") {

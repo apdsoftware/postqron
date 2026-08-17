@@ -1,6 +1,6 @@
 # db/migrations
 
-Migrazioni PostgreSQL di PostQron: lo schema del database vive qui, versionato
+Migrazioni PostgreSQL di Postqron: lo schema del database vive qui, versionato
 insieme al codice che lo usa.
 
 ## Regole

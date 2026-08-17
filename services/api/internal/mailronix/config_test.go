@@ -65,7 +65,7 @@ func TestLoadConfigConfigurazioneSbagliata(t *testing.T) {
 		"mittente mancante": {EnvAPIKey: testKey},
 		"mittente con nome visualizzato": {
 			EnvAPIKey:    testKey,
-			EnvFromEmail: "PostQron <noreply@postqron.com>",
+			EnvFromEmail: "Postqron <noreply@postqron.com>",
 		},
 		"URL senza schema": {
 			EnvAPIKey:    testKey,

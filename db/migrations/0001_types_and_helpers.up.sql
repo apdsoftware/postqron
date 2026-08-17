@@ -14,7 +14,7 @@ CREATE TYPE environment AS ENUM ('staging', 'production');
 -- e può impersonare (SPEC §4.3), sempre con traccia in audit_log.
 CREATE TYPE user_role AS ENUM ('user', 'admin');
 
--- Metodi HTTP ammessi come target di un job. PostQron esegue esclusivamente
+-- Metodi HTTP ammessi come target di un job. Postqron esegue esclusivamente
 -- chiamate HTTP: nessun comando, nessun container (SPEC §10).
 CREATE TYPE http_method AS ENUM ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS');
 

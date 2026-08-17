@@ -1,4 +1,4 @@
-# Regole operative per gli agenti — PostQron
+# Regole operative per gli agenti — Postqron
 
 Vale per ogni agente Paseo che lavora su questo repository, e per l'agente PM che li
 orchestra. Leggi questo file **prima** di agire.

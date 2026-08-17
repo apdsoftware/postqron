@@ -281,7 +281,7 @@ func TestSiteFromEnv(t *testing.T) {
 	}
 
 	sovrascritto := SiteFromEnv(env(map[string]string{
-		EnvProductName:   "PostQron Staging",
+		EnvProductName:   "Postqron Staging",
 		EnvPublicBaseURL: "https://staging.postqron.com/",
 		EnvAppBaseURL:    "https://app.staging.postqron.com/",
 		EnvSupportEmail:  "aiuto@postqron.com",
@@ -297,7 +297,7 @@ func TestSiteFromEnv(t *testing.T) {
 	if sovrascritto.AppBaseURL != "https://app.staging.postqron.com" {
 		t.Errorf("AppBaseURL = %q", sovrascritto.AppBaseURL)
 	}
-	if sovrascritto.ProductName != "PostQron Staging" || sovrascritto.SupportEmail != "aiuto@postqron.com" {
+	if sovrascritto.ProductName != "Postqron Staging" || sovrascritto.SupportEmail != "aiuto@postqron.com" {
 		t.Errorf("Site = %+v", sovrascritto)
 	}
 }

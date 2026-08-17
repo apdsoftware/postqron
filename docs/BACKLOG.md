@@ -1,4 +1,4 @@
-# PostQron — Backlog
+# Postqron — Backlog
 
 Decomposizione della [specifica](SPEC.md) in issue eseguibili da un singolo agente in
 un worktree isolato. Ogni riga indica il requisito coperto, le dipendenze e il
@@ -78,7 +78,7 @@ Le dipendenze nelle tabelle usano sempre la numerazione del backlog.
 | 26 | CRUD cronjob con validazione dell'espressione cron e anteprima esecuzioni | §4.2 | 13, 24 | C/X |
 | 27 | Vista log in tempo reale con filtri e dettaglio del tentativo | §4.2 | 18, 24 | C/X |
 | 28 | UI billing Paddle: upgrade, downgrade, stato sottoscrizione | R16 | 35, 24 | C/X |
-| 29 | Impostazioni: chiavi API PostQron e chiave AI (BYOK) | R9, R18 | 15, 42 | C/X |
+| 29 | Impostazioni: chiavi API Postqron e chiave AI (BYOK) | R9, R18 | 15, 42 | C/X |
 
 ---
 

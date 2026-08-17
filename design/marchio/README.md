@@ -4,7 +4,7 @@ Marchio proprio di Postqron (SPEC §4.0, R34). Sostituisce il ridisegno del
 marchio del template ThemeForest Hexagon, che era in uso in `SiteLogo.vue` e che
 non era nostro: ce l'ha chiunque abbia comprato lo stesso tema.
 
-Il nome si scrive **`Postqron`** — P maiuscola, resto minuscolo. Mai `PostQron`,
+Il nome si scrive **`Postqron`** — P maiuscola, resto minuscolo. Mai `Postqron`,
 mai `POSTQRON`, mai `postQron`.
 
 > **Stato: proposta.** Concetto e grado sono decisi dal proprietario: il gallo,

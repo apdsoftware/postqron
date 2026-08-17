@@ -630,7 +630,7 @@ func TestNewRifiutaConfigurazioneInvalida(t *testing.T) {
 		"chiave di spazi":     {APIKey: "   ", From: "noreply@postqron.com"},
 		"mittente mancante":   {APIKey: testKey},
 		"mittente malformato": {APIKey: testKey, From: "non-un-indirizzo"},
-		"mittente con nome":   {APIKey: testKey, From: "PostQron <noreply@postqron.com>"},
+		"mittente con nome":   {APIKey: testKey, From: "Postqron <noreply@postqron.com>"},
 		"URL senza schema":    {APIKey: testKey, From: "noreply@postqron.com", BaseURL: "api.mailronix.com"},
 		"URL non http":        {APIKey: testKey, From: "noreply@postqron.com", BaseURL: "ftp://api.mailronix.com"},
 	}
