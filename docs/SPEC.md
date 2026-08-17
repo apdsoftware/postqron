@@ -269,7 +269,7 @@ li mostra, non li applica.
 
 | | **Free** | **Pro** | **Team** | **Agency** |
 |---|---|---|---|---|
-| Prezzo | $0 | $12/mese · $120/anno | $39/mese | da $99/mese |
+| Prezzo | €0 | €12/mese · €120/anno | €39/mese | da €99/mese |
 | Target | side-project | freelance in produzione | startup e PMI | agenzie e scale-up |
 | Cronjob | 20 | 200 | illimitati (fair use: 1.000 task) | illimitati |
 | **Risoluzione minima** | **1 minuto** | **10 secondi** | **1 secondo** | 1 secondo |
@@ -490,8 +490,11 @@ parte dell'offerta.
   piano Free è l'ingresso. Ogni affermazione contraria nell'interfaccia è un difetto.
 - **R60 — Accesso ai documenti fiscali.** L'utente accede a fatture e ricevute
   emesse da Paddle in quanto Merchant of Record.
-- **R61 — Valuta e prezzi.** I prezzi di §8 sono in dollari. Con cinque lingue
-  (§8-bis) va deciso se la valuta mostrata cambia con la lingua o resta unica, e la
-  scelta va applicata in modo coerente fra sito, checkout e fatture.
-- **R62 — Fatturazione annuale.** Il listino prevede l'annuale solo su Pro. Va
-  deciso se estenderla a Team e Agency o dichiarare che è voluto.
+- **R61 — Valuta unica in euro.** I prezzi sono in **euro** e **non seguono la
+  lingua**: le cinque localizzazioni (§8-bis) mostrano gli stessi importi. La
+  conversione e la presentazione in valuta locale, dove avvengono, sono competenza di
+  Paddle in quanto Merchant of Record — non nostra. Il catalogo Paddle è la fonte di
+  verità e riporta €12, €120, €39, €99: qualunque cifra diversa nell'interfaccia è
+  un difetto, e ogni simbolo `$` è un residuo da correggere.
+- **R62 — Fatturazione annuale solo su Pro.** È una scelta deliberata, non una
+  lacuna: Team e Agency sono esclusivamente mensili.
