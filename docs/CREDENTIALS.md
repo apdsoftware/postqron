@@ -44,9 +44,30 @@ Merchant of Record: checkout, sottoscrizioni, MRR.
 6. Sezione **Notifications / Webhooks**: crea un endpoint verso
    `https://api.postqron.com/webhooks/paddle`, sottoscrivi gli eventi di sottoscrizione
    e transazione, e copia il **signing secret**.
+
+   Gli eventi che cambiano il piano sono i `subscription.*`, e li trattiamo **tutti**
+   allo stesso modo: ognuno porta lo stato corrente della sottoscrizione, quindi
+   applichiamo «com'è adesso» e non «cosa è successo». Gli eventi di transazione
+   vanno sottoscritti lo stesso — servono a capire cosa è arrivato quando un piano
+   non cambia — ma **non** producono entitlement: un pagamento fallito non degrada
+   l'account, perché i Termini §4.2 promettono che durante i tentativi di Paddle il
+   servizio continua.
+
+   Senza questo segreto la rotta `/webhooks/paddle` **non viene registrata**: un
+   endpoint di fatturazione che accetta corpi non verificati è un modo per farsi
+   regalare un piano a pagamento da chiunque ne conosca l'indirizzo.
 7. **Catalogo prodotti:** crea i tre piani a pagamento con i prezzi di SPEC §8 — Pro
    €9/mese e €90/anno, Team €29/mese, Agency da €79/mese. Annota i `price_id` di
    ciascuno: il codice referenzia quelli, non i prezzi.
+
+   I prezzi vanno inseriti **in euro e al netto delle imposte** (R61, R61-bis):
+   Paddle calcola e aggiunge l'imposta dovuta nel paese del cliente. Un solo
+   `price_id` per riga di listino, e mai lo stesso su due piani — l'avvio si
+   rifiuta, perché il webhook tornando indietro dal prezzo assegnerebbe un piano a
+   caso.
+
+   **L'annuale esiste solo su Pro** (R62): non creare prezzi annuali per Team e
+   Agency, perché non c'è una variabile in cui metterli e nessuno li venderebbe.
 
 ```
 PADDLE_ENVIRONMENT=sandbox          # poi "production"
