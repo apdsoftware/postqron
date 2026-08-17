@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { isLocaleCode } from '~/utils/locale'
 import { interpolate } from '~/utils/site'
+import { organizationNode, softwareApplicationNode } from '~/utils/structured-data'
 
 /**
  * Home, una volta per lingua.
@@ -20,6 +21,7 @@ definePageMeta({
 })
 
 const { locale, content, href } = useSiteLocale()
+const { public: config } = useRuntimeConfig()
 
 useLocalizedHead({
   path: '/',
@@ -27,6 +29,16 @@ useLocalizedHead({
   title: content.value.meta.title,
   description: content.value.meta.description,
 })
+
+/*
+ * Dati strutturati della home (R53-ter): l'impresa e il prodotto col listino.
+ * Le offerte corrispondono alle card dei piani più in basso in questa stessa
+ * pagina — è il vincolo che conta, dichiarare solo ciò che si mostra.
+ */
+useStructuredData([
+  organizationNode(content.value, locale.value, config.siteUrl),
+  softwareApplicationNode(content.value, locale.value, config.siteUrl),
+])
 
 /** Le card entrano una dopo l'altra, 0,2s di scarto l'una dall'altra. */
 function staggered(index: number) {

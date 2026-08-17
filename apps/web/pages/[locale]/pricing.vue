@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { pricingPages } from '~/content/pricing'
 import { isLocaleCode } from '~/utils/locale'
+import { organizationNode, softwareApplicationNode } from '~/utils/structured-data'
 
 definePageMeta({
   validate: route => isLocaleCode(route.params.locale),
@@ -8,6 +9,7 @@ definePageMeta({
 })
 
 const { locale, content, href } = useSiteLocale()
+const { public: config } = useRuntimeConfig()
 const page = computed(() => pricingPages[locale.value])
 const space = '\u00A0'
 
@@ -17,6 +19,21 @@ useLocalizedHead({
   title: page.value.meta.title,
   description: page.value.meta.lead,
 })
+
+/*
+ * \u00C8 la pagina che mostra il listino per intero, card e tabella comparativa:
+ * qui le offerte del prodotto sono quanto di pi\u00F9 vicino al contenuto visibile
+ * ci sia. Gli importi sono imposte escluse (R61-bis) e lo schema lo dichiara.
+ *
+ * L'organizzazione \u00E8 ripetuta e non solo riferita per `@id`: il prodotto
+ * dichiara il proprio `provider`, e un grafo che rimanda a un nodo definito su
+ * un'altra pagina \u00E8 un grafo che si risolve solo se il motore ha gi\u00E0 letto
+ * quell'altra pagina.
+ */
+useStructuredData([
+  organizationNode(content.value, locale.value, config.siteUrl),
+  softwareApplicationNode(content.value, locale.value, config.siteUrl),
+])
 
 function price(plan: (typeof content.value.plans)[number]) {
   const amount = content.value.money.currencyPosition === 'before'

@@ -145,6 +145,25 @@ test.describe('reperibilità (R53-ter)', () => {
       expect(listed.status(), `${location} non risponde 200`).toBe(200)
     }
   })
+
+  test('i dati strutturati arrivano nell\'HTML servito e sono JSON valido', async ({ request }) => {
+    // Il contenuto del grafo è verificato dai test unitari; qui interessa che
+    // il pre-rendering lo abbia scritto davvero e che sia rileggibile — un
+    // JSON-LD che un motore non riesce a parsare è come non averlo.
+    for (const path of ['/en/', '/en/pricing/', '/en/faq/', '/en/contact/']) {
+      const response = await request.get(path)
+      const html = await response.text()
+
+      const block = html.match(
+        /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/,
+      )
+      expect(block, `${path} non ha dati strutturati`).not.toBeNull()
+
+      const graph = JSON.parse(block![1]!) as { '@context': string, '@graph': unknown[] }
+      expect(graph['@context']).toBe('https://schema.org')
+      expect(graph['@graph'].length).toBeGreaterThan(0)
+    }
+  })
 })
 
 test.describe('lingua', () => {
