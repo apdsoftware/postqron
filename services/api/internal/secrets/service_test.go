@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -700,61 +701,205 @@ func TestNewServiceRefusesToStartWithoutAKey(t *testing.T) {
 
 // ------------------------------------------- il contratto con chi esegue
 
-// Il giro completo che l'esecutore HTTP (#390) deve fare, provato qui perché è
-// il punto in cui questa issue e quella si toccano.
+// Il contratto, in una riga, per chi arriva qui da un test rosso.
+const contratto = `Il contratto con l'esecutore HTTP (internal/httpexec, #390):
+
+  resolved, err := secretsSvc.Resolve(ctx, occ.Job.UserID, secrets.Request{
+      URL: occ.Job.URL, Headers: headers, Body: body,
+  })
+  // la richiesta si compone da resolved.URL(), .Headers(), .Body()
+
+  result.ResponseExcerpt = resolved.Redactor().Excerpt(raw, maxBytes).String()
+  record.Error           = resolved.Redactor().ErrorText(err, maxBytes).String()
+  logger.Info("...", slog.Any("request", resolved))   // NON resolved.URL()
+
+Perché: l'estratto della risposta e il testo dell'errore finiscono in
+job_executions, che l'utente rilegge dall'API e che restiamo a conservare
+(privacy policy §2.2). Sono due testi che non controlliamo — il bersaglio
+riflette la credenziale nei propri messaggi d'errore — e senza la redazione R43
+sarebbe rispettata da noi e violata da loro.`
+
+// Il giro completo che l'esecutore HTTP (#390) deve fare.
 //
-// Le tre righe che contano:
+// # Perché questo test esiste, e perché è scritto così
 //
-//  1. `Resolve` restituisce un [secrets.Resolved]. I valori si prendono da
-//     `URL()`, `Headers()` e `Body()`, che sono metodi e non campi: non finiscono
-//     in un `%+v`.
-//  2. L'estratto della risposta e il testo dell'errore si costruiscono con
-//     `Redactor().Excerpt(...)` e `Redactor().ErrorText(...)`, che restituiscono
-//     un [secrets.Excerpt] — un tipo che **non è costruibile** senza passare
-//     dalla redazione.
-//  3. Ciò che si scrive nei log dell'esecuzione è il [secrets.Resolved] stesso,
-//     che stampa la richiesta **non** risolta.
+// L'esecutore è stato mergiato prima di questa PR, quindi **la sequenza qui
+// sotto non è ancora quella che gira in produzione**: `internal/httpexec`
+// compone la richiesta dai campi grezzi del job e non passa da
+// [secrets.Service.Resolve]. Finché quel collegamento non c'è, questo test è
+// l'unico documento eseguibile del contratto — è il posto in cui chi lo
+// implementerà viene a leggere che cosa deve chiamare.
+//
+// Da qui la forma: ogni clausola è un sottotest che si chiama come la clausola,
+// così che un `--- FAIL` dica **quale** promessa è saltata prima ancora di
+// leggere il messaggio; ogni messaggio d'errore stampa [contratto], così che
+// chi lo vede non debba cercare la documentazione; e ogni clausola comincia
+// verificando che il caso stia davvero esercitando ciò che dichiara — un test
+// di non-perdita che passa perché il segreto non c'era è peggio di un test
+// assente, perché autorizza a non guardare.
 func TestExecutorContract(t *testing.T) {
-	f := newFixture(t)
 	const token = "finta-credenziale-del-cliente"
+
+	f := newFixture(t)
 	f.crea("DIGEST_TOKEN", token)
 
-	// 1. La risoluzione, con la richiesta come sta a riposo in `jobs`.
-	resolved, err := f.svc.Resolve(t.Context(), utente, secrets.Request{
-		URL:     "https://api.example.com/tasks/digest",
+	richiesta := secrets.Request{
+		URL:     "https://api.example.com/tasks/digest?tenant=acme",
 		Headers: map[string]string{"Authorization": "Bearer ${DIGEST_TOKEN}"},
 		Body:    `{"kind":"daily"}`,
-	})
+	}
+
+	// --------------------------------------------------------------- clausola 1
+	//
+	// La risoluzione. I valori si prendono con i metodi, non con dei campi: una
+	// struttura con `URL string` esportato finisce in un `%+v` alla prima
+	// diagnostica, e con lei il token che l'espansione ha appena messo dentro.
+	resolved, err := f.svc.Resolve(t.Context(), utente, richiesta)
 	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	if resolved.Headers()["Authorization"] != "Bearer "+token {
-		t.Fatalf("la richiesta non è stata risolta: %q", resolved.Headers()["Authorization"])
+		t.Fatalf("Resolve ha rifiutato una richiesta valida: %v\n\n%s", err, contratto)
 	}
 
-	// 2. La risposta del bersaglio, che riflette la nostra credenziale.
-	risposta := []byte(`{"error":"credenziale ` + token + ` scaduta"}`)
-	excerpt := resolved.Redactor().Excerpt(risposta, 8<<10)
-	errText := resolved.Redactor().ErrorText(
-		fmt.Errorf(`Post %q: EOF`, resolved.URL()+"?t="+token), 8<<10)
-
-	// 3. Il log dell'esecuzione.
-	riga := logged(t, resolved)
-
-	// Niente di ciò che verrà conservato o mostrato contiene la credenziale.
-	for nome, testo := range map[string]string{
-		"estratto della risposta": excerpt.String(),
-		"testo dell'errore":       errText.String(),
-		"riga di log":             riga,
-	} {
-		if strings.Contains(testo, token) {
-			t.Errorf("%s contiene la credenziale: %s", nome, testo)
+	t.Run("1. Resolve espande i riferimenti nella richiesta", func(t *testing.T) {
+		if got := resolved.Headers()["Authorization"]; got != "Bearer "+token {
+			t.Fatalf("la testata non è stata risolta: %q, atteso %q\n\n%s",
+				got, "Bearer "+token, contratto)
 		}
-	}
-	if !strings.Contains(excerpt.String(), "${DIGEST_TOKEN}") {
-		t.Errorf("l'estratto non dice che cosa è stato tolto: %s", excerpt)
-	}
-	if !strings.Contains(riga, "api.example.com/tasks/digest") {
-		t.Errorf("il log non dice quale richiesta è partita: %s", riga)
-	}
+		if resolved.Redactor().Len() != 1 {
+			t.Fatalf("il redattore conosce %d segreti, atteso 1: senza, non redige niente\n\n%s",
+				resolved.Redactor().Len(), contratto)
+		}
+	})
+
+	// --------------------------------------------------------------- clausola 2
+	//
+	// L'estratto della risposta. Il bersaglio riflette la nostra credenziale nel
+	// proprio messaggio d'errore, come fanno molte API.
+	t.Run("2. l'estratto della risposta passa dal redattore", func(t *testing.T) {
+		grezzo := []byte(`{"error":"la credenziale ` + token + ` è scaduta"}`)
+
+		// Il caso esercita davvero ciò che dichiara: senza questo controllo, un
+		// domani in cui il corpo di prova non contiene più il token renderebbe la
+		// verifica seguente vera per vuoto.
+		if !bytes.Contains(grezzo, []byte(token)) {
+			t.Fatalf("il corpo di prova non contiene la credenziale: questo caso non prova niente")
+		}
+
+		excerpt := resolved.Redactor().Excerpt(grezzo, 8<<10)
+		if strings.Contains(excerpt.String(), token) {
+			t.Errorf(
+				"l'estratto conserva la credenziale che il bersaglio ha rimandato indietro:\n"+
+					"  %s\nQuesto testo finisce in job_executions.response_excerpt, che l'utente "+
+					"rilegge dall'API.\n\n%s", excerpt, contratto)
+		}
+		if !strings.Contains(excerpt.String(), "${DIGEST_TOKEN}") {
+			t.Errorf("l'estratto non dice che cosa è stato tolto: %s\n"+
+				"Al posto del valore ci va il riferimento, altrimenti chi legge il registro "+
+				"non capisce perché il testo non torna.\n\n%s", excerpt, contratto)
+		}
+	})
+
+	// --------------------------------------------------------------- clausola 3
+	//
+	// Il testo dell'errore. È la via di fuga meno evidente delle due:
+	// `http.Client` avvolge ogni errore in un `*url.Error` che stampa l'URL
+	// completo, query compresa — quindi un segreto in querystring finirebbe nel
+	// registro **anche se la risposta non è mai arrivata**.
+	//
+	// `internal/httpexec` toglie già quell'involucro per conto suo, ed è la difesa
+	// giusta al posto giusto. Questa è la seconda, e serve perché togliere
+	// l'involucro protegge dal caso noto: la causa che resta è un errore di
+	// qualcun altro — un driver, una libreria TLS, un redirect — e nessuno di loro
+	// ha promesso di non citare l'indirizzo a cui stava andando.
+	t.Run("3. il testo dell'errore passa dal redattore", func(t *testing.T) {
+		guasto := fmt.Errorf(`Post %q: EOF`, resolved.URL()+"&t="+token)
+
+		if !strings.Contains(guasto.Error(), token) {
+			t.Fatalf("l'errore di prova non contiene la credenziale: questo caso non prova niente")
+		}
+
+		errText := resolved.Redactor().ErrorText(guasto, 8<<10)
+		if strings.Contains(errText.String(), token) {
+			t.Errorf(
+				"il testo dell'errore conserva la credenziale:\n  %s\n"+
+					"Questo testo finisce in job_executions.error, che l'utente rilegge "+
+					"dall'API.\n\n%s", errText, contratto)
+		}
+		if errText.Empty() {
+			t.Errorf("l'errore è stato cancellato invece che redatto: chi legge il registro " +
+				"ha bisogno di sapere che cosa è andato storto")
+		}
+	})
+
+	// --------------------------------------------------------------- clausola 4
+	//
+	// Il log. Ciò che si scrive è il [secrets.Resolved], che stampa la richiesta
+	// **non** risolta. `slog.String("url", resolved.URL())` è la riga sbagliata, e
+	// somiglia molto a quella giusta.
+	t.Run("4. nel log va il Resolved, non i suoi valori", func(t *testing.T) {
+		riga := logged(t, resolved)
+
+		if strings.Contains(riga, token) {
+			t.Errorf("la riga di log contiene la credenziale:\n  %s\n\n%s", riga, contratto)
+		}
+		if !strings.Contains(riga, "api.example.com/tasks/digest") {
+			t.Errorf("la riga di log non dice quale richiesta è partita:\n  %s\n"+
+				"Il Resolved stampa la richiesta non risolta, che è esattamente ciò che "+
+				"serve a capire quale job ha fatto cosa.\n\n%s", riga, contratto)
+		}
+
+		// E la riga sbagliata sarebbe stata davvero sbagliata: se un giorno
+		// `resolved.URL()` smettesse di contenere il segreto, la clausola qui sopra
+		// diventerebbe vera per vuoto e questo test smetterebbe di difendere
+		// qualcosa.
+		if !strings.Contains(resolved.URL()+resolved.Headers()["Authorization"], token) {
+			t.Fatal("i valori risolti non contengono la credenziale: questo caso non prova niente")
+		}
+	})
+
+	// --------------------------------------------------------------- clausola 5
+	//
+	// La garanzia sta nel tipo, non nella diligenza. [secrets.Excerpt] non ha
+	// campi esportati e non ha un costruttore pubblico: l'unico modo di ottenerne
+	// uno con del testo dentro è chiamare uno dei due metodi del redattore.
+	//
+	// Il giorno in cui qualcuno aggiungesse un campo esportato o un
+	// `NewExcerpt(string)` «per comodità nei test», la promessa smetterebbe di
+	// essere strutturale e tornerebbe a essere una cosa da ricordarsi. Questo
+	// sottotest è il guardiano di quella differenza.
+	t.Run("5. Excerpt non è costruibile senza passare dalla redazione", func(t *testing.T) {
+		typ := reflect.TypeOf(secrets.Excerpt{})
+		for i := range typ.NumField() {
+			if field := typ.Field(i); field.IsExported() {
+				t.Errorf(
+					"secrets.Excerpt ha il campo esportato %q: con un campo pubblico chiunque "+
+						"può costruire un estratto senza redigerlo, e il tipo smette di essere "+
+						"una garanzia.\n\n%s", field.Name, contratto)
+			}
+		}
+
+		// Il valore zero è ammesso — un'esecuzione senza segreti deve poter
+		// produrre un estratto — ma è vuoto: non trasporta testo non redatto.
+		var zero secrets.Excerpt
+		if !zero.Empty() || zero.String() != "" {
+			t.Errorf("il valore zero di Excerpt non è vuoto: %q", zero)
+		}
+	})
+
+	// --------------------------------------------------------------- clausola 6
+	//
+	// Il caso senza segreti deve costare come prima. La maggioranza dei job non
+	// riferisce niente, e se il contratto rendesse più laborioso quel caso
+	// verrebbe aggirato proprio lì.
+	t.Run("6. una richiesta senza segreti segue la stessa strada", func(t *testing.T) {
+		senza, err := f.svc.Resolve(t.Context(), utente, secrets.Request{
+			URL: "https://api.example.com/health",
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if got := senza.Redactor().Excerpt([]byte("ok"), 8<<10).String(); got != "ok" {
+			t.Errorf("estratto = %q, atteso %q: il redattore vuoto non deve toccare niente\n\n%s",
+				got, "ok", contratto)
+		}
+	})
 }
