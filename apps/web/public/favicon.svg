@@ -2,5 +2,5 @@
   <!-- Postqron — marchio registrato. design/marchio/README.md -->
   <title>Postqron</title>
   <defs><linearGradient id="pq" gradientUnits="userSpaceOnUse" x1="0" y1="32" x2="32" y2="0"><stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/></linearGradient></defs>
-  <path fill="url(#pq)" fill-rule="evenodd" d="M7.18 21.90A7.90 7.90 0 0 1 9.52 13.15A2.52 2.52 0 1 1 13.23 11.42A2.52 2.52 0 1 1 16.78 11.61A2.52 2.52 0 1 1 19.89 13.33A7.90 7.90 0 0 1 22.11 16.76L27.90 20.20L21.92 22.16A7.90 7.90 0 0 1 20.99 23.84A2.72 2.72 0 1 1 16.51 26.87A7.90 7.90 0 0 1 7.18 21.90ZM15.10 16.60A2.30 2.30 0 0 0 19.70 16.60A2.30 2.30 0 0 0 15.10 16.60Z"/>
+  <path fill="url(#pq)" fill-rule="evenodd" d="M6.00 19.00A8.00 8.00 0 0 1 22.00 19.00A8.00 8.00 0 0 1 6.00 19.00ZM14.80 16.40A2.60 2.60 0 0 0 20.00 16.40A2.60 2.60 0 0 0 14.80 16.40Z"/><path fill="url(#pq)" fill-rule="evenodd" d="M6.40 10.60A3.00 3.00 0 0 1 12.40 10.60A3.00 3.00 0 0 1 6.40 10.60ZM11.00 8.60A3.00 3.00 0 0 1 17.00 8.60A3.00 3.00 0 0 1 11.00 8.60ZM15.40 10.40A3.00 3.00 0 0 1 21.40 10.40A3.00 3.00 0 0 1 15.40 10.40Z"/><path fill="url(#pq)" fill-rule="evenodd" d="M19.60 15.40L29.00 19.40L19.60 23.40Z"/>
 </svg>

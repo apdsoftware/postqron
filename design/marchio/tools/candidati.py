@@ -116,8 +116,10 @@ def sezione(chiave: str) -> str:
         + "</div><span>Postqron — cronjob gestiti</span></div>"
     )
 
-    return f"""<section class="direzione" id="{chiave}">
-  <h3>{s['nome']} <em>— {s['sottotitolo']}</em> <b>{s['famiglia']}</b></h3>
+    consigliata = chiave == M.SCELTO
+    return f"""<section class="direzione{' consigliata' if consigliata else ''}" id="{chiave}">
+  <h3>{s['nome']} <em>— {s['sottotitolo']}</em> <b>{s['famiglia']}</b>
+    {'<i>consigliata</i>' if consigliata else ''}</h3>
   <p class="costo"><strong>Cosa si perde:</strong> {COSTI[chiave]}</p>
   <div class="scale">{scale}</div>
   <div class="lockups">{lockups}</div>
@@ -127,32 +129,31 @@ def sezione(chiave: str) -> str:
 
 
 COSTI = {
-    "gallo": "il registro. Una mascotte compra affetto, non rispetto, e il "
-             "prodotto si vende a professionisti; per rendere davvero va nutrita "
-             "— illustrazioni, adesivi, una voce — altrimenti resta un animale "
-             "solo in un header serio. E l'occhio è il dettaglio che a 16 px "
-             "lavora peggio di tutti.",
-    "timbro": "la nitidezza alle misure piccole. Un anello è la forma che regge "
-              "peggio i 16 px, e le due barre di annullo dentro il cerchio lo "
-              "chiudono ancora. È anche il più vicino, fra i sei, a farsi "
-              "scambiare per un quadrante — cioè per l'orologio da cui scappiamo.",
-    "francobollo": "la dentellatura, che è tutto. A 48 px si legge «francobollo»; "
-                   "a 16 px le tacche valgono un pixel e mezzo e resta un quadrato. "
-                   "Il marchio perde la sua unica idea proprio alla misura in cui "
-                   "verrà visto più spesso.",
-    "onda": "la specificità. Dice «periodico» a chiunque abbia visto un "
-            "oscilloscopio e non dice niente a tutti gli altri, e in un vicinato "
-            "che ha già la linea dell'elettrocardiogramma di Healthchecks il "
-            "rischio è di leggersi come «monitoraggio» invece che come «cron».",
-    "pi": "la distintività, per intero. Una P geometrica ce l'hanno in venti, ed è "
-          "esattamente il difetto — competente e dimenticabile — che ha fatto "
-          "cadere il giro precedente. Si sceglie solo se si vuole un marchio che "
-          "non dica nulla e non sbagli nulla.",
-    "logotipo": "tutto ciò che un simbolo serve a fare: l'avatar, l'adesivo, la "
-                "favicon, l'angolo di una slide, l'icona dell'applicazione. Resta "
-                "la P staccata dal logotipo, che è un ripiego, non un marchio. "
-                "Funziona per Cronitor perché il loro nero è già una posizione; "
-                "va deciso sapendo che si rinuncia a un'immagine.",
+    "testa": "il registro, e i 16 px. È il disegno che il proprietario ha già "
+             "visto: l'occhio si chiude sotto i 20 px e il tono resta quello del "
+             "personaggio, non dello strumento. Sta qui come primo gradino della "
+             "scala, per misurare gli altri.",
+    "profilo": "la leggibilità alle misure piccole, che con una figura intera è "
+               "il prezzo obbligato: coda, zampe e collo valgono un pixel a testa "
+               "a 16 px e si impastano. In cambio è il grado con il registro "
+               "migliore — la banderuola non è mai stata un personaggio.",
+    "tratto": "la solidità. Un tratto aperto è elegante e fragile: su fondo "
+              "gradiente perde contrasto, in stampa piccola si chiude, e a 16 px "
+              "il vuoto interno della testa si riempie. Regge dove c'è spazio, "
+              "non dove non ce n'è.",
+    "geometrico": "un po' di gallo. Cerchi e triangoli lo rendono una costruzione "
+                  "e non un ritratto: guadagna in registro e in parentela col "
+                  "logotipo, e perde la vitalità del disegno a mano. È anche il "
+                  "grado in cui il rischio «polleria» sparisce del tutto.",
+    "cresta-becco": "la certezza. Senza testa, i due segni vanno letti insieme e "
+                    "il becco rischia di diventare una freccia «play». Chi conosce "
+                    "il nome vede il gallo; chi arriva freddo vede un segno, e "
+                    "bisogna accettare che quella prima lettura non sia gratis.",
+    "cresta": "il gallo, letteralmente. Restano tre gobbe che a 16 px non hanno "
+              "niente da perdere e in un header non fanno ridere nessuno, ma da "
+              "sole possono leggersi come una corona o come delle colline. "
+              "Funziona se il nome lo si dice sempre accanto — cioè nel lockup, "
+              "che è dove il marchio vive il 90% delle volte.",
 }
 
 
@@ -170,6 +171,10 @@ HTML = """<!doctype html>
           font-weight:600; }}
   .direzione {{ margin:0 0 44px; padding:24px 26px; background:#fff; border:1px solid #e2ebff;
                 border-radius:14px; }}
+  .direzione.consigliata {{ border-color:#4278e5; box-shadow:0 0 0 3px rgb(66 120 229 / 12%); }}
+  h3 i {{ font-style:normal; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+          color:#fff; background:#4278e5; border-radius:100px; padding:3px 10px;
+          vertical-align:2px; font-weight:700; }}
   .costo {{ max-width:82ch; margin:0 0 20px; color:#43536f; }}
   .costo strong {{ color:#1e3056; }}
   .scale {{ display:flex; align-items:flex-end; gap:16px; margin-bottom:22px; }}
@@ -195,11 +200,14 @@ HTML = """<!doctype html>
   .favicon {{ flex:none; display:flex; }}
   svg {{ display:block; }}
 </style></head><body>
-<h1>Postqron — sei direzioni, sei famiglie</h1>
-<p>Mascotte, oggetto, forma astratta, monogramma, nessun simbolo. Ognuna alle
-dimensioni in cui vivrà: 48, 24 e 16 px, in colore, monocromatica su chiaro e
-invertita su scuro; poi il lockup, l'header reale del sito e la scheda del
-browser a 16 px.</p>
+<h1>Postqron — la gamma di riduzione del gallo</h1>
+<p>Il concetto è confermato; qui si cerca il <b>grado di figurazione</b>. Dall'alto
+in basso si scende dal disegno al segno: testa, profilo intero, tratto continuo,
+costruzione geometrica, cresta con becco, cresta sola. L'ipotesi da verificare è
+che l'occhio che si chiude a 16 px e il registro troppo simpatico siano lo stesso
+difetto, e che cadano insieme scendendo la scala. Ognuna alle dimensioni in cui
+vivrà: 48, 24 e 16 px, in colore, monocromatica su chiaro e invertita su scuro;
+poi il lockup, l'header reale del sito e la scheda del browser a 16 px.</p>
 {sezioni}
 </body></html>
 """

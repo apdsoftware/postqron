@@ -45,7 +45,7 @@ SIMBOLI = CANDIDATI
 
 #: Direzione in produzione. Cambiare questa riga e rilanciare `esporta.py`
 #: rifà kit, favicon, icona, card e il modulo TypeScript del sito.
-SCELTO = "gallo"
+SCELTO = "geometrico"
 
 
 def simbolo_svg(chiave: str, paint: str) -> str:

@@ -7,9 +7,10 @@ non era nostro: ce l'ha chiunque abbia comprato lo stesso tema.
 Il nome si scrive **`Postqron`** — P maiuscola, resto minuscolo. Mai `PostQron`,
 mai `POSTQRON`, mai `postQron`.
 
-> **Stato: proposta.** In `lab/candidati.html` ci sono sei direzioni, una per
-> famiglia di identità. Qui è cablata quella consigliata — il gallo. La scelta
-> definitiva è del proprietario del prodotto: si cambia `SCELTO` in
+> **Stato: proposta.** Il concetto — il gallo — è confermato dal proprietario.
+> In `lab/candidati.html` c'è la **gamma di riduzione**: sei gradi dal disegno
+> al segno. Qui è cablato quello consigliato, il gallo geometrico. La scelta del
+> grado è del proprietario: si cambia `SCELTO` in
 > [`tools/marchio.py`](tools/marchio.py) e si rilancia `esporta.py`, e kit,
 > favicon, icona, card e sito si rifanno da soli.
 
@@ -20,43 +21,50 @@ mai `POSTQRON`, mai `postQron`.
 La ricognizione sui venti servizi del vicinato sta in
 [`PANORAMA.md`](PANORAMA.md). In due righe: nella fascia cron l'orologio è il
 default e un passo più in là lo è la spirale astratta, mentre **il carattere non
-ce l'ha nessuno**. Fly.io dimostra che in questo mercato una figura riconoscibile
-si fa ricordare; nella fascia cron di affetto non ce n'è un grammo.
+ce l'ha nessuno**. Fly.io dimostra che in questo mercato una figura
+riconoscibile si fa ricordare; nella fascia cron di affetto non ce n'è un grammo.
 
-Il simbolo è **la testa di un gallo, di profilo**.
+Il simbolo è **la testa di un gallo, di profilo**. Non è una trovata: è l'unico
+animale che il prodotto ha già — l'essere vivente che canta a ora fissa, cioè la
+definizione di un cronjob prima che i computer esistessero — e in questa
+categoria non lo ha nessuno.
 
-Non è una trovata: è l'unico animale che il prodotto ha già. È l'essere vivente
-che canta a ora fissa — la definizione di un cronjob prima che i computer
-esistessero — e in questa categoria non lo ha nessuno. Fra tutte le direzioni
-possibili, è la sola che un concorrente non potrebbe copiare senza che si veda
-che ha copiato.
+### Il grado di figurazione
 
-Il gallo non parla della configurazione come codice: parla di puntualità e lo fa
-con una faccia. È una scelta di registro prima che di forma.
+Il primo disegno del gallo aveva due difetti dichiarati: sotto i 20 px l'occhio
+si chiudeva, e il registro era troppo simpatico per un prodotto che chiede una
+partita IVA. **Erano lo stesso difetto.** Un animale *ritratto* ha bisogno di
+occhi, becchi e bargigli, e sono proprio quei dettagli a collassare alle misure
+piccole e a spostare il tono verso il giocattolo.
+
+La risposta non è togliere il gallo: è **costruirlo invece di disegnarlo**. Il
+gallo cablato qui è fatto con l'alfabeto di forme del logotipo — cerchi perfetti
+e rette — perché Quicksand è una geometrica e il marchio deve condividerne la
+costruzione, non solo starle accanto.
+
+Ne segue che l'occhio non è più un dettaglio ma un cerchio pieno di 5,2 unità,
+cioè 2,6 px alla misura della favicon: esiste anche là. E che il rischio
+«polleria» sparisce, perché una costruzione geometrica non è un'insegna di
+alimentari.
 
 ## 2. Costruzione
 
-Il simbolo vive su una **griglia di 32 unità** per lato, e la sua sagoma è **un
-tracciato solo** più la controforma dell'occhio.
+Il simbolo vive su una **griglia di 32 unità** per lato, e non contiene una sola
+curva disegnata a mano: sono tutti cerchi e rette.
 
-Il contorno si costruisce camminando lungo il cerchio della testa — centro
-(14,6 · 19,2), raggio 7,9 — e sostituendo tre archi con altrettanti elementi:
+| Elemento | Geometria |
+|---|---|
+| Testa | cerchio, centro (14 · 19), raggio 8 |
+| Occhio | controforma circolare, centro (17,4 · 16,4), raggio 2,6 |
+| Cresta | tre cerchi di raggio 3, centri (9,4 · 10,6), (14 · 8,6), (18,4 · 10,4) |
+| Becco | triangolo (19,6 · 15,4) → (29 · 19,4) → (19,6 · 23,4) |
 
-| Elemento | Dove | Come |
-|---|---|---|
-| Cresta | 234° → 312° | tre gobbe da 4,3 unità di freccia |
-| Becco | 342° → 22° | due rette fino a una punta a 5,4 unità dalla testa |
-| Bargiglio | 36° → 76° | una gobba da 3,0 unità |
-| Occhio | (17,4 · 16,6) | controforma circolare di raggio 2,3 |
+I tre cerchi della cresta hanno raggio uguale e centri ad altezze diverse: sono
+le altezze a fare la cresta, perché tre lobi allineati farebbero una nuvola e
+tre punte uguali una corona.
 
-Disegnare l'unione di cerchi a mano avrebbe voluto dire calcolarne le
-intersezioni; percorrerla no. La gobba si dichiara per **freccia** e non per
-raggio, perché la freccia è la misura che interessa a chi disegna — e perché
-oltre la metà della corda serve l'arco maggiore: i primi tentativi di cresta
-erano tre gobbe da mezzo millimetro proprio per quello.
-
-Sotto le 4 unità di griglia un dettaglio vale meno di 2 px a 16 px di resa, ed è
-il motivo per cui qui non ci sono piume, narici né bargigli doppi.
+Nessun dettaglio scende sotto le 4 unità di griglia, che a 16 px di resa valgono
+2 px: sotto quella soglia il rendering subpixel sfoca via qualunque cosa.
 
 Il **logotipo** è disegnato, non composto: sono tracciati, non testo. Vengono da
 Quicksand (SIL OFL) al peso 600 con crenatura −15/1000 di em. Un logotipo
@@ -101,15 +109,14 @@ quest'area.
 
 | Uso | Minimo |
 |---|---|
-| Marchio completo, a schermo | **120 px** di larghezza (≈ 20 px di altezza) |
-| Marchio completo, a stampa | **32 mm** di larghezza |
-| Simbolo solo, a schermo | **20 px** |
-| Simbolo solo, a stampa | **6 mm** |
+| Marchio completo, a schermo | **110 px** di larghezza (≈ 18 px di altezza) |
+| Marchio completo, a stampa | **29 mm** di larghezza |
+| Simbolo solo, a schermo | **16 px** |
+| Simbolo solo, a stampa | **5 mm** |
 
-**Sotto i 20 px il simbolo perde l'occhio e diventa una macchia**: sotto quella
-soglia si usa l'**icona applicazione** — campo pieno, simbolo in negativo — che
-alla stessa misura conserva la sagoma perché il contrasto lo dà lo sfondo.
-È il limite reale di questa direzione, non un dettaglio di prudenza.
+A 16 px la testa resta una testa: l'occhio è un cerchio da 2,6 px e la cresta
+tre lobi da 3 px. È il grado di figurazione a renderlo possibile, ed è il motivo
+per cui la scala si ferma qui e non più in basso.
 
 ## 6. Usi vietati
 
@@ -194,19 +201,33 @@ raster e vettore non possono divergere.
 
 **Il giro «config as code»** — tre direzioni finite, in `lab/proposte.html`: la
 q disegnata come blocco di configurazione, la rotaia con le righe rientrate, il
-gradino. Cadute per il concetto, non per l'esecuzione: la configurazione come
-codice non è la storia che il prodotto vuole raccontare.
+gradino. Cadute per il concetto: la configurazione come codice non è la storia
+che il prodotto vuole raccontare.
 
-**Le altre cinque famiglie di questo giro**, in `lab/candidati.html`, ognuna con
-il suo costo scritto accanto: il timbro postale (un anello è la forma che regge
-peggio i 16 px, e assomiglia a un quadrante), il francobollo (a 16 px la
-dentellatura sparisce e resta un quadrato), l'onda quadra (regge benissimo le
-misure piccole ma dice «monitoraggio» più che «cron»), la P sola (competente e
-dimenticabile), il solo logotipo (rinuncia all'avatar, all'adesivo, all'icona).
+**Le altre cinque famiglie di identità**, nella stessa pagina: timbro postale,
+francobollo, onda quadra, monogramma P, solo logotipo. Il gallo è stato l'unico
+accettabile.
+
+**Gli altri cinque gradi della gamma**, in `lab/candidati.html`, ognuno con il
+suo costo scritto accanto:
+
+- **Testa** — il gallo ritratto a mano: è il disegno respinto, tenuto come primo
+  gradino per misurare gli altri.
+- **Profilo** — il gallo intero, registro da banderuola, ma a 16 px coda, zampe
+  e collo si impastano.
+- **Tratto** — una linea continua sola: elegante dove c'è spazio, si chiude dove
+  non ce n'è.
+- **Cresta e becco** — la testa sottintesa: bolla a 16 px, ma il becco senza
+  testa rischia di leggersi come una freccia «play».
+- **Cresta** — le sole tre punte: regge qualunque misura, e da sola può leggersi
+  come una corona.
 
 **Le letture involontarie**, tutte scoperte a schermo e nessuna nel codice: la Q
 su ramo git leggeva come una lente d'ingrandimento, le graffe si sfaldavano a
 16 px, il chevron in cerchio era l'icona di ricarica, l'asterisco dei cinque
 campi di cron un **aeroplano**, il monogramma `Pq` rotazionale una **N**, la
-coda della q girata a destra una **padella**, e il francobollo a tacche
-semicircolari un **sole**.
+coda della q girata a destra una **padella**, il francobollo a tacche
+semicircolari un **sole**, e la cresta a gobbe contigue una **nuvola** — che in
+un vicinato di infrastruttura è la peggiore di tutte. La cresta si è raddrizzata
+scavando le valli fra le punte e curvandone la base: è quello, e non il numero
+dei lobi, a distinguere una cresta da una nuvola.
