@@ -30,7 +30,34 @@ import (
 // con lo scheduler: `timestamptz` ha risoluzione al microsecondo, e un istante
 // preso con i nanosecondi non torna mai uguale a se stesso dopo un giro sul
 // database.
-func testClock() time.Time { return time.Now().UTC().Truncate(time.Millisecond) }
+func testClock() time.Time { return lontanoDaUnConfine(time.Hour, 90*time.Second) }
+
+// lontanoDaUnConfine restituisce l'istante corrente garantendo che il prossimo
+// confine della griglia disti almeno `margine`.
+//
+// La modalità a intervallo è ancorata all'epoch (SPEC §9): `every: 1h` scocca
+// all'ora piena UTC, non «un'ora dopo l'ultima volta». I test costruiscono
+// `due = now-1s` e si aspettano *una* occorrenza da riprendere: se un confine
+// della griglia cade mentre il test gira, le occorrenze dovute diventano due e
+// l'asserzione cade.
+//
+// È la stessa famiglia del flake corretto in `internal/dispatch` con `9937e9ae`,
+// a scala diversa: là il confine era il minuto, qui è l'ora. Non era
+// riproducibile a comando perché dipende dall'orologio da parete — questi test
+// falliscono solo se partono nei novanta secondi che precedono un'ora piena.
+//
+// Il margine è generoso di proposito: fra la costruzione dell'orario e il tick
+// c'è il tempo di creare database, utente e job, che su una macchina carica non
+// è trascurabile.
+func lontanoDaUnConfine(griglia, margine time.Duration) time.Time {
+	for {
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		if now.Add(margine).Truncate(griglia).Equal(now.Truncate(griglia)) {
+			return now
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
 
 // gridNext è l'occorrenza successiva di un intervallo. Serve alle attese dei
 // test, perché un intervallo non cade «un'ora dopo l'ultima volta» ma sulla
