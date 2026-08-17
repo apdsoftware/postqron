@@ -12,6 +12,7 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/dispatch"
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
 
 // Execute implementa [dispatch.Executor]: fa la richiesta e riporta com'è
@@ -30,14 +31,30 @@ import (
 // completa — mentire su una risposta troncata dalla rete sarebbe scrivere un
 // `succeeded` su una chiamata che l'utente ha visto fallire dall'altra parte.
 func (e *Executor) Execute(ctx context.Context, occ scheduler.Occurrence) (dispatch.Result, error) {
-	req, err := e.request(ctx, occ.Job)
+	// I segreti del workspace si risolvono **prima** di comporre la richiesta, ed
+	// è l'unico punto in cui i loro valori tornano in chiaro (R43). Da qui in poi
+	// ogni testo destinato alla riga dell'esecuzione passa dal redattore che la
+	// risoluzione si porta dietro: è quello, e non la diligenza di chi scrive, a
+	// impedire che il valore torni indietro dentro la risposta del bersaglio.
+	//
+	// Sul percorso d'errore `resolved` è il valore zero, il cui redattore è vuoto:
+	// non c'è niente da togliere, perché nessun valore è stato espanso. È lo
+	// stesso codice per i due casi, che è ciò che chiede la sesta clausola del
+	// contratto — una richiesta senza segreti segue la stessa strada.
+	resolved, err := e.resolve(ctx, occ.Job)
 	if err != nil {
-		return dispatch.Result{}, err
+		return dispatch.Result{ErrorText: resolved.Redactor().ErrorText(err, e.limit())}, err
+	}
+
+	req, err := e.request(ctx, occ.Job.Method, resolved)
+	if err != nil {
+		return dispatch.Result{ErrorText: resolved.Redactor().ErrorText(err, e.limit())}, err
 	}
 
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return dispatch.Result{}, requestError(err)
+		err = requestError(err)
+		return dispatch.Result{ErrorText: resolved.Redactor().ErrorText(err, e.limit())}, err
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -48,20 +65,62 @@ func (e *Executor) Execute(ctx context.Context, occ scheduler.Occurrence) (dispa
 		}
 	}()
 
-	body, err := e.excerpt(resp.Body)
+	body, err := e.excerpt(resp.Body, resolved.Redactor())
 	if err != nil {
-		return dispatch.Result{ResponseStatus: resp.StatusCode}, responseError(err)
+		err = responseError(err)
+		return dispatch.Result{
+			ResponseStatus: resp.StatusCode,
+			ErrorText:      resolved.Redactor().ErrorText(err, e.limit()),
+		}, err
 	}
 	return dispatch.Result{ResponseStatus: resp.StatusCode, ResponseExcerpt: body}, nil
 }
 
-// request costruisce la richiesta a partire dal bersaglio del job (R1).
+// resolve espande i riferimenti `${VAR}` del job con i segreti del workspace
+// (R42, R43).
+//
+// La lettura degli header viene prima perché è la sola parte che può fallire per
+// un motivo che non riguarda i segreti, e perché i riferimenti stanno anche lì:
+// un `Authorization: Bearer ${TOKEN}` è il caso normale, non un caso limite.
+func (e *Executor) resolve(ctx context.Context, job scheduler.Job) (secrets.Resolved, error) {
+	headers, err := job.HeaderMap()
+	if err != nil {
+		// L'errore originale non si propaga: cita il nome del job e potrebbe
+		// citare il JSON che non ha saputo decodificare, cioè gli header.
+		return secrets.Resolved{}, errors.New("header del job non decodificabili")
+	}
+
+	var body string
+	if job.Body != nil {
+		body = *job.Body
+	}
+
+	resolved, err := e.secrets.Resolve(ctx, job.UserID, secrets.Request{
+		URL: job.URL, Headers: headers, Body: body,
+	})
+	if err != nil {
+		if _, invalid := secrets.AsValidation(err); !invalid {
+			// Un guasto nostro — il database che non risponde, una chiave di
+			// cifratura che il processo non ha più — va detto a chi gestisce il
+			// servizio, perché sulla riga dell'esecuzione ci finisce solo la frase
+			// generica di [resolveError]. Nel log non ci sono valori: gli errori di
+			// internal/secrets citano i nomi dei segreti, mai il loro contenuto.
+			e.log.ErrorContext(ctx, "httpexec: risoluzione dei segreti del workspace fallita",
+				slog.String("job", job.ID), slog.Any("err", err))
+		}
+		return secrets.Resolved{}, resolveError(err)
+	}
+	return resolved, nil
+}
+
+// request costruisce la richiesta a partire dal bersaglio del job **risolto**
+// (R1).
 //
 // Gli errori di questa funzione non citano mai il valore che li ha causati: URL
-// e header possono contenere segreti risolti (R43), e questo messaggio finisce
-// nella colonna `error`, che l'utente rilegge dall'API.
-func (e *Executor) request(ctx context.Context, job scheduler.Job) (*http.Request, error) {
-	target, err := url.Parse(job.URL)
+// e header contengono i segreti risolti (R43), e questo messaggio finisce nella
+// colonna `error`, che l'utente rilegge dall'API.
+func (e *Executor) request(ctx context.Context, jobMethod string, resolved secrets.Resolved) (*http.Request, error) {
+	target, err := url.Parse(resolved.URL())
 	if err != nil {
 		return nil, errors.New("URL del job illeggibile")
 	}
@@ -75,14 +134,7 @@ func (e *Executor) request(ctx context.Context, job scheduler.Job) (*http.Reques
 		return nil, errors.New("schema dell'URL non ammesso: sono consentiti solo http e https")
 	}
 
-	headers, err := job.HeaderMap()
-	if err != nil {
-		// L'errore originale non si propaga: cita il nome del job e potrebbe
-		// citare il JSON che non ha saputo decodificare, cioè gli header.
-		return nil, errors.New("header del job non decodificabili")
-	}
-
-	method := strings.ToUpper(strings.TrimSpace(job.Method))
+	method := strings.ToUpper(strings.TrimSpace(jobMethod))
 	if method == "" {
 		method = http.MethodGet
 	}
@@ -91,20 +143,20 @@ func (e *Executor) request(ctx context.Context, job scheduler.Job) (*http.Reques
 	// il secondo è ciò che permette al client di ripetere il corpo su un redirect
 	// 307 o 308, che senza sarebbe una richiesta rifatta a vuoto.
 	var body io.Reader
-	if job.Body != nil && *job.Body != "" {
-		body = strings.NewReader(*job.Body)
+	if resolved.Body() != "" {
+		body = strings.NewReader(resolved.Body())
 	}
 
-	// L'URL si passa come l'utente l'ha scritto, non nella forma riscritta da
-	// url.String(): la richiesta lo riparserà con la stessa funzione, e una
-	// normalizzazione in mezzo cambierebbe il percorso davvero chiamato rispetto
-	// a quello che l'utente legge nel proprio job.
-	req, err := http.NewRequestWithContext(ctx, method, job.URL, body)
+	// L'URL si passa come l'utente l'ha scritto — a meno dei segreti espansi — e
+	// non nella forma riscritta da url.String(): la richiesta lo riparserà con la
+	// stessa funzione, e una normalizzazione in mezzo cambierebbe il percorso
+	// davvero chiamato rispetto a quello che l'utente legge nel proprio job.
+	req, err := http.NewRequestWithContext(ctx, method, resolved.URL(), body)
 	if err != nil {
 		return nil, errors.New("richiesta del job non costruibile: metodo o URL non validi")
 	}
 
-	for name, value := range headers {
+	for name, value := range resolved.Headers() {
 		// `Host` non è una testata come le altre: nella richiesta di Go vive in un
 		// campo a sé, e impostarla nella mappa non avrebbe alcun effetto. Serve a
 		// chi punta a un reverse proxy che smista sul nome.
@@ -120,18 +172,43 @@ func (e *Executor) request(ctx context.Context, job scheduler.Job) (*http.Reques
 	return req, nil
 }
 
-// excerpt legge l'estratto della risposta da conservare (R6, R40).
+// excerpt legge l'estratto della risposta da conservare (R6, R40) e lo redige
+// (R43).
 //
 // Legge al massimo [Options.MaxResponseBytes] byte e **non tocca il resto**:
 // drenare il corpo per poter riusare la connessione significherebbe leggere per
 // intero il gigabyte che il tetto esiste per non leggere.
-func (e *Executor) excerpt(body io.Reader) (string, error) {
+//
+// # L'ordine dei due passaggi
+//
+// Prima si rende il testo conservabile ([storable]), poi lo si redige. Il verso
+// conta perché la redazione cerca il valore dei segreti *carattere per
+// carattere*: cercarlo nel testo che verrà davvero scritto è l'unico modo di
+// essere sicuri che ciò che si scrive non lo contenga. Il verso opposto è
+// impossibile per costruzione, ed è voluto — un [secrets.Excerpt] non si può
+// riaprire per trasformarlo, altrimenti sarebbe un `string` con un altro nome.
+//
+// Resta il caso, dichiarato in [secrets.Redactor.Redact], del valore che torna
+// indietro *trasformato*: percent-encoded, in base64, o tagliato a metà dal
+// tetto di lettura. La redazione è l'ultima difesa, non la prima; la prima è che
+// il valore non finisca mai in un testo nostro, e quella è garantita dai tipi.
+func (e *Executor) excerpt(body io.Reader, redactor secrets.Redactor) (secrets.Excerpt, error) {
 	raw, err := io.ReadAll(io.LimitReader(body, e.maxBytes))
 	if err != nil {
-		return "", err
+		return secrets.Excerpt{}, err
 	}
-	return storable(raw), nil
+	return redactor.Excerpt([]byte(storable(raw)), e.limit()), nil
 }
+
+// limit è il tetto in caratteri dei testi che finiscono sulla riga.
+//
+// Coincide con il tetto di lettura (R40) — non più caratteri di quanti byte se
+// ne sono letti — e non è ridondante, perché si applica **dopo** la redazione,
+// che il testo può allungarlo: `${TOKEN_DI_PRODUZIONE}` è più lungo di parecchi
+// valori che sostituisce. Il troncamento al limite dello schema resta di chi
+// scrive ([dispatch.PostgresStore]): quello è un vincolo della tabella, non una
+// scelta di chi esegue.
+func (e *Executor) limit() int { return int(e.maxBytes) }
 
 // storable rende l'estratto scrivibile su una colonna `text`.
 //
@@ -193,6 +270,44 @@ func requestError(err error) error {
 	}
 	return fmt.Errorf("richiesta non riuscita: %w", err)
 }
+
+// resolveError traduce il guasto della risoluzione dei segreti in un errore da
+// mostrare all'utente.
+//
+// I due casi non si somigliano.
+//
+// Un [*secrets.ValidationError] è un riferimento che non si risolve: il segreto è
+// stato revocato o rinominato **dopo** il sync. Il suo testo dice quale nome
+// manca e quali esistono, non contiene nessun valore, ed è la stessa frase che
+// l'utente avrebbe letto al `git push` se il segreto fosse mancato già allora —
+// R43 vuole che l'errore arrivi lì, e quando arriva qui è perché il mondo è
+// cambiato in mezzo. Passa così com'è.
+//
+// Tutto il resto è un guasto nostro: il database che non risponde, un testo
+// cifrato che non si apre. Il suo messaggio non arriva alla colonna `error` — è
+// visibile all'utente e non gli direbbe niente su cui possa agire — ma la causa
+// resta agganciata, perché è su di lei che internal/dispatch distingue il
+// timeout dal fallimento e che il pool riconosce l'arresto.
+func resolveError(err error) error {
+	if invalid, ok := secrets.AsValidation(err); ok {
+		return fmt.Errorf("segreti del workspace non risolvibili: %w", invalid)
+	}
+	return opaqueError{
+		text:  "risoluzione dei segreti del workspace non riuscita",
+		cause: err,
+	}
+}
+
+// opaqueError separa il testo che l'utente legge dalla causa che il chiamante
+// classifica: `Error()` è la frase da scrivere sulla riga, `Unwrap()` conserva
+// l'errore vero per `errors.Is`.
+type opaqueError struct {
+	text  string
+	cause error
+}
+
+func (e opaqueError) Error() string { return e.text }
+func (e opaqueError) Unwrap() error { return e.cause }
 
 // responseError descrive una risposta cominciata e non finita.
 func responseError(err error) error {

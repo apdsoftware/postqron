@@ -59,6 +59,11 @@ type engineOptions struct {
 	// sicurezza che si disattiva dimenticando una riga di composizione è un
 	// controllo che prima o poi qualcuno dimentica.
 	Targets targetChecker
+	// Secrets risolve i `${VAR}` dei job in esecuzione (R43, issue #496), ed è
+	// obbligatorio: senza, l'esecutore manderebbe al bersaglio dell'utente il
+	// riferimento scritto tale e quale al posto della credenziale. In esercizio è
+	// `*secrets.Service`, lo stesso che serve le rotte `/secrets`.
+	Secrets httpexec.Secrets
 }
 
 // engine tiene insieme scheduler e worker pool per il ciclo di vita del
@@ -84,12 +89,19 @@ func newEngine(opts engineOptions) (*engine, error) {
 	if opts.Targets == nil {
 		return nil, errors.New("motore: il controllo sulla destinazione è obbligatorio (R38)")
 	}
+	if opts.Secrets == nil {
+		return nil, errors.New("motore: la risoluzione dei segreti del workspace è obbligatoria (R43)")
+	}
 	log := opts.Logger
 	if log == nil {
 		log = slog.Default()
 	}
 
-	executor, err := httpexec.New(httpexec.Options{Guard: opts.Clients, Logger: log})
+	executor, err := httpexec.New(httpexec.Options{
+		Guard:   opts.Clients,
+		Secrets: opts.Secrets,
+		Logger:  log,
+	})
 	if err != nil {
 		return nil, err
 	}

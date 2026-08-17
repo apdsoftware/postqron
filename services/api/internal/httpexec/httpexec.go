@@ -52,20 +52,37 @@
 // limite dello schema resta invece di chi scrive ([dispatch.PostgresStore]), che
 // è dove vive quel vincolo.
 //
-// # Nel registro non finisce l'URL
+// # I segreti si risolvono qui, e qui si redigono
 //
-// I segreti del workspace (R42, R43, issue #458) sono risolti in esecuzione e
-// iniettati **in URL, header e corpo**. Il registro delle esecuzioni è visibile
-// all'utente e la privacy policy dichiara che gli estratti sono conservati:
-// quello che ci finisce dev'essere il minimo che serve a capire com'è andata.
+// I segreti del workspace (R42, R43, issue #458) sono risolti **al momento
+// dell'esecuzione** e iniettati in URL, header e corpo. Il posto è questo:
+// [Executor.Execute] chiama [Secrets.Resolve] prima di comporre la richiesta, e
+// prima di allora un `${VAR}` è testo, sia nella colonna `jobs.url` sia in
+// `jobs.headers`. Un riferimento che non si risolve non deve arrivare fin qui —
+// R43 vuole che l'errore l'utente lo veda al sync, e la stessa analisi
+// (`secrets.NameSet.Validate`) gira lì — ma se ci arriva, perché il segreto è
+// stato revocato dopo, l'esecuzione fallisce con scritto quale nome manca invece
+// di partire con una credenziale sbagliata.
 //
-// La conseguenza meno ovvia è che gli errori vanno ripuliti. `http.Client`
-// restituisce un `*url.Error`, il cui messaggio contiene **l'URL completo,
-// query compresa**: lasciarlo passare significherebbe scrivere un token
-// risolto da un segreto dentro una colonna che l'utente rilegge dall'API.
-// [requestError] toglie l'involucro e conserva la causa, che è la parte
-// diagnostica e non contiene l'indirizzo. Vale anche per i log: questo
-// pacchetto non registra né URL, né header, né corpo.
+// Da quel momento la richiesta contiene valori veri, e **due testi tornano
+// indietro senza che noi li controlliamo**: il corpo della risposta, che il
+// bersaglio può riempire con la credenziale che gli abbiamo appena mandato
+// («token XYZ non valido» è un messaggio d'errore comunissimo), e l'errore di
+// chi sta sotto di noi. Il registro delle esecuzioni è visibile all'utente e la
+// privacy policy dichiara che gli estratti sono conservati: entrambi passano
+// dalla redazione di [secrets.Redactor], che rimette il `${NOME}` al posto del
+// valore, e il risultato è un [secrets.Excerpt] — un tipo che
+// [dispatch.Result] pretende e che non si può costruire saltando quel passaggio
+// (issue #496).
+//
+// La difesa contro l'URL negli errori resta, e resta la prima: `http.Client`
+// restituisce un `*url.Error`, il cui messaggio contiene **l'URL completo, query
+// compresa**, e [requestError] toglie l'involucro conservando la causa. La
+// redazione è la seconda, e serve perché togliere l'involucro protegge dal caso
+// noto: la causa che resta è l'errore di un driver, di una libreria TLS, di un
+// redirect, e nessuno di loro ha promesso di non citare l'indirizzo a cui stava
+// andando. Vale anche per i log: questo pacchetto non registra né URL, né
+// header, né corpo.
 //
 // # Il confine con il retry (#392)
 //
@@ -79,12 +96,14 @@
 package httpexec
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/apdsoftware/postqron/services/api/internal/dispatch"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
 
 // I valori di partenza.
@@ -115,6 +134,22 @@ const (
 	DefaultUserAgent = "Postqron/1.0 (+https://postqron.com)"
 )
 
+// Secrets risolve i riferimenti `${VAR}` di una richiesta con i segreti del
+// workspace (R42, R43).
+//
+// L'implementazione d'esercizio è `*secrets.Service` — l'asserzione qui sotto lo
+// mette per iscritto — e l'interfaccia esiste per la stessa ragione di [Guard]:
+// questo pacchetto non deve conoscere né il database né la cifratura per fare
+// una richiesta HTTP.
+//
+// Ciò che restituisce, il [secrets.Resolved], porta con sé due cose
+// inseparabili: i valori espansi e il redattore che li riconosce. È deliberato
+// nel progetto di internal/secrets, e qui è ciò che rende impossibile avere i
+// primi senza il secondo.
+type Secrets interface {
+	Resolve(ctx context.Context, userID string, req secrets.Request) (secrets.Resolved, error)
+}
+
 // Guard è la sorgente del client HTTP.
 //
 // L'implementazione d'esercizio è `*netguard.Guard` — l'asserzione qui sotto lo
@@ -129,20 +164,28 @@ type Guard interface {
 	Client() *http.Client
 }
 
-// L'esecutore è ciò che il worker pool si aspettava a valle, e il guard è
-// quello di #455: due asserzioni, due confini che il compilatore tiene fermi.
+// L'esecutore è ciò che il worker pool si aspettava a valle, il guard è quello
+// di #455 e la risoluzione dei segreti è quella di #458: tre asserzioni, tre
+// confini che il compilatore tiene fermi.
 var (
 	_ dispatch.Executor = (*Executor)(nil)
 	_ Guard             = (*netguard.Guard)(nil)
+	_ Secrets           = (*secrets.Service)(nil)
 )
 
-// Options sono le dipendenze e i tetti dell'esecutore. Solo Guard è
-// obbligatorio.
+// Options sono le dipendenze e i tetti dell'esecutore. Guard e Secrets sono
+// obbligatori.
 type Options struct {
 	// Guard è la sorgente del client HTTP: in produzione `*netguard.Guard`.
 	// Senza, [New] fallisce — non esiste un default, perché il default
 	// plausibile sarebbe un client non protetto.
 	Guard Guard
+	// Secrets risolve i `${VAR}` del job (R43): in produzione `*secrets.Service`.
+	// Senza, [New] fallisce, per lo stesso motivo per cui fallisce senza Guard:
+	// il default plausibile — non risolvere niente — manderebbe al bersaglio una
+	// testata `Authorization: Bearer ${TOKEN}` scritta così com'è, cioè una
+	// credenziale sbagliata a ogni esecuzione. Vedi [secrets.Service.Resolve].
+	Secrets Secrets
 	// Logger riceve ciò che non finisce sulla riga dell'esecuzione. Nil
 	// significa nessun log.
 	Logger *slog.Logger
@@ -157,6 +200,7 @@ type Options struct {
 // Executor esegue la chiamata HTTP di un'occorrenza. Va costruito con [New].
 type Executor struct {
 	client    *http.Client
+	secrets   Secrets
 	log       *slog.Logger
 	maxBytes  int64
 	userAgent string
@@ -167,6 +211,11 @@ func New(opts Options) (*Executor, error) {
 	if opts.Guard == nil {
 		return nil, errors.New("httpexec: Guard è obbligatorio: il client HTTP deve venire da netguard (R38, issue #455)")
 	}
+	if opts.Secrets == nil {
+		return nil, errors.New(
+			"httpexec: Secrets è obbligatorio: senza risoluzione un ${VAR} partirebbe letterale " +
+				"verso il bersaglio dell'utente (R43, issue #496)")
+	}
 	client := opts.Guard.Client()
 	if client == nil {
 		return nil, errors.New("httpexec: il Guard non ha restituito un client")
@@ -174,6 +223,7 @@ func New(opts Options) (*Executor, error) {
 
 	e := &Executor{
 		client:    client,
+		secrets:   opts.Secrets,
 		log:       opts.Logger,
 		maxBytes:  opts.MaxResponseBytes,
 		userAgent: opts.UserAgent,

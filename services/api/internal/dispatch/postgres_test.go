@@ -100,7 +100,7 @@ func TestLEsitoSiScriveSoloSuUnaRigaInEsecuzione(t *testing.T) {
 	store, pool, job := newStore(t)
 	occ := newOccurrence(t, pool, job, time.Now().UTC().Truncate(time.Second))
 
-	rec := dispatch.Record{Outcome: dispatch.Succeeded, ResponseStatus: 204, ResponseExcerpt: "ok"}
+	rec := dispatch.Record{Outcome: dispatch.Succeeded, ResponseStatus: 204, ResponseExcerpt: estratto("ok")}
 
 	updated, err := store.Finish(t.Context(), occ, rec)
 	if err != nil {
@@ -207,8 +207,8 @@ func TestUnaRispostaTroppoLungaNonFaPerdereLEsito(t *testing.T) {
 	if _, err := store.Finish(t.Context(), occ, dispatch.Record{
 		Outcome:         dispatch.Failed,
 		ResponseStatus:  500,
-		ResponseExcerpt: long,
-		Error:           long,
+		ResponseExcerpt: estratto(long),
+		Error:           estratto(long),
 	}); err != nil {
 		t.Fatalf("esito con risposta lunga: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestUnoStatusFuoriIntervalloNonFaPerdereLEsito(t *testing.T) {
 		t.Fatalf("presa: %v, %v", ok, err)
 	}
 	if _, err := store.Finish(t.Context(), occ, dispatch.Record{
-		Outcome: dispatch.Failed, ResponseStatus: 0, Error: "connessione rifiutata",
+		Outcome: dispatch.Failed, ResponseStatus: 0, Error: estratto("connessione rifiutata"),
 	}); err != nil {
 		t.Fatalf("esito senza risposta: %v", err)
 	}

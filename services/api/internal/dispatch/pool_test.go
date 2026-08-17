@@ -81,7 +81,7 @@ func (s *memStore) Skip(_ context.Context, occ scheduler.Occurrence, reason stri
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.records[occurrenceKey(occ)] = dispatch.Record{Outcome: dispatch.Skipped, Error: reason}
+	s.records[occurrenceKey(occ)] = dispatch.Record{Outcome: dispatch.Skipped, Error: estratto(reason)}
 	return true, nil
 }
 
@@ -468,7 +468,7 @@ func TestUnJobInPausaChiudeLOccorrenzaSenzaEseguirla(t *testing.T) {
 	if len(executed) != 0 {
 		t.Fatal("un job in pausa è stato eseguito")
 	}
-	if reason := store.recordOf(occ).Error; !strings.Contains(reason, "pausa") {
+	if reason := store.recordOf(occ).Error.String(); !strings.Contains(reason, "pausa") {
 		t.Fatalf("il motivo dello scarto non dice che il job è in pausa: %q", reason)
 	}
 }
@@ -502,11 +502,87 @@ func TestUnaDestinazioneRifiutataNonRaggiungeLEsecutore(t *testing.T) {
 	if len(executed) != 0 {
 		t.Fatal("l'esecutore ha ricevuto un'occorrenza rifiutata dal guard")
 	}
-	if got := store.recordOf(occ).Error; !strings.Contains(got, "169.254.169.254") {
+	if got := store.recordOf(occ).Error.String(); !strings.Contains(got, "169.254.169.254") {
 		t.Fatalf("l'errore registrato non riporta il motivo del rifiuto: %q", got)
 	}
 	if st := pool.Stats(); st.Blocked != 1 {
 		t.Fatalf("atteso 1 rifiuto contato, trovati %d", st.Blocked)
+	}
+}
+
+// ------------------------------------------------------------ la redazione (R43)
+
+// TestNellaRigaVaIlTestoRedattoDallEsecutoreNonIlSuoErrore è la quarta clausola
+// di [dispatch.Executor], ed è ciò che rende la issue #496 utile fra sei mesi.
+//
+// L'esecutore restituisce due cose diverse: un `error`, che questo package usa
+// per *classificare* l'esito, e un [dispatch.Result.ErrorText] già redatto, che è
+// il testo da scrivere. Se `record` tornasse a scrivere `err.Error()` — la riga
+// che c'era prima di questa issue, e che somiglia moltissimo a quella giusta —
+// il valore di un segreto risolto finirebbe nella colonna `error`, che l'utente
+// rilegge dall'API.
+//
+// Il compilatore ne difende metà: `rec.Error` è un [secrets.Excerpt] e una
+// stringa non ci entra. Questa prova difende l'altra metà, cioè che il testo
+// scritto sia proprio quello che l'esecutore ha redatto.
+func TestNellaRigaVaIlTestoRedattoDallEsecutoreNonIlSuoErrore(t *testing.T) {
+	store := newMemStore()
+
+	// L'errore grezzo contiene la credenziale, come quello di un driver o di una
+	// libreria TLS che cita l'indirizzo a cui stava andando; il testo redatto no.
+	const credenziale = "finta-credenziale-del-cliente"
+	pool := newPool(t, dispatch.Options{
+		Store: store,
+		Executor: dispatch.ExecutorFunc(func(context.Context, scheduler.Occurrence) (dispatch.Result, error) {
+			return dispatch.Result{ErrorText: estratto("richiesta non riuscita: dial tcp ${TOKEN}")},
+				errors.New("richiesta non riuscita: dial tcp " + credenziale)
+		}),
+		Workers: 2,
+	})
+
+	occ := fakeOccurrence("con-segreto", 0)
+	if err := hand(t, pool, store, occ); err != nil {
+		t.Fatalf("consegna: %v", err)
+	}
+	eventually(t, 5*time.Second, func() bool { return store.statusOf(occ) == string(dispatch.Failed) },
+		"atteso lo stato failed, trovato %q", store.statusOf(occ))
+
+	got := store.recordOf(occ).Error.String()
+	if strings.Contains(got, credenziale) {
+		t.Fatalf("il messaggio dell'errore è finito sulla riga, credenziale compresa: %q", got)
+	}
+	if !strings.Contains(got, "${TOKEN}") {
+		t.Fatalf("sulla riga non c'è il testo redatto dall'esecutore: %q", got)
+	}
+}
+
+// TestUnEsecutoreSenzaTestoLasciaComunqueUnaRigaLeggibile: il ripiego del caso
+// in cui la quarta clausola non viene rispettata. La riga si chiude lo stesso —
+// un'esecuzione senza esito sarebbe peggio — e dice che il dettaglio non è
+// arrivato, invece di ripescare il messaggio dell'errore.
+func TestUnEsecutoreSenzaTestoLasciaComunqueUnaRigaLeggibile(t *testing.T) {
+	store := newMemStore()
+	pool := newPool(t, dispatch.Options{
+		Store: store,
+		Executor: dispatch.ExecutorFunc(func(context.Context, scheduler.Occurrence) (dispatch.Result, error) {
+			return dispatch.Result{}, errors.New("finta-credenziale-del-cliente non valida")
+		}),
+		Workers: 2,
+	})
+
+	occ := fakeOccurrence("senza-testo", 0)
+	if err := hand(t, pool, store, occ); err != nil {
+		t.Fatalf("consegna: %v", err)
+	}
+	eventually(t, 5*time.Second, func() bool { return store.statusOf(occ) == string(dispatch.Failed) },
+		"atteso lo stato failed, trovato %q", store.statusOf(occ))
+
+	got := store.recordOf(occ).Error.String()
+	if strings.Contains(got, "finta-credenziale-del-cliente") {
+		t.Fatalf("il messaggio dell'errore è finito sulla riga: %q", got)
+	}
+	if got == "" {
+		t.Fatal("l'esecuzione è fallita senza nessun motivo scritto")
 	}
 }
 

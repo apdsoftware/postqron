@@ -709,9 +709,13 @@ const contratto = `Il contratto con l'esecutore HTTP (internal/httpexec, #390):
   })
   // la richiesta si compone da resolved.URL(), .Headers(), .Body()
 
-  result.ResponseExcerpt = resolved.Redactor().Excerpt(raw, maxBytes).String()
-  record.Error           = resolved.Redactor().ErrorText(err, maxBytes).String()
+  result.ResponseExcerpt = resolved.Redactor().Excerpt(raw, maxBytes)
+  result.ErrorText       = resolved.Redactor().ErrorText(err, maxBytes)
   logger.Info("...", slog.Any("request", resolved))   // NON resolved.URL()
+
+I due campi del risultato sono dichiarati Excerpt da quando il collegamento
+esiste (issue #496): non c'è nessun .String() da chiamare qui, e una stringa al
+loro posto non compila. Il testo torna stringa solo sul bordo del database.
 
 Perché: l'estratto della risposta e il testo dell'errore finiscono in
 job_executions, che l'utente rilegge dall'API e che restiamo a conservare
@@ -723,12 +727,14 @@ sarebbe rispettata da noi e violata da loro.`
 //
 // # Perché questo test esiste, e perché è scritto così
 //
-// L'esecutore è stato mergiato prima di questa PR, quindi **la sequenza qui
-// sotto non è ancora quella che gira in produzione**: `internal/httpexec`
-// compone la richiesta dai campi grezzi del job e non passa da
-// [secrets.Service.Resolve]. Finché quel collegamento non c'è, questo test è
-// l'unico documento eseguibile del contratto — è il posto in cui chi lo
-// implementerà viene a leggere che cosa deve chiamare.
+// L'esecutore è stato mergiato prima di questo file, e per un po' la sequenza
+// qui sotto **non è stata** quella che girava in produzione: `internal/httpexec`
+// componeva la richiesta dai campi grezzi del job e non passava da
+// [secrets.Service.Resolve]. Il collegamento è arrivato con la issue #496, che
+// ha anche tipato i due campi del risultato come [Excerpt] — da lì in poi
+// saltare la redazione non compila. Questo test resta il documento eseguibile
+// del contratto: è il posto in cui si viene a leggere che cosa va chiamato, e
+// gira senza rete perché il contratto è sulle chiamate, non sul trasporto.
 //
 // Da qui la forma: ogni clausola è un sottotest che si chiama come la clausola,
 // così che un `--- FAIL` dica **quale** promessa è saltata prima ancora di

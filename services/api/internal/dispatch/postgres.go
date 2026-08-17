@@ -110,8 +110,11 @@ func (s *PostgresStore) Finish(ctx context.Context, occ scheduler.Occurrence, re
 	args := append(key(occ),
 		string(rec.Outcome),
 		responseStatus(rec.ResponseStatus),
-		text(rec.ResponseExcerpt),
-		text(rec.Error),
+		// I due testi escono dal loro tipo solo qui, sul bordo del database: fino a
+		// questa riga sono [secrets.Excerpt], cioè testo che è passato dalla
+		// redazione (R43, issue #496).
+		text(rec.ResponseExcerpt.String()),
+		text(rec.Error.String()),
 	)
 	tag, err := s.pool.Exec(ctx, finishSQL, args...)
 	if err != nil {

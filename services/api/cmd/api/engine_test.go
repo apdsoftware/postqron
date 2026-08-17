@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,9 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
+	"github.com/apdsoftware/postqron/services/api/internal/secretspg"
 )
 
 // Queste sono le prove che chiudono #486, e sono l'unico posto del repository
@@ -64,6 +68,29 @@ type destinazioniAperte struct{}
 
 func (destinazioniAperte) CheckTarget(context.Context, *url.URL) error { return nil }
 
+// chiaveDiProva è `ENCRYPTION_KEY` per queste prove: trentadue byte costanti,
+// che non proteggono niente e non somigliano a una chiave vera. Il `.env` del
+// monorepo ne ha una valida, ma dipendere da lì significherebbe una prova che
+// passa o fallisce a seconda della macchina.
+func chiaveDiProva(t *testing.T) secretbox.Keyring {
+	t.Helper()
+	keyring, err := secretbox.NewKeyring(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x11}, 32)))
+	if err != nil {
+		t.Fatalf("secretbox.NewKeyring: %v", err)
+	}
+	return keyring
+}
+
+// nuovoArchivioSegreti è lo store dei segreti sul database di prova.
+func nuovoArchivioSegreti(t *testing.T, pool *pgxpool.Pool) secrets.Store {
+	t.Helper()
+	store, err := secretspg.New(pool)
+	if err != nil {
+		t.Fatalf("secretspg.New: %v", err)
+	}
+	return store
+}
+
 // ------------------------------------------------------------------- banco
 
 // banco è il servizio intero in piedi: database, API, motore e bersaglio.
@@ -87,11 +114,24 @@ func nuovoBanco(t *testing.T, tune ...func(*engineOptions)) *banco {
 	log := testLogger(t)
 	target := nuovoBersaglio(t)
 
+	// I segreti sono il servizio vero, sul database vero: la risoluzione in
+	// esecuzione (R43) legge e decifra come in esercizio, e la chiave è l'unica
+	// cosa finta — trentadue byte costanti al posto di `ENCRYPTION_KEY`.
+	secretsSvc, err := secrets.NewService(secrets.Options{
+		Store:   nuovoArchivioSegreti(t, pool),
+		Keyring: chiaveDiProva(t),
+		Logger:  log,
+	})
+	if err != nil {
+		t.Fatalf("secrets.NewService: %v", err)
+	}
+
 	opts := engineOptions{
 		Pool:    pool,
 		Logger:  log,
 		Clients: sorgenteAperta{client: target.Client()},
 		Targets: destinazioniAperte{},
+		Secrets: secretsSvc,
 	}
 	for _, f := range tune {
 		f(&opts)
@@ -144,11 +184,13 @@ func nuovoBanco(t *testing.T, tune ...func(*engineOptions)) *banco {
 	}
 
 	b := &banco{
-		t:       t,
-		pool:    pool,
-		handler: httpapi.NewRouter(cfg, "prova", log, httpapi.Deps{Auth: authSvc, Jobs: jobsSvc}),
-		target:  target,
-		eng:     eng,
+		t:    t,
+		pool: pool,
+		handler: httpapi.NewRouter(cfg, "prova", log, httpapi.Deps{
+			Auth: authSvc, Jobs: jobsSvc, Secrets: secretsSvc,
+		}),
+		target: target,
+		eng:    eng,
 	}
 	b.registraEAccedi()
 
@@ -491,5 +533,112 @@ func TestUnaDestinazioneNonPubblicaLasciaUnEsecuzioneFallita(t *testing.T) {
 	}
 	if n := len(b.target.chiamate()); n != 0 {
 		t.Errorf("il bersaglio ha ricevuto %d richieste: la connessione non doveva aprirsi", n)
+	}
+}
+
+// creaSegreto registra un segreto del workspace passando dalle rotte vere (R42).
+func (b *banco) creaSegreto(nome, valore string) {
+	b.t.Helper()
+	rec := b.chiama(http.MethodPost, "/secrets", map[string]any{
+		"name": nome, "value": valore, "description": "creato dalla prova",
+	})
+	if rec.Code != http.StatusCreated {
+		b.t.Fatalf("creazione del segreto: status %d, corpo %s", rec.Code, rec.Body)
+	}
+	// Il valore non torna indietro nemmeno alla creazione (R42): se comparisse
+	// qui, comparirebbe anche in dashboard.
+	if strings.Contains(rec.Body.String(), valore) {
+		b.t.Fatalf("il valore del segreto è tornato nella risposta: %s", rec.Body)
+	}
+}
+
+// TestUnSegretoInQuerystringNonCompareNelRegistro è la prova che chiude la issue
+// #496, e attraversa tutto il prodotto: il segreto si crea dall'API, il job si
+// crea dall'API, il motore lo esegue davvero contro un bersaglio HTTP vero, e il
+// registro si rilegge dall'API — che è esattamente il modo in cui un segreto
+// trapelato arriverebbe sotto gli occhi di qualcuno.
+//
+// Il caso è quello peggiore, e non è raro: il segreto sta **in querystring**,
+// cioè nella parte dell'URL che compare negli errori di rete di Go, e il
+// bersaglio lo **rimanda indietro** nella propria risposta, che è ciò che fanno
+// parecchie API nei messaggi d'errore. Due vie diverse, un solo registro.
+//
+// Le tre verifiche vanno lette insieme:
+//
+//  1. il bersaglio ha ricevuto il **valore**, non `${DIGEST_TOKEN}` — senza
+//     questa, la prova passerebbe anche con R43 mai collegata, che è come stavano
+//     le cose prima di questa issue;
+//  2. il registro **non** contiene il valore, in nessuna delle sue colonne;
+//  3. il registro contiene `${DIGEST_TOKEN}` al suo posto — chi legge deve capire
+//     perché l'estratto non corrisponde a ciò che il bersaglio ha risposto.
+func TestUnSegretoInQuerystringNonCompareNelRegistro(t *testing.T) {
+	const valore = "finta-credenziale-del-cliente"
+
+	b := nuovoBanco(t)
+	b.creaSegreto("DIGEST_TOKEN", valore)
+
+	jobID := b.creaJob(map[string]any{
+		"name":     "digest-con-segreto",
+		"schedule": "0 3 * * *",
+		"request": map[string]any{
+			"url":     b.target.URL + "/digest?token=${DIGEST_TOKEN}",
+			"method":  "POST",
+			"headers": map[string]string{"Authorization": "Bearer ${DIGEST_TOKEN}"},
+			"body":    "ciao",
+		},
+		"timeout": "5s",
+	})
+
+	rec := b.chiama(http.MethodPost, "/jobs/"+jobID+"/executions", map[string]any{
+		"environment": "production",
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("trigger manuale: status %d, corpo %s", rec.Code, rec.Body)
+	}
+	esecuzione := b.attendiEsecuzione(jobID, "manual", 20*time.Second)
+	if esecuzione.Status != "succeeded" {
+		t.Fatalf("stato = %q, atteso succeeded (errore: %q)", esecuzione.Status, esecuzione.Error)
+	}
+
+	// (1) Il segreto è stato risolto davvero: senza, questo caso non prova niente.
+	chiamate := b.target.chiamateSu("/digest")
+	if len(chiamate) != 1 {
+		t.Fatalf("chiamate al bersaglio = %d, attesa 1", len(chiamate))
+	}
+	if got := chiamate[0].Query; got != "token="+valore {
+		t.Fatalf("querystring ricevuta = %q: il segreto non è stato risolto, e questa prova "+
+			"non sta verificando nessuna redazione", got)
+	}
+	if got := chiamate[0].Headers.Get("Authorization"); got != "Bearer "+valore {
+		t.Errorf("testata ricevuta = %q, atteso il segreto risolto", got)
+	}
+
+	// (2) Il registro non contiene il valore, in nessuna colonna. Le colonne si
+	// leggono anche dal database e non solo dall'API: la serializzazione
+	// potrebbe un giorno omettere un campo, e ciò che conta è che il valore non
+	// sia **scritto**, non che non venga mostrato.
+	if strings.Contains(esecuzione.ResponseExcerpt, valore) {
+		t.Errorf("il segreto è nell'estratto della risposta che l'utente rilegge: %q",
+			esecuzione.ResponseExcerpt)
+	}
+	if strings.Contains(esecuzione.Error, valore) {
+		t.Errorf("il segreto è nel testo dell'errore: %q", esecuzione.Error)
+	}
+
+	var excerpt, errText *string
+	if err := b.pool.QueryRow(t.Context(),
+		`SELECT response_excerpt, error FROM job_executions WHERE job_id = $1::uuid`,
+		jobID).Scan(&excerpt, &errText); err != nil {
+		t.Fatalf("lettura della riga di job_executions: %v", err)
+	}
+	for nome, colonna := range map[string]*string{"response_excerpt": excerpt, "error": errText} {
+		if colonna != nil && strings.Contains(*colonna, valore) {
+			t.Errorf("il segreto è scritto in job_executions.%s: %q", nome, *colonna)
+		}
+	}
+
+	// (3) Al posto del valore c'è il riferimento.
+	if !strings.Contains(esecuzione.ResponseExcerpt, "${DIGEST_TOKEN}") {
+		t.Errorf("l'estratto non dice che cosa è stato tolto: %q", esecuzione.ResponseExcerpt)
 	}
 }

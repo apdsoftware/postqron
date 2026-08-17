@@ -70,7 +70,7 @@ func TestLoSchedulerAccodaEIlPoolPortaLOccorrenzaATermine(t *testing.T) {
 			mu.Lock()
 			received = append(received, occ)
 			mu.Unlock()
-			return dispatch.Result{ResponseStatus: 200, ResponseExcerpt: "ok"}, nil
+			return dispatch.Result{ResponseStatus: 200, ResponseExcerpt: estratto("ok")}, nil
 		}),
 		Workers:      4,
 		DrainTimeout: 5 * time.Second,

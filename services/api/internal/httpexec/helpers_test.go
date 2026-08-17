@@ -1,8 +1,11 @@
 package httpexec_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -12,7 +15,15 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/httpexec"
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
+	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
+	"github.com/apdsoftware/postqron/services/api/internal/secrets"
+	"github.com/apdsoftware/postqron/services/api/internal/secretstest"
 )
+
+// utenteDiProva è il proprietario del job e dei suoi segreti: la risoluzione è
+// per workspace, e un identificativo diverso fra i due significherebbe provare
+// il caso «segreto di qualcun altro» credendo di provare quello normale.
+const utenteDiProva = "22222222-2222-2222-2222-222222222222"
 
 // guardDiProva è la sorgente del client nei test.
 //
@@ -31,10 +42,53 @@ func (g *guardDiProva) Client() *http.Client {
 	return g.client
 }
 
-// nuovoEsecutore costruisce l'esecutore su un client dato.
+// segretiDiProva costruisce il servizio dei segreti con i valori dati già
+// dentro, per il workspace di [utenteDiProva].
+//
+// **Non è un doppio del servizio**: è `*secrets.Service` vero, con l'archivio in
+// memoria di internal/secretstest e una chiave di prova. La ragione non è
+// l'ortodossia — è che [secrets.Resolved] non è costruibile fuori dal suo
+// package, e non lo è di proposito: un finto risolutore che restituisse valori
+// espansi senza il redattore che li riconosce proverebbe l'esatto contrario di
+// ciò che queste prove devono provare.
+func segretiDiProva(t *testing.T, valori map[string]string) *secrets.Service {
+	t.Helper()
+
+	// Trentadue byte costanti: non proteggono niente e non somigliano a una
+	// chiave vera.
+	chiave := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x11}, 32))
+	keyring, err := secretbox.NewKeyring(chiave)
+	if err != nil {
+		t.Fatalf("secretbox.NewKeyring: %v", err)
+	}
+	svc, err := secrets.NewService(secrets.Options{
+		Store:   secretstest.NewStore(),
+		Keyring: keyring,
+		Logger:  slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("secrets.NewService: %v", err)
+	}
+
+	for nome, valore := range valori {
+		if _, err := svc.Create(t.Context(), utenteDiProva, secrets.CreateInput{
+			Name:  nome,
+			Value: secrets.Value(valore),
+		}); err != nil {
+			t.Fatalf("creazione del segreto %s: %v", nome, err)
+		}
+	}
+	return svc
+}
+
+// nuovoEsecutore costruisce l'esecutore su un client dato, con un workspace
+// senza segreti. Chi ne ha bisogno passa il proprio servizio con `tune`.
 func nuovoEsecutore(t *testing.T, client *http.Client, tune ...func(*httpexec.Options)) *httpexec.Executor {
 	t.Helper()
-	opts := httpexec.Options{Guard: &guardDiProva{client: client}}
+	opts := httpexec.Options{
+		Guard:   &guardDiProva{client: client},
+		Secrets: segretiDiProva(t, nil),
+	}
 	for _, f := range tune {
 		f(&opts)
 	}
@@ -77,7 +131,7 @@ func occorrenza(t *testing.T, spec jobSpec) scheduler.Occurrence {
 	return scheduler.Occurrence{
 		Job: scheduler.Job{
 			ID:           "11111111-1111-1111-1111-111111111111",
-			UserID:       "22222222-2222-2222-2222-222222222222",
+			UserID:       utenteDiProva,
 			Name:         "job-di-prova",
 			Every:        time.Minute,
 			Timezone:     "UTC",
