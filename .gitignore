@@ -28,6 +28,11 @@ coverage/
 test-results/
 playwright-report/
 
+# Log delle corse di `make ci`, uno per corsa (scripts/ci-parallel.sh).
+# Sono prove da leggere dopo un fallimento, non artefatti da versionare: la
+# rotazione dello script tiene la directory piccola da sola.
+.ci-logs/
+
 # Locale / editor
 .DS_Store
 .idea/
