@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -62,6 +64,12 @@ func (d *dispatcherFinto) count() int {
 	return len(d.ricevute)
 }
 
+// guardPermissivo ammette qualunque destinazione: serve ai test che non stanno
+// provando R38 e che non devono per questo toccare il DNS.
+type guardPermissivo struct{}
+
+func (guardPermissivo) CheckTarget(_ context.Context, _ *url.URL) error { return nil }
+
 type banco struct {
 	t          *testing.T
 	svc        *jobs.Service
@@ -83,6 +91,11 @@ func newBanco(t *testing.T) *banco {
 		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Dispatcher: dispatcher,
 		Now:        clock.Now,
+		// Esplicito, perché il predefinito non lo è più: senza, ogni banco di
+		// prova costruirebbe il blocco SSRF vero e ogni `Create` di questa suite
+		// interrogherebbe il DNS per `api.example.com`. Il blocco predefinito ha
+		// un test suo — TestIlBloccoSSRFEPredefinito.
+		Guard: guardPermissivo{},
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -100,6 +113,63 @@ func (b *banco) crea(job jobs.Job) jobs.Job {
 }
 
 // ------------------------------------------------------------------- creazione
+
+// TestIlBloccoSSRFEPredefinito verifica la scelta che rende R38 vera in
+// produzione: `Options.Guard` nil significa **il blocco**, non la sua assenza.
+//
+// È il caso che dà il nome alla issue #455, provato dal punto in cui l'utente lo
+// produrrebbe: PostgreSQL sta sulla stessa macchina dell'API, sulla 5433
+// (AGENTS.md §7), e un job che punta lì parlerebbe con il nostro database. Il
+// controllo non ha bisogno del DNS — l'URL contiene già un indirizzo — quindi il
+// test non tocca la rete.
+//
+// Se un giorno qualcuno rimuovesse il predefinito da [jobs.NewService] pensando
+// che il guard venga collegato in cmd/api, questo test si accorge che non lo è.
+func TestIlBloccoSSRFEPredefinito(t *testing.T) {
+	store := jobstest.NewStore()
+	svc, err := jobs.NewService(jobs.Options{
+		Store:  store,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	casi := []string{
+		"http://127.0.0.1:5433/",                   // il nostro database
+		"http://localhost:8080/internal",           // la nostra API, per nome
+		"http://169.254.169.254/latest/meta-data/", // le credenziali della macchina
+		"http://10.0.0.5/",
+		"http://[::ffff:127.0.0.1]:5433/",
+	}
+	for _, raw := range casi {
+		t.Run(raw, func(t *testing.T) {
+			job := validJob()
+			job.Name = "sonda"
+			job.URL = raw
+
+			_, err := svc.Create(t.Context(), utente, job)
+			invalid, ok := jobs.AsValidation(err)
+			if !ok {
+				t.Fatalf("errore = %v, atteso un rifiuto di validazione", err)
+			}
+			var trovato bool
+			for _, campo := range invalid.Fields {
+				if campo.Field == "request.url" && campo.Code == "target_not_allowed" {
+					trovato = true
+					// Il messaggio non deve confermare *cosa* ha trovato: vedi
+					// netguard.ErrNotAllowed.
+					if strings.Contains(campo.Message, "127.0.0.1") || strings.Contains(campo.Message, "169.254") {
+						t.Errorf("il messaggio all'utente contiene l'indirizzo: %s", campo.Message)
+					}
+				}
+			}
+			if !trovato {
+				t.Fatalf("nessun rifiuto su request.url: %v", invalid.Fields)
+			}
+		})
+	}
+}
 
 func TestCreazione(t *testing.T) {
 	b := newBanco(t)

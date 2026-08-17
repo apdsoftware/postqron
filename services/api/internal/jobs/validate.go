@@ -73,19 +73,36 @@ var reservedHeaders = []string{
 	"upgrade", "keep-alive", "proxy-authorization", "te", "trailer",
 }
 
-// TargetGuard decide se un URL di destinazione è raggiungibile.
+// TargetGuard decide se un URL di destinazione è ammesso (R38).
 //
 // Postqron esegue richieste verso URL scelti dall'utente **dalla stessa
 // macchina su cui girano API e database** (SPEC §3.7): senza questo controllo il
-// prodotto è uno strumento d'attacco. Il controllo vero — indirizzo risolto e
-// non nome, ripetuto su ogni redirect — è la issue #455 e non sta qui.
+// prodotto è uno strumento d'attacco. L'implementazione è
+// [netguard.Guard], che [NewService] usa in mancanza d'altro.
 //
-// Qui c'è l'interfaccia e il punto in cui viene chiamata, così che #455 abbia
-// una sola riga da collegare in cmd/api. Con guard nil restano i soli controlli
-// di forma (schema e host), che non sono una difesa: sono il minimo che il
-// vincolo `jobs_url_scheme_check` già impone.
+// # Cosa questo controllo non è
+//
+// **Non è il blocco SSRF.** Il blocco vive dov'è l'unica cosa che conta davvero,
+// cioè l'apertura della connessione: [netguard.Guard.DialContext] risolve una
+// volta sola, controlla l'indirizzo e si connette a *quell'indirizzo*, per ogni
+// salto della catena di redirect. Nessun controllo fatto qui può fare altro che
+// anticipare la diagnosi: fra la validazione e l'esecuzione delle tre di notte
+// passano ore, e il DNS del nome può cambiare risposta quante volte vuole.
+//
+// La conseguenza pratica è per chi esegue i job (#389): usare il client di
+// [netguard.Guard.Client] non è una preferenza di stile. Un `http.Client`
+// costruito altrove supera questa validazione e non è protetto da niente.
+//
+// # L'errore che restituisce non è descrittivo, ed è voluto
+//
+// [Job.Validate] mostra `err.Error()` all'utente. Un messaggio che distinguesse
+// «loopback» da «link-local» da «nome inesistente» risponderebbe, a chiunque
+// abbia un account gratuito, alla domanda «questo nome, dalla vostra rete,
+// risolve internamente?»: ripetuta su un elenco, è una scansione della nostra
+// rete fatta con la nostra API. Vedi [netguard.ErrNotAllowed].
 type TargetGuard interface {
-	// CheckTarget restituisce un errore descrittivo se l'URL non è ammesso.
+	// CheckTarget restituisce un errore se l'URL non è ammesso. Il testo
+	// dell'errore arriva all'utente: non deve dire *perché*.
 	CheckTarget(ctx context.Context, target *url.URL) error
 }
 
