@@ -112,9 +112,17 @@ mutuamente esclusivo con `subject`/`html_body`/`text_body`.
    non per IP) e `503 auth_unavailable` sono transitori. `400`, `403` e `404` no:
    ritentarli consuma quota senza cambiare esito.
 4. **Il dominio del mittente dev'essere verificato**, altrimenti `403
-   domain_not_verified`. La verifica passa dai record SPF e DKIM su Cloudflare —
-   quindi **finché il token Cloudflare non è valido (§4) nessuna email parte davvero**,
-   anche con il client implementato correttamente.
+   domain_not_verified`. Per `postqron.com` la verifica è **completa e collaudata**:
+   SPF e DKIM sono già nella zona Cloudflare e un invio di prova ha restituito `202`
+   (2026-08-17).
+5. **`api.mailronix.com` sta dietro la protezione bot di Cloudflare.** Un client che
+   non imposta uno `User-Agent` esplicito riceve **`403` con corpo `error code: 1010`**
+   — una pagina di blocco Cloudflare, non un errore Mailronix. Il tranello è che
+   somiglia a un problema di autenticazione o di dominio non verificato, mentre la
+   richiesta non ha mai raggiunto Mailronix: il corpo non è il JSON `{"error":{...}}`
+   documentato. Il client Go deve impostare uno `User-Agent` proprio (per esempio
+   `PostQron/1.0 (+https://postqron.com)`) e trattare una risposta non-JSON come
+   errore di trasporto, non come errore applicativo.
 
 ---
 
