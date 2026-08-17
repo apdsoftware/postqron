@@ -54,6 +54,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0008 | `audit_log`, `notifications` |
 | 0009 | `sessions`, `user_tokens` e le loro funzioni di pulizia |
 | 0010 | `jobs_unscheduled_idx`: i job in attesa della prima occorrenza |
+| 0011 | `github_webhook_deliveries` e la sua pulizia periodica |
 
 ## Scelte di schema
 
@@ -131,6 +132,26 @@ solo i job che stanno aspettando. Che il pianificatore usi davvero tutti e tre
 gli indici è verificato con un EXPLAIN su tabelle popolate, in
 `internal/scheduler/plan_test.go` — un indice che esiste e un indice che viene
 usato sono cose diverse.
+
+**La retention delle consegne GitHub è la finestra dell'idempotenza.**
+`github_webhook_deliveries` (0011) esiste perché GitHub ripete le consegne — da
+solo su errore, e a mano dal registro dell'App — e la ripetizione porta lo stesso
+`X-GitHub-Delivery`. La chiave primaria è quell'identificativo: l'idempotenza di
+R11 è un conflitto su di essa, risolto da un `INSERT ... ON CONFLICT` in una sola
+istruzione, perché due copie della stessa consegna possono arrivare insieme e due
+istruzioni separate le lascerebbero passare entrambe. Il conflitto aggiorna la
+riga **solo se lo stato è `failed`**: è il caso per cui GitHub ripete, e scartarlo
+come duplicato perderebbe l'evento per sempre.
+
+Ne segue che `github_webhook_deliveries_purge` non regola solo l'occupazione:
+cancellata la riga, la stessa consegna ripetuta risulta nuova. La retention va
+tenuta sopra la finestra entro cui GitHub consente di ripetere una consegna.
+
+Nessuna chiave esterna verso `repositories`: il webhook arriva anche per
+repository che nessuno ha collegato, e una chiave esterna li rifiuterebbe
+facendo rispondere 500 — cioè chiedendo a GitHub di ripetere all'infinito una
+consegna che non ci serve. Il legame è per `repository_external_id`, sull'indice
+che la 0004 ha già.
 
 **Sessioni e token monouso conservati come impronta.** `sessions.token_hash` e
 `user_tokens.token_hash` non contengono il valore che il client possiede ma il suo
