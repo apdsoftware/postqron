@@ -32,6 +32,21 @@
 //     da solo non basta: con la coda di un job sola non c'è nessuno con cui
 //     alternarsi.
 //
+// # Il tetto tecnico per workspace (R10)
+//
+// I due tetti sopra proteggono i job **fra loro**. Ne serve un terzo che
+// protegga la macchina da un cliente: un workspace con cento job lenti non
+// sfonda nessun tetto per job e occupa comunque tutto il pool. Il tetto è
+// [Options.MaxInFlightPerWorkspace] e vive nella stessa [queue.pick], nella
+// stessa forma: **si salta il workspace pieno invece di aspettarlo**. È quel
+// dettaglio a distinguere una difesa da un guasto distribuito equamente — con
+// l'attesa, il workspace al tetto fermerebbe i worker e quindi tutti gli altri.
+//
+// Non è una quota di piano e non va confuso con una: è uguale su tutti i piani e
+// nessuno ne concede di più (R10). Vedi [DefaultMaxInFlightPerWorkspace] per il
+// numero e per come è stato scelto — e per il fatto, dichiarato, che il valore
+// giusto si saprà solo misurandolo in esercizio.
+//
 // # La politica sulle esecuzioni sovrapposte (R41)
 //
 // Un job può durare più del proprio intervallo, e con la risoluzione al secondo
@@ -468,6 +483,42 @@ const (
 	// perché la sua corsia ne ammette una per volta; ci arriva un job `allow`, o
 	// un job in due ambienti, o una raffica di retry.
 	DefaultMaxInFlightPerJob = 4
+
+	// DefaultMaxInFlightPerWorkspace è quante esecuzioni un singolo workspace
+	// può tenere in volo, tutti i suoi job messi insieme (R10).
+	//
+	// # Non è una quota di piano, ed è la distinzione che conta
+	//
+	// R10 tiene separate due cose che si somigliano. Le **quote di piano**
+	// derivano da SPEC §8, si comprano e si allargano cambiando piano. Questo è
+	// l'altra: un **tetto tecnico**, uguale su tutti i piani, che protegge la
+	// macchina su cui girano insieme API, motore e database (SPEC §2). Non è una
+	// voce di listino — §8 non lo contiene, deliberatamente — e nessun piano ne
+	// concede di più. Alzarlo non è un upgrade, è una decisione di esercizio.
+	//
+	// # Il numero, e perché è questo
+	//
+	// **Il valore giusto non si può sapere senza misurarlo in produzione**, e va
+	// detto invece che nascosto: dipende da quanto durano le chiamate dei job
+	// reali e da quanta CPU il database lascia al motore, e nessuno dei due si
+	// conosce prima di avere clienti. Quello che si può fare adesso è scegliere
+	// un rapporto difendibile e dichiararlo.
+	//
+	// Otto è un quarto di [DefaultWorkers] e il doppio di
+	// [DefaultMaxInFlightPerJob]. Le due proprietà che ne discendono sono quelle
+	// per cui il tetto esiste:
+	//
+	//   - **nessun workspace può prendersi più di un quarto del pool**, quindi ne
+	//     servono almeno quattro attivi insieme per saturarlo, e un solo cliente
+	//     con mille job non è mai il motivo per cui gli altri aspettano;
+	//   - **un workspace può comunque tenere due job lenti al loro tetto per
+	//     job**, che è il caso normale di chi ha un paio di job pesanti e non deve
+	//     accorgersi che esiste un tetto.
+	//
+	// La misura in esercizio è la issue #462, che osserva il ritardo di dispatch:
+	// se il tetto fosse troppo basso si vedrebbe lì, come ritardo di workspace
+	// che hanno lavoro pronto e worker liberi davanti.
+	DefaultMaxInFlightPerWorkspace = 8
 
 	// DefaultQueueDepth è quante occorrenze il pool tiene in attesa in totale.
 	//

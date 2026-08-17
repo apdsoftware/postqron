@@ -15,18 +15,21 @@ import (
 
 var epoch = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 
-// fakeOccurrence costruisce un'occorrenza con `on_overlap: allow`.
+// fakeOccurrence costruisce un'occorrenza con `on_overlap: allow` e un
+// workspace tutto suo.
 //
-// La politica esplicita **non** è una comodità: i test di questo file misurano i
-// tetti di risorse — il round robin, il tetto per job, la capienza della coda —
-// e quei tetti si osservano solo su un job che può sovrapporsi a sé stesso. Con
-// il predefinito `skip` (R41) la seconda occorrenza dello stesso job non
-// entrerebbe nemmeno in coda, e ogni misura qui sotto riguarderebbe un'altra
-// cosa. La politica ha i propri test in overlap_test.go.
+// Nessuna delle due cose è una comodità. La **politica** è esplicita perché i
+// test di questo file misurano i tetti di risorse — il round robin, il tetto per
+// job, la capienza della coda — e quei tetti si osservano solo su un job che può
+// sovrapporsi a sé stesso: con il predefinito `skip` (R41) la seconda occorrenza
+// dello stesso job non entrerebbe nemmeno in coda. Il **workspace** è distinto
+// per job perché altrimenti tutti i job di prova finirebbero nello stesso, e il
+// tetto tecnico per workspace (R10) si sovrapporrebbe alle misure per job
+// falsandole. Entrambi hanno i propri test: overlap_test.go e workspace_test.go.
 func fakeOccurrence(jobID string, seconds int) scheduler.Occurrence {
 	return scheduler.Occurrence{
 		Job: scheduler.Job{
-			ID: jobID, Name: jobID, Enabled: true,
+			ID: jobID, Name: jobID, UserID: "ws-" + jobID, Enabled: true,
 			Overlap: scheduler.OverlapAllow,
 		},
 		ScheduledFor: epoch.Add(time.Duration(seconds) * time.Second),
@@ -55,7 +58,7 @@ func mustTake(t *testing.T, q *queue) scheduler.Occurrence {
 // metà dell'isolamento di R3, e con una FIFO condivisa l'ordine atteso sarebbe
 // a, a, a, b, c.
 func TestLaCodaServeIJobATurno(t *testing.T) {
-	q := newQueue(64, 64, 8)
+	q := newQueue(64, 64, 8, 64)
 
 	for i := range 3 {
 		mustPush(t, q, fakeOccurrence("a", i))
@@ -75,7 +78,7 @@ func TestLaCodaServeIJobATurno(t *testing.T) {
 // Dentro un singolo job l'ordine resta quello di arrivo: fra due occorrenze
 // dello stesso job la più vecchia è anche la più urgente.
 func TestDentroUnJobLOrdineEQuelloDiArrivo(t *testing.T) {
-	q := newQueue(64, 64, 8)
+	q := newQueue(64, 64, 8, 64)
 	for i := range 4 {
 		mustPush(t, q, fakeOccurrence("a", i))
 	}
@@ -91,7 +94,7 @@ func TestDentroUnJobLOrdineEQuelloDiArrivo(t *testing.T) {
 // saltato, non aspettato. Un worker che si mettesse in coda dietro al job lento
 // sarebbe un worker in meno per i job rapidi.
 func TestUnJobAlTettoVieneSaltatoNonAspettato(t *testing.T) {
-	q := newQueue(64, 64, 1)
+	q := newQueue(64, 64, 1, 64)
 
 	mustPush(t, q, fakeOccurrence("lento", 0))
 	mustPush(t, q, fakeOccurrence("lento", 1))
@@ -136,7 +139,7 @@ func TestUnJobAlTettoVieneSaltatoNonAspettato(t *testing.T) {
 // un'occorrenza può legittimamente aspettare in coda più a lungo: la seconda
 // consegna non deve diventare una seconda esecuzione.
 func TestUnaRiofferataGiaInCaricoVieneRiconosciuta(t *testing.T) {
-	q := newQueue(64, 64, 8)
+	q := newQueue(64, 64, 8, 64)
 	occ := fakeOccurrence("a", 0)
 
 	mustPush(t, q, occ)
@@ -158,7 +161,7 @@ func TestUnaRiofferataGiaInCaricoVieneRiconosciuta(t *testing.T) {
 }
 
 func TestLaCodaPienaRifiutaInveceDiCrescere(t *testing.T) {
-	q := newQueue(2, 2, 8)
+	q := newQueue(2, 2, 8, 64)
 
 	mustPush(t, q, fakeOccurrence("a", 0))
 	mustPush(t, q, fakeOccurrence("b", 0))
@@ -172,7 +175,7 @@ func TestLaCodaPienaRifiutaInveceDiCrescere(t *testing.T) {
 // Il tetto per job protegge la coda comune: un job con ore di arretrato non deve
 // far rifiutare occorrenze di job che non c'entrano niente.
 func TestIlTettoPerJobProteggeLaCodaComune(t *testing.T) {
-	q := newQueue(8, 2, 8)
+	q := newQueue(8, 2, 8, 64)
 
 	mustPush(t, q, fakeOccurrence("arretrato", 0))
 	mustPush(t, q, fakeOccurrence("arretrato", 1))
@@ -185,7 +188,7 @@ func TestIlTettoPerJobProteggeLaCodaComune(t *testing.T) {
 }
 
 func TestLaChiusuraRestituisceLeOccorrenzeInAttesa(t *testing.T) {
-	q := newQueue(64, 64, 8)
+	q := newQueue(64, 64, 8, 64)
 	mustPush(t, q, fakeOccurrence("a", 0))
 	mustPush(t, q, fakeOccurrence("a", 1))
 	mustPush(t, q, fakeOccurrence("b", 0))

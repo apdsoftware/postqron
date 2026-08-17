@@ -70,12 +70,47 @@ type guardPermissivo struct{}
 
 func (guardPermissivo) CheckTarget(_ context.Context, _ *url.URL) error { return nil }
 
+// concorrenzaFinta è il tetto tecnico delle esecuzioni contemporanee (R10) come
+// lo vede il servizio. Il tetto a zero significa «nessun tetto», che è lo stato
+// in cui i banchi partono: quasi nessun test di questa suite riguarda il tetto,
+// e uno che scattasse per sbaglio si mascherebbe da difetto del trigger.
+type concorrenzaFinta struct {
+	mu      sync.Mutex
+	inVolo  map[string]int
+	tetto   int
+	chiesti []string
+}
+
+func (c *concorrenzaFinta) InFlight(workspaceID string) (used, limit int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.chiesti = append(c.chiesti, workspaceID)
+	return c.inVolo[workspaceID], c.tetto
+}
+
+func (c *concorrenzaFinta) riempi(workspaceID string, tetto int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tetto = tetto
+	if c.inVolo == nil {
+		c.inVolo = map[string]int{}
+	}
+	c.inVolo[workspaceID] = tetto
+}
+
+func (c *concorrenzaFinta) interrogazioni() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.chiesti...)
+}
+
 type banco struct {
-	t          *testing.T
-	svc        *jobs.Service
-	store      *jobstest.Store
-	clock      *orologio
-	dispatcher *dispatcherFinto
+	t           *testing.T
+	svc         *jobs.Service
+	store       *jobstest.Store
+	clock       *orologio
+	dispatcher  *dispatcherFinto
+	concorrenza *concorrenzaFinta
 }
 
 func newBanco(t *testing.T) *banco {
@@ -85,12 +120,14 @@ func newBanco(t *testing.T) *banco {
 	store := jobstest.NewStore()
 	store.Now = clock.Now
 	dispatcher := &dispatcherFinto{}
+	concorrenza := &concorrenzaFinta{inVolo: map[string]int{}}
 
 	svc, err := jobs.NewService(jobs.Options{
-		Store:      store,
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Dispatcher: dispatcher,
-		Now:        clock.Now,
+		Store:       store,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dispatcher:  dispatcher,
+		Concurrency: concorrenza,
+		Now:         clock.Now,
 		// Esplicito, perché il predefinito non lo è più: senza, ogni banco di
 		// prova costruirebbe il blocco SSRF vero e ogni `Create` di questa suite
 		// interrogherebbe il DNS per `api.example.com`. Il blocco predefinito ha
@@ -100,7 +137,10 @@ func newBanco(t *testing.T) *banco {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	return &banco{t: t, svc: svc, store: store, clock: clock, dispatcher: dispatcher}
+	return &banco{
+		t: t, svc: svc, store: store, clock: clock,
+		dispatcher: dispatcher, concorrenza: concorrenza,
+	}
 }
 
 func (b *banco) crea(job jobs.Job) jobs.Job {

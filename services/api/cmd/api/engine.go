@@ -137,6 +137,25 @@ func newEngine(opts engineOptions) (*engine, error) {
 // Manual è l'adattatore da passare a [jobs.Options.Dispatcher].
 func (e *engine) Manual() jobs.Dispatcher { return e.manual }
 
+// Concurrency è il tetto tecnico sulle esecuzioni contemporanee di un workspace
+// (R10), da passare a [jobs.Options.Concurrency].
+//
+// Il worker pool soddisfa già l'interfaccia con il proprio metodo: l'adattatore
+// è la sola riga qui sotto, e non c'è niente da tradurre perché le due parti
+// parlano della stessa grandezza — quante esecuzioni di quel workspace sono in
+// volo adesso. Il confine resta comunque un'interfaccia, così internal/jobs non
+// importa internal/dispatch.
+func (e *engine) Concurrency() jobs.Concurrency { return workspaceCeiling{pool: e.workers} }
+
+// workspaceCeiling adatta [dispatch.Pool] a [jobs.Concurrency].
+type workspaceCeiling struct{ pool *dispatch.Pool }
+
+var _ jobs.Concurrency = workspaceCeiling{}
+
+func (c workspaceCeiling) InFlight(workspaceID string) (used, limit int) {
+	return c.pool.WorkspaceInFlight(workspaceID)
+}
+
 // Start avvia il motore e torna subito.
 //
 // Il contesto è quello del processo: alla sua chiusura lo scheduler esce dal

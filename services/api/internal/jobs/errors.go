@@ -150,6 +150,60 @@ type PlanLimitError struct {
 
 func (e *PlanLimitError) Error() string { return e.message }
 
+// ServiceLimitKind è il tetto tecnico che ha rifiutato l'operazione (R10).
+//
+// È un tipo diverso da [LimitKind] e non un suo valore in più, e la separazione
+// è il punto: un client che riceve un limite di piano può mostrare un invito
+// all'upgrade, uno che riceve un tetto tecnico **non deve**, perché non c'è
+// niente da comprare. Con un solo tipo la distinzione sarebbe rimasta una
+// convenzione da ricordare in ogni punto di branching; con due, chi scrive il
+// client la incontra per forza.
+type ServiceLimitKind string
+
+// I tetti tecnici applicati da questo package.
+const (
+	// LimitExecutionCeiling è il tetto alle esecuzioni contemporanee di un
+	// workspace (R10). Vive nel dispatch, che è l'unico a sapere cosa è in volo;
+	// qui c'è solo il rifiuto che ne consegue.
+	LimitExecutionCeiling ServiceLimitKind = "execution_ceiling"
+)
+
+// ServiceLimitError è il rifiuto dovuto a un **tetto tecnico del servizio**, non
+// a una quota di piano.
+//
+// R10 tiene separate le due cose, e questo tipo è la separazione resa
+// obbligatoria per chi scrive le risposte. Un [PlanLimitError] nomina il piano,
+// perché l'upgrade è davvero la risposta; questo **non nomina nessun piano e non
+// ne promette nessuno**, perché il tetto è uguale su tutti e nessuno ne concede
+// di più. Un rifiuto che suggerisse un aggiornamento quando l'aggiornamento non
+// servirebbe è una bugia commerciale.
+//
+// La conseguenza pratica sta anche in *quando* si applica: un rifiuto tecnico
+// **non consuma la quota di piano**. Far pagare al budget dell'utente una
+// richiesta che abbiamo rifiutato per difendere la nostra macchina sarebbe
+// fargli pagare due volte lo stesso limite.
+type ServiceLimitError struct {
+	// Limit è il tetto violato.
+	Limit ServiceLimitKind
+	// RetryAfter è il tempo dopo il quale ha senso riprovare. È sempre
+	// valorizzato: un tetto di capienza istantanea si libera da sé, ed è l'unica
+	// cosa utile che si possa dire a chi lo incontra.
+	RetryAfter time.Duration
+
+	message string
+}
+
+func (e *ServiceLimitError) Error() string { return e.message }
+
+// AsServiceLimit estrae un [ServiceLimitError] dalla catena, se c'è.
+func AsServiceLimit(err error) (*ServiceLimitError, bool) {
+	var limit *ServiceLimitError
+	if errors.As(err, &limit) {
+		return limit, true
+	}
+	return nil, false
+}
+
 // AsPlanLimit estrae un [PlanLimitError] dalla catena, se c'è.
 func AsPlanLimit(err error) (*PlanLimitError, bool) {
 	var limit *PlanLimitError

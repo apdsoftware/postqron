@@ -367,6 +367,29 @@ func failPlanLimit(w http.ResponseWriter, r *http.Request, logger *slog.Logger, 
 	writeErrorDetail(w, r, logger, status, detail)
 }
 
+// failServiceLimit risponde a un tetto tecnico del servizio (R10).
+//
+// È il gemello di [failPlanLimit] e la differenza fra i due è tutto il punto di
+// R10, quindi vale la pena vederla scritta una accanto all'altra: quella
+// valorizza `plan` e `limit`, che sono i campi su cui un client decide di
+// mostrare un invito all'upgrade; questa **li lascia vuoti**, perché
+// l'aggiornamento non servirebbe e proporlo sarebbe una bugia commerciale. Il
+// codice porta il nome del tetto, non un prefisso `plan_limit_`.
+//
+// Sempre 429 e mai 403: un tetto tecnico di capienza istantanea si libera da sé,
+// e riprovare è esattamente la cosa giusta da fare. È il contrario del 403 di
+// [failPlanLimit], dove riprovare non cambierebbe niente finché non cambia il
+// piano o la richiesta.
+func failServiceLimit(w http.ResponseWriter, r *http.Request, logger *slog.Logger, limit *jobs.ServiceLimitError) {
+	seconds := retryAfterSeconds(limit.RetryAfter)
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	writeErrorDetail(w, r, logger, http.StatusTooManyRequests, ErrorDetail{
+		Code:       string(limit.Limit),
+		Message:    limit.Error(),
+		RetryAfter: seconds,
+	})
+}
+
 // retryAfterSeconds arrotonda un'attesa alla forma della testata `Retry-After`,
 // che è in secondi interi. Mai zero: «riprova fra 0 secondi» è un invito a
 // riprovare subito, cioè a sbattere di nuovo contro lo stesso limite.

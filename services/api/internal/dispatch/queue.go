@@ -50,10 +50,10 @@ var (
 // peggiore — quello in cui sono tutti al tetto di esecuzioni in volo — e O(1)
 // nel caso normale.
 //
-// # Due limiti, e non sono la stessa cosa
+// # Tre limiti, e non sono la stessa cosa
 //
-// Sulla stessa coda convivono due tetti, e confonderli è il modo di sbagliarli
-// entrambi:
+// Sulla stessa coda convivono tre tetti, e confonderli è il modo di sbagliarne
+// due su tre:
 //
 //   - **maxInFlightPerJob** è un tetto di risorse del processo: quanti worker un
 //     singolo job può tenere occupati. Protegge gli altri job, vale uguale per
@@ -64,6 +64,10 @@ var (
 //     staging e un'esecuzione in produzione sono due esecuzioni diverse, con
 //     esiti e alert separati (R23), e farle aspettare a vicenda sarebbe un
 //     ritardo che nessuno ha chiesto.
+//   - **maxInFlightPerWorkspace** è il tetto tecnico del servizio (R10): quante
+//     esecuzioni un singolo workspace può tenere in volo, tutti i suoi job messi
+//     insieme. Protegge la macchina, non un job. Vedi
+//     [DefaultMaxInFlightPerWorkspace] per il numero e per come è stato scelto.
 type queue struct {
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -81,13 +85,20 @@ type queue struct {
 	// legittimamente aspettare in coda più a lungo.
 	keys map[string]struct{}
 
+	// workspaces sono le esecuzioni in volo per workspace, che è la grandezza su
+	// cui il tetto tecnico del servizio conta. Ci stanno solo i workspace che
+	// hanno qualcosa in volo adesso: la voce nasce alla presa e sparisce
+	// all'ultima esecuzione chiusa.
+	workspaces map[string]int
+
 	queued   int
 	inFlight int
 	closed   bool
 
-	maxQueued         int
-	maxQueuedPerJob   int
-	maxInFlightPerJob int
+	maxQueued               int
+	maxQueuedPerJob         int
+	maxInFlightPerJob       int
+	maxInFlightPerWorkspace int
 }
 
 // jobQueue è la coda di un singolo job.
@@ -95,6 +106,12 @@ type jobQueue struct {
 	items    []scheduler.Occurrence
 	inFlight int
 	inRing   bool
+
+	// workspace è il proprietario del job. Sta qui e non si rilegge
+	// dall'occorrenza a ogni prelievo perché non cambia: tutte le occorrenze di
+	// un job appartengono allo stesso workspace, e averlo sul job rende il
+	// controllo del tetto un accesso a mappa invece di una scansione.
+	workspace string
 
 	// lanes è l'occupazione per ambiente, cioè la corsia su cui la politica di
 	// sovrapposizione decide. Un job che vive in staging e in produzione ne ha
@@ -105,13 +122,15 @@ type jobQueue struct {
 // lane è quanto una singola coppia (job, ambiente) tiene in carico.
 type lane struct{ queued, inFlight int }
 
-func newQueue(maxQueued, maxQueuedPerJob, maxInFlightPerJob int) *queue {
+func newQueue(maxQueued, maxQueuedPerJob, maxInFlightPerJob, maxInFlightPerWorkspace int) *queue {
 	q := &queue{
-		jobs:              map[string]*jobQueue{},
-		keys:              map[string]struct{}{},
-		maxQueued:         maxQueued,
-		maxQueuedPerJob:   maxQueuedPerJob,
-		maxInFlightPerJob: maxInFlightPerJob,
+		jobs:                    map[string]*jobQueue{},
+		keys:                    map[string]struct{}{},
+		workspaces:              map[string]int{},
+		maxQueued:               maxQueued,
+		maxQueuedPerJob:         maxQueuedPerJob,
+		maxInFlightPerJob:       maxInFlightPerJob,
+		maxInFlightPerWorkspace: maxInFlightPerWorkspace,
 	}
 	q.cond = sync.NewCond(&q.mu)
 	return q
@@ -165,7 +184,7 @@ func (q *queue) push(occ scheduler.Occurrence) error {
 
 	jq := q.jobs[occ.Job.ID]
 	if jq == nil {
-		jq = &jobQueue{lanes: map[string]*lane{}}
+		jq = &jobQueue{workspace: occ.Job.UserID, lanes: map[string]*lane{}}
 		q.jobs[occ.Job.ID] = jq
 	}
 	ln := jq.lanes[occ.Environment]
@@ -254,6 +273,12 @@ func (q *queue) pick() (scheduler.Occurrence, bool) {
 		if jq.inFlight >= q.maxInFlightPerJob {
 			continue
 		}
+		// Il tetto tecnico per workspace (R10). Si salta il job, non si aspetta:
+		// è quel `continue` a fare la differenza fra «un workspace che sbatte
+		// contro il tetto rallenta sé stesso» e «rallenta tutti».
+		if q.workspaces[jq.workspace] >= q.maxInFlightPerWorkspace {
+			continue
+		}
 		pos, ok := jq.ready(q.maxInFlightPerJob)
 		if !ok {
 			continue
@@ -265,6 +290,7 @@ func (q *queue) pick() (scheduler.Occurrence, bool) {
 		ln.queued--
 		ln.inFlight++
 		jq.inFlight++
+		q.workspaces[jq.workspace]++
 		q.queued--
 		q.inFlight++
 
@@ -329,6 +355,11 @@ func (q *queue) done(occ scheduler.Occurrence) {
 				delete(jq.lanes, occ.Environment)
 			}
 		}
+		// Il conteggio del workspace si azzera scomparendo: la mappa contiene solo
+		// chi ha qualcosa in volo adesso, e non cresce con il numero di clienti.
+		if q.workspaces[jq.workspace]--; q.workspaces[jq.workspace] <= 0 {
+			delete(q.workspaces, jq.workspace)
+		}
 		if jq.inFlight == 0 && len(jq.items) == 0 {
 			// La coda di un job che non ha né lavoro né esecuzioni sparisce: con
 			// migliaia di job la mappa non deve crescere per sempre.
@@ -390,4 +421,12 @@ func (q *queue) depth() (queued, inFlight int) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.queued, q.inFlight
+}
+
+// workspaceInFlight è quanto un workspace sta occupando adesso del proprio
+// tetto tecnico.
+func (q *queue) workspaceInFlight(workspaceID string) (used, limit int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.workspaces[workspaceID], q.maxInFlightPerWorkspace
 }
