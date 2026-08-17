@@ -448,3 +448,56 @@ func TestIlClientSiChiedeUnaVoltaSola(t *testing.T) {
 		t.Errorf("Client() chiamato %d volte, attesa 1", n)
 	}
 }
+
+// TestIlRetryAfterDelBersaglioArrivaAlChiamante è ciò che questo pacchetto
+// aggiunge al retry di R5: la testata si legge qui, la decisione su cosa farne è
+// di chi possiede la riga.
+//
+// Le due forme sono quelle di RFC 9110 §10.2.3 — secondi e data HTTP — e le tre
+// forme sbagliate valgono zero: la politica applicherà il proprio backoff, che è
+// la risposta giusta a una testata che non si capisce.
+func TestIlRetryAfterDelBersaglioArrivaAlChiamante(t *testing.T) {
+	t.Parallel()
+
+	fraUnMinuto := time.Now().Add(time.Minute).UTC().Format(http.TimeFormat)
+	unMinutoFa := time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)
+
+	casi := []struct {
+		nome    string
+		testata string
+		minimo  time.Duration
+		massimo time.Duration
+	}{
+		{"secondi", "30", 30 * time.Second, 30 * time.Second},
+		{"secondi con spazi attorno", "  30  ", 30 * time.Second, 30 * time.Second},
+		{"data HTTP nel futuro", fraUnMinuto, 50 * time.Second, time.Minute},
+		{"data HTTP già passata", unMinutoFa, 0, 0},
+		{"nessuna testata", "", 0, 0},
+		{"zero secondi", "0", 0, 0},
+		{"secondi negativi", "-5", 0, 0},
+		{"testo qualunque", "presto", 0, 0},
+	}
+
+	for _, caso := range casi {
+		t.Run(caso.nome, func(t *testing.T) {
+			t.Parallel()
+
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if caso.testata != "" {
+					w.Header().Set("Retry-After", caso.testata)
+				}
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer target.Close()
+
+			exec := nuovoEsecutore(t, target.Client())
+			res, err := exec.Execute(t.Context(), occorrenza(t, jobSpec{URL: target.URL}))
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if res.RetryAfter < caso.minimo || res.RetryAfter > caso.massimo {
+				t.Errorf("RetryAfter = %v, atteso in [%v, %v]", res.RetryAfter, caso.minimo, caso.massimo)
+			}
+		})
+	}
+}

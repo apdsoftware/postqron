@@ -296,3 +296,83 @@ func TestIlPianoDelleTransizioniUsaLaChiavePrimaria(t *testing.T) {
 		}
 	}
 }
+
+// TestIlTentativoSuccessivoNasceSullaStessaOccorrenza è il primo punto di R5
+// contro il database vero: la riga del retry condivide con l'originale tutto
+// tranne `attempt`, e questo la mette nella stessa partizione giornaliera e sullo
+// stesso prefisso `(job_id, scheduled_for)` dell'indice.
+func TestIlTentativoSuccessivoNasceSullaStessaOccorrenza(t *testing.T) {
+	store, pool, job := newStore(t)
+	occ := newOccurrence(t, pool, job, time.Now().UTC().Truncate(time.Second))
+
+	secondo := occ
+	secondo.Attempt = 2
+
+	created, err := store.Enqueue(context.Background(), secondo)
+	if err != nil {
+		t.Fatalf("creazione del tentativo: %v", err)
+	}
+	if !created {
+		t.Fatal("il tentativo non è stato creato")
+	}
+
+	var (
+		status      string
+		triggeredBy string
+		scheduled   time.Time
+	)
+	err = pool.QueryRow(t.Context(),
+		`SELECT status::text, triggered_by::text, scheduled_for
+		   FROM job_executions
+		  WHERE job_id = $1::uuid AND scheduled_for = $2
+		    AND environment = $3::environment AND attempt = 2`,
+		occ.Job.ID, occ.ScheduledFor, occ.Environment).Scan(&status, &triggeredBy, &scheduled)
+	if err != nil {
+		t.Fatalf("lettura del tentativo: %v", err)
+	}
+
+	if status != "pending" {
+		t.Errorf("stato = %q, atteso pending", status)
+	}
+	// `triggered_by = 'retry'` è ciò che tiene lo scheduler fuori da questa riga:
+	// il suo recupero e la sua scadenza filtrano entrambi su 'schedule'.
+	if triggeredBy != "retry" {
+		t.Errorf("triggered_by = %q, atteso retry", triggeredBy)
+	}
+	if !scheduled.Equal(occ.ScheduledFor) {
+		t.Errorf("scheduled_for = %v, atteso %v: un retry non è un'occorrenza nuova", scheduled, occ.ScheduledFor)
+	}
+}
+
+// TestUnTentativoGiaCreatoNonSiRicrea: la chiave primaria naturale è il primo
+// cancello di R4 anche per un retry. Due repliche del motore che eseguono la
+// stessa occorrenza arrivano tutte e due a questo punto; una sola deve creare la
+// riga, e l'altra deve accorgersene senza un errore da diagnosticare.
+func TestUnTentativoGiaCreatoNonSiRicrea(t *testing.T) {
+	store, pool, job := newStore(t)
+	occ := newOccurrence(t, pool, job, time.Now().UTC().Truncate(time.Second))
+
+	secondo := occ
+	secondo.Attempt = 2
+
+	if created, err := store.Enqueue(context.Background(), secondo); err != nil || !created {
+		t.Fatalf("prima creazione: created=%v err=%v", created, err)
+	}
+	created, err := store.Enqueue(context.Background(), secondo)
+	if err != nil {
+		t.Fatalf("seconda creazione: %v", err)
+	}
+	if created {
+		t.Fatal("il tentativo è stato creato due volte")
+	}
+
+	var righe int
+	if err := pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM job_executions WHERE job_id = $1::uuid AND attempt = 2`,
+		occ.Job.ID).Scan(&righe); err != nil {
+		t.Fatalf("conteggio: %v", err)
+	}
+	if righe != 1 {
+		t.Fatalf("righe del secondo tentativo = %d, attesa 1", righe)
+	}
+}

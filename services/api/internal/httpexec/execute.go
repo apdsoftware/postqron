@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/dispatch"
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
@@ -65,15 +67,59 @@ func (e *Executor) Execute(ctx context.Context, occ scheduler.Occurrence) (dispa
 		}
 	}()
 
+	// La testata `Retry-After` si legge qui e non si onora qui: dice a chi possiede
+	// la riga fra quanto il bersaglio è disposto a riparlarci, e la decisione su
+	// che farne è di internal/retry (R5). Vedi il confine con il retry, in fondo
+	// alla documentazione del package.
+	after := retryAfter(resp.Header, time.Now())
+
 	body, err := e.excerpt(resp.Body, resolved.Redactor())
 	if err != nil {
 		err = responseError(err)
 		return dispatch.Result{
 			ResponseStatus: resp.StatusCode,
 			ErrorText:      resolved.Redactor().ErrorText(err, e.limit()),
+			RetryAfter:     after,
 		}, err
 	}
-	return dispatch.Result{ResponseStatus: resp.StatusCode, ResponseExcerpt: body}, nil
+	return dispatch.Result{
+		ResponseStatus:  resp.StatusCode,
+		ResponseExcerpt: body,
+		RetryAfter:      after,
+	}, nil
+}
+
+// retryAfter legge la testata `Retry-After` nelle due forme che RFC 9110 §10.2.3
+// ammette: un numero di secondi, oppure una data HTTP.
+//
+// Non è un testo che finisce sulla riga e non passa dalla redazione, ed è
+// legittimo che sia così: ciò che esce di qui è una `time.Duration`, cioè un
+// numero. Qualunque cosa il bersaglio abbia scritto nella testata — compreso un
+// segreto che gli avessimo appena mandato — o si legge come durata o vale zero.
+// È l'unica informazione della risposta che possiamo far uscire da qui senza il
+// tipo di internal/secrets, e la ragione è che le abbiamo tolto la forma di
+// testo.
+//
+// Un valore illeggibile, negativo o già passato vale zero, cioè «il bersaglio non
+// ha chiesto niente»: la politica applicherà il proprio backoff, che è il
+// comportamento giusto per una testata scritta male.
+func retryAfter(h http.Header, now time.Time) time.Duration {
+	raw := strings.TrimSpace(h.Get("Retry-After"))
+	if raw == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(raw); err == nil {
+		if d := at.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // resolve espande i riferimenti `${VAR}` del job con i segreti del workspace

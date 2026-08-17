@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apdsoftware/postqron/services/api/internal/retry"
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
@@ -40,6 +41,15 @@ type Options struct {
 	// MaxTimeout è il tetto di durata di un'esecuzione, quale che sia il timeout
 	// del job (R40).
 	MaxTimeout time.Duration
+
+	// Retry sono i tetti del servizio sui tentativi successivi al primo (R5). I
+	// campi a zero prendono i default di internal/retry.
+	//
+	// La politica del singolo job — quanti tentativi, con che forma di backoff —
+	// non sta qui: arriva da `jobs.max_retries` e `jobs.retry_backoff`, cioè
+	// dall'occorrenza. Questi sono i limiti dentro cui quella politica è
+	// ammessa.
+	Retry retry.Limits
 }
 
 // Pool è il worker pool. Va costruito con [New], avviato con [Pool.Start] e
@@ -79,6 +89,23 @@ type Pool struct {
 	mu   sync.Mutex
 	live map[string]scheduler.Occurrence
 
+	// La politica dei tentativi (R5) e le due dipendenze che la rendono
+	// osservabile nei test: l'orologio con cui si decide se un retry scavalca
+	// l'occorrenza successiva, e il timer con cui si aspetta il backoff. In
+	// esercizio sono [time.Now] e [time.After]; vedi export_test.go.
+	retry *retry.Planner
+	now   func() time.Time
+	after func(time.Duration) <-chan time.Time
+
+	// retryMu protegge la chiusura dei retry in attesa. `retryStop` si chiude
+	// all'inizio dell'arresto e `retriesClosed` impedisce di armarne di nuovi
+	// dopo: senza il flag, un'esecuzione che finisce durante il drenaggio
+	// potrebbe armare un timer che nessuno fermerà più.
+	retryMu       sync.Mutex
+	retryStop     chan struct{}
+	retriesClosed bool
+	retryWG       sync.WaitGroup
+
 	counters counters
 }
 
@@ -90,6 +117,9 @@ type counters struct {
 	succeeded, failed, timedOut   atomic.Int64
 	skipped, blocked              atomic.Int64
 	released, errs                atomic.Int64
+
+	retried, retryExhausted      atomic.Int64
+	retryOverrun, retryAbandoned atomic.Int64
 }
 
 // Il pool è il dispatch che lo scheduler si aspettava a valle.
@@ -114,6 +144,10 @@ func New(opts Options) (*Pool, error) {
 		storeTimeout: durationOr(opts.StoreTimeout, DefaultStoreTimeout),
 		maxTimeout:   durationOr(opts.MaxTimeout, DefaultMaxTimeout),
 		live:         map[string]scheduler.Occurrence{},
+		retry:        retry.New(opts.Retry),
+		now:          time.Now,
+		after:        time.After,
+		retryStop:    make(chan struct{}),
 	}
 	if p.guard == nil {
 		p.guard = openGuard{}
@@ -218,6 +252,11 @@ func (p *Pool) Stats() Stats {
 		Blocked:    p.counters.blocked.Load(),
 		Released:   p.counters.released.Load(),
 		Errors:     p.counters.errs.Load(),
+
+		Retried:        p.counters.retried.Load(),
+		RetryExhausted: p.counters.retryExhausted.Load(),
+		RetryOverrun:   p.counters.retryOverrun.Load(),
+		RetryAbandoned: p.counters.retryAbandoned.Load(),
 	}
 }
 
@@ -307,7 +346,12 @@ func (p *Pool) run(occ scheduler.Occurrence) {
 		// Il testo è composto qui a partire dall'URL del job **a riposo**, dove i
 		// riferimenti ai segreti non sono ancora stati espansi: il guard viene
 		// chiamato prima dell'esecuzione, e chi risolve è l'esecutore.
-		p.finish(occ, Record{Outcome: Failed, Error: ownText(fmt.Sprintf("destinazione rifiutata: %v", err))})
+		rec := Record{Outcome: Failed, Error: ownText(fmt.Sprintf("destinazione rifiutata: %v", err))}
+		if p.finish(occ, rec) {
+			// Una destinazione che il guard rifiuta è rifiutata anche fra dieci
+			// secondi: l'esito è dichiarato permanente e non produce nessun retry.
+			p.planRetry(occ, rec, Result{}, true)
+		}
 		return
 	}
 
@@ -319,7 +363,36 @@ func (p *Pool) run(occ scheduler.Occurrence) {
 		p.release(occ)
 		return
 	}
-	p.finish(occ, record(res, execErr))
+
+	rec := record(res, execErr)
+	// Il retry si pianifica solo se l'esito è stato davvero scritto. Se la riga
+	// non era più nostra — l'arresto l'ha rilasciata, o il database non ha
+	// risposto — non sappiamo in che stato sia, e un tentativo successivo
+	// costruito su quel dubbio chiamerebbe il bersaglio una volta di troppo.
+	if p.finish(occ, rec) {
+		p.planRetry(occ, rec, res, permanent(execErr))
+	}
+}
+
+// permanent riconosce i guasti che un secondo tentativo identico non può
+// cambiare.
+//
+// Ce n'è uno solo che arriva per questa via, ed è un riferimento `${VAR}` che
+// non si risolve (R43): il segreto è stato revocato o rinominato dopo il sync, e
+// finché l'utente non lo rimette a posto ogni tentativo fallirà nello stesso
+// identico punto, prima ancora di uscire verso la rete. È la stessa forma di
+// spreco di un `4xx` — quota consumata per un esito già noto — con in più il
+// fatto che qui la richiesta non parte nemmeno.
+//
+// Il riconoscimento passa da `secrets.AsValidation` e non dal testo dell'errore:
+// il testo è redatto e non va ispezionato, la causa invece resta agganciata
+// apposta (vedi `httpexec.resolveError`).
+func permanent(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, invalid := secrets.AsValidation(err)
+	return invalid
 }
 
 // execute chiama l'esecutore con il timeout del job, tagliato al tetto del
@@ -390,7 +463,8 @@ func executorText(res Result) secrets.Excerpt {
 // per l'appunto redige il proprio.
 func ownText(s string) secrets.Excerpt { return secrets.Redactor{}.Excerpt([]byte(s), 0) }
 
-func (p *Pool) finish(occ scheduler.Occurrence, rec Record) {
+// finish scrive l'esito e dice se la riga era ancora nostra da chiudere.
+func (p *Pool) finish(occ scheduler.Occurrence, rec Record) bool {
 	ctx, cancel := p.storeCtx()
 	defer cancel()
 	updated, err := p.store.Finish(ctx, occ, rec)
@@ -413,13 +487,16 @@ func (p *Pool) finish(occ scheduler.Occurrence, rec Record) {
 		p.log.Error("dispatch: scrittura dell'esito fallita",
 			slog.String("occorrenza", occ.String()),
 			slog.String("esito", string(rec.Outcome)), slog.Any("err", err))
+		return false
 	case !updated:
 		// La riga non è più `running`: qualcuno l'ha cambiata sotto di noi, di
 		// norma il rilascio dell'arresto. L'esecuzione è avvenuta comunque, e
 		// dirlo è l'unico modo per spiegare un'eventuale seconda esecuzione.
 		p.log.Warn("dispatch: esito non registrato, la riga non era più in esecuzione",
 			slog.String("occorrenza", occ.String()), slog.String("esito", string(rec.Outcome)))
+		return false
 	}
+	return true
 }
 
 func (p *Pool) skip(occ scheduler.Occurrence, reason string) {
@@ -437,6 +514,21 @@ func (p *Pool) skip(occ scheduler.Occurrence, reason string) {
 // release riporta l'occorrenza a `pending`. Vedi la documentazione del package
 // per il compromesso che comporta.
 func (p *Pool) release(occ scheduler.Occurrence) {
+	// Un tentativo successivo al primo non si rilascia: nessuno lo riprenderebbe.
+	// Il recupero dello scheduler salta di proposito le righe con
+	// `triggered_by = 'retry'` (vedi `pendingOccurrencesSQL`), quindi `pending`
+	// qui non significa «in attesa di essere ripresa», significa «per sempre».
+	// Si chiude con ciò che è davvero successo — è partita e non è finita — che è
+	// terminale, veritiero e visibile in dashboard.
+	if occ.Attempt > 1 {
+		p.finish(occ, Record{
+			Outcome: Failed,
+			Error: ownText("tentativo interrotto dall'arresto del processo: " +
+				"non è stato ripetuto perché i tentativi successivi non sopravvivono al riavvio"),
+		})
+		return
+	}
+
 	ctx, cancel := p.storeCtx()
 	defer cancel()
 
@@ -502,6 +594,23 @@ func (p *Pool) shutdown(ctx context.Context) error {
 	if len(abandoned) > 0 {
 		p.log.Info("dispatch: occorrenze lasciate in attesa, restano da riprendere",
 			slog.Int("occorrenze", len(abandoned)))
+	}
+
+	// I retry in attesa del proprio backoff si fermano **dopo** la chiusura della
+	// coda, e l'ordine è l'unico che non lascia righe orfane: uno che scattasse
+	// adesso troverebbe la coda già chiusa e chiuderebbe da sé la propria riga
+	// (vedi [Pool.fireRetry]). Al contrario, fermarli prima lascerebbe la
+	// finestra in cui un tentativo si accoda un istante prima che la coda
+	// chiuda.
+	p.stopRetries()
+
+	// Ciò che vale per le occorrenze lasciate in coda non vale per i tentativi
+	// successivi al primo: nessun recupero li riprende. Vedi [Pool.release].
+	for _, occ := range abandoned {
+		if occ.Attempt > 1 {
+			p.skip(occ, "tentativo successivo non eseguito: il pool si è fermato prima del suo turno")
+			p.counters.retryAbandoned.Add(1)
+		}
 	}
 
 	drainCtx, cancelDrain := context.WithTimeout(ctx, p.drainTimeout)

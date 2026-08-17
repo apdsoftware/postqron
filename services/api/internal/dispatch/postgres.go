@@ -29,6 +29,30 @@ const occurrenceWhere = `
 	   AND environment = $3::environment
 	   AND attempt = $4`
 
+// enqueueRetrySQL crea la riga di un tentativo successivo al primo (R5).
+//
+// Tre cose valgono la pena di essere dette.
+//
+// **`scheduled_for` non cambia.** Un retry non è un'occorrenza nuova: è la
+// stessa, al tentativo dopo. Da qui discende tutto il resto — la storia di un
+// fallimento si legge in un colpo solo sul prefisso `(job_id, scheduled_for)`
+// dell'indice, e la riga cade nella stessa partizione giornaliera
+// dell'occorrenza che ritenta, che per definizione esiste già.
+//
+// **`triggered_by = 'retry'`** è ciò che tiene lo scheduler fuori da questa riga.
+// Il suo recupero e la sua scadenza filtrano entrambi su `triggered_by =
+// 'schedule'` (vedi `pendingOccurrencesSQL` e `expireOccurrencesSQL`): «un retry
+// ha un padrone che sa quando riproporlo», e il padrone è questo package.
+//
+// **`ON CONFLICT DO NOTHING`** invece di lasciar salire la violazione: qui il
+// conflitto non è un caso eccezionale da diagnosticare ma la risposta normale
+// alla domanda «questo tentativo è già di qualcuno?», ed è il primo cancello di
+// R4 applicato al retry. Il chiamante distingue i due casi dal numero di righe.
+const enqueueRetrySQL = `
+	INSERT INTO job_executions (job_id, scheduled_for, environment, attempt, status, triggered_by)
+	VALUES ($1::uuid, $2, $3::environment, $4, 'pending', 'retry')
+	ON CONFLICT DO NOTHING`
+
 // claimSQL è il secondo cancello dell'idempotenza (R4).
 //
 // `AND status = 'pending'` non è una precauzione: è **la** condizione. Lo
@@ -94,6 +118,15 @@ var _ Store = (*PostgresStore)(nil)
 // [occurrenceWhere].
 func key(occ scheduler.Occurrence) []any {
 	return []any{occ.Job.ID, occ.ScheduledFor, occ.Environment, occ.Attempt}
+}
+
+// Enqueue crea la riga `pending` di un tentativo successivo al primo.
+func (s *PostgresStore) Enqueue(ctx context.Context, occ scheduler.Occurrence) (bool, error) {
+	tag, err := s.pool.Exec(ctx, enqueueRetrySQL, key(occ)...)
+	if err != nil {
+		return false, fmt.Errorf("dispatch: creazione del tentativo %d di %s: %w", occ.Attempt, occ, err)
+	}
+	return updated(tag), nil
 }
 
 // Claim porta l'occorrenza da `pending` a `running`.
