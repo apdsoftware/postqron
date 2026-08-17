@@ -30,10 +30,22 @@ import (
 // con lo scheduler: `timestamptz` ha risoluzione al microsecondo, e un istante
 // preso con i nanosecondi non torna mai uguale a se stesso dopo un giro sul
 // database.
-func testClock() time.Time { return lontanoDaUnConfine(time.Hour, 90*time.Second) }
+func testClock() time.Time { return lontanoDaUnConfine(time.Hour, 90*time.Second, 10*time.Second) }
 
-// lontanoDaUnConfine restituisce l'istante corrente garantendo che il prossimo
-// confine della griglia disti almeno `margine`.
+// lontanoDaUnConfine restituisce l'istante corrente garantendo che nessun confine
+// della griglia cada vicino: né entro `avanti` nel futuro, né entro `indietro` nel
+// passato.
+//
+// Servono entrambi i lati, e la prima stesura aveva solo il primo — un difetto che
+// si è manifestato alle 20:00:00 in punto. I test costruiscono `due = now-1s`: se il
+// confine è appena passato cade *dentro* quella finestra, e le occorrenze dovute
+// diventano due. Guardare solo avanti lascia scoperto esattamente l'istante in cui
+// il confine è più vicino.
+//
+// I due margini sono diversi perché rispondono a problemi diversi: `indietro` deve
+// solo superare l'ampiezza della finestra (un secondo), mentre `avanti` deve coprire
+// il tempo che il test impiega fra la costruzione dell'orario e il tick — creazione
+// di database, utente e job, che su una macchina carica non è trascurabile.
 //
 // La modalità a intervallo è ancorata all'epoch (SPEC §9): `every: 1h` scocca
 // all'ora piena UTC, non «un'ora dopo l'ultima volta». I test costruiscono
@@ -49,13 +61,15 @@ func testClock() time.Time { return lontanoDaUnConfine(time.Hour, 90*time.Second
 // Il margine è generoso di proposito: fra la costruzione dell'orario e il tick
 // c'è il tempo di creare database, utente e job, che su una macchina carica non
 // è trascurabile.
-func lontanoDaUnConfine(griglia, margine time.Duration) time.Time {
+func lontanoDaUnConfine(griglia, avanti, indietro time.Duration) time.Time {
 	for {
 		now := time.Now().UTC().Truncate(time.Millisecond)
-		if now.Add(margine).Truncate(griglia).Equal(now.Truncate(griglia)) {
+		primaDelProssimo := now.Add(avanti).Truncate(griglia).Equal(now.Truncate(griglia))
+		dopoIlPrecedente := now.Sub(now.Truncate(griglia)) >= indietro
+		if primaDelProssimo && dopoIlPrecedente {
 			return now
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
