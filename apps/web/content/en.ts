@@ -112,8 +112,8 @@ export const en: SiteContent = {
     email: 'hello@postqron.com',
   },
 
-  // In inglese il simbolo precede la cifra e non ha spazio: «€9 + VAT».
-  money: { currencyPosition: 'before', taxNote: '+ VAT' },
+  // In inglese il simbolo precede la cifra e non ha spazio: «€9 excluding tax».
+  money: { currencyPosition: 'before', taxNote: 'excluding tax' },
 
   hero: {
     title: 'Reliable cron jobs, defined as code',

@@ -118,8 +118,8 @@ const plan: PricingPlan = {
 const href = '/it/#welcome'
 
 /** Le due convenzioni locali che agiscono sulla riga del prezzo. */
-const italian = { currencyPosition: 'after', taxNote: '+ IVA' } as const
-const english = { currencyPosition: 'before', taxNote: '+ VAT' } as const
+const italian = { currencyPosition: 'after', taxNote: 'imposte escluse' } as const
+const english = { currencyPosition: 'before', taxNote: 'excluding tax' } as const
 
 describe('PricingCard', () => {
   it('distingue le voci comprese da quelle escluse', () => {
@@ -191,13 +191,13 @@ describe('PricingCard', () => {
     // R61-bis: gli importi sono al netto e una cifra senza indicazione è un
     // difetto. La dicitura arriva tradotta, non è un suffisso del componente.
     const inGerman = mount(PricingCard, {
-      props: { plan, position: 2, href, currencyPosition: 'after', taxNote: '+ MwSt.' },
+      props: { plan, position: 2, href, currencyPosition: 'after', taxNote: 'zzgl. Steuern' },
     })
 
-    expect(inGerman.find('.pricing__tax').text()).toBe('+ MwSt.')
+    expect(inGerman.find('.pricing__tax').text()).toBe('zzgl. Steuern')
 
     // Sta fuori dal paragrafo del prezzo: è un'affermazione distinta sulla
-    // cifra, e da lì il testo selezionato non esce come «/Monat+ MwSt.».
+    // cifra, e da lì il testo selezionato non esce come «/Monat zzgl. Steuern».
     expect(inGerman.find('.pricing__price').text()).not.toContain('MwSt.')
   })
 

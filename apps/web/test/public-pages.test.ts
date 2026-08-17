@@ -50,7 +50,12 @@ describe('pagine pubbliche di contenuto', () => {
     expect(publicPages.en.faq.items[0]?.answer).toContain('HTTP')
     expect(publicPages.en.faq.items[1]?.answer).toContain('one second')
     expect(publicPages.en.faq.items[2]?.answer).toContain('90 days')
-    expect(publicPages.en.faq.items[3]?.answer).toContain('has not been decided')
+    // R58 ha deciso la regola: si sospende tutto e sceglie l'utente. Prima
+    // questo test presidiava l'ammissione di non sapere; ora presidia le due
+    // parti che rendono la regola accettabile — che la scelta sia dell'utente
+    // e che nulla venga cancellato.
+    expect(publicPages.en.faq.items[3]?.answer).toContain('you choose')
+    expect(publicPages.en.faq.items[3]?.answer).toContain('Nothing is deleted')
     expect(publicPages.en.faq.items[4]?.answer).toContain('no trial period')
   })
 })

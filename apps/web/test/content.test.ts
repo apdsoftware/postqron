@@ -83,11 +83,11 @@ describe('piani', () => {
     const notes = Object.fromEntries(entries.map(([code, content]) => [code, content.money.taxNote]))
 
     expect(notes).toEqual({
-      en: '+ VAT',
-      it: '+ IVA',
-      es: '+ IVA',
-      de: '+ MwSt.',
-      fr: '+ TVA',
+      en: 'excluding tax',
+      it: 'imposte escluse',
+      es: 'impuestos excluidos',
+      de: 'zzgl. Steuern',
+      fr: 'hors taxes',
     })
   })
 

@@ -1,6 +1,6 @@
 ---
 document: terms-of-service
-version: 1.0.0
+version: 1.1.0
 effective_date: 2026-08-17
 language: en
 ---
@@ -46,7 +46,7 @@ create an account.
 
 **Paid plans are offered for professional use.** When you buy one, you confirm that
 you are acting in the course of a trade, business, craft or profession. This is why
-our prices are shown excluding VAT: for someone who runs a business, the net figure is
+our prices are shown excluding tax: for someone who runs a business, the net figure is
 the one that matters, because it is the one you deduct. We ask you to confirm this at
 checkout, and we collect your VAT number where you have one — some perfectly legitimate
 small-business regimes across Europe do not issue one, so we ask for it, we do not
@@ -61,7 +61,7 @@ Plans, prices and limits are those published on our pricing page and applied by 
 service. **Limits are enforced by the engine**, not merely stated: a plan's job count,
 minimum interval and log retention are real ceilings.
 
-Prices are shown **excluding VAT**. Paddle calculates and adds the applicable tax
+Prices are shown **excluding tax**. Paddle calculates and adds the applicable tax
 based on where you are.
 
 Paid plans renew automatically for the same period until cancelled. You can cancel at
@@ -71,18 +71,30 @@ the service continues until then.
 ### 4.1 Changing plan
 
 Upgrades take effect immediately. **Downgrades take effect at the end of the current
-period**, and this matters: if your usage exceeds the limits of the lower plan — more
-jobs than it allows, a shorter minimum interval, longer retention — we tell you before
-you confirm what will happen and let you choose which jobs stay active.
+period**, and we tell you what will happen before you confirm.
 
-**We do not silently delete your work.** Jobs beyond the new limit are disabled, not
-removed, and remain visible and exportable.
+**If you have more active jobs than the lower plan allows, we pause all of them and
+you choose which to switch back on**, up to the new limit. We do not pick for you,
+because we cannot: two jobs that look identical to us may be, to you, one that issues
+invoices and one that sends a reminder. Any automatic rule we invented would guess —
+and would guess wrong exactly where it matters most.
+
+If your active jobs already fit within the new limit, nothing is paused.
+
+**We do not delete your work.** Paused jobs stay visible, editable and exportable,
+with their execution history. One thing to know: a job scheduled more frequently than
+the new plan allows cannot be switched back on until you change its schedule, even if
+there is room for it.
+
+The same applies if a payment ultimately fails or a subscription lapses, which move
+the account to the free plan.
 
 ### 4.2 Failed payment
 
 If a payment fails, Paddle retries according to its own schedule. During that period
 your service continues. If payment ultimately fails, the account moves to the free
-plan, with the same rule as a downgrade: jobs beyond the limit are disabled, never
+plan and §4.1 applies unchanged: if you have more active jobs than the free plan
+allows, all of them are paused and you choose which to switch back on. Nothing is
 deleted.
 
 ### 4.3 Refunds and withdrawal

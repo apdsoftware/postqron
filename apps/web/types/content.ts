@@ -84,15 +84,17 @@ export interface MoneyFormat {
   /** `before` → «€9»; `after` → «9 €», con spazio unificatore. */
   currencyPosition: 'before' | 'after'
   /**
-   * Indicazione dell'imposta accanto al prezzo (R61-bis): «+ VAT», «+ IVA»,
-   * «+ MwSt.», «+ TVA».
+   * Indicazione dell'imposta accanto al prezzo (R61-bis): «excluding tax», «imposte escluse»,
+   * «impuestos excluidos», «zzgl. Steuern», «hors taxes».
    *
    * Gli importi di SPEC §8 sono al netto — Paddle calcola e aggiunge l'imposta
    * sul paese del cliente in quanto Merchant of Record — e una cifra senza
    * questa indicazione è un difetto, non una semplificazione grafica.
    *
    * È testo tradotto e sta qui, non nel componente: il tedesco lo dimostra da
-   * solo, «+ MwSt.» non è «+ IVA» con un'altra sigla.
+   * solo: si traduce il concetto con la convenzione commerciale di ciascuna
+   * lingua, non si sostituisce il nome dell'imposta locale — e «imposte» al
+   * plurale perché Paddle applica anche sales tax e GST, non solo IVA.
    */
   taxNote: string
 }

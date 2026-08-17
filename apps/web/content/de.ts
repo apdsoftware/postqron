@@ -106,8 +106,8 @@ export const de: SiteContent = {
     email: 'hello@postqron.com',
   },
 
-  // Im Deutschen folgt das Symbol der Zahl, mit Leerzeichen: «9 € + MwSt.».
-  money: { currencyPosition: 'after', taxNote: '+ MwSt.' },
+  // Im Deutschen folgt das Symbol der Zahl, mit Leerzeichen: «9 € zzgl. Steuern».
+  money: { currencyPosition: 'after', taxNote: 'zzgl. Steuern' },
 
   hero: {
     title: 'Verlässliche Cronjobs, als Code definiert',

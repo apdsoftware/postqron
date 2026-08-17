@@ -544,22 +544,60 @@ parte dell'offerta.
 
 ## 14. Fatturazione: comportamenti dichiarati
 
-- **R58 — Downgrade e superamento dei limiti.** Passando a un piano con limiti più
-  bassi — 200 job su Pro verso i 20 di Free — il comportamento è **esplicito**: quali
-  job restano attivi, con quale criterio si scelgono, cosa vede l'utente prima di
-  confermare. Lo stesso vale per il mancato pagamento e per la scadenza di un
-  abbonamento. Nessuna cancellazione silenziosa di lavoro dell'utente.
+- **R58 — Downgrade: si ferma tutto, riattiva l'utente.** Quando i job attivi
+  superano il tetto del piano di destinazione, **vengono sospesi tutti**, e l'utente
+  ne riattiva quanti ne consente il nuovo piano.
+
+  Non scegliamo noi quali salvare, e la ragione è che **non possiamo saperlo**: due
+  job identici per schedulazione e destinazione possono valere uno la fatturazione
+  mensile e l'altro un promemoria. Qualunque criterio automatico — i più recenti, i
+  più frequenti, i primi creati — sarebbe una supposizione presentata come regola, e
+  sbaglierebbe in silenzio proprio nel caso che conta.
+
+  Fermare tutto è più brusco ma è **onesto**: dice all'utente che la scelta è sua e
+  gliela mette davanti, invece di fargliela scoprire quando il job che serviva non è
+  partito.
+
+  Tre conseguenze da rispettare:
+  - **Se i job attivi rientrano già nel nuovo tetto, non si tocca niente.** Fermare
+    tutto quando non serve sarebbe un danno gratuito.
+  - **Nulla viene cancellato.** I job sospesi restano visibili, modificabili ed
+    esportabili, con il loro storico di esecuzioni.
+  - **La risoluzione è un secondo vincolo, indipendente dal numero.** Un job
+    `every: 1s` non è riattivabile su un piano che si ferma al minuto, nemmeno se c'è
+    posto: va prima cambiata la schedulazione. L'interfaccia deve dirlo, non
+    limitarsi a rifiutare.
+
+  Lo stesso comportamento vale per il **mancato pagamento** e per la **scadenza**
+  dell'abbonamento, che portano al piano Free. Nessuna cancellazione silenziosa di
+  lavoro dell'utente, in nessuno dei tre casi.
 - **R59 — Nessuna prova gratuita.** Il listino (§8) non prevede periodi di prova: il
   piano Free è l'ingresso. Ogni affermazione contraria nell'interfaccia è un difetto.
 - **R60 — Accesso ai documenti fiscali.** L'utente accede a fatture e ricevute
   emesse da Paddle in quanto Merchant of Record.
-- **R61-bis — I prezzi sono al netto dell'IVA.** Gli importi di §8 sono **IVA
-  esclusa**: Paddle calcola e aggiunge l'imposta sul paese del cliente in quanto
-  Merchant of Record. Il cliente italiano paga €9 + 22%, non €9.
-  **Il sito espone il netto con l'indicazione dell'imposta accanto al prezzo**, in ogni
-  punto in cui compare una cifra. Un «€9/mese» privo di indicazione è un difetto.
-  L'indicazione è **testo tradotto**, non un suffisso fisso: «+ VAT», «+ IVA»,
-  «+ MwSt.», «+ TVA» seguono le regole di §8-bis come qualunque altra stringa.
+- **R61-bis — I prezzi sono al netto delle imposte.** Gli importi di §8 sono
+  **imposte escluse**: Paddle calcola e aggiunge l'imposta dovuta nel paese del
+  cliente in quanto Merchant of Record. Il cliente italiano paga €9 + 22%, non €9.
+
+  **La formula è «imposte escluse», non «+ IVA».** L'IVA è una imposta specifica, e
+  Paddle applica anche sales tax e GST fuori dall'Unione Europea: «+ IVA» sarebbe
+  inesatto per una parte dei clienti, e inesatto sul prezzo è il posto peggiore dove
+  esserlo. La forma generale è corretta ovunque.
+
+  **Il sito espone il netto con l'indicazione accanto al prezzo**, in ogni punto in cui
+  compare una cifra. Un «€9/mese» privo di indicazione è un difetto.
+
+  L'indicazione è **testo tradotto** e segue le regole di §8-bis. Si traduce il
+  *concetto*, con la convenzione commerciale di ciascuna lingua — non si sostituisce
+  il nome dell'imposta locale:
+
+  | | |
+  |---|---|
+  | `en` | excluding tax |
+  | `it` | imposte escluse |
+  | `es` | impuestos excluidos |
+  | `de` | zzgl. Steuern |
+  | `fr` | hors taxes |
 - **R63 — Postqron è offerto per uso professionale.** Questa non è una preferenza
   commerciale, è **il presupposto che rende legittima l'esposizione del netto**. Verso i
   consumatori l'Unione Europea richiede che il prezzo esposto sia quello finale,

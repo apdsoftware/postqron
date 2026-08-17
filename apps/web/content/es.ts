@@ -106,8 +106,8 @@ export const es: SiteContent = {
     email: 'hello@postqron.com',
   },
 
-  // En español el símbolo sigue a la cifra, con espacio: «9 € + IVA».
-  money: { currencyPosition: 'after', taxNote: '+ IVA' },
+  // En español el símbolo sigue a la cifra, con espacio: «9 € impuestos excluidos».
+  money: { currencyPosition: 'after', taxNote: 'impuestos excluidos' },
 
   hero: {
     title: 'Tareas cron fiables, definidas como código',

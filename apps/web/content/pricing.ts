@@ -23,7 +23,7 @@ export const pricingPages: Record<LocaleCode, PricingPageContent> = {
       { label: 'Dedicated static outbound IP', values: ['—', '—', '—', '✓'] },
       { label: 'Support', values: ['—', '—', '—', 'Priority'] },
     ],
-    downgrade: { question: 'What happens when I downgrade?', answer: 'The criterion that selects which jobs remain active has not been decided yet. We will show the rule and the affected jobs before a downgrade can be confirmed.' },
+    downgrade: { question: 'What happens when I downgrade?', answer: 'If you have more active jobs than the new plan allows, we pause all of them and you choose which to switch back on, up to the new limit. We do not pick for you: two jobs that look identical to us may be, to you, one that issues invoices and one that sends a reminder. Nothing is deleted, and if your jobs already fit the new limit nothing is paused.' },
     checkoutNote: 'Paddle checkout is not connected yet. Free opens the current sign-up path; paid-plan buttons take you to the contact page so we do not promise a purchase flow that is not available.',
   },
   it: {
@@ -47,7 +47,7 @@ export const pricingPages: Record<LocaleCode, PricingPageContent> = {
       { label: 'IP statico dedicato in uscita', values: ['—', '—', '—', '✓'] },
       { label: 'Supporto', values: ['—', '—', '—', 'Prioritario'] },
     ],
-    downgrade: { question: 'Cosa succede con un downgrade?', answer: 'Il criterio che sceglie quali job restano attivi non è ancora stato deciso. Mostreremo la regola e i job coinvolti prima che il downgrade possa essere confermato.' },
+    downgrade: { question: 'Cosa succede con un downgrade?', answer: 'Se hai più job attivi di quanti il nuovo piano ne consenta, li sospendiamo tutti e scegli tu quali riattivare, fino al nuovo limite. Non scegliamo noi: due job identici ai nostri occhi possono essere, per te, uno che emette fatture e uno che manda un promemoria. Non cancelliamo niente, e se i tuoi job rientrano già nel limite non sospendiamo nulla.' },
     checkoutNote: 'Il checkout Paddle non è ancora collegato. Free apre il percorso di registrazione corrente; i pulsanti dei piani a pagamento portano ai contatti, senza promettere un acquisto non disponibile.',
   },
   es: {
@@ -71,7 +71,7 @@ export const pricingPages: Record<LocaleCode, PricingPageContent> = {
       { label: 'IP de salida estática dedicada', values: ['—', '—', '—', '✓'] },
       { label: 'Soporte', values: ['—', '—', '—', 'Prioritario'] },
     ],
-    downgrade: { question: '¿Qué ocurre al bajar de plan?', answer: 'El criterio que decide qué trabajos siguen activos aún no se ha decidido. Mostraremos la regla y los trabajos afectados antes de confirmar el cambio.' },
+    downgrade: { question: '¿Qué ocurre al bajar de plan?', answer: 'Si tienes más trabajos activos de los que permite el nuevo plan, los pausamos todos y tú eliges cuáles reactivar, hasta el nuevo límite. No elegimos nosotros: dos trabajos idénticos a nuestros ojos pueden ser, para ti, uno que emite facturas y otro que envía un recordatorio. No borramos nada, y si tus trabajos ya caben en el nuevo límite no pausamos ninguno.' },
     checkoutNote: 'El checkout de Paddle aún no está conectado. Free abre el registro actual; los botones de los planes de pago llevan a contacto para no prometer una compra que todavía no está disponible.',
   },
   de: {
@@ -95,7 +95,7 @@ export const pricingPages: Record<LocaleCode, PricingPageContent> = {
       { label: 'Dedizierte statische Ausgangs-IP', values: ['—', '—', '—', '✓'] },
       { label: 'Support', values: ['—', '—', '—', 'Priorität'] },
     ],
-    downgrade: { question: 'Was passiert bei einem Downgrade?', answer: 'Das Kriterium dafür, welche Jobs aktiv bleiben, ist noch nicht entschieden. Regel und betroffene Jobs werden vor der Bestätigung angezeigt.' },
+    downgrade: { question: 'Was passiert bei einem Downgrade?', answer: 'Wenn Sie mehr aktive Jobs haben, als der neue Tarif erlaubt, pausieren wir alle und Sie wählen, welche wieder laufen sollen — bis zum neuen Limit. Wir wählen nicht für Sie: zwei für uns identische Jobs können für Sie einer sein, der Rechnungen stellt, und einer, der eine Erinnerung schickt. Nichts wird gelöscht, und wenn Ihre Jobs bereits ins neue Limit passen, wird nichts pausiert.' },
     checkoutNote: 'Der Paddle-Checkout ist noch nicht verbunden. Free öffnet die derzeitige Registrierung; Schaltflächen bezahlter Tarife führen zur Kontaktseite und versprechen keinen noch nicht verfügbaren Kauf.',
   },
   fr: {
@@ -119,7 +119,7 @@ export const pricingPages: Record<LocaleCode, PricingPageContent> = {
       { label: 'IP sortante statique dédiée', values: ['—', '—', '—', '✓'] },
       { label: 'Support', values: ['—', '—', '—', 'Prioritaire'] },
     ],
-    downgrade: { question: 'Que se passe-t-il lors d’un déclassement ?', answer: 'Le critère qui détermine les tâches restant actives n’a pas encore été décidé. La règle et les tâches concernées seront affichées avant confirmation.' },
+    downgrade: { question: 'Que se passe-t-il lors d’un déclassement ?', answer: 'Si vous avez plus de tâches actives que le nouveau forfait n\'en permet, nous les mettons toutes en pause et vous choisissez lesquelles réactiver, dans la limite du nouveau forfait. Nous ne choisissons pas à votre place : deux tâches identiques à nos yeux peuvent être, pour vous, l\'une qui émet des factures et l\'autre qui envoie un rappel. Rien n\'est supprimé, et si vos tâches tiennent déjà dans la nouvelle limite, rien n\'est mis en pause.' },
     checkoutNote: 'Le checkout Paddle n’est pas encore connecté. Free ouvre l’inscription actuelle ; les boutons des offres payantes mènent au contact sans promettre un achat encore indisponible.',
   },
 }

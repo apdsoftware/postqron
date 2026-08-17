@@ -72,7 +72,7 @@ const leadingPrefix = computed(() =>
     <div class="pricing__body">
       <!--
         Due regole locali diverse sulla stessa riga: dove va il simbolo e come
-        si chiama l'imposta. «€9/month + VAT» in inglese, «9 €/mese + IVA» in
+        si chiama l'imposta. «€9/month excluding tax» in inglese, «9 €/mese imposte escluse» in
         italiano — nessuna delle due parti è scritta qui.
       -->
       <p class="pricing__price">
@@ -248,12 +248,12 @@ const leadingPrefix = computed(() =>
 
 /*
  * L'imposta va sotto, su una riga propria: accanto al prezzo com'è richiesto,
- * ma senza contendere spazio alla cifra dentro una card da 306px — «+ MwSt.»
+ * ma senza contendere spazio alla cifra dentro una card da 306px — «zzgl. Steuern»
  * dopo «ab 79 €/Monat» non ci starebbe in nessun caso.
  *
  * È un paragrafo a sé e non uno `span` dentro quello del prezzo: è
  * un'affermazione distinta sulla cifra, e da elemento separato il testo
- * selezionato non esce come «/Monat+ MwSt.».
+ * selezionato non esce come «/Monat zzgl. Steuern».
  */
 .pricing__tax {
   margin-bottom: var(--pq-space-6);

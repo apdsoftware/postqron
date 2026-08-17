@@ -106,8 +106,8 @@ export const it: SiteContent = {
     email: 'hello@postqron.com',
   },
 
-  // In italiano il simbolo segue la cifra, con spazio: «9 € + IVA».
-  money: { currencyPosition: 'after', taxNote: '+ IVA' },
+  // In italiano il simbolo segue la cifra, con spazio: «9 € imposte escluse».
+  money: { currencyPosition: 'after', taxNote: 'imposte escluse' },
 
   hero: {
     title: 'Cronjob affidabili, definiti come codice',

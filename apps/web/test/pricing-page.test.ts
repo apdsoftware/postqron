@@ -33,7 +33,16 @@ describe('pagina prezzi', () => {
     expect(pricingPages[locale].checkoutNote).toBeTruthy()
   })
 
-  it.each(LOCALE_CODES)('%s dichiara apertamente che il criterio di downgrade è da decidere', (locale) => {
-    expect(pricingPages[locale].downgrade.answer).toMatch(/non|not|no |nicht|n’a/i)
+  // La regola del downgrade è stata decisa (R58): si sospende tutto e riattiva
+  // l'utente. Il test verificava che la pagina dichiarasse il criterio «da
+  // decidere»; ora verifica che dichiari *la regola*, perché una pagina prezzi
+  // che tace su cosa succede ai job è peggio di una che ammette di non saperlo.
+  it.each(LOCALE_CODES)('%s dice che il downgrade sospende tutto e la scelta è dell\'utente', (locale) => {
+    const answer = pricingPages[locale].downgrade.answer
+    expect(answer.length).toBeGreaterThan(80)
+    // «non scegliamo noi»: la parte che rende la regola accettabile.
+    expect(answer).toMatch(/non scegliamo|do not pick|no elegimos|wählen nicht|ne choisissons pas/i)
+    // e la promessa che nulla viene cancellato.
+    expect(answer).toMatch(/cancelliamo|deleted|borramos|gelöscht|supprimé/i)
   })
 })
