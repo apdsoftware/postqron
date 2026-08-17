@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Postqron — marchio, secondo giro</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--primary:#4278e5;--deep:#1e3056;--text:#6f8ba4;--page:#f7fafd;--border:#e2ebff}
+  *{box-sizing:border-box}
+  body{margin:0;padding:38px;background:var(--page);font-family:Quicksand,system-ui,sans-serif;color:var(--deep)}
+  h1{font-size:21px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--text);font-size:13.5px;margin:0 0 28px}
+  .row{display:grid;grid-template-columns:158px 1fr;gap:22px;align-items:center;
+       background:#fff;border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:14px}
+  .name{font-weight:600;font-size:14.5px}
+  .name span{display:block;font-weight:400;font-size:12px;color:var(--text);margin-top:5px;line-height:1.45}
+  .tests{display:flex;align-items:center;gap:30px;flex-wrap:wrap}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .cap{font-size:9.5px;color:#9db0c4;letter-spacing:.04em;text-transform:uppercase}
+  .dark{background:var(--deep);border-radius:9px;padding:8px}
+  .lock{display:flex;align-items:center;gap:9px}
+  .word{font-weight:600;font-size:22px;letter-spacing:-.015em}
+  .tiny{display:flex;gap:6px;align-items:flex-end}
+</style>
+</head>
+<body>
+<h1>Postqron — secondo giro</h1>
+<p class="sub">Corretti i due difetti del primo: graffe che non si leggevano a piccole dimensioni, lancette ambigue senza quadrante</p>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/>
+  </linearGradient>
+
+  <!-- A1 · graffe tipografiche con battito -->
+  <g id="A1">
+    <path d="M18 8 C15.5 8 15.5 10 15.5 12.5 L15.5 20 C15.5 22.5 13.5 23.2 12 24
+             C13.5 24.8 15.5 25.5 15.5 28 L15.5 35.5 C15.5 38 15.5 40 18 40"
+          fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M30 8 C32.5 8 32.5 10 32.5 12.5 L32.5 20 C32.5 22.5 34.5 23.2 36 24
+             C34.5 24.8 32.5 25.5 32.5 28 L32.5 35.5 C32.5 38 32.5 40 30 40"
+          fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="19.6" cy="24" r="1.9" fill="currentColor"/>
+    <circle cx="24"   cy="24" r="2.9" fill="currentColor"/>
+    <circle cx="28.4" cy="24" r="1.9" fill="currentColor"/>
+  </g>
+
+  <!-- A2 · parentesi angolari con battito -->
+  <g id="A2">
+    <path d="M18 11 L9 24 L18 37" fill="none" stroke="currentColor"
+          stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M30 11 L39 24 L30 37" fill="none" stroke="currentColor"
+          stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="20" cy="24" r="1.8" fill="currentColor"/>
+    <circle cx="24" cy="24" r="2.8" fill="currentColor"/>
+    <circle cx="28" cy="24" r="1.8" fill="currentColor"/>
+  </g>
+
+  <!-- D1 · quadrante fra parentesi quadre -->
+  <g id="D1">
+    <path d="M16.5 7 H9.5 V41 H16.5" fill="none" stroke="currentColor"
+          stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M31.5 7 H38.5 V41 H31.5" fill="none" stroke="currentColor"
+          stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="24" cy="24" r="8.2" fill="none" stroke="currentColor" stroke-width="3.2"/>
+    <path d="M24 24 V19 M24 24 L27.6 26.2" fill="none" stroke="currentColor"
+          stroke-width="2.6" stroke-linecap="round"/>
+  </g>
+
+  <!-- D2 · righe di configurazione fra parentesi quadre -->
+  <g id="D2">
+    <path d="M16.5 7 H9.5 V41 H16.5" fill="none" stroke="currentColor"
+          stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M31.5 7 H38.5 V41 H31.5" fill="none" stroke="currentColor"
+          stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M19 17 H29" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <path d="M19 24 H25.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <path d="M19 31 H27.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="29.4" cy="24" r="2.3" fill="currentColor"/>
+  </g>
+</defs></svg>
+
+<div id="out"></div>
+<script>
+const props = [
+  ['A1','Graffe tipografiche','Ridisegnate sulla forma reale della graffa: stelo dritto e sporgenza centrale, invece della curva continua che sembrava un occhio.'],
+  ['A2','Parentesi angolari','La stessa idea con la geometria piu semplice possibile. Tre segmenti retti: e la variante che regge meglio a 16 px.'],
+  ['D1','Quadrante fra parentesi','Le lancette ora hanno un quadrante attorno. Era la loro assenza a farle leggere come un 4.'],
+  ['D2','Configurazione fra parentesi','Senza orologio: tre righe di lunghezza diversa, una marcata. Dice file e struttura, non tempo.'],
+];
+document.getElementById('out').innerHTML = props.map(([id,nome,desc]) => `
+  <div class="row">
+    <div class="name">${id} · ${nome}<span>${desc}</span></div>
+    <div class="tests">
+      <div class="cell"><div class="cap">colore</div>
+        <svg width="50" height="50" viewBox="0 0 48 48" style="color:#4278e5"><use href="#${id}"/></svg></div>
+      <div class="cell"><div class="cap">gradiente</div>
+        <svg width="50" height="50" viewBox="0 0 48 48"><g fill="url(#g)" stroke="url(#g)"><use href="#${id}"/></g></svg></div>
+      <div class="cell"><div class="cap">mono</div>
+        <svg width="50" height="50" viewBox="0 0 48 48" style="color:#1e3056"><use href="#${id}"/></svg></div>
+      <div class="cell"><div class="cap">invertita</div>
+        <div class="dark"><svg width="50" height="50" viewBox="0 0 48 48" style="color:#fff"><use href="#${id}"/></svg></div></div>
+      <div class="cell"><div class="cap">24 / 16 px</div>
+        <div class="tiny">
+          <svg width="24" height="24" viewBox="0 0 48 48" style="color:#1e3056"><use href="#${id}"/></svg>
+          <svg width="16" height="16" viewBox="0 0 48 48" style="color:#1e3056"><use href="#${id}"/></svg>
+        </div></div>
+      <div class="cell"><div class="cap">lockup</div>
+        <div class="lock">
+          <svg width="32" height="32" viewBox="0 0 48 48" style="color:#4278e5"><use href="#${id}"/></svg>
+          <span class="word">Postqron</span></div></div>
+    </div>
+  </div>`).join('');
+</script>
+</body>
+</html>
