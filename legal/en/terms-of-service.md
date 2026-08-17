@@ -37,9 +37,20 @@ You are responsible for what happens under your account, for keeping credentials
 secure, and for the people you invite into your workspace. Tell us promptly if you
 believe your account has been compromised.
 
-You must be at least
-16 years old
-and, if you act for an organisation, authorised to bind it.
+You must be at least 16 years old and, if you act for an organisation, authorised to
+bind it.
+
+**Postqron is offered for professional use.** It is a tool for developers, businesses
+and organisations, and by creating an account you confirm that you are using it in the
+course of a trade, business, craft or profession — not as a consumer. This is why our
+prices are shown excluding VAT: for a business, the net figure is the one that
+matters, because it is the one you deduct.
+
+We are not trying to be clever with this. If you are buying as a private individual
+for purely personal purposes, this is not the right service for you, and the consumer
+protections you would otherwise have — including the withdrawal rights described in
+§4.3 — are drafted on the assumption that they do not apply. Where the law says
+otherwise for your situation, the law wins.
 
 ## 4. Plans, limits and payment
 

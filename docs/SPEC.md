@@ -493,20 +493,24 @@ parte dell'offerta.
 - **R61-bis — I prezzi sono al netto dell'IVA.** Gli importi di §8 sono **IVA
   esclusa**: Paddle calcola e aggiunge l'imposta sul paese del cliente in quanto
   Merchant of Record. Il cliente italiano paga €9 + 22%, non €9.
-  **Il sito mostra il prezzo comprensivo di imposta**, perché verso i consumatori
-  l'Unione Europea richiede che il prezzo esposto sia quello finale. La cifra a listino
-  resta il netto e resta la fonte di verità su Paddle: è la *presentazione* a essere
-  lorda.
-  **L'aliquota dipende dal paese** — 22% in Italia, 19% in Germania, 20% in Francia,
-  21% in Spagna — quindi «IVA inclusa» non è un numero unico e non può essere una
-  costante nei contenuti. Il prezzo mostrato va chiesto a Paddle per il paese del
-  visitatore, non calcolato da noi: l'aliquota corretta, le sue variazioni e i casi
-  particolari sono competenza del Merchant of Record.
-  Conseguenza sul modello statico (§2): la cifra diventa **dinamica su una pagina
-  pre-renderizzata**. Serve un valore di partenza pre-renderizzato — utile anche a chi
-  ha JavaScript disattivato e ai motori di ricerca — sostituito dal prezzo localizzato
-  quando la risposta arriva. La pagina non deve mai mostrare una cifra priva di
-  indicazione su cosa comprende.
+  **Il sito espone il netto con l'indicazione dell'imposta accanto al prezzo**, in ogni
+  punto in cui compare una cifra. Un «€9/mese» privo di indicazione è un difetto.
+  L'indicazione è **testo tradotto**, non un suffisso fisso: «+ VAT», «+ IVA»,
+  «+ MwSt.», «+ TVA» seguono le regole di §8-bis come qualunque altra stringa.
+- **R63 — PostQron è offerto per uso professionale.** Questa non è una preferenza
+  commerciale, è **il presupposto che rende legittima l'esposizione del netto**. Verso i
+  consumatori l'Unione Europea richiede che il prezzo esposto sia quello finale,
+  comprensivo di imposta; verso le imprese il netto è corretto ed è il numero utile,
+  perché è quello che l'acquirente detrae.
+  La posizione regge solo se è praticata, non solo dichiarata:
+  - i Termini dichiarano che il servizio è offerto a professionisti e organizzazioni;
+  - la registrazione chiede **conferma esplicita di uso professionale**, non una
+    casella preselezionata sepolta nel modulo;
+  - il checkout raccoglie i dati di fatturazione aziendali, partita IVA compresa dove
+    prevista, e Paddle applica l'inversione contabile dove dovuta.
+
+  Dichiarare l'uso professionale e poi lasciar acquistare chiunque senza chiederlo è
+  la posizione peggiore delle due: si perde la difesa senza guadagnare il mercato.
 - **R61 — Valuta unica in euro.** I prezzi sono in **euro** e **non seguono la
   lingua**: le cinque localizzazioni (§8-bis) mostrano gli stessi importi. La
   conversione e la presentazione in valuta locale, dove avvengono, sono competenza di
