@@ -210,7 +210,7 @@ func beforeJobCursor(job jobs.Job, cursor jobs.JobCursor) bool {
 }
 
 // UpdateJob riscrive le colonne modificabili.
-func (s *Store) UpdateJob(_ context.Context, job jobs.Job) (jobs.Job, error) {
+func (s *Store) UpdateJob(_ context.Context, job jobs.Job, resetNextRun bool) (jobs.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.fail("UpdateJob"); err != nil {
@@ -228,6 +228,13 @@ func (s *Store) UpdateJob(_ context.Context, job jobs.Job) (jobs.Job, error) {
 	}
 	job.CreatedAt = current.CreatedAt
 	job.UpdatedAt = s.Now()
+	// Come il `CASE` di jobspg: o si azzera, o si lascia dov'era. Il valore
+	// portato dal job non arriva mai alla colonna.
+	if resetNextRun {
+		job.NextRunAt = nil
+	} else {
+		job.NextRunAt = current.NextRunAt
+	}
 	s.jobs[job.ID] = job
 	return job, nil
 }

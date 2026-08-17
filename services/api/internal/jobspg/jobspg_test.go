@@ -322,25 +322,48 @@ func TestAggiornamentoEdEliminazione(t *testing.T) {
 		t.Fatalf("CreateJob: %v", err)
 	}
 
+	// Con `resetNextRun = false` la colonna resta dov'era, **anche se il job in
+	// mano al chiamante ne porta un'altra**: è la protezione contro
+	// l'aggiornamento perso ai danni dello scheduler, che la fa avanzare fra la
+	// lettura e la scrittura.
+	sorpasso := created.CreatedAt.Add(90 * time.Minute).Truncate(time.Second)
+	if _, err := pool.Exec(t.Context(),
+		`UPDATE jobs SET next_run_at = $2 WHERE id = $1::uuid`, created.ID, sorpasso); err != nil {
+		t.Fatalf("avanzamento simulato dello scheduler: %v", err)
+	}
+
 	created.Name = "digest-serale"
-	created.Schedule = ""
-	created.Every = 5 * time.Minute
 	created.Enabled = false
-	created.NextRunAt = nil
+	created.NextRunAt = nil // ignorato: decide il flag, non il campo
 	created.Headers = map[string]string{}
 
-	updated, err := store.UpdateJob(t.Context(), created)
+	updated, err := store.UpdateJob(t.Context(), created, false)
 	if err != nil {
 		t.Fatalf("UpdateJob: %v", err)
 	}
-	if updated.Name != "digest-serale" || updated.Every != 5*time.Minute || updated.Schedule != "" {
+	if updated.Name != "digest-serale" {
 		t.Errorf("aggiornamento non applicato: %+v", updated)
 	}
 	if updated.Enabled {
 		t.Error("il job non è stato messo in pausa")
 	}
+	if updated.NextRunAt == nil || !updated.NextRunAt.Equal(sorpasso) {
+		t.Fatalf("next_run_at = %v, atteso %s intatto: l'avanzamento dello scheduler è stato sovrascritto",
+			updated.NextRunAt, sorpasso)
+	}
+
+	// Con `true` la colonna si azzera, ed è così che l'API dice «ricalcolala».
+	updated.Schedule = ""
+	updated.Every = 5 * time.Minute
+	updated, err = store.UpdateJob(t.Context(), updated, true)
+	if err != nil {
+		t.Fatalf("UpdateJob con reset: %v", err)
+	}
+	if updated.Every != 5*time.Minute || updated.Schedule != "" {
+		t.Errorf("cambio di modalità non applicato: %+v", updated)
+	}
 	if updated.NextRunAt != nil {
-		t.Errorf("next_run_at = %v, atteso nullo", updated.NextRunAt)
+		t.Errorf("next_run_at = %v, attesa azzerata", updated.NextRunAt)
 	}
 	// Il trigger `jobs_set_updated_at` della 0005 tiene la colonna allineata
 	// senza dipendere dal chiamante.

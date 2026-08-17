@@ -17,6 +17,11 @@ import (
 const utente = "11111111-1111-4111-8111-111111111111"
 const altroUtente = "22222222-2222-4222-8222-222222222222"
 
+// istanteDiProva è l'ora da cui parte ogni banco. È un minuto tondo perché il
+// tetto al trigger manuale lavora su una griglia, e partire a metà casella
+// renderebbe i conti dei test dipendenti dall'ora scelta.
+var istanteDiProva = time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
+
 // orologio è un tempo che i test fanno avanzare a mano: il tetto al trigger
 // manuale è una griglia temporale, e verificarla aspettando davvero renderebbe
 // la suite lenta e instabile.
@@ -41,12 +46,14 @@ func (c *orologio) avanza(d time.Duration) {
 type dispatcherFinto struct {
 	mu       sync.Mutex
 	ricevute []jobs.Execution
+	err      error
 }
 
-func (d *dispatcherFinto) Notify(_ context.Context, exec jobs.Execution) {
+func (d *dispatcherFinto) Dispatch(_ context.Context, exec jobs.Execution) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.ricevute = append(d.ricevute, exec)
+	return d.err
 }
 
 func (d *dispatcherFinto) count() int {
@@ -66,7 +73,7 @@ type banco struct {
 func newBanco(t *testing.T) *banco {
 	t.Helper()
 
-	clock := &orologio{now: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)}
+	clock := &orologio{now: istanteDiProva}
 	store := jobstest.NewStore()
 	store.Now = clock.Now
 	dispatcher := &dispatcherFinto{}
@@ -105,13 +112,12 @@ func TestCreazione(t *testing.T) {
 	if created.UserID != utente {
 		t.Errorf("user_id = %q", created.UserID)
 	}
-	// `next_run_at` alimenta `jobs_due_idx`: senza, il job appena creato non
-	// comparirebbe mai nella query del dispatch e non partirebbe.
-	if created.NextRunAt == nil {
-		t.Fatal("il job creato non ha una prossima occorrenza: non partirebbe mai")
-	}
-	if !created.NextRunAt.After(b.clock.Now()) {
-		t.Errorf("next_run_at = %s, non successiva a adesso", created.NextRunAt)
+	// `next_run_at` è dello scheduler, anche il primo valore: la migrazione 0010
+	// nomina proprio questo caso — «un job appena creato da API ... nasce con la
+	// colonna a NULL» — e ci costruisce sopra `jobs_unscheduled_idx`. Calcolarla
+	// qui sarebbe una seconda copia della stessa verità.
+	if created.NextRunAt != nil {
+		t.Errorf("next_run_at = %s: la colonna è dello scheduler (0005, 0010), l'API non la calcola", created.NextRunAt)
 	}
 	if created.RepositoryID != "" {
 		t.Errorf("l'API non deve creare job gestiti da un repository, repository_id = %q", created.RepositoryID)
@@ -298,26 +304,54 @@ func TestModificaCheViolaIlPiano(t *testing.T) {
 	}
 }
 
-func TestModificaCheDisattivaAzzeraLaProssimaOccorrenza(t *testing.T) {
-	b := newBanco(t)
-	created := b.crea(validJob())
+// TestLaModificaAzzeraLaProssimaOccorrenzaSoloQuandoServe.
+//
+// L'API non calcola mai `next_run_at`, ma decide quando invalidarla. Sbagliare
+// in un verso lascia un job che parte all'orario della schedulazione vecchia;
+// sbagliare nell'altro è un aggiornamento perso ai danni dello scheduler, che
+// quella colonna la fa avanzare in continuazione.
+func TestLaModificaAzzeraLaProssimaOccorrenzaSoloQuandoServe(t *testing.T) {
+	// Il job parte con la prossima occorrenza già scritta, come l'avrebbe
+	// lasciata lo scheduler dopo la sua prima passata.
+	prossima := istanteDiProva.Add(time.Hour)
 
-	spento := false
-	updated, err := b.svc.Update(t.Context(), utente, created.ID, jobs.Patch{Enabled: &spento})
-	if err != nil {
-		t.Fatalf("pausa: %v", err)
-	}
-	if updated.NextRunAt != nil {
-		t.Errorf("next_run_at = %s per un job in pausa: sarebbe una riga inutile in jobs_due_idx", updated.NextRunAt)
+	cases := []struct {
+		nome     string
+		patch    func() jobs.Patch
+		azzerata bool
+	}{
+		{"pausa", func() jobs.Patch { spento := false; return jobs.Patch{Enabled: &spento} }, true},
+		{"cambio di espressione", func() jobs.Patch { e := "0 18 * * *"; return jobs.Patch{Schedule: &e} }, true},
+		{"cambio di fuso", func() jobs.Patch { tz := "UTC"; return jobs.Patch{Timezone: &tz} }, true},
+		{"cambio di modalità", func() jobs.Patch { every := 5 * time.Minute; return jobs.Patch{Every: &every} }, true},
+		{"solo la descrizione", func() jobs.Patch { d := "nuova"; return jobs.Patch{Description: &d} }, false},
+		{"solo il timeout", func() jobs.Patch { t := 10 * time.Second; return jobs.Patch{Timeout: &t} }, false},
+		{"solo l'URL", func() jobs.Patch { u := "https://example.com/altro"; return jobs.Patch{URL: &u} }, false},
 	}
 
-	acceso := true
-	updated, err = b.svc.Update(t.Context(), utente, created.ID, jobs.Patch{Enabled: &acceso})
-	if err != nil {
-		t.Fatalf("riattivazione: %v", err)
-	}
-	if updated.NextRunAt == nil {
-		t.Error("un job riattivato deve tornare ad avere una prossima occorrenza")
+	for _, tc := range cases {
+		t.Run(tc.nome, func(t *testing.T) {
+			b := newBanco(t)
+			b.store.SetPlan(utente, planTeam())
+
+			job := validJob()
+			job.UserID = utente
+			job.NextRunAt = &prossima
+			seminato := b.store.Seed(job)
+
+			updated, err := b.svc.Update(t.Context(), utente, seminato.ID, tc.patch())
+			if err != nil {
+				t.Fatalf("modifica: %v", err)
+			}
+
+			if tc.azzerata && updated.NextRunAt != nil {
+				t.Errorf("next_run_at = %s, attesa azzerata: lo scheduler deve ricalcolarla", updated.NextRunAt)
+			}
+			if !tc.azzerata && (updated.NextRunAt == nil || !updated.NextRunAt.Equal(prossima)) {
+				t.Errorf("next_run_at = %v, attesa intatta (%s): riscriverla è un aggiornamento perso",
+					updated.NextRunAt, prossima)
+			}
+		})
 	}
 }
 

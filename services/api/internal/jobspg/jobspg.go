@@ -263,7 +263,12 @@ func (s *Store) ListJobs(ctx context.Context, filter jobs.JobFilter) ([]jobs.Job
 }
 
 // UpdateJob riscrive le colonne modificabili di un job.
-func (s *Store) UpdateJob(ctx context.Context, job jobs.Job) (jobs.Job, error) {
+//
+// `next_run_at` è l'eccezione: o la si azzera, o la si lascia dov'è. Il `CASE`
+// nella SET evita di riscriverla con il valore letto poco prima, che sarebbe un
+// aggiornamento perso ai danni dello scheduler — la colonna è sua (0005, 0010) e
+// lui la fa avanzare a ogni passata.
+func (s *Store) UpdateJob(ctx context.Context, job jobs.Job, resetNextRun bool) (jobs.Job, error) {
 	headers, err := json.Marshal(nonNilHeaders(job.Headers))
 	if err != nil {
 		return jobs.Job{}, fmt.Errorf("jobspg: serializzazione degli header: %w", err)
@@ -275,7 +280,8 @@ func (s *Store) UpdateJob(ctx context.Context, job jobs.Job) (jobs.Job, error) {
 		    environments = $8::text[]::environment[], url = $9, method = $10::http_method,
 		    headers = $11::jsonb, body = $12, timeout_seconds = $13,
 		    max_retries = $14, retry_backoff = $15::retry_backoff,
-		    alert_on_failure = $16::text[]::alert_channel[], enabled = $17, next_run_at = $18
+		    alert_on_failure = $16::text[]::alert_channel[], enabled = $17,
+		    next_run_at = CASE WHEN $18::boolean THEN NULL ELSE jobs.next_run_at END
 		  WHERE id = $2::uuid AND user_id = $1::uuid
 		 RETURNING `+jobColumns,
 		job.UserID, job.ID, job.Name, nullable(job.Description),
@@ -283,7 +289,7 @@ func (s *Store) UpdateJob(ctx context.Context, job jobs.Job) (jobs.Job, error) {
 		stringsOf(job.Environments), job.URL, string(job.Method), headers, nullable(job.Body),
 		int32(job.Timeout/time.Second),
 		int16(job.MaxRetries), string(job.RetryBackoff), stringsOf(job.AlertOnFailure),
-		job.Enabled, job.NextRunAt)
+		job.Enabled, resetNextRun)
 
 	updated, err := scanJob(row)
 	if err == nil {

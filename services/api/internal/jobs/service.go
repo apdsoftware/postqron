@@ -12,22 +12,39 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/ratelimit"
 )
 
-// Dispatcher avvisa il motore che c'è un'esecuzione da servire subito.
+// Dispatcher consegna a chi esegue l'occorrenza nata da un trigger manuale.
 //
-// Il motore (issue #388) è l'unico che esegue: l'API non fa richieste HTTP verso
-// il target, mai. Un trigger manuale è una **riga in `job_executions`** con
-// `triggered_by = 'manual'` e stato `pending`, che è la stessa forma con cui il
-// motore prende in carico un'occorrenza schedulata (R4, migrazione 0006).
+// L'API non fa richieste HTTP verso il target, mai. Un trigger manuale è una
+// **riga in `job_executions`** con `triggered_by = 'manual'` e stato `pending`,
+// che è la stessa forma con cui il motore prende in carico un'occorrenza
+// schedulata (R4, migrazione 0006).
 //
-// Con Dispatcher nil il motore la trova al giro successivo del suo ciclo: la
-// riga c'è, l'esecuzione avverrà. L'interfaccia esiste perché quando #388 avrà
-// una coda in memoria possa svegliarla subito invece di far aspettare l'utente
-// che ha appena premuto «esegui adesso», e perché il confine sia dichiarato
-// adesso invece che scoperto al merge.
+// # Perché non è opzionale come sembra
+//
+// La forma della riga è la stessa, ma il padrone no. Lo scheduler (#388)
+// filtra `triggered_by = 'schedule'` sia nel recupero delle occorrenze in
+// sospeso sia nella loro scadenza, e lo dichiara: «lo scheduler riprende ciò che
+// lo scheduler ha creato. Un trigger manuale (R8) e un retry (R5) nascono
+// altrove, hanno un padrone che sa quando riproporli». È una scelta giusta —
+// riproporre un «esegui adesso» dopo un riavvio, mezz'ora dopo, sarebbe la cosa
+// sbagliata — e la conseguenza è che **il padrone di questa riga è chi la
+// crea**, cioè qui.
+//
+// Quindi: con Dispatcher nil la riga viene registrata, contata e resta
+// consultabile, ma nessuno la esegue. Non è una degradazione temporanea
+// accettabile in silenzio — [Service.Trigger] lo scrive nel log a ogni
+// occorrenza — ed è ciò che il worker pool (#389) deve collegare qui quando
+// arriverà. L'adattatore va scritto in cmd/api, dove i due mondi si incontrano
+// senza conoscersi: questo package non importa internal/scheduler, perché l'API
+// non deve dipendere dal motore.
 type Dispatcher interface {
-	// Notify è un suggerimento, non una consegna: non deve bloccare e il suo
-	// errore non è un errore della richiesta HTTP.
-	Notify(ctx context.Context, exec Execution)
+	// Dispatch consegna l'occorrenza. La riga su `job_executions` esiste già:
+	// non va inserita di nuovo, ed è la stessa clausola del contratto di
+	// scheduler.Dispatcher.
+	//
+	// Non deve bloccare: se non può accodare restituisce un errore, e
+	// l'occorrenza resta `pending`.
+	Dispatch(ctx context.Context, exec Execution) error
 }
 
 // Options sono le dipendenze del [Service].
@@ -234,6 +251,15 @@ func (s *Service) Create(ctx context.Context, userID string, job Job) (Job, erro
 	// riconciliazione di un `cron.yaml` (R13, issue #421).
 	job.RepositoryID = ""
 	job.ArchivedAt = nil
+	// `next_run_at` non si calcola qui. La colonna è dello scheduler —
+	// «calcolato dallo scheduler» dice la 0005, e la migrazione 0010 lo scrive
+	// per esteso nominando proprio questo caso: «un job appena creato da API ...
+	// nasce con la colonna a NULL». Da lì cade in `jobs_unscheduled_idx`, dove
+	// il motore lo raccoglie alla passata successiva. Calcolarla anche qui
+	// sarebbe una seconda copia della stessa verità, libera di divergere dalla
+	// prima il giorno in cui lo scheduler applica una finestra di recupero o una
+	// tolleranza.
+	job.NextRunAt = nil
 
 	if err := job.Validate(ctx, plan, s.guard); err != nil {
 		return Job{}, err
@@ -246,8 +272,6 @@ func (s *Service) Create(ctx context.Context, userID string, job Job) (Job, erro
 	if err := plan.CheckJobCount(count); err != nil {
 		return Job{}, err
 	}
-
-	job.NextRunAt = job.NextRun(s.now())
 
 	created, err := s.store.CreateJob(ctx, job, plan.MaxJobs)
 	if errors.Is(err, ErrJobLimitReached) {
@@ -369,9 +393,33 @@ func (s *Service) Update(ctx context.Context, userID, jobID string, patch Patch)
 	if err := updated.Validate(ctx, plan, s.guard); err != nil {
 		return Job{}, err
 	}
-	updated.NextRunAt = updated.NextRun(s.now())
+	return s.store.UpdateJob(ctx, updated, mustResetNextRun(current, updated))
+}
 
-	return s.store.UpdateJob(ctx, updated)
+// mustResetNextRun decide se la modifica invalida la prossima occorrenza.
+//
+// L'API non calcola mai `jobs.next_run_at` — è dello scheduler (0005, e la 0010
+// lo scrive per esteso) — ma deve poterla **azzerare**, che è il modo di dire
+// «ricalcolala». Sono due i casi, e sono diversi fra loro:
+//
+//   - il job non è più eseguibile: è la stessa condizione di `jobs_due_idx`, e
+//     lasciarci un valore vorrebbe dire tenere una riga di indice che promette
+//     un'esecuzione che non avverrà;
+//   - la schedulazione è cambiata: senza azzerarla il job continuerebbe a
+//     partire all'orario di quella vecchia fino alla prima occorrenza dopo il
+//     cambio. NULL lo fa ricadere in `jobs_unscheduled_idx`, da cui il motore lo
+//     riprende alla passata successiva.
+//
+// Fuori da questi due casi la colonna **non si tocca**: riscriverla con il
+// valore letto poco prima sarebbe un aggiornamento perso ai danni dello
+// scheduler, che nel frattempo può averla fatta avanzare.
+func mustResetNextRun(current, updated Job) bool {
+	if !updated.Runnable() {
+		return true
+	}
+	return current.Schedule != updated.Schedule ||
+		current.Every != updated.Every ||
+		current.Timezone != updated.Timezone
 }
 
 // Delete elimina un job.
@@ -468,14 +516,35 @@ func (s *Service) Trigger(ctx context.Context, userID, jobID string, env Environ
 		return Execution{}, err
 	}
 
-	if s.dispatcher != nil {
-		s.dispatcher.Notify(ctx, created)
-	}
-	s.log.InfoContext(ctx, "esecuzione manuale registrata",
+	attributes := []any{
 		slog.String("job_id", job.ID),
 		slog.String("user_id", userID),
 		slog.String("environment", string(target)),
-		slog.Time("scheduled_for", slot))
+		slog.Time("scheduled_for", slot),
+	}
+
+	if s.dispatcher == nil {
+		// La riga c'è, ma non la eseguirà nessuno: lo scheduler non raccoglie i
+		// trigger manuali, per scelta dichiarata (vedi [Dispatcher]). Va detto a
+		// ogni occorrenza e non una volta all'avvio, perché è l'unico posto in
+		// cui il fatto è collegabile alla richiesta che l'ha prodotto.
+		s.log.WarnContext(ctx,
+			"esecuzione manuale registrata ma non consegnata: nessun dispatcher collegato (issue #389)",
+			attributes...)
+		return created, nil
+	}
+
+	if err := s.dispatcher.Dispatch(ctx, created); err != nil {
+		// La riga resta `pending`, e chi ha rifiutato la consegna — coda piena,
+		// arresto in corso — sa che è lì. La richiesta non fallisce: ciò che
+		// l'utente ha chiesto è stato registrato, ed è la registrazione che il
+		// 202 promette.
+		s.log.WarnContext(ctx, "esecuzione manuale registrata ma non accodata",
+			append(attributes, slog.Any("error", err))...)
+		return created, nil
+	}
+
+	s.log.InfoContext(ctx, "esecuzione manuale registrata", attributes...)
 	return created, nil
 }
 

@@ -376,51 +376,5 @@ func TestOrdineDegliErroriStabile(t *testing.T) {
 	}
 }
 
-// ------------------------------------------------------------------ next run
-
-func TestNextRun(t *testing.T) {
-	now := time.Date(2026, 8, 17, 8, 0, 0, 0, time.UTC)
-
-	t.Run("cron", func(t *testing.T) {
-		job := validJob() // 09:00 a Roma = 07:00 UTC in estate
-		next := job.NextRun(now)
-		if next == nil {
-			t.Fatal("un job cron valido deve avere una prossima occorrenza")
-		}
-		want := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
-		if !next.Equal(want) {
-			t.Errorf("next_run_at = %s, atteso %s", next, want)
-		}
-	})
-
-	t.Run("job in pausa", func(t *testing.T) {
-		job := validJob()
-		job.Enabled = false
-		// La colonna alimenta `jobs_due_idx`, che è parziale su `enabled`: un
-		// valore lì per un job in pausa sarebbe una riga di indice inutile e una
-		// promessa falsa.
-		if next := job.NextRun(now); next != nil {
-			t.Errorf("un job in pausa non ha prossima occorrenza, ottenuto %s", next)
-		}
-	})
-
-	t.Run("job archiviato", func(t *testing.T) {
-		job := validJob()
-		archived := now
-		job.ArchivedAt = &archived
-		if next := job.NextRun(now); next != nil {
-			t.Errorf("un job archiviato non ha prossima occorrenza, ottenuto %s", next)
-		}
-	})
-
-	t.Run("data impossibile", func(t *testing.T) {
-		job := validJob()
-		job.Schedule = "0 0 30 2 *" // il 30 febbraio non esiste
-		if next := job.NextRun(now); next != nil {
-			t.Errorf("un'espressione senza occorrenze non ha prossima occorrenza, ottenuto %s", next)
-		}
-	})
-}
-
 // ptr rende indirizzabile un job costruito al volo.
 func ptr(job jobs.Job) *jobs.Job { return &job }

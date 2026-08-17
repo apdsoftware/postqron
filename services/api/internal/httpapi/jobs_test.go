@@ -236,8 +236,11 @@ func TestContrattoDelJob(t *testing.T) {
 	if job.Request.Body == nil || *job.Request.Body != `{"kind":"daily"}` {
 		t.Errorf("body = %v", job.Request.Body)
 	}
-	if job.NextRunAt == nil {
-		t.Error("next_run_at nullo su un job attivo: non partirebbe mai")
+	// `next_run_at` nasce nulla: la colonna è dello scheduler, anche il primo
+	// valore (migrazione 0010). Il client la vede comparire alla prima passata
+	// del motore, ed è il campo che gli dice quando aspettarsi l'esecuzione.
+	if job.NextRunAt != nil {
+		t.Errorf("next_run_at = %s alla creazione: la calcola lo scheduler", job.NextRunAt)
 	}
 	// I default della 0005 compaiono nella risposta invece di essere sostituiti in
 	// silenzio dal database.

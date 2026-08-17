@@ -56,7 +56,13 @@ type Store interface {
 	// UpdateJob riscrive le colonne modificabili di un job. Il job porta già
 	// l'esito dell'applicazione della patch e della validazione: qui non si
 	// decide più niente.
-	UpdateJob(ctx context.Context, job Job) (Job, error)
+	//
+	// `resetNextRun` azzera `jobs.next_run_at`; con `false` la colonna resta
+	// **intatta** e `job.NextRunAt` viene ignorato. La distinzione esiste perché
+	// quella colonna è dello scheduler (0005, 0010): riscriverla con il valore
+	// letto poco prima sarebbe un aggiornamento perso ogni volta che il motore la
+	// fa avanzare fra la lettura e la scrittura.
+	UpdateJob(ctx context.Context, job Job, resetNextRun bool) (Job, error)
 
 	// DeleteJob elimina un job dell'utente. Le esecuzioni seguono per
 	// `ON DELETE CASCADE` (0006).

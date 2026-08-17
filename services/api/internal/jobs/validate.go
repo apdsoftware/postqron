@@ -319,33 +319,6 @@ func (j *Job) validateExecution(invalid *ValidationError) {
 	}
 }
 
-// NextRun calcola la prossima occorrenza da scrivere in `jobs.next_run_at`.
-//
-// Lo scheduler (#388) è il proprietario della colonna e la ricalcola dopo ogni
-// dispatch, ma il **primo** valore deve scriverlo chi crea il job: senza,
-// `jobs_due_idx` — che è parziale su `next_run_at IS NOT NULL` — non contiene
-// il job appena creato, e quel job non partirebbe mai.
-//
-// Un job in pausa o archiviato non ha prossima occorrenza: è la stessa
-// condizione dell'indice.
-func (j Job) NextRun(now time.Time) *time.Time {
-	if !j.Runnable() {
-		return nil
-	}
-	parsed, err := schedule.Parse(j.Spec())
-	if err != nil {
-		return nil
-	}
-	next, ok := parsed.Next(now)
-	if !ok {
-		// Un'espressione su una data impossibile (`0 0 30 2 *`) non ha
-		// occorrenze: il job resta valido e non parte mai, che è esattamente
-		// ciò che è stato chiesto.
-		return nil
-	}
-	return &next
-}
-
 func joinEnvironments(values []Environment) string { return joinStringy(values) }
 func joinMethods(values []Method) string           { return joinStringy(values) }
 func joinBackoffs(values []Backoff) string         { return joinStringy(values) }
