@@ -122,6 +122,57 @@ produzione: il backend Go è l'unica origin dinamica.
 
 ---
 
+### 3.7 Sicurezza dell'esecuzione
+
+PostQron esegue richieste HTTP verso URL scelti dall'utente, **dalla stessa macchina
+su cui girano l'API e il database** (§2). Senza i vincoli che seguono il prodotto è
+uno strumento d'attacco, non un servizio.
+
+- **R38 — Nessuna richiesta verso l'interno.** Sono rifiutati loopback, indirizzi
+  privati, link-local, l'endpoint di metadata delle piattaforme cloud
+  (`169.254.169.254`) e gli indirizzi riservati, in IPv4 e IPv6. Il controllo si
+  applica **all'indirizzo risolto, non al nome**, e **si ripete su ogni redirect**:
+  un nome che risolve a un indirizzo pubblico al momento della validazione può
+  risolvere a uno interno al momento della richiesta. Il traffico in uscita del
+  motore non deve poter raggiungere il database né l'API.
+- **R39 — Difesa dall'abuso.** Un job `every: 1s` sono 86.400 richieste al giorno
+  verso un bersaglio scelto dall'utente, dal nostro IP. Servono un tetto alla
+  frequenza aggregata per host di destinazione, il rilevamento di più account che
+  puntano allo stesso bersaglio, e una procedura di sospensione. La reputazione
+  dell'IP in uscita è un bene condiviso da tutti i clienti.
+- **R40 — Tetti di esecuzione.** Timeout massimo, dimensione massima della risposta
+  letta e conservata, numero massimo di redirect seguiti. Sono limiti del servizio,
+  non preferenze del job: un job non può alzarli oltre il tetto del proprio piano.
+- **R41 — Esecuzioni sovrapposte.** Quando un'occorrenza scatta mentre la precedente
+  è ancora in corso, il comportamento è **esplicito e configurabile per job**:
+  saltare, accodare o consentire la sovrapposizione, con un valore predefinito
+  dichiarato. Con la risoluzione al secondo non è un caso raro, è la norma.
+
+### 3.8 Segreti del workspace
+
+Lo schema `cron.yaml` (§9) risolve `${VAR}` contro i segreti del workspace: è una
+funzionalità a sé, non un dettaglio del parser.
+
+- **R42 — Gestione dei segreti.** Creazione, aggiornamento, elenco e revoca dei
+  segreti di un workspace. **Cifrati a riposo**, mai restituiti in chiaro dall'API né
+  mostrati dopo il salvataggio, mai scritti nei log né nelle risposte conservate.
+- **R43 — Uso in esecuzione.** I segreti sono risolti al momento dell'esecuzione e
+  iniettati in URL, header e corpo. Un riferimento non risolvibile fa fallire la
+  **validazione** al sync, non l'esecuzione alle tre di notte. Il valore non compare
+  nei log di esecuzione, che sono visibili all'utente.
+
+### 3.9 Dati personali e conformità
+
+- **R44 — Esportazione dei dati.** L'utente ottiene i propri dati in formato
+  leggibile da una macchina: profilo, job, esecuzioni, workspace.
+- **R45 — Cancellazione.** Cancellazione dell'account e del workspace con conferma e
+  **periodo di sicurezza configurabile** prima della rimozione definitiva. La
+  cancellazione interrompe le esecuzioni e revoca le chiavi.
+- **R46 — Tracce del consenso.** Versione, data e lingua in cui il consenso è stato
+  prestato (§8-bis), per ogni documento legale.
+
+---
+
 ## 4. Interfacce
 
 ### 4.0 Identità di marca
@@ -376,3 +427,71 @@ funzione della piattaforma di hosting, non dello scheduler.
 
 L'IP statico dedicato del piano Agency (R26) ha senso proprio in questo modello: è
 utile perché le chiamate escono verso i clienti e devono attraversarne i firewall.
+
+---
+
+## 11. Affidabilità e impegni di servizio
+
+Il prodotto vende affidabilità: ciò che promette dev'essere misurabile e mantenuto.
+
+- **R47 — Precisione del dispatch.** I piani vendono risoluzioni di 1 minuto, 10
+  secondi e 1 secondo (§8). Va dichiarata la **tolleranza** con cui un'occorrenza
+  viene dispatchata rispetto all'orario dovuto, e misurata in esercizio. Senza un
+  numero, «risoluzione 1 secondo» è una frase di marketing.
+- **R48 — Backup e ripristino provato.** Backup periodici **e una procedura di
+  ripristino effettivamente eseguita**, non solo documentata, con tempo di recupero
+  e perdita massima di dati dichiarati. Un backup mai ripristinato non è un backup.
+- **R49 — Rischio dichiarato.** API, motore e database stanno sulla stessa VPS
+  (§2): è una scelta deliberata per la latenza, e comporta che il guasto di quella
+  macchina fermi il servizio. Il rischio è accettato e **va dichiarato**: nessun
+  impegno di servizio può promettere più di quanto una macchina sola garantisca.
+- **R50 — Comunicazione degli incidenti.** Quando il servizio è degradato, gli
+  utenti devono poterlo sapere da un canale che non dipende dal servizio stesso.
+
+---
+
+## 12. API pubblica
+
+PostQron è un prodotto *developer-first*: l'API non è un dettaglio realizzativo, è
+parte dell'offerta.
+
+- **R51 — Contratto documentato.** L'API pubblica ha una specifica OpenAPI
+  versionata insieme al codice, che descrive ciò che il servizio fa davvero.
+- **R52 — Versionamento e deprecazione.** Regola esplicita su come l'API evolve e
+  con quale preavviso una funzionalità viene ritirata.
+- **R53 — Semantica prevedibile.** Idempotenza sulle operazioni di scrittura,
+  errori con codici stabili adatti al branching applicativo, paginazione coerente.
+
+---
+
+## 13. Qualità dell'interfaccia
+
+- **R54 — Accessibilità.** L'interfaccia è conforme a **WCAG 2.2 livello AA**:
+  contrasto, navigazione da tastiera, focus visibile, ruoli e nomi accessibili,
+  rispetto della riduzione del movimento. È anche materia normata in UE.
+- **R55 — Percorso al primo job.** Dalla registrazione al primo cronjob eseguito con
+  successo: il percorso va progettato, non lasciato emergere. È la metrica che
+  decide se un utente resta.
+- **R56 — Stati vuoti e di errore.** Ogni vista dichiara cosa mostra senza dati, in
+  caricamento, e quando la richiesta fallisce.
+- **R57 — Notifiche in prodotto.** Gli eventi rilevanti sono visibili
+  nell'applicazione, non solo via email — il cui recapito non è osservabile (R20.1).
+
+---
+
+## 14. Fatturazione: comportamenti dichiarati
+
+- **R58 — Downgrade e superamento dei limiti.** Passando a un piano con limiti più
+  bassi — 200 job su Pro verso i 20 di Free — il comportamento è **esplicito**: quali
+  job restano attivi, con quale criterio si scelgono, cosa vede l'utente prima di
+  confermare. Lo stesso vale per il mancato pagamento e per la scadenza di un
+  abbonamento. Nessuna cancellazione silenziosa di lavoro dell'utente.
+- **R59 — Nessuna prova gratuita.** Il listino (§8) non prevede periodi di prova: il
+  piano Free è l'ingresso. Ogni affermazione contraria nell'interfaccia è un difetto.
+- **R60 — Accesso ai documenti fiscali.** L'utente accede a fatture e ricevute
+  emesse da Paddle in quanto Merchant of Record.
+- **R61 — Valuta e prezzi.** I prezzi di §8 sono in dollari. Con cinque lingue
+  (§8-bis) va deciso se la valuta mostrata cambia con la lingua o resta unica, e la
+  scelta va applicata in modo coerente fra sito, checkout e fatture.
+- **R62 — Fatturazione annuale.** Il listino prevede l'annuale solo su Pro. Va
+  deciso se estenderla a Team e Agency o dichiarare che è voluto.
