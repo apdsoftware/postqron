@@ -70,15 +70,25 @@ func TestKeyringFromEnvEsigeLaVariabile(t *testing.T) {
 	}
 }
 
-// Le due chiavi sono derivate con domini separati: un token di recupero password
-// e un token di sessione non devono poter essere scambiati l'uno per l'altro
-// nemmeno per effetto di un bug che confonda le due tabelle.
-func TestLeImpronteDeiDueDominiSonoDistinte(t *testing.T) {
+// Le chiavi sono derivate con domini separati: un token di recupero password, un
+// token di sessione e una chiave API non devono poter essere scambiati l'uno per
+// l'altro nemmeno per effetto di un bug che confonda le tabelle. Con lo stesso
+// valore in chiaro, le tre impronte devono essere tutte diverse.
+func TestLeImpronteDeiTreDominiSonoDistinte(t *testing.T) {
 	keyring := newTestKeyring(t)
 	const token = "lo-stesso-token"
 
-	if keyring.SessionHash(token) == keyring.UserTokenHash(token) {
-		t.Fatal("le due impronte coincidono: le chiavi non sono separate")
+	hashes := map[string]string{
+		"sessione":   keyring.SessionHash(token),
+		"monouso":    keyring.UserTokenHash(token),
+		"chiave API": keyring.APIKeyHash(token),
+	}
+	seen := map[string]string{}
+	for name, hash := range hashes {
+		if other, collides := seen[hash]; collides {
+			t.Fatalf("le impronte di %q e %q coincidono: le chiavi non sono separate", name, other)
+		}
+		seen[hash] = name
 	}
 }
 
@@ -106,9 +116,13 @@ func TestLImprontaDipendeDalSegreto(t *testing.T) {
 // codifica, l'INSERT fallirebbe in produzione e non in questo test.
 func TestLImprontaRispettaIlVincoloDelloSchema(t *testing.T) {
 	keyring := newTestKeyring(t)
+	// La stessa forma vale per `api_keys.key_hash`, il cui CHECK della 0002 esige
+	// almeno 32 caratteri: 64 li soddisfa, e l'unicità dell'indice su quella
+	// colonna è ciò che rende la ricerca della chiave una lettura indicizzata.
 	for name, hash := range map[string]string{
-		"sessione": keyring.SessionHash("token"),
-		"monouso":  keyring.UserTokenHash("token"),
+		"sessione":   keyring.SessionHash("token"),
+		"monouso":    keyring.UserTokenHash("token"),
+		"chiave API": keyring.APIKeyHash("token"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if len(hash) != 64 {
