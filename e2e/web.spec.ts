@@ -328,6 +328,49 @@ test.describe('peso del JavaScript (R53-bis)', () => {
   })
 })
 
+test.describe('carattere e stabilità del layout (R53-bis)', () => {
+  for (const locale of LOCALES) {
+    test(`/${locale}/ precarica il sottoinsieme latino di Quicksand, e solo quello`, async ({ request }) => {
+      // Il precarico è ciò che tiene il CLS a zero: senza, il carattere si
+      // scopre dopo il CSS, `font-display: swap` disegna il testo con quello di
+      // sistema e all'arrivo di Quicksand ogni parola si sposta dentro la
+      // propria riga. È una riga di `useHead()` in app.vue: sparisce senza far
+      // fallire niente, e il costo si vede solo rimisurando.
+      const html = await (await request.get(`/${locale}/`)).text()
+      const preloads = [...html.matchAll(/<link\b[^>]*\brel="preload"[^>]*>/g)].map(match => match[0])
+        .filter(tag => /\bas="font"/.test(tag))
+
+      expect(preloads, `precarichi di carattere su /${locale}/`).toHaveLength(1)
+      expect(preloads[0]).toContain('type="font/woff2"')
+      // Senza `crossorigin` il browser scarica il carattere due volte: i
+      // caratteri si richiedono sempre in modalità anonima, e un precarico che
+      // non lo dichiara non corrisponde alla richiesta vera.
+      expect(preloads[0]).toContain('crossorigin')
+
+      const href = /href="([^"]+)"/.exec(preloads[0]!)?.[1]
+      expect(href, 'il precarico deve indicare il sottoinsieme latino, non il latin-ext')
+        .toMatch(/quicksand-latin\.[A-Za-z0-9_-]+\.woff2$/)
+
+      // Il nome porta l'impronta del contenuto: se il precarico indicasse una
+      // versione vecchia il browser scaricherebbe due caratteri invece di uno,
+      // e la pagina resterebbe più lenta di prima.
+      expect((await request.get(href!)).status()).toBe(200)
+
+      // I fogli globali piccoli Nuxt li incorpora in un `<style>`: la @font-face
+      // sta lì, non in un file collegato. Vanno guardati tutti e due, altrimenti
+      // il controllo passerebbe per il motivo sbagliato.
+      const css = [...html.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/g)].map(match => match[1]!)
+      const sheets = [
+        ...[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]!),
+        ...await Promise.all(css.map(async src => (await request.get(src)).text())),
+      ].join('\n')
+
+      expect(sheets, 'nessuna @font-face nel CSS servito').toContain('@font-face')
+      expect(sheets, 'il precarico non corrisponde all\'URL che la @font-face chiede').toContain(href!)
+    })
+  }
+})
+
 test.describe('markup delle immagini servite', () => {
   test('ogni `<img>` dell\'HTML pre-renderizzato dichiara larghezza e altezza', async ({ request }) => {
     // Il gemello di questo controllo sta in apps/web/test/images.test.ts e legge
