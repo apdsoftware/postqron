@@ -166,6 +166,108 @@ test.describe('reperibilità (R53-ter)', () => {
   })
 })
 
+test.describe('peso delle immagini (R53-bis)', () => {
+  // Un telefono di fascia media: 390 px logici, due pixel fisici per uno. È la
+  // combinazione che decide quale variante il browser sceglie dal `srcset`, e
+  // fissarla qui è ciò che rende il numero sotto confrontabile fra due
+  // esecuzioni. Con il viewport del progetto (desktop, densità 1) la stessa
+  // pagina scaricherebbe varianti diverse e la soglia non direbbe niente.
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
+
+  /**
+   * Tetto per le immagini dell'intera home, scorrimento fino in fondo compreso.
+   *
+   * Misurato il 2026-08-17 su questa build: 77 KB, contro i 524 KB da cui
+   * partiva la issue #502. Il margine lascia spazio a una fotografia in più
+   * senza toccare il numero, e non a una fotografia dimenticata non ottimizzata:
+   * un solo JPEG del vecchio calibro lo sfonderebbe da solo.
+   */
+  const IMAGE_BUDGET = 100 * 1024
+
+  test('la home non supera il tetto di peso delle immagini', async ({ page }) => {
+    // I corpi si leggono in modo asincrono: raccogliere le promesse e attenderle
+    // tutte alla fine è ciò che rende il totale ripetibile. Sommare dentro il
+    // gestore lasciava fuori le risposte ancora in lettura quando il test
+    // arrivava all'asserzione, e il numero cambiava a ogni esecuzione.
+    const bodies: Promise<Buffer>[] = []
+    page.on('response', (response) => {
+      if (response.request().resourceType() === 'image') bodies.push(response.body())
+    })
+
+    await page.goto('/it/')
+    await page.waitForLoadState('networkidle')
+
+    // Le immagini sotto la piega sono differite: senza scorrere non partono, e
+    // un tetto che non le contasse premierebbe proprio ciò che va misurato. Lo
+    // scorrimento ricalcola l'altezza a ogni passo, perché caricando le
+    // copertine la pagina si allunga.
+    await page.evaluate(async () => {
+      for (let y = 0; y < document.documentElement.scrollHeight; y += 400) {
+        window.scrollTo(0, y)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    })
+
+    // Il conteggio vale solo a scarico finito: `networkidle` da solo tornerebbe
+    // mentre l'ultima copertina è ancora in volo.
+    const total = await page.locator('img').count()
+    await expect.poll(() => page.evaluate(() => Array.from(document.images).filter(image => image.complete).length))
+      .toBe(total)
+
+    const bytes = (await Promise.all(bodies)).reduce((sum, body) => sum + body.length, 0)
+
+    expect(bodies.length, 'nessuna immagine scaricata: la misura non proverebbe niente').toBeGreaterThan(0)
+    expect(bytes, `immagini della home: ${Math.round(bytes / 1024)} KB`).toBeLessThanOrEqual(IMAGE_BUDGET)
+  })
+
+  test('l\'elemento LCP arriva in formato moderno e non è differito', async ({ page }) => {
+    await page.goto('/it/')
+
+    const hero = page.locator('#welcome img').first()
+
+    // `currentSrc` e non `src`: è la variante che il browser ha davvero scelto
+    // fra quelle del `<picture>`, l'unica prova che l'AVIF è arrivato.
+    await expect(hero).toHaveAttribute('fetchpriority', 'high')
+    await expect.poll(() => hero.evaluate((img: HTMLImageElement) => img.currentSrc))
+      .toMatch(/\.avif$/)
+
+    // `loading="lazy"` sull'elemento LCP è il verso sbagliato: ritarderebbe la
+    // sola immagine che conta per la metrica.
+    expect(await hero.getAttribute('loading')).toBeNull()
+  })
+})
+
+test.describe('markup delle immagini servite', () => {
+  test('ogni `<img>` dell\'HTML pre-renderizzato dichiara larghezza e altezza', async ({ request }) => {
+    // Il gemello di questo controllo sta in apps/web/test/images.test.ts e legge
+    // i sorgenti `.vue`. Qui si guarda ciò che il browser riceve davvero: un
+    // componente può dichiarare gli attributi e perderli per strada.
+    const html = await (await request.get('/it/')).text()
+    const tags = html.match(/<img\b[^>]*>/g) ?? []
+
+    expect(tags.length).toBeGreaterThan(0)
+    expect(tags.filter(tag => !/\swidth="/.test(tag) || !/\sheight="/.test(tag))).toEqual([])
+  })
+
+  test('il precarico dell\'hero indica esattamente ciò che il `<picture>` sceglierà', async ({ request }) => {
+    // Se `imagesrcset` e `imagesizes` divergessero da quelli del `<source>`
+    // AVIF, il browser scaricherebbe due immagini invece di una: un precarico
+    // sbagliato costa più di nessun precarico.
+    const html = await (await request.get('/it/')).text()
+
+    const preload = /<link rel="preload"[^>]*as="image"[^>]*>/.exec(html)?.[0]
+    expect(preload).toBeDefined()
+    expect(preload).toContain('type="image/avif"')
+
+    const preloadSrcset = /imagesrcset="([^"]*)"/.exec(preload!)?.[1]
+    const preloadSizes = /imagesizes="([^"]*)"/.exec(preload!)?.[1]
+    const source = /<source type="image\/avif"[^>]*>/.exec(html)?.[0]
+
+    expect(source).toContain(`srcset="${preloadSrcset}"`)
+    expect(source).toContain(`sizes="${preloadSizes}"`)
+  })
+})
+
 test.describe('lingua', () => {
   test.describe('browser in tedesco', () => {
     test.use({ locale: 'de-DE' })
