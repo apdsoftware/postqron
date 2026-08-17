@@ -190,6 +190,18 @@ test.describe('lingua', () => {
     })
   })
 
+  test('il robots.txt non vieta la scansione, che leggerebbe il noindex', async ({ request }) => {
+    // `robots.txt` governa la scansione, non l'indicizzazione. Un `Disallow: /`
+    // qui impedirebbe al crawler di leggere il `noindex` del guscio, e un
+    // indirizzo raggiunto da un link esterno finirebbe nell'indice come voce
+    // senza contenuto: le due direttive si annullano, e a difendere la
+    // dashboard è il `noindex`. Il test esiste perché la modifica «ovvia» — un
+    // Disallow — la scoprirebbe soltanto Google.
+    const response = await request.get('/robots.txt')
+    expect(response.status()).toBe(200)
+    expect(await response.text()).not.toMatch(/^Disallow:\s*\/\s*$/m)
+  })
+
   test('non dichiara lingue alternative: non è roba da indicizzare', async ({ page }) => {
     // A differenza del sito pubblico qui non esistono `hreflang` né `canonical`:
     // le pagine stanno dietro autenticazione e nessun crawler deve trovarne

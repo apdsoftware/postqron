@@ -1,17 +1,10 @@
+import type { LegalDocumentId } from '~/utils/legal-documents'
 import { Renderer, marked } from 'marked'
+import { isLegalDocumentId } from '~/utils/legal-documents'
 import acceptableUseSource from '../../../legal/en/acceptable-use-policy.md?raw'
 import cookieSource from '../../../legal/en/cookie-policy.md?raw'
 import privacySource from '../../../legal/en/privacy-policy.md?raw'
 import termsSource from '../../../legal/en/terms-of-service.md?raw'
-
-export const LEGAL_DOCUMENT_IDS = [
-  'terms-of-service',
-  'privacy-policy',
-  'cookie-policy',
-  'acceptable-use-policy',
-] as const
-
-export type LegalDocumentId = (typeof LEGAL_DOCUMENT_IDS)[number]
 
 export interface LegalDocument {
   id: LegalDocumentId
@@ -27,10 +20,6 @@ const sources: Record<LegalDocumentId, string> = {
   'privacy-policy': privacySource,
   'cookie-policy': cookieSource,
   'acceptable-use-policy': acceptableUseSource,
-}
-
-function isLegalDocumentId(value: string): value is LegalDocumentId {
-  return (LEGAL_DOCUMENT_IDS as readonly string[]).includes(value)
 }
 
 /** Converte i link relativi fra documenti nelle rotte pubbliche della lingua corrente. */

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { publicPages } from '~/content/pages'
-import { isLocaleCode } from '~/utils/locale'
+import { isLocaleCode, localePath } from '~/utils/locale'
 import { isPublicPageId } from '~/utils/public-pages'
+import { canonicalUrl } from '~/utils/site'
+import { faqPageNode, organizationNode } from '~/utils/structured-data'
 
 definePageMeta({
   validate: route => isLocaleCode(route.params.locale) && isPublicPageId(route.params.page),
@@ -9,7 +11,7 @@ definePageMeta({
 })
 
 const route = useRoute()
-const { locale } = useSiteLocale()
+const { locale, content } = useSiteLocale()
 const pageId = computed(() => {
   if (!isPublicPageId(route.params.page)) throw createError({ statusCode: 404 })
   return route.params.page
@@ -25,6 +27,34 @@ useLocalizedHead({
   title: page.value.meta.title,
   description: page.value.meta.lead,
 })
+
+/*
+ * Dati strutturati per pagina, e solo dove il contenuto li sostiene (R53-ter).
+ * La rotta ha una `key` per parametro, quindi `setup` riparte a ogni cambio di
+ * pagina e questi rami vengono rivalutati: niente resta appeso altrove.
+ *
+ * - **FAQ:** le domande e le risposte dichiarate sono le stesse che il
+ *   `<details>` qui sotto rende, parola per parola — `mainEntity` e contenuto
+ *   visibile hanno un'unica sorgente.
+ * - **Contatti:** è la pagina che mostra ragione sociale, indirizzo, partita
+ *   IVA e recapito, cioè esattamente i campi di `Organization`.
+ * - **Funzionalità:** niente. Non c'è un tipo schema.org che descriva un elenco
+ *   di funzionalità senza dire anche qualcosa che qui non diciamo.
+ */
+const { public: config } = useRuntimeConfig()
+
+if (pageId.value === 'faq') {
+  useStructuredData([
+    faqPageNode(
+      faqPage.value.items,
+      canonicalUrl(localePath('/faq', locale.value), config.siteUrl),
+    ),
+  ])
+}
+
+if (pageId.value === 'contact') {
+  useStructuredData([organizationNode(content.value, locale.value, config.siteUrl)])
+}
 
 function staggered(index: number) {
   return { direction: 'bottom' as const, distance: '50px', duration: 0.6, delay: 0.15 * (index + 1) }
