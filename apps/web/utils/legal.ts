@@ -1,6 +1,11 @@
+// Questo modulo porta con sé `marked` e i quattro Markdown incorporati: circa
+// 66 KB non compressi. Va importato **solo** da chi rende davvero un documento
+// legale, cioè dal componente della pagina, che è un chunk pigro. Il predicato
+// sugli identificatori sta apposta in `utils/legal-documents.ts`: usare quello
+// nelle guardie di rotta è ciò che tiene questi 66 KB fuori dal bundle
+// d'ingresso di tutte le altre pagine.
 import type { LegalDocumentId } from '~/utils/legal-documents'
 import { Renderer, marked } from 'marked'
-import { isLegalDocumentId } from '~/utils/legal-documents'
 import acceptableUseSource from '../../../legal/en/acceptable-use-policy.md?raw'
 import cookieSource from '../../../legal/en/cookie-policy.md?raw'
 import privacySource from '../../../legal/en/privacy-policy.md?raw'
@@ -69,8 +74,4 @@ export function legalDocument(id: LegalDocumentId, locale: string): LegalDocumen
       renderer: legalRenderer(locale),
     }),
   }
-}
-
-export function isLegalDocument(value: unknown): value is LegalDocumentId {
-  return typeof value === 'string' && isLegalDocumentId(value)
 }
