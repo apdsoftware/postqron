@@ -350,7 +350,7 @@ func (s *Service) Executions(ctx context.Context, userID, jobID string, opts Exe
 	// La retention del piano si verifica **prima** della query, non filtrando le
 	// righe che tornano: una lettura che scandisce novanta giorni di partizioni
 	// per poi scartarne ottantasette ha già speso ciò che il limite doveva
-	// risparmiare (R15, SPEC §8).
+	// risparmiare (R10-bis, SPEC §8).
 	plan, err := s.store.PlanForUser(ctx, userID)
 	if err != nil {
 		return Page[Execution]{}, err

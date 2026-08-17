@@ -14,7 +14,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/ratelimit"
 )
 
-// R10 chiede due cose diverse, e questo file le tiene diverse.
+// R10 chiede due cose diverse — lo dice la spec, ed è questo file a tenerle
+// diverse.
 //
 // **Il tetto tecnico** è una difesa del servizio. Vale per ogni chiamante, è lo
 // stesso su tutti i piani e non è in vendita: nessun piano ne concede di più,

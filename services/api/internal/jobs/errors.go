@@ -123,8 +123,8 @@ const (
 	// LimitWriteRate è la quota di scrittura dell'API pubblica (R10). Come il
 	// precedente è derivato dalla portata del piano, non aggiunto al listino.
 	LimitWriteRate LimitKind = "write_rate"
-	// LimitRetention è la conservazione dei log di esecuzione (R6, SPEC §8: 3,
-	// 15, 30 e 90 giorni).
+	// LimitRetention è la conservazione dei log di esecuzione applicata anche in
+	// lettura (R10-bis, SPEC §8: 3, 15, 30 e 90 giorni).
 	LimitRetention LimitKind = "retention"
 )
 

@@ -52,7 +52,7 @@ const maxJobRequestBody = 64 << 10
 //	403 plan_limit_jobs             tetto al numero di job (R15)
 //	403 plan_limit_resolution       risoluzione minima del piano (R15, R22)
 //	403 plan_limit_environments     ambienti non inclusi nel piano (R23)
-//	403 plan_limit_retention        finestra oltre la retention del piano (R15)
+//	403 plan_limit_retention        finestra oltre la retention del piano (R10-bis)
 //	404 job_not_found               inesistente, oppure di un altro utente
 //	409 job_name_taken              il nome è l'identità del job
 //	409 job_managed_by_repository   definito in un `cron.yaml` (R13)

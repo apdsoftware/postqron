@@ -216,7 +216,7 @@ func (p Plan) RetentionFloor(now time.Time) time.Time {
 }
 
 // CheckRetention verifica che la finestra richiesta stia dentro la retention del
-// piano (R15).
+// piano (R10-bis, R15).
 //
 // # Perché un rifiuto e non una finestra ristretta in silenzio
 //
@@ -227,9 +227,11 @@ func (p Plan) RetentionFloor(now time.Time) time.Time {
 //
 // # Questa è metà del lavoro
 //
-// Non sostituisce la cancellazione periodica delle righe e delle partizioni (R6,
-// issue #393, funzioni di appoggio nella migrazione 0006): la **copre soltanto
-// nell'intervallo fra due passate**. La privacy policy dichiara che i log sono
+// Lo dice R10-bis e va ripetuto qui, dove qualcuno potrebbe concludere che la
+// retention è applicata e togliere l'altra metà: **non sostituisce la
+// cancellazione periodica** delle righe e delle partizioni (R6, issue #393,
+// funzioni di appoggio nella migrazione 0006), la copre soltanto
+// nell'intervallo fra due passate. La privacy policy dichiara che i log sono
 // conservati per il periodo del piano e poi *cancellati*: nascondere righe che
 // continuano a esistere renderebbe quel documento inesatto, e un documento legale
 // inesatto è un problema peggiore di un limite non applicato.
