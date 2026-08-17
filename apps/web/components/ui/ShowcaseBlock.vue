@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { RevealOptions } from '~/utils/reveal'
+import type { RasterImageName } from '~/utils/images'
 
 const props = withDefaults(
   defineProps<{
@@ -7,11 +8,9 @@ const props = withDefaults(
     text: string
     /** Punti elenco, ciascuno preceduto dalla freccia del tema. */
     bullets?: readonly string[]
-    /** Immagine di prodotto: sorgente, testo alternativo e dimensioni native. */
-    image: string
+    /** Immagine di prodotto: nome nel registro e testo alternativo. */
+    image: RasterImageName
     imageAlt: string
-    imageWidth: number
-    imageHeight: number
     /** Lato su cui compare l'immagine. */
     imageSide?: 'left' | 'right'
   }>(),
@@ -37,14 +36,10 @@ const imageReveal = computed<RevealOptions>(() => ({
       class="col-lg-6 col-md-6 col-sm-12 align-self-center showcase__media"
       :class="`showcase__media--${imageSide}`"
     >
-      <img
-        :src="image"
+      <ResponsiveImage
+        :name="image"
         :alt="imageAlt"
-        :width="imageWidth"
-        :height="imageHeight"
-        class="showcase__image"
-        loading="lazy"
-      >
+      />
     </div>
     <div
       class="col-lg-6 col-md-6 col-sm-12 align-self-center showcase__body"
@@ -94,7 +89,12 @@ const imageReveal = computed<RevealOptions>(() => ({
   }
 }
 
-.showcase__image {
+/*
+ * `:deep` perché l'immagine non è più figlia diretta: `ResponsiveImage` la
+ * avvolge in un `<picture>`, ed è il `<picture>` a portare l'attributo di
+ * ambito di questo componente.
+ */
+.showcase__media :deep(img) {
   display: block;
   max-width: 100%;
   height: auto;

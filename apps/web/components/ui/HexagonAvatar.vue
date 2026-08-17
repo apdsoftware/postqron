@@ -7,7 +7,7 @@
  * maschera. `clip-path` fa la stessa cosa con due, e l'immagine sotto resta una
  * vera `<img>` — quindi con testo alternativo e caricamento pigro.
  */
-withDefaults(
+const props = withDefaults(
   defineProps<{
     src: string
     alt: string
@@ -16,6 +16,15 @@ withDefaults(
   }>(),
   { size: 93 },
 )
+
+/*
+ * Le stesse due proporzioni del CSS qui sotto, in numeri interi, per gli
+ * attributi `width` e `height`. Non sono ridondanti: il CSS con ambito arriva
+ * dopo il markup, e nell'intervallo il browser deve già sapere quanto spazio
+ * riservare — senza, ogni ritratto che si carica sposta la citazione accanto.
+ */
+const width = computed(() => Math.round(props.size * 77 / 93))
+const height = computed(() => Math.round(props.size * 88 / 93))
 </script>
 
 <template>
@@ -26,8 +35,11 @@ withDefaults(
     <img
       :src="src"
       :alt="alt"
+      :width="width"
+      :height="height"
       class="hexagon-avatar__image"
       loading="lazy"
+      decoding="async"
     >
   </div>
 </template>

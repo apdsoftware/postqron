@@ -15,6 +15,12 @@ dist
 bin/
 *.exe
 
+# Varianti delle immagini prodotte da apps/web/scripts/images.ts a ogni build.
+# Sono artefatti derivati dai sorgenti in apps/web/images/: versionarli
+# significherebbe tenere in repository decine di binari che possono divergere
+# in silenzio dall'originale da cui dicono di venire.
+apps/web/public/img/gen/
+
 # Ambiente e segreti
 .env
 .env.*

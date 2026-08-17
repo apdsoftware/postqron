@@ -114,7 +114,7 @@ export const es: SiteContent = {
     text:
       'Describe tus programaciones en un archivo de tu repositorio. Postqron las '
       + 'ejecuta a su hora, reintenta cuando hace falta y siempre te cuenta cómo fue.',
-    image: '/img/hero.jpg',
+    image: 'hero',
     imageAlt: 'La consola de Postqron con la lista de ejecuciones',
   },
 
@@ -161,10 +161,8 @@ export const es: SiteContent = {
         'Entornos separados para staging y producción',
         'Errores de sintaxis señalados en el commit',
       ],
-      image: '/img/screenshots/jobs.png',
+      image: 'screenshots/jobs',
       imageAlt: 'Lista de tareas cron sincronizadas desde un repositorio',
-      imageWidth: 593,
-      imageHeight: 467,
       imageSide: 'left',
     },
     {
@@ -177,10 +175,8 @@ export const es: SiteContent = {
         'Duración media y tasa de fallos por tarea',
         'Avisos por correo o webhook en Slack y Discord',
       ],
-      image: '/img/screenshots/metrics.png',
+      image: 'screenshots/metrics',
       imageAlt: 'Gráfico de la duración de las ejecuciones a lo largo del tiempo',
-      imageWidth: 605,
-      imageHeight: 375,
       imageSide: 'right',
     },
   ],
@@ -366,7 +362,7 @@ export const es: SiteContent = {
       excerpt:
         'Reinicios, zonas horarias y horario de verano: las tres formas en que una '
         + 'programación que parecía sencilla deja de arrancar sin decírselo a nadie.',
-      image: '/img/blog/1.jpg',
+      image: 'blog/1',
       to: '/#blog',
     },
     {
@@ -374,7 +370,7 @@ export const es: SiteContent = {
       excerpt:
         'La programación es configuración; el trabajo no. Dónde pasa la frontera y por '
         + 'qué conviene mantenerla nítida desde la primera tarea.',
-      image: '/img/blog/2.jpg',
+      image: 'blog/2',
       to: '/#blog',
     },
     {
@@ -382,7 +378,7 @@ export const es: SiteContent = {
       excerpt:
         'Un intento más puede resolver un fallo pasajero o duplicar un cobro. Cómo '
         + 'elegir la política adecuada para cada tarea.',
-      image: '/img/blog/3.jpg',
+      image: 'blog/3',
       to: '/#blog',
     },
   ],

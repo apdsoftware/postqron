@@ -114,7 +114,7 @@ export const fr: SiteContent = {
     text:
       'Décrivez vos planifications dans un fichier de votre dépôt. Postqron les exécute '
       + 'à l\'heure, réessaie quand il le faut et vous dit toujours comment ça s\'est passé.',
-    image: '/img/hero.jpg',
+    image: 'hero',
     imageAlt: 'La console Postqron avec la liste des exécutions',
   },
 
@@ -162,10 +162,8 @@ export const fr: SiteContent = {
         'Environnements séparés pour la préproduction et la production',
         'Erreurs de syntaxe signalées sur le commit',
       ],
-      image: '/img/screenshots/jobs.png',
+      image: 'screenshots/jobs',
       imageAlt: 'Liste des tâches cron synchronisées depuis un dépôt',
-      imageWidth: 593,
-      imageHeight: 467,
       imageSide: 'left',
     },
     {
@@ -179,10 +177,8 @@ export const fr: SiteContent = {
         'Durée moyenne et taux d\'échec par tâche',
         'Alertes par e-mail ou webhook sur Slack et Discord',
       ],
-      image: '/img/screenshots/metrics.png',
+      image: 'screenshots/metrics',
       imageAlt: 'Graphique de la durée des exécutions dans le temps',
-      imageWidth: 605,
-      imageHeight: 375,
       imageSide: 'right',
     },
   ],
@@ -368,7 +364,7 @@ export const fr: SiteContent = {
       excerpt:
         'Redémarrages, fuseaux horaires et heure d\'été : les trois façons dont une '
         + 'planification qui semblait simple cesse de partir sans le dire à personne.',
-      image: '/img/blog/1.jpg',
+      image: 'blog/1',
       to: '/#blog',
     },
     {
@@ -376,7 +372,7 @@ export const fr: SiteContent = {
       excerpt:
         'La planification est de la configuration, le travail non. Où passe la frontière '
         + 'et pourquoi il vaut mieux la garder nette dès la première tâche.',
-      image: '/img/blog/2.jpg',
+      image: 'blog/2',
       to: '/#blog',
     },
     {
@@ -384,7 +380,7 @@ export const fr: SiteContent = {
       excerpt:
         'Une tentative de plus peut régler une panne passagère ou doubler un débit. '
         + 'Comment choisir la bonne politique pour chaque tâche.',
-      image: '/img/blog/3.jpg',
+      image: 'blog/3',
       to: '/#blog',
     },
   ],
