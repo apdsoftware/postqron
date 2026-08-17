@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 import { siteContent } from '~/content'
 import { DEFAULT_LOCALE, LOCALE_CODES } from '~/utils/locale'
-import { LEGAL_DOCUMENT_IDS, legalDocument } from '~/utils/legal'
+import { LEGAL_DOCUMENT_IDS } from '~/utils/legal-documents'
+import { legalDocument } from '~/utils/legal'
 
 const LEGAL_ROOT = resolve(process.cwd(), '../../legal/en')
 const OPEN_PLACEHOLDER = /\[\[DA CONFERMARE:[\s\S]*?\]\]/
