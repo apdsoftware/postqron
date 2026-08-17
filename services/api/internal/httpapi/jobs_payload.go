@@ -35,7 +35,14 @@ type JobResponse struct {
 	Request TargetResponse  `json:"request"`
 	Timeout string          `json:"timeout"`
 	Retries RetriesResponse `json:"retries"`
-	Alerts  AlertsResponse  `json:"alerts"`
+
+	// OnOverlap è il comportamento quando un'occorrenza scatta mentre la
+	// precedente è ancora in corso (R41). È sempre presente, anche quando vale il
+	// predefinito: un campo che compare solo se scelto costringerebbe il client a
+	// conoscere il predefinito per sapere cosa succede davvero.
+	OnOverlap string `json:"on_overlap"`
+
+	Alerts AlertsResponse `json:"alerts"`
 
 	Enabled bool `json:"enabled"`
 
@@ -162,6 +169,7 @@ func jobResponse(job jobs.Job) JobResponse {
 		},
 		Timeout:      jobs.FormatDuration(job.Timeout),
 		Retries:      RetriesResponse{Max: job.MaxRetries, Backoff: string(job.RetryBackoff)},
+		OnOverlap:    string(job.OverlapPolicy),
 		Alerts:       AlertsResponse{OnFailure: stringsOf(job.AlertOnFailure)},
 		Enabled:      job.Enabled,
 		RepositoryID: job.RepositoryID,
@@ -259,10 +267,11 @@ type JobPayload struct {
 
 	Request optional[targetPayload] `json:"request"`
 
-	Timeout optional[duration]       `json:"timeout"`
-	Retries optional[retriesPayload] `json:"retries"`
-	Alerts  optional[alertsPayload]  `json:"alerts"`
-	Enabled optional[bool]           `json:"enabled"`
+	Timeout   optional[duration]       `json:"timeout"`
+	Retries   optional[retriesPayload] `json:"retries"`
+	OnOverlap optional[string]         `json:"on_overlap"`
+	Alerts    optional[alertsPayload]  `json:"alerts"`
+	Enabled   optional[bool]           `json:"enabled"`
 }
 
 type targetPayload struct {
@@ -357,6 +366,15 @@ func (p JobPayload) patch() jobs.Patch {
 			backoff := jobs.Backoff(strings.TrimSpace(retries.Backoff.value))
 			patch.RetryBackoff = &backoff
 		}
+	}
+
+	if p.OnOverlap.set {
+		// Il valore si normalizza in minuscolo prima del confronto, come il
+		// metodo: `Skip` è un refuso ovvio e rifiutarlo non protegge nessuno. Un
+		// `null` esplicito arriva qui come stringa vuota, cioè come «riportalo al
+		// predefinito», ed è [jobs.Job.Normalize] a scriverlo.
+		policy := jobs.OverlapPolicy(strings.ToLower(strings.TrimSpace(p.OnOverlap.value)))
+		patch.OverlapPolicy = &policy
 	}
 
 	if p.Alerts.set && p.Alerts.value.OnFailure.set {

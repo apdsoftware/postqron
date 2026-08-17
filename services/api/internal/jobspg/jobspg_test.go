@@ -59,6 +59,10 @@ func sampleJob(userID string) jobs.Job {
 	job.URL = "https://api.example.com/tasks/digest"
 	job.Headers = map[string]string{"Authorization": "Bearer ${DIGEST_TOKEN}"}
 	job.Body = `{"kind":"daily"}`
+	// Non è il predefinito, ed è deliberato: un campo che il round trip
+	// confronta con il proprio default passerebbe anche se la colonna non
+	// venisse mai scritta.
+	job.OverlapPolicy = jobs.OverlapQueue
 	next := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
 	job.NextRunAt = &next
 	return job
@@ -104,6 +108,8 @@ func TestAndataERitornoDelJob(t *testing.T) {
 		t.Errorf("max_retries = %d", letto.MaxRetries)
 	case letto.RetryBackoff != want.RetryBackoff:
 		t.Errorf("retry_backoff = %q", letto.RetryBackoff)
+	case letto.OverlapPolicy != want.OverlapPolicy:
+		t.Errorf("overlap_policy = %q, atteso %q", letto.OverlapPolicy, want.OverlapPolicy)
 	case letto.Enabled != want.Enabled:
 		t.Errorf("enabled = %v", letto.Enabled)
 	case letto.RepositoryID != "":
@@ -129,6 +135,103 @@ func TestAndataERitornoDelJob(t *testing.T) {
 	// giusto è con il valore precedente, non con uno nuovo che gli somiglia.
 	if letto.NextRunAt == nil || created.NextRunAt == nil || !letto.NextRunAt.Equal(*created.NextRunAt) {
 		t.Errorf("next_run_at = %v, atteso %v", letto.NextRunAt, created.NextRunAt)
+	}
+}
+
+// TestLaSovrapposizioneELaSospensioneConvivonoSullaStessaRiga esiste per un
+// motivo solo, e non è la logica: **i segnaposto della UPDATE**.
+//
+// `overlap_policy` (0014) si è inserita in mezzo alle colonne che la
+// sospensione di R58 (0013) già usava, e ha spostato di uno tutto ciò che
+// segue — `alert_on_failure`, `enabled`, il flag di `next_run_at`. I due CASE
+// che sciolgono la sospensione guardano `enabled`: se fossero rimasti al
+// segnaposto di prima guarderebbero un altro campo, e **il compilatore non se ne
+// accorgerebbe**. Con un `$N` sbagliato per tipo PostgreSQL protesterebbe, ma
+// con uno sbagliato che capita di essere un booleano — il flag di
+// `resetNextRun`, per dire — la sospensione si scioglierebbe in silenzio ogni
+// volta che lo scheduler viene azzerato.
+//
+// Il giro copre esattamente quel caso: una modifica che azzera la prossima
+// occorrenza **senza** riaccendere il job, e una che riaccende.
+func TestLaSovrapposizioneELaSospensioneConvivonoSullaStessaRiga(t *testing.T) {
+	store, userID, pool := newStore(t)
+
+	partenza := sampleJob(userID)
+	partenza.OverlapPolicy = jobs.OverlapQueue
+	creato, err := store.CreateJob(t.Context(), partenza, nil)
+	if err != nil {
+		t.Fatalf("creazione: %v", err)
+	}
+	if creato.OverlapPolicy != jobs.OverlapQueue || creato.Suspended() {
+		t.Fatalf("job appena creato: politica = %q, sospeso = %v", creato.OverlapPolicy, creato.Suspended())
+	}
+
+	// La sospensione la scrive internal/billingpg al downgrade; qui si simula la
+	// riga che lascia.
+	quando := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(t.Context(),
+		`UPDATE jobs SET enabled = false, suspended_at = $2,
+		        suspended_reason = 'plan_resolution', next_run_at = NULL
+		  WHERE id = $1::uuid`, creato.ID, quando); err != nil {
+		t.Fatalf("sospensione: %v", err)
+	}
+
+	sospeso, err := store.JobByID(t.Context(), userID, creato.ID)
+	if err != nil {
+		t.Fatalf("lettura: %v", err)
+	}
+	if !sospeso.Suspended() || sospeso.OverlapPolicy != jobs.OverlapQueue {
+		t.Fatalf("le due colonne non convivono in lettura: sospeso = %v, politica = %q",
+			sospeso.Suspended(), sospeso.OverlapPolicy)
+	}
+
+	// **Il caso che smaschera un segnaposto sbagliato.** Si cambia la politica e
+	// si azzera la prossima occorrenza, ma il job resta spento: la sospensione
+	// deve sopravvivere, perché a scioglierla è `enabled` e nient'altro.
+	sospeso.OverlapPolicy = jobs.OverlapAllow
+	modificato, err := store.UpdateJob(t.Context(), sospeso, true)
+	if err != nil {
+		t.Fatalf("modifica di un job sospeso: %v", err)
+	}
+	switch {
+	case modificato.OverlapPolicy != jobs.OverlapAllow:
+		t.Errorf("politica = %q, attesa `allow`: la UPDATE non ha scritto la colonna", modificato.OverlapPolicy)
+	case !modificato.Suspended():
+		t.Error("la sospensione è stata sciolta da una modifica che non riaccende: " +
+			"i CASE guardano un segnaposto che non è `enabled`")
+	case modificato.SuspendedReason != jobs.SuspendedByResolution:
+		t.Errorf("motivo = %q, atteso quello scritto prima", modificato.SuspendedReason)
+	case modificato.NextRunAt != nil:
+		t.Error("la prossima occorrenza non è stata azzerata")
+	}
+
+	// E la riaccensione scioglie la sospensione senza perdere la politica: le due
+	// colonne sono indipendenti e devono restarlo.
+	modificato.Enabled = true
+	riacceso, err := store.UpdateJob(t.Context(), modificato, true)
+	if err != nil {
+		t.Fatalf("riaccensione: %v", err)
+	}
+	switch {
+	case riacceso.Suspended() || riacceso.SuspendedReason != "":
+		t.Errorf("job riacceso ma ancora sospeso: %+v", riacceso)
+	case riacceso.OverlapPolicy != jobs.OverlapAllow:
+		t.Errorf("politica = %q dopo la riaccensione, attesa `allow`", riacceso.OverlapPolicy)
+	}
+
+	// Un ultimo controllo sull'allineamento, questa volta di `jobColumns` e
+	// `scanJob`: i campi che stanno **dopo** le due colonne nuove devono essere
+	// ancora quelli giusti. Uno scostamento di uno li scambierebbe fra loro senza
+	// che nessuna delle asserzioni sopra se ne accorga.
+	switch {
+	case riacceso.Name != partenza.Name:
+		t.Errorf("name = %q dopo il giro", riacceso.Name)
+	case !riacceso.Enabled:
+		t.Error("enabled = false dopo la riaccensione")
+	case riacceso.Archived():
+		t.Error("il job risulta archiviato: `archived_at` legge la colonna sbagliata")
+	case riacceso.CreatedAt.IsZero() || riacceso.UpdatedAt.IsZero():
+		t.Errorf("istanti mancanti: created_at = %v, updated_at = %v", riacceso.CreatedAt, riacceso.UpdatedAt)
 	}
 }
 

@@ -307,6 +307,7 @@ func TestParametriDiEsecuzioneRifiutati(t *testing.T) {
 		{"retry negativi", func(j *jobs.Job) { j.MaxRetries = -1 }, "retries.max", "out_of_range"},
 		{"retry oltre il tetto", func(j *jobs.Job) { j.MaxRetries = jobs.MaxRetriesAllowed + 1 }, "retries.max", "out_of_range"},
 		{"backoff sconosciuto", func(j *jobs.Job) { j.RetryBackoff = "random" }, "retries.backoff", "unknown_value"},
+		{"sovrapposizione sconosciuta", func(j *jobs.Job) { j.OverlapPolicy = "aspetta" }, "on_overlap", "unknown_value"},
 		{"canale sconosciuto", func(j *jobs.Job) {
 			j.AlertOnFailure = []jobs.AlertChannel{"piccione"}
 		}, "alerts.on_failure", "unknown_value"},
@@ -373,6 +374,29 @@ func TestOrdineDegliErroriStabile(t *testing.T) {
 				t.Fatalf("ordine instabile alla posizione %d: %v poi %v", j, first.Fields[j], next.Fields[j])
 			}
 		}
+	}
+}
+
+// TestChiNonSceglieLaSovrapposizionePrendeIlPredefinito: R41 chiede un valore
+// predefinito **dichiarato**, e un job che non nomina `on_overlap` deve
+// ritrovarselo scritto invece di essere rifiutato per un campo che non ha
+// toccato.
+func TestChiNonSceglieLaSovrapposizionePrendeIlPredefinito(t *testing.T) {
+	job := validJob()
+	job.OverlapPolicy = ""
+
+	if err := validate(t, &job, jobs.FreePlan); err != nil {
+		t.Fatalf("un job senza `on_overlap` è stato rifiutato: %v", err)
+	}
+	if job.OverlapPolicy != jobs.DefaultOverlapPolicy {
+		t.Fatalf("politica = %q, atteso il predefinito %q", job.OverlapPolicy, jobs.DefaultOverlapPolicy)
+	}
+	// Il predefinito è una scelta, non un caso: `skip` è l'unico che non fa
+	// danni a un job di cui non si sa niente. Se un giorno cambia, deve cambiare
+	// insieme al default della colonna (0014) e al commento che lo motiva.
+	if jobs.DefaultOverlapPolicy != jobs.OverlapSkip {
+		t.Fatalf("il predefinito dichiarato è %q, non `skip`: aggiornare la 0014 e SPEC §9",
+			jobs.DefaultOverlapPolicy)
 	}
 }
 

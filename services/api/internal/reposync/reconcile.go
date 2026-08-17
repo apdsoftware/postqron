@@ -224,6 +224,7 @@ func applySpec(dst *jobs.Job, src jobs.Job) {
 	dst.Timeout = src.Timeout
 	dst.MaxRetries = src.MaxRetries
 	dst.RetryBackoff = src.RetryBackoff
+	dst.OverlapPolicy = src.OverlapPolicy
 	dst.AlertOnFailure = slices.Clone(src.AlertOnFailure)
 
 	// Un job che il file torna a dichiarare non è più archiviato. `Enabled`
@@ -254,6 +255,7 @@ func sameSpec(have, want jobs.Job) bool {
 		have.Timeout == want.Timeout &&
 		have.MaxRetries == want.MaxRetries &&
 		have.RetryBackoff == want.RetryBackoff &&
+		have.OverlapPolicy == want.OverlapPolicy &&
 		slices.Equal(have.AlertOnFailure, want.AlertOnFailure)
 }
 

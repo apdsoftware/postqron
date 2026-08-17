@@ -42,7 +42,8 @@ type querier interface {
 const jobColumns = `j.id::text, j.user_id::text, j.name,
 	coalesce(j.schedule, ''), coalesce(j.every_seconds, 0), j.timezone,
 	j.environments::text[], j.url, j.method::text, j.headers, j.body,
-	j.timeout_seconds, j.max_retries, j.retry_backoff::text, j.enabled`
+	j.timeout_seconds, j.max_retries, j.retry_backoff::text,
+	j.overlap_policy::text, j.enabled`
 
 // scanJob legge le colonne di jobColumns nell'ordine in cui sono dichiarate.
 // `extra` riceve le colonne che la singola query aggiunge in coda.
@@ -52,12 +53,13 @@ func scanJob(row pgx.Row, extra ...any) (Job, error) {
 		everySeconds int32
 		timeout      int32
 		retries      int16
+		overlap      string
 	)
 	dest := []any{
 		&job.ID, &job.UserID, &job.Name,
 		&job.Expression, &everySeconds, &job.Timezone,
 		&job.Environments, &job.URL, &job.Method, &job.Headers, &job.Body,
-		&timeout, &retries, &job.RetryBackoff, &job.Enabled,
+		&timeout, &retries, &job.RetryBackoff, &overlap, &job.Enabled,
 	}
 	dest = append(dest, extra...)
 
@@ -67,6 +69,7 @@ func scanJob(row pgx.Row, extra ...any) (Job, error) {
 	job.Every = time.Duration(everySeconds) * time.Second
 	job.Timeout = time.Duration(timeout) * time.Second
 	job.MaxRetries = int(retries)
+	job.Overlap = OverlapPolicy(overlap).Or()
 	return job, nil
 }
 

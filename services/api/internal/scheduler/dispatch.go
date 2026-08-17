@@ -45,6 +45,15 @@ type Job struct {
 	MaxRetries   int
 	RetryBackoff string
 
+	// Overlap è `jobs.overlap_policy` (migrazione 0014, R41): cosa fare quando
+	// un'occorrenza scatta mentre la precedente è ancora in corso.
+	//
+	// Lo scheduler non la applica — non sa cosa sia in volo, lo sa il dispatch —
+	// ma la legge nella stessa passata in cui legge tutto il resto del job, e la
+	// porta a valle dentro l'occorrenza. Vuoto vale [DefaultOverlap], che è ciò
+	// che una riga scritta prima della 0014 non può avere.
+	Overlap OverlapPolicy
+
 	// Enabled è lo stato al momento della lettura. È sempre vero per le
 	// occorrenze appena accodate — la query calda filtra i job in pausa — ma
 	// può essere falso per un'occorrenza recuperata (vedi
@@ -68,6 +77,46 @@ func (j Job) HeaderMap() (map[string]string, error) {
 		return nil, fmt.Errorf("job %s: header non decodificabili: %w", j.Name, err)
 	}
 	return headers, nil
+}
+
+// OverlapPolicy è cosa fare quando un'occorrenza scatta mentre la precedente è
+// ancora in corso: il tipo `overlap_policy` della migrazione 0014 (R41).
+//
+// È dichiarato qui e non importato da internal/jobs per la stessa ragione per
+// cui [Job] non è `jobs.Job`: il motore legge le proprie colonne e non dipende
+// dal package dell'API. I valori sono quelli dell'enum del database, che è la
+// sola definizione che conta per entrambi.
+type OverlapPolicy string
+
+// Le politiche, e il predefinito per una riga che non ne porta una.
+const (
+	// OverlapSkip non esegue l'occorrenza in eccesso.
+	OverlapSkip OverlapPolicy = "skip"
+	// OverlapQueue la fa aspettare: le esecuzioni restano serializzate.
+	OverlapQueue OverlapPolicy = "queue"
+	// OverlapAllow la lascia partire in parallelo, entro i tetti del servizio.
+	OverlapAllow OverlapPolicy = "allow"
+
+	// DefaultOverlap è la politica di chi non ne dichiara una. Coincide con il
+	// default della colonna (0014) e con `jobs.DefaultOverlapPolicy`: è il valore
+	// che non fa danni a un job di cui non si sa niente.
+	DefaultOverlap = OverlapSkip
+)
+
+// Or restituisce la politica, o il predefinito quando non ce n'è una.
+//
+// Serve perché un valore vuoto non arriva mai dal database — la colonna è NOT
+// NULL — ma arriva da chiunque costruisca un'occorrenza a mano: l'adattatore del
+// trigger manuale, un test. Trattarlo come «nessuna politica» invece che come il
+// predefinito dichiarato produrrebbe due comportamenti diversi per la stessa
+// riga a seconda di chi la legge.
+func (p OverlapPolicy) Or() OverlapPolicy {
+	switch p {
+	case OverlapSkip, OverlapQueue, OverlapAllow:
+		return p
+	default:
+		return DefaultOverlap
+	}
 }
 
 // Occurrence è una singola esecuzione dovuta, già scritta su `job_executions` e

@@ -103,6 +103,40 @@ const (
 // AlertChannels elenca i canali ammessi.
 var AlertChannels = []AlertChannel{AlertEmail, AlertSlack, AlertDiscord, AlertWebhook}
 
+// OverlapPolicy è cosa fare quando un'occorrenza scatta mentre la precedente è
+// ancora in corso (tipo `overlap_policy` della migrazione 0014, R41).
+type OverlapPolicy string
+
+// Le politiche ammesse. Vedi [DefaultOverlapPolicy] per quale si applica a chi
+// non sceglie, e perché.
+const (
+	// OverlapSkip non esegue l'occorrenza in eccesso: la chiude come `skipped`,
+	// con il motivo, e la successiva riparte dalla propria casella.
+	OverlapSkip OverlapPolicy = "skip"
+	// OverlapQueue la fa aspettare: le esecuzioni dello stesso job restano
+	// serializzate e nessuna occorrenza si perde.
+	OverlapQueue OverlapPolicy = "queue"
+	// OverlapAllow la lascia partire in parallelo, entro il tetto tecnico del
+	// servizio.
+	OverlapAllow OverlapPolicy = "allow"
+)
+
+// OverlapPolicies elenca le politiche ammesse, nell'ordine di dichiarazione del
+// tipo `overlap_policy`.
+var OverlapPolicies = []OverlapPolicy{OverlapSkip, OverlapQueue, OverlapAllow}
+
+// DefaultOverlapPolicy è la politica di chi non sceglie, ed è dichiarata perché
+// R41 chiede che lo sia.
+//
+// È `skip` perché è l'unica delle tre che non fa danni a un job di cui non si sa
+// niente. `allow` chiama due volte insieme un bersaglio che potrebbe emettere
+// una fattura per chiamata; `queue` accumula un arretrato illimitato quando il
+// job è stabilmente più lento del proprio intervallo, cioè trasforma un job
+// scritto male nel problema di tutti gli altri. `skip` perde delle occorrenze —
+// e lo dice, riga per riga, nel registro delle esecuzioni — ma non produce né
+// effetti doppi né code che crescono da sole.
+const DefaultOverlapPolicy = OverlapSkip
+
 // ExecutionStatus è lo stato di un tentativo (tipo `execution_status`, R6).
 type ExecutionStatus string
 
@@ -174,6 +208,10 @@ type Job struct {
 	MaxRetries   int
 	RetryBackoff Backoff
 
+	// OverlapPolicy è cosa fare quando un'occorrenza scatta mentre la precedente
+	// è ancora in corso (R41). Vuoto vale [DefaultOverlapPolicy].
+	OverlapPolicy OverlapPolicy
+
 	AlertOnFailure []AlertChannel
 
 	Enabled    bool
@@ -228,6 +266,7 @@ func NewJob() Job {
 		Timeout:        30 * time.Second,
 		MaxRetries:     3,
 		RetryBackoff:   BackoffExponential,
+		OverlapPolicy:  DefaultOverlapPolicy,
 		AlertOnFailure: []AlertChannel{AlertEmail},
 		Enabled:        true,
 	}

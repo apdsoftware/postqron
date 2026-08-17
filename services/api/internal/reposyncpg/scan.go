@@ -32,7 +32,7 @@ func scanManagedJob(row pgx.Row) (jobs.Job, error) {
 	var job jobs.Job
 	var everySeconds int32
 	var environments, channels []string
-	var method, backoff string
+	var method, backoff, overlap string
 	var headers []byte
 	var timeoutSeconds int32
 	var maxRetries int16
@@ -42,7 +42,7 @@ func scanManagedJob(row pgx.Row) (jobs.Job, error) {
 		&job.ID, &job.UserID, &job.Name, &job.Description,
 		&job.Schedule, &everySeconds, &job.Timezone, &environments,
 		&job.URL, &method, &headers, &job.Body,
-		&timeoutSeconds, &maxRetries, &backoff, &channels,
+		&timeoutSeconds, &maxRetries, &backoff, &overlap, &channels,
 		&job.Enabled, &archivedAt)
 	if err != nil {
 		return jobs.Job{}, fmt.Errorf("reposyncpg: lettura del job: %w", err)
@@ -51,6 +51,7 @@ func scanManagedJob(row pgx.Row) (jobs.Job, error) {
 	job.Every = time.Duration(everySeconds) * time.Second
 	job.Method = jobs.Method(method)
 	job.RetryBackoff = jobs.Backoff(backoff)
+	job.OverlapPolicy = jobs.OverlapPolicy(overlap)
 	job.Timeout = time.Duration(timeoutSeconds) * time.Second
 	job.MaxRetries = int(maxRetries)
 	job.ArchivedAt = archivedAt
@@ -77,6 +78,18 @@ func scanManagedJob(row pgx.Row) (jobs.Job, error) {
 //
 // Le colonne facoltative della 0005 hanno vincoli che il valore zero violerebbe
 // (`every_seconds >= 1`, `schedule ~ '...'`): il valore assente si scrive NULL.
+
+// overlapPolicy scrive la politica di sovrapposizione (R41), con il predefinito
+// per chi non l'ha dichiarata. La colonna è NOT NULL e il parser di `cron.yaml`
+// valorizza sempre il campo, ma il predefinito viene comunque dalla stessa
+// costante di internal/jobs: due default che divergono farebbero comportare
+// diversamente lo stesso file a seconda di chi lo scrive.
+func overlapPolicy(p jobs.OverlapPolicy) string {
+	if p == "" {
+		return string(jobs.DefaultOverlapPolicy)
+	}
+	return string(p)
+}
 
 func nullable(value string) *string {
 	if value == "" {

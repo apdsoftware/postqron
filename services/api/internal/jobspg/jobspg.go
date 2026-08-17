@@ -69,7 +69,8 @@ const jobColumns = `id::text, user_id::text, coalesce(repository_id::text, ''),
 	name, coalesce(description, ''),
 	schedule, every_seconds, timezone, environments::text[],
 	url, method::text, headers, coalesce(body, ''),
-	timeout_seconds, max_retries, retry_backoff::text, alert_on_failure::text[],
+	timeout_seconds, max_retries, retry_backoff::text, overlap_policy::text,
+	alert_on_failure::text[],
 	enabled, archived_at, next_run_at,
 	suspended_at, coalesce(suspended_reason::text, ''),
 	created_at, updated_at`
@@ -155,16 +156,19 @@ func (s *Store) insertJob(ctx context.Context, db querier, job jobs.Job, headers
 		`INSERT INTO jobs (
 			user_id, name, description, schedule, every_seconds, timezone,
 			environments, url, method, headers, body, timeout_seconds,
-			max_retries, retry_backoff, alert_on_failure, enabled, next_run_at)
+			max_retries, retry_backoff, overlap_policy, alert_on_failure,
+			enabled, next_run_at)
 		 VALUES ($1::uuid, $2, $3, $4, $5, $6,
 		         $7::text[]::environment[], $8, $9::http_method, $10::jsonb, $11, $12,
-		         $13, $14::retry_backoff, $15::text[]::alert_channel[], $16, $17)
+		         $13, $14::retry_backoff, $15::overlap_policy,
+		         $16::text[]::alert_channel[], $17, $18)
 		 RETURNING `+jobColumns,
 		job.UserID, job.Name, nullable(job.Description),
 		nullable(job.Schedule), everySeconds(job.Every), job.Timezone,
 		stringsOf(job.Environments), job.URL, string(job.Method), headers, nullable(job.Body),
 		int32(job.Timeout/time.Second),
-		int16(job.MaxRetries), string(job.RetryBackoff), stringsOf(job.AlertOnFailure),
+		int16(job.MaxRetries), string(job.RetryBackoff), overlapPolicy(job.OverlapPolicy),
+		stringsOf(job.AlertOnFailure),
 		job.Enabled, job.NextRunAt)
 
 	created, err := scanJob(row)
@@ -307,23 +311,30 @@ func (s *Store) UpdateJob(ctx context.Context, job jobs.Job, resetNextRun bool) 
 		    environments = $8::text[]::environment[], url = $9, method = $10::http_method,
 		    headers = $11::jsonb, body = $12, timeout_seconds = $13,
 		    max_retries = $14, retry_backoff = $15::retry_backoff,
-		    alert_on_failure = $16::text[]::alert_channel[], enabled = $17,
-		    next_run_at = CASE WHEN $18::boolean THEN NULL ELSE jobs.next_run_at END,
+		    overlap_policy = $16::overlap_policy,
+		    alert_on_failure = $17::text[]::alert_channel[], enabled = $18,
+		    next_run_at = CASE WHEN $19::boolean THEN NULL ELSE jobs.next_run_at END,
 		    -- La sospensione di R58 si scioglie quando il job torna acceso, e lo
 		    -- fa **qui** e non nel chiamante: è una proprietà della riga —
 		    -- «questo job è spento perché il piano si è ristretto» — e un job
 		    -- acceso non può portarla. Scritta nel servizio, sarebbe una riga che
 		    -- il prossimo percorso di riaccensione dimentica, e resterebbe un job
 		    -- funzionante che l'interfaccia continua a mostrare come fermo.
-		    suspended_at = CASE WHEN $17::boolean THEN NULL ELSE jobs.suspended_at END,
-		    suspended_reason = CASE WHEN $17::boolean THEN NULL ELSE jobs.suspended_reason END
+		    --
+		    -- I due CASE guardano enabled, che è $18 e non $17: overlap_policy si è
+		    -- inserita prima di loro e ha spostato di uno tutto ciò che segue. Un
+		    -- segnaposto rimasto indietro qui non è un errore di compilazione, è una
+		    -- sospensione sciolta dal valore di un altro campo.
+		    suspended_at = CASE WHEN $18::boolean THEN NULL ELSE jobs.suspended_at END,
+		    suspended_reason = CASE WHEN $18::boolean THEN NULL ELSE jobs.suspended_reason END
 		  WHERE id = $2::uuid AND user_id = $1::uuid
 		 RETURNING `+jobColumns,
 		job.UserID, job.ID, job.Name, nullable(job.Description),
 		nullable(job.Schedule), everySeconds(job.Every), job.Timezone,
 		stringsOf(job.Environments), job.URL, string(job.Method), headers, nullable(job.Body),
 		int32(job.Timeout/time.Second),
-		int16(job.MaxRetries), string(job.RetryBackoff), stringsOf(job.AlertOnFailure),
+		int16(job.MaxRetries), string(job.RetryBackoff), overlapPolicy(job.OverlapPolicy),
+		stringsOf(job.AlertOnFailure),
 		job.Enabled, resetNextRun)
 
 	updated, err := scanJob(row)
@@ -546,6 +557,7 @@ func scanJob(row scanner) (jobs.Job, error) {
 		timeout         int32
 		maxRetries      int16
 		backoff         string
+		overlap         string
 		method          string
 		channels        []string
 	)
@@ -554,7 +566,7 @@ func scanJob(row scanner) (jobs.Job, error) {
 		&job.Name, &job.Description,
 		&schedule, &every, &job.Timezone, &environments,
 		&job.URL, &method, &headers, &job.Body,
-		&timeout, &maxRetries, &backoff, &channels,
+		&timeout, &maxRetries, &backoff, &overlap, &channels,
 		&job.Enabled, &job.ArchivedAt, &job.NextRunAt,
 		&job.SuspendedAt, &suspendedReason,
 		&job.CreatedAt, &job.UpdatedAt)
@@ -574,6 +586,7 @@ func scanJob(row scanner) (jobs.Job, error) {
 	job.SuspendedReason = jobs.SuspensionReason(suspendedReason)
 	job.Method = jobs.Method(method)
 	job.RetryBackoff = jobs.Backoff(backoff)
+	job.OverlapPolicy = jobs.OverlapPolicy(overlap)
 	job.Timeout = time.Duration(timeout) * time.Second
 	job.MaxRetries = int(maxRetries)
 
@@ -674,6 +687,21 @@ func everySeconds(every time.Duration) *int32 {
 	}
 	value := int32(every / time.Second)
 	return &value
+}
+
+// overlapPolicy scrive la politica di sovrapposizione (R41), con il predefinito
+// per chi non l'ha scelta.
+//
+// Il valore vuoto non arriva mai da [jobs.Job.Validate], che lo normalizza — ma
+// questo Store è chiamato anche dalla riconciliazione, e una colonna
+// `overlap_policy` NOT NULL rifiuterebbe la stringa vuota con un errore che
+// nessuno saprebbe leggere. Il predefinito è lo stesso in entrambi i posti
+// perché viene dalla stessa costante.
+func overlapPolicy(p jobs.OverlapPolicy) string {
+	if p == "" {
+		return string(jobs.DefaultOverlapPolicy)
+	}
+	return string(p)
 }
 
 func nonNilHeaders(headers map[string]string) map[string]string {

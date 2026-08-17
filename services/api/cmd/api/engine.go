@@ -301,7 +301,8 @@ const jobTargetSQL = `
 	SELECT id::text, user_id::text, name,
 	       coalesce(schedule, ''), coalesce(every_seconds, 0), timezone,
 	       environments::text[], url, method::text, headers, body,
-	       timeout_seconds, max_retries, retry_backoff::text, enabled
+	       timeout_seconds, max_retries, retry_backoff::text,
+	       overlap_policy::text, enabled
 	  FROM jobs
 	 WHERE id = $1::uuid`
 
@@ -311,12 +312,13 @@ func loadJobTarget(ctx context.Context, pool *pgxpool.Pool, jobID string) (sched
 		every   int32
 		timeout int32
 		retries int16
+		overlap string
 	)
 	err := pool.QueryRow(ctx, jobTargetSQL, jobID).Scan(
 		&job.ID, &job.UserID, &job.Name,
 		&job.Expression, &every, &job.Timezone,
 		&job.Environments, &job.URL, &job.Method, &job.Headers, &job.Body,
-		&timeout, &retries, &job.RetryBackoff, &job.Enabled,
+		&timeout, &retries, &job.RetryBackoff, &overlap, &job.Enabled,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Il job è stato cancellato fra la registrazione della riga e la sua
@@ -331,5 +333,6 @@ func loadJobTarget(ctx context.Context, pool *pgxpool.Pool, jobID string) (sched
 	job.Every = time.Duration(every) * time.Second
 	job.Timeout = time.Duration(timeout) * time.Second
 	job.MaxRetries = int(retries)
+	job.Overlap = scheduler.OverlapPolicy(overlap).Or()
 	return job, nil
 }

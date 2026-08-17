@@ -155,6 +155,11 @@ func (j *Job) Normalize() {
 	if j.Timezone == "" {
 		j.Timezone = "UTC"
 	}
+	// Come il fuso: chi non sceglie prende il predefinito dichiarato, non un
+	// errore di validazione su un campo che non ha scritto (R41).
+	if j.OverlapPolicy == "" {
+		j.OverlapPolicy = DefaultOverlapPolicy
+	}
 	if j.Headers == nil {
 		j.Headers = map[string]string{}
 	}
@@ -321,6 +326,10 @@ func (j *Job) validateExecution(invalid *ValidationError) {
 		invalid.add("retries.backoff", "unknown_value",
 			"politica %q sconosciuta: ammesse %s.", j.RetryBackoff, joinBackoffs(Backoffs))
 	}
+	if !slices.Contains(OverlapPolicies, j.OverlapPolicy) {
+		invalid.add("on_overlap", "unknown_value",
+			"comportamento %q sconosciuto: ammessi %s.", j.OverlapPolicy, joinOverlaps(OverlapPolicies))
+	}
 
 	seen := map[AlertChannel]bool{}
 	for _, channel := range j.AlertOnFailure {
@@ -340,6 +349,7 @@ func joinEnvironments(values []Environment) string { return joinStringy(values) 
 func joinMethods(values []Method) string           { return joinStringy(values) }
 func joinBackoffs(values []Backoff) string         { return joinStringy(values) }
 func joinChannels(values []AlertChannel) string    { return joinStringy(values) }
+func joinOverlaps(values []OverlapPolicy) string   { return joinStringy(values) }
 
 func joinStringy[T ~string](values []T) string {
 	parts := make([]string, 0, len(values))

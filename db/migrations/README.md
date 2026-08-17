@@ -57,6 +57,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0011 | `github_webhook_deliveries` e la sua pulizia periodica |
 | 0012 | `workspace_secrets`: i segreti contro cui `cron.yaml` risolve `${VAR}` |
 | 0013 | `paddle_webhook_events`, `paddle_checkout_intents` e la sospensione dei job al cambio di piano |
+| 0014 | `jobs.overlap_policy`: cosa fare quando un'occorrenza scavalca la precedente (R41) |
 
 ## Scelte di schema
 

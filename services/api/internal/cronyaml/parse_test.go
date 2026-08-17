@@ -22,6 +22,7 @@ defaults:
   timezone: Europe/Rome
   timeout: 30s
   retries: { max: 3, backoff: exponential }
+  on_overlap: skip               # R41 — predefinito dichiarato
 
 jobs:
   - name: daily-digest          # identità stabile del job: chiave della riconciliazione
@@ -46,6 +47,7 @@ jobs:
       url: https://api.example.com/health
       method: GET
     timeout: 5s
+    on_overlap: allow           # sovrascrive defaults: un healthcheck può convivere con sé stesso
 `
 
 func TestIlFileDiEsempioDellaSpecificaSiLegge(t *testing.T) {
@@ -94,6 +96,9 @@ func TestIlFileDiEsempioDellaSpecificaSiLegge(t *testing.T) {
 	if len(digest.Environments) != 1 || digest.Environments[0] != jobs.EnvironmentProduction {
 		t.Errorf("environments = %v", digest.Environments)
 	}
+	if digest.OverlapPolicy != jobs.OverlapSkip {
+		t.Errorf("on_overlap = %q: doveva ereditare `skip` da defaults", digest.OverlapPolicy)
+	}
 
 	health := file.Jobs[1].Job
 	if health.Every != 10*time.Second {
@@ -117,6 +122,12 @@ func TestIlFileDiEsempioDellaSpecificaSiLegge(t *testing.T) {
 	}
 	if len(health.Environments) != 2 {
 		t.Errorf("environments = %v", health.Environments)
+	}
+	// Il valore del job vince su quello di `defaults`, come per il timeout: è la
+	// riga per cui R41 chiede che la politica sia configurabile **per job**.
+	if health.OverlapPolicy != jobs.OverlapAllow {
+		t.Errorf("on_overlap = %q, atteso `allow`: il valore del job sovrascrive quello di defaults",
+			health.OverlapPolicy)
 	}
 }
 
@@ -159,11 +170,11 @@ func TestIlConfineVersoLaRiconciliazione(t *testing.T) {
 
 	// La posizione sopravvive alla validazione: serve a #423 per riportare sulla
 	// riga giusta i propri errori.
-	if file.Jobs[0].Line != 9 || file.Jobs[0].Path != "jobs[0]" {
-		t.Errorf("prima voce a %d (%s), attesa riga 9 come `jobs[0]`", file.Jobs[0].Line, file.Jobs[0].Path)
+	if file.Jobs[0].Line != 10 || file.Jobs[0].Path != "jobs[0]" {
+		t.Errorf("prima voce a %d (%s), attesa riga 10 come `jobs[0]`", file.Jobs[0].Line, file.Jobs[0].Path)
 	}
-	if file.Jobs[1].Line != 24 {
-		t.Errorf("seconda voce a riga %d, attesa 24", file.Jobs[1].Line)
+	if file.Jobs[1].Line != 25 {
+		t.Errorf("seconda voce a riga %d, attesa 25", file.Jobs[1].Line)
 	}
 }
 

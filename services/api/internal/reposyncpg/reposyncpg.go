@@ -61,7 +61,8 @@ const repositoryColumns = `id::text, user_id::text, coalesce(installation_id, 0)
 const managedJobColumns = `id::text, user_id::text, name, coalesce(description, ''),
 	coalesce(schedule, ''), coalesce(every_seconds, 0), timezone, environments::text[],
 	url, method::text, headers, coalesce(body, ''),
-	timeout_seconds, max_retries, retry_backoff::text, alert_on_failure::text[],
+	timeout_seconds, max_retries, retry_backoff::text, overlap_policy::text,
+	alert_on_failure::text[],
 	enabled, archived_at`
 
 // RepositoriesByExternalID trova i collegamenti che seguono un repository.
@@ -336,15 +337,17 @@ func updateJob(ctx context.Context, tx pgx.Tx, change reposync.Change) error {
 		    environments = $6::text[]::environment[], url = $7, method = $8::http_method,
 		    headers = $9::jsonb, body = $10, timeout_seconds = $11,
 		    max_retries = $12, retry_backoff = $13::retry_backoff,
-		    alert_on_failure = $14::text[]::alert_channel[],
+		    overlap_policy = $14::overlap_policy,
+		    alert_on_failure = $15::text[]::alert_channel[],
 		    archived_at = NULL,
-		    next_run_at = CASE WHEN $15::boolean THEN NULL ELSE jobs.next_run_at END
+		    next_run_at = CASE WHEN $16::boolean THEN NULL ELSE jobs.next_run_at END
 		  WHERE id = $1::uuid`,
 		job.ID, nullable(job.Description),
 		nullable(job.Schedule), everySeconds(job.Every), job.Timezone,
 		stringsOf(job.Environments), job.URL, string(job.Method), headers, nullable(job.Body),
 		int32(job.Timeout/time.Second),
-		int16(job.MaxRetries), string(job.RetryBackoff), stringsOf(job.AlertOnFailure),
+		int16(job.MaxRetries), string(job.RetryBackoff), overlapPolicy(job.OverlapPolicy),
+		stringsOf(job.AlertOnFailure),
 		change.ResetNextRun)
 	if err != nil {
 		return fmt.Errorf("reposyncpg: aggiornamento del job %q: %w", job.Name, err)
@@ -368,15 +371,17 @@ func insertJob(ctx context.Context, tx pgx.Tx, job jobs.Job) error {
 		`INSERT INTO jobs (
 		    user_id, repository_id, name, description, schedule, every_seconds, timezone,
 		    environments, url, method, headers, body, timeout_seconds,
-		    max_retries, retry_backoff, alert_on_failure, enabled)
+		    max_retries, retry_backoff, overlap_policy, alert_on_failure, enabled)
 		 VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7,
 		         $8::text[]::environment[], $9, $10::http_method, $11::jsonb, $12, $13,
-		         $14, $15::retry_backoff, $16::text[]::alert_channel[], true)`,
+		         $14, $15::retry_backoff, $16::overlap_policy,
+		         $17::text[]::alert_channel[], true)`,
 		job.UserID, job.RepositoryID, job.Name, nullable(job.Description),
 		nullable(job.Schedule), everySeconds(job.Every), job.Timezone,
 		stringsOf(job.Environments), job.URL, string(job.Method), headers, nullable(job.Body),
 		int32(job.Timeout/time.Second),
-		int16(job.MaxRetries), string(job.RetryBackoff), stringsOf(job.AlertOnFailure))
+		int16(job.MaxRetries), string(job.RetryBackoff), overlapPolicy(job.OverlapPolicy),
+		stringsOf(job.AlertOnFailure))
 	if err != nil {
 		return fmt.Errorf("reposyncpg: creazione del job %q: %w", job.Name, err)
 	}

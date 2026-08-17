@@ -489,6 +489,7 @@ type Patch struct {
 	Timeout        *time.Duration
 	MaxRetries     *int
 	RetryBackoff   *Backoff
+	OverlapPolicy  *OverlapPolicy
 	AlertOnFailure *[]AlertChannel
 	Enabled        *bool
 }
@@ -498,7 +499,7 @@ func (p Patch) Empty() bool {
 	return p.Name == nil && p.Description == nil && p.Schedule == nil && p.Every == nil &&
 		p.Timezone == nil && p.Environments == nil && p.URL == nil && p.Method == nil &&
 		p.Headers == nil && p.Body == nil && p.Timeout == nil && p.MaxRetries == nil &&
-		p.RetryBackoff == nil && p.AlertOnFailure == nil && p.Enabled == nil
+		p.RetryBackoff == nil && p.OverlapPolicy == nil && p.AlertOnFailure == nil && p.Enabled == nil
 }
 
 // onlyEnabled indica una patch che tocca solo la pausa.
@@ -519,6 +520,7 @@ func (p Patch) ApplyTo(job *Job) {
 	assign(&job.Timeout, p.Timeout)
 	assign(&job.MaxRetries, p.MaxRetries)
 	assign(&job.RetryBackoff, p.RetryBackoff)
+	assign(&job.OverlapPolicy, p.OverlapPolicy)
 	assign(&job.Enabled, p.Enabled)
 	assign(&job.Environments, p.Environments)
 	assign(&job.AlertOnFailure, p.AlertOnFailure)
