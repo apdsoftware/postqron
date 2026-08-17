@@ -10,15 +10,24 @@
 // index.html per i percorsi che non corrispondono a un file (la regola di
 // apps/dashboard/public/_redirects).
 //
+// Con --compress emula anche la compressione dell'edge: è la modalità da usare
+// per misurare R53-bis in locale. Senza, Lighthouse conta i byte non compressi e
+// segnala `uses-text-compression` come un difetto del sito, mentre è solo
+// un'assenza del server di prova — il punteggio che ne esce sottostima quello
+// vero di parecchi punti. La compressione resta però spenta di default: i test
+// e2e misurano il peso degli artefatti, e un peso compresso dipenderebbe dal
+// livello di zlib invece che da ciò che la build produce.
+//
 // Nessuna dipendenza: è codice di test, non deve aggiungere superficie al
 // progetto.
 //
-// Uso: node scripts/static-server.mjs --root <dir> --port <n> [--spa]
+// Uso: node scripts/static-server.mjs --root <dir> --port <n> [--spa] [--compress]
 
 import { createServer } from 'node:http'
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, normalize, resolve, sep } from 'node:path'
+import { createBrotliCompress, createGzip, constants as zlibConstants } from 'node:zlib'
 
 /** @type {Record<string, string>} */
 const CONTENT_TYPES = {
@@ -35,22 +44,30 @@ const CONTENT_TYPES = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
 }
+
+// Le estensioni che Cloudflare comprime. Le altre — immagini, woff2 — sono già
+// compresse nel loro formato: ricomprimerle costerebbe CPU per crescere di
+// qualche byte, e infatti l'edge non lo fa.
+const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg', '.txt', '.map', '.xml'])
 
 /**
  * @param {string[]} argv
- * @returns {{ root: string, port: number, spa: boolean }}
+ * @returns {{ root: string, port: number, spa: boolean, compress: boolean }}
  */
 function parseArgs(argv) {
   let root = ''
   let port = -1
   let spa = false
+  let compress = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--root') root = argv[++i] ?? ''
     else if (arg === '--port') port = Number(argv[++i] ?? '')
     else if (arg === '--spa') spa = true
+    else if (arg === '--compress') compress = true
     else {
       console.error(`static-server: argomento sconosciuto "${arg}"`)
       process.exit(2)
@@ -60,11 +77,38 @@ function parseArgs(argv) {
   // `--port 0` chiede una porta effimera: la usa la suite di test degli script,
   // che non può permettersi di collidere con qualcosa già in ascolto.
   if (!root || !Number.isInteger(port) || port < 0) {
-    console.error('uso: node scripts/static-server.mjs --root <dir> --port <n> [--spa]')
+    console.error('uso: node scripts/static-server.mjs --root <dir> --port <n> [--spa] [--compress]')
     process.exit(2)
   }
 
-  return { root: resolve(root), port, spa }
+  return { root: resolve(root), port, spa, compress }
+}
+
+/**
+ * Sceglie la codifica come farebbe l'edge: brotli se il client lo dichiara,
+ * altrimenti gzip, altrimenti niente.
+ *
+ * @param {string | undefined} acceptEncoding
+ * @param {string} extension
+ * @returns {{ encoding: string, stream: import('node:stream').Transform } | null}
+ */
+function negotiate(acceptEncoding, extension) {
+  if (!COMPRESSIBLE.has(extension)) return null
+
+  // `split(';')[0]` è sempre definito, ma il typecheck degli e2e gira con
+  // `noUncheckedIndexedAccess`: `?? value` dice la stessa cosa senza asserzioni,
+  // che in un `.mjs` non si possono scrivere.
+  const accepted = (acceptEncoding ?? '').split(',').map(value => (value.split(';')[0] ?? value).trim())
+  if (accepted.includes('br')) {
+    // Livello 5, non 11: è il compromesso che Cloudflare usa sul traffico
+    // dinamico. Misurare con 11 gonfierebbe il risparmio rispetto al vero.
+    return {
+      encoding: 'br',
+      stream: createBrotliCompress({ params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } }),
+    }
+  }
+  if (accepted.includes('gzip')) return { encoding: 'gzip', stream: createGzip() }
+  return null
 }
 
 /**
@@ -104,7 +148,7 @@ async function findFile(path) {
   }
 }
 
-const { root, port, spa } = parseArgs(process.argv.slice(2))
+const { root, port, spa, compress } = parseArgs(process.argv.slice(2))
 
 const server = createServer((req, res) => {
   void (async () => {
@@ -131,16 +175,27 @@ const server = createServer((req, res) => {
       return
     }
 
-    res.writeHead(status, {
-      'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
+    const extension = extname(file)
+    const encoded = compress ? negotiate(req.headers['accept-encoding'], extension) : null
+
+    /** @type {Record<string, string>} */
+    const headers = {
+      'content-type': CONTENT_TYPES[extension] ?? 'application/octet-stream',
       'cache-control': 'no-store',
-    })
-    createReadStream(file).pipe(res)
+    }
+    if (compress && COMPRESSIBLE.has(extension)) headers.vary = 'accept-encoding'
+    if (encoded) headers['content-encoding'] = encoded.encoding
+
+    res.writeHead(status, headers)
+
+    if (encoded) createReadStream(file).pipe(encoded.stream).pipe(res)
+    else createReadStream(file).pipe(res)
   })()
 })
 
 server.listen(port, '127.0.0.1', () => {
   const address = server.address()
   const bound = typeof address === 'object' && address !== null ? address.port : port
-  console.log(`static-server: ${root} su http://127.0.0.1:${bound}${spa ? ' (spa)' : ''}`)
+  const modes = [spa ? 'spa' : '', compress ? 'compress' : ''].filter(Boolean).join(', ')
+  console.log(`static-server: ${root} su http://127.0.0.1:${bound}${modes ? ` (${modes})` : ''}`)
 })
