@@ -568,6 +568,29 @@ func (s *Service) Update(ctx context.Context, userID, jobID string, patch Patch)
 	if err := updated.Validate(ctx, plan, s.guard); err != nil {
 		return Job{}, err
 	}
+
+	// La riaccensione è l'altra metà di R58, e senza questo controllo la regola
+	// resterebbe a metà: il downgrade sospende, e poi l'utente riaccenderebbe
+	// tutto ciò che aveva. Il tetto da applicare è quello dei job **accesi** —
+	// non quello del catalogo, che dopo un downgrade è per costruzione già oltre
+	// il limite: vedi [Plan.CheckActiveJobCount].
+	//
+	// Il vincolo di risoluzione non compare qui perché [Job.Validate] lo ha già
+	// applicato poche righe sopra: un `every: 1s` su un piano fermo al minuto è
+	// rifiutato con il messaggio che dice cosa fare — allargare l'intervallo o
+	// cambiare piano — che è ciò che R58 pretende dall'interfaccia. Le due metà
+	// stanno in due posti diversi perché sono due domande diverse: «c'è posto» e
+	// «questo job è ammissibile».
+	if !current.Enabled && updated.Enabled && !current.Archived() {
+		active, err := s.store.CountActiveJobs(ctx, userID)
+		if err != nil {
+			return Job{}, err
+		}
+		if err := plan.CheckActiveJobCount(active); err != nil {
+			return Job{}, err
+		}
+	}
+
 	return s.store.UpdateJob(ctx, updated, mustResetNextRun(current, updated))
 }
 

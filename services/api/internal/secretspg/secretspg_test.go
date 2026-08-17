@@ -527,17 +527,25 @@ func TestMigrationIsReversible(t *testing.T) {
 		t.Fatalf("caricamento delle migrazioni: %v", err)
 	}
 
-	// L'annullamento parte dall'ultima applicata, quindi questo giro ha senso solo
-	// se l'ultima è la nostra. Se un giorno non lo fosse, il test lo dice invece di
-	// annullare in silenzio la migrazione di un'altra issue.
-	ultima := migrations[len(migrations)-1]
-	if ultima.Name != migrationName {
-		t.Fatalf(
-			"l'ultima migrazione è %s, non %s: questo test annulla l'ultima applicata "+
-				"e con un'altra davanti annullerebbe quella. Rinumera, oppure riscrivi il test "+
-				"per annullare fino alla propria versione.",
-			ultima, migrationName)
+	// L'annullamento parte sempre dall'ultima applicata, quindi per arrivare alla
+	// nostra bisogna passare da quelle che la seguono. `passi` è quante:
+	// annullarle e riapplicarle tutte lascia il database esattamente com'era, e
+	// non c'è modo di toccare la sola migrazione dei segreti senza riscrivere il
+	// migratore.
+	//
+	// La versione precedente di questo controllo pretendeva invece che la nostra
+	// fosse **l'ultima**, e falliva alla prima migrazione aggiunta da un'altra
+	// issue — è successo con la 0013. Contare i passi verifica la stessa
+	// proprietà (che la `down` dei segreti sia completa) senza legare il test
+	// all'ordine di arrivo delle issue.
+	indice := slices.IndexFunc(migrations, func(m migrate.Migration) bool {
+		return m.Name == migrationName
+	})
+	if indice < 0 {
+		t.Fatalf("migrazione %s non trovata fra quelle caricate", migrationName)
 	}
+	nostra := migrations[indice]
+	passi := len(migrations) - indice
 
 	conn, err := f.pool.Acquire(ctx)
 	if err != nil {
@@ -546,15 +554,15 @@ func TestMigrationIsReversible(t *testing.T) {
 	defer conn.Release()
 	migrator := migrate.New(conn, migrations, nil)
 
-	if _, err := migrator.Down(ctx, 1); err != nil {
-		t.Fatalf("annullamento di %s: %v", ultima, err)
+	if _, err := migrator.Down(ctx, passi); err != nil {
+		t.Fatalf("annullamento fino a %s: %v", nostra, err)
 	}
 	if exists() {
 		t.Fatal("la tabella esiste ancora dopo l'annullamento")
 	}
 
-	if _, err := migrator.Up(ctx, 1); err != nil {
-		t.Fatalf("riapplicazione di %s: %v", ultima, err)
+	if _, err := migrator.Up(ctx, passi); err != nil {
+		t.Fatalf("riapplicazione fino a %s: %v", nostra, err)
 	}
 	if !exists() {
 		t.Fatal("la tabella non è tornata dopo la riapplicazione")
