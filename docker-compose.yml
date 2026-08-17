@@ -39,6 +39,23 @@ services:
       - timezone=UTC
       - -c
       - log_timezone=UTC
+      # `go test ./...` esegue i package in parallelo: otto di loro aprono un
+      # pool verso questo contenitore, e ciascun test crea il proprio database
+      # usa e getta. Con il valore predefinito di 100 il tetto si raggiunge, e
+      # l'errore che ne esce — «sorry, too many clients already» — arriva a un
+      # test a caso, non a quello che ha consumato le connessioni.
+      #
+      # È la causa dei fallimenti intermittenti della CI inseguiti per giorni
+      # da tre agenti diversi: non un difetto di sincronizzazione, esaurimento
+      # di risorse. Peggiorava a ogni package nuovo con test sul database, il
+      # che spiega perché sembrasse casuale.
+      #
+      # 200 è per lo sviluppo, dove la memoria abbonda. In produzione il valore
+      # va scelto sapendo che API, motore e database condividono la stessa VPS
+      # (SPEC §2), quindi le connessioni tolte al database sono memoria tolta
+      # alle query.
+      - -c
+      - max_connections=200
 
     # Host e porta di pubblicazione vengono dalle stesse variabili che l'API usa
     # per comporre il proprio DSN (vedi .env.example): non esiste un secondo
