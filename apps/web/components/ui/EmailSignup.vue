@@ -1,16 +1,17 @@
 <script setup lang="ts">
+/*
+ * Le etichette non hanno valori predefiniti: un default è una stringa scritta
+ * nel componente, e una stringa scritta nel componente non è traducibile
+ * (SPEC §8-bis). Arrivano da `content/<lingua>.ts`, sezione `ui`.
+ */
 withDefaults(
   defineProps<{
-    placeholder?: string
-    submitLabel?: string
+    placeholder: string
+    submitLabel: string
     /** Nota sotto al campo, in caratteri piccoli. */
     note?: string
   }>(),
-  {
-    placeholder: 'Inserisci la tua email',
-    submitLabel: 'Inizia ora',
-    note: undefined,
-  },
+  { note: undefined },
 )
 
 const email = defineModel<string>({ default: '' })

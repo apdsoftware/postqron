@@ -1,7 +1,11 @@
 <script setup lang="ts">
+/*
+ * `lang` non si imposta qui: dipende dalla pagina, ed è `useLocalizedHead()` a
+ * dichiararlo insieme a `canonical` e `hreflang`. Il suffisso del titolo,
+ * invece, è il nome del prodotto e vale in tutte le lingue.
+ */
 useHead({
   titleTemplate: title => (title ? `${title} · PostQron` : 'PostQron'),
-  htmlAttrs: { lang: 'it' },
 })
 </script>
 

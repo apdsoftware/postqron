@@ -10,6 +10,10 @@ defineProps<{
   note: string
   /** Video di presentazione; se manca, il pulsante di riproduzione non compare. */
   video?: { href: string, embedSrc: string, title: string }
+  /* Etichette dell'interfaccia, da `ui`: qui non nasce nessuna stringa. */
+  emailPlaceholder: string
+  emailSubmit: string
+  closeVideoLabel: string
 }>()
 
 const email = ref('')
@@ -64,6 +68,8 @@ function onSubmit() {
             <EmailSignup
               v-model="email"
               :note="note"
+              :placeholder="emailPlaceholder"
+              :submit-label="emailSubmit"
               @submit="onSubmit"
             />
           </div>
@@ -75,7 +81,10 @@ function onSubmit() {
       v-if="video"
       class="hero__play"
     >
-      <VideoDialog v-bind="video" />
+      <VideoDialog
+        v-bind="video"
+        :close-label="closeVideoLabel"
+      />
     </div>
   </div>
 </template>

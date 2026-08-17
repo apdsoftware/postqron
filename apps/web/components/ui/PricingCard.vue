@@ -1,13 +1,44 @@
 <script setup lang="ts">
-import type { PricingPlan } from '~/types/content'
+import type { MoneyFormat, PricingPlan } from '~/types/content'
 
-withDefaults(
-  defineProps<{
-    plan: PricingPlan
-    /** Posizione nel listino: è il numero dentro l'esagono. */
-    position: number
-  }>(),
-  {},
+const props = defineProps<{
+  plan: PricingPlan
+  /** Posizione nel listino: è il numero dentro l'esagono. */
+  position: number
+  /** Destinazione del pulsante, già prefissata con la lingua corrente. */
+  href: string
+  /**
+   * Dove va il simbolo di valuta nella lingua corrente. L'importo è lo stesso
+   * in tutte e cinque (R61); a cambiare è solo la convenzione di scrittura.
+   */
+  currencyPosition: MoneyFormat['currencyPosition']
+  /**
+   * Indicazione dell'imposta nella lingua corrente (R61-bis). È obbligatoria:
+   * una cifra senza è un difetto, e un valore predefinito qui sarebbe una
+   * stringa scritta nel componente.
+   */
+  taxNote: string
+}>()
+
+/**
+ * Fra cifra e simbolo posposto va uno spazio unificatore: «9 €» è un'unica
+ * quantità e non deve spezzarsi a fine riga. Non è testo da tradurre — è la
+ * punteggiatura della regola qui sopra — quindi vive nel componente.
+ *
+ * Scritto come sequenza di escape perché a occhio è indistinguibile da uno
+ * spazio normale, e la differenza è tutto il punto.
+ */
+const NON_BREAKING_SPACE = '\u00A0'
+
+const trailingCurrency = computed(() => `${NON_BREAKING_SPACE}${props.plan.currency}`)
+
+/**
+ * Anche fra qualificatore e cifra lo spazio \u00E8 nel testo, non solo nel margine:
+ * un margine si vede ma non si copia, e \u00ABab79 \u20AC\u00BB \u00E8 ci\u00F2 che finisce negli
+ * appunti di chi seleziona il prezzo.
+ */
+const leadingPrefix = computed(() =>
+  props.plan.pricePrefix ? `${props.plan.pricePrefix}${NON_BREAKING_SPACE}` : '',
 )
 </script>
 
@@ -31,10 +62,30 @@ withDefaults(
     </header>
 
     <div class="pricing__body">
+      <!--
+        Due regole locali diverse sulla stessa riga: dove va il simbolo e come
+        si chiama l'imposta. «€9/month + VAT» in inglese, «9 €/mese + IVA» in
+        italiano — nessuna delle due parti è scritta qui.
+      -->
       <p class="pricing__price">
-        <span class="pricing__currency">{{ plan.currency }}</span>
+        <span
+          v-if="plan.pricePrefix"
+          class="pricing__prefix"
+          :class="{ 'pricing__prefix--baseline': currencyPosition === 'after' }"
+        >{{ leadingPrefix }}</span>
+        <span
+          v-if="currencyPosition === 'before'"
+          class="pricing__currency"
+        >{{ plan.currency }}</span>
         <span class="pricing__amount">{{ plan.price }}</span>
+        <span
+          v-if="currencyPosition === 'after'"
+          class="pricing__currency pricing__currency--after"
+        >{{ trailingCurrency }}</span>
         <span class="pricing__period">{{ plan.period }}</span>
+      </p>
+      <p class="pricing__tax">
+        {{ taxNote }}
       </p>
       <ul class="pricing__features">
         <li
@@ -49,7 +100,7 @@ withDefaults(
 
     <footer class="pricing__footer">
       <LineButton
-        :to="plan.ctaTo"
+        :to="href"
         :variant="plan.featured ? 'solid' : 'outline'"
       >
         {{ plan.ctaLabel }}
@@ -125,9 +176,31 @@ withDefaults(
 
 .pricing__price {
   margin-top: 60px;
-  margin-bottom: 30px;
+  margin-bottom: 8px;
   color: var(--pq-primary);
   text-align: center;
+}
+
+/*
+ * «da», «from», «ab»: sta sulla stessa riga del prezzo, alla quota del simbolo
+ * di valuta e nella stessa misura, perché è un qualificatore della cifra e non
+ * un'etichetta a sé.
+ */
+.pricing__prefix {
+  position: relative;
+  top: -15px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/*
+ * Il qualificatore si allinea a ciò che lo segue. Con il simbolo anteposto
+ * precede un `€` sollevato e sta bene in alto; con il simbolo in coda precede
+ * la cifra grande, e restare sollevato lo farebbe sembrare un richiamo a una
+ * nota — «ab» sospeso sopra il 79.
+ */
+.pricing__prefix--baseline {
+  top: 0;
 }
 
 .pricing__currency {
@@ -143,10 +216,36 @@ withDefaults(
   letter-spacing: 2.12px;
 }
 
+/*
+ * Il simbolo posposto sta sulla riga di scrittura, non in alto: sollevato
+ * sembrerebbe un richiamo a una nota invece che parte della cifra.
+ */
+.pricing__currency--after {
+  top: 0;
+}
+
 .pricing__period {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.88px;
+}
+
+/*
+ * L'imposta va sotto, su una riga propria: accanto al prezzo com'è richiesto,
+ * ma senza contendere spazio alla cifra dentro una card da 306px — «+ MwSt.»
+ * dopo «ab 79 €/Monat» non ci starebbe in nessun caso.
+ *
+ * È un paragrafo a sé e non uno `span` dentro quello del prezzo: è
+ * un'affermazione distinta sulla cifra, e da elemento separato il testo
+ * selezionato non esce come «/Monat+ MwSt.».
+ */
+.pricing__tax {
+  margin-bottom: 30px;
+  color: var(--pq-text);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.75px;
+  text-align: center;
 }
 
 /* Le voci non incluse restano leggibili ma spente. */
