@@ -14,7 +14,7 @@ together with the [Acceptable Use Policy](acceptable-use-policy.md) and the
 ## 1. Who you are contracting with
 
 Postqron is operated by
-[[DA CONFERMARE: ragione sociale completa, sede legale, partita IVA, numero di iscrizione]]
+Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224
 ("we", "us").
 
 **Purchases are made through Paddle.** Paddle acts as Merchant of Record: when you buy
@@ -38,7 +38,7 @@ secure, and for the people you invite into your workspace. Tell us promptly if y
 believe your account has been compromised.
 
 You must be at least
-[[DA CONFERMARE: età minima, coerente con la Privacy Policy — proposta: 16 anni]]
+16 years old
 and, if you act for an organisation, authorised to bind it.
 
 ## 4. Plans, limits and payment
@@ -78,7 +78,7 @@ within 14 days of purchase. Because the service is supplied immediately, you are
 to consent to immediate performance and acknowledge that doing so ends the withdrawal
 right once the service is fully performed.
 
-[[DA CONFERMARE: politica di rimborso oltre il recesso di legge — proposta: nessun rimborso pro-rata sui periodi già iniziati, salvo obbligo di legge o guasto imputabile a noi. Da validare]]
+We do not offer refunds for periods already started. If you cancel, or if you withdraw as a consumer, the service continues until the end of the month you have already paid for and is not refunded pro rata. This does not affect refunds we owe you by law, or those we choose to make when the failure is ours.
 
 Refunds are processed by Paddle.
 
@@ -94,7 +94,8 @@ precision. We take backups and we test restoring them, but a failure of that mac
 interrupts the service. Any commitment we made beyond what one machine can deliver
 would be a commitment we could not keep.
 
-[[DA CONFERMARE: se in futuro si vuole offrire un SLA con impegni misurabili, va scritto qui e va cambiata l'architettura di conseguenza]]
+If we ever offer a service level agreement with measurable commitments, it will appear
+here — and the architecture will have changed first, not after.
 
 ## 6. Your content and ours
 
@@ -127,25 +128,25 @@ is not a guarantee that the work behind it succeeded**, and you should design yo
 systems on that assumption.
 
 Our total liability in any twelve-month period is limited to
-[[DA CONFERMARE: massimale di responsabilità — proposta: quanto pagato nei 12 mesi precedenti. Da validare]].
+the amount you paid us in the twelve months before the event giving rise to the claim.
 
 ## 9. Changes to these terms
 
 We may change these terms. When a change materially affects your rights we give you
-[[DA CONFERMARE: preavviso per modifiche sostanziali — proposta: 30 giorni]]
+30 days'
 notice. If you do not accept the change, you may close your account before it takes
 effect.
 
 ## 10. Governing law and jurisdiction
 
 These terms are governed by
-[[DA CONFERMARE: legge applicabile — proposta: legge italiana]].
+the laws of Italy.
 Disputes are subject to the exclusive jurisdiction of
-[[DA CONFERMARE: foro competente — proposta: foro della sede legale]],
+the courts of Bergamo, Italy,
 **except** that if you are a consumer you keep the protection of the mandatory rules
 of the country where you live, and may bring proceedings before your local courts.
 
 ---
 
-**Contact:** [[DA CONFERMARE: indirizzo email di contatto generale]]
-**Operated by:** [[DA CONFERMARE: ragione sociale, sede legale, partita IVA, numero di iscrizione]]
+**Contact:** hello@postqron.com
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224

@@ -26,15 +26,20 @@ allineata: il consenso vale su ciò che l'utente ha effettivamente letto.
 
 ## Segnaposto
 
-I punti che richiedono un dato aziendale o una decisione non tecnica sono marcati
-così:
-
-```
-[[DA CONFERMARE: descrizione del dato mancante]]
-```
+I punti che richiedono un dato aziendale o una decisione non tecnica sono marcati con
+un blocco `DA CONFERMARE` fra doppie parentesi quadre, seguito dalla descrizione del
+dato mancante e, dove possibile, da una proposta.
 
 **Nessun documento va pubblicato finché ne resta uno.** Un controllo automatico ne
 verifica l'assenza prima del deploy (#473).
+
+### Stato attuale
+
+Resta aperta la sola **data di entrata in vigore**, che si fissa al lancio. Tutto il
+resto è compilato con i dati di Apdsoftware e le decisioni prese il 2026-08-17:
+giurisdizione italiana e foro di Bergamo, Hetzner in Germania, Paddle nel Regno Unito,
+Mailronix operato dalla stessa entità che opera Postqron, nessun rimborso pro-rata,
+nessun DPO nominato.
 
 ## Rapporto con Paddle
 

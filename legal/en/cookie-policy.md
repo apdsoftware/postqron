@@ -27,18 +27,21 @@ without breaking sign-in.
 |---|---|---|
 | Keeping you signed in | Cookie, `HttpOnly`, `Secure`, `SameSite` | Session duration |
 | Protecting forms against cross-site request forgery | Cookie | Session duration |
-| Remembering the language you chose | Cookie or local storage | [[DA CONFERMARE: durata della preferenza di lingua — proposta: 12 mesi]] |
-| Remembering your cookie choices | Cookie | [[DA CONFERMARE: durata del consenso — proposta: 6 mesi, dopo i quali richiediamo]] |
+| Remembering the language you chose | Cookie or local storage | 12 months |
+| Remembering your cookie choices | Cookie | 6 months, after which we ask again |
 
 The language cookie deserves a word: it stores a preference you expressed, nothing
 about who you are, and without it the site would forget your language on every visit.
 
 ### 2.2 Everything else
 
-[[DA CONFERMARE: al lancio prevediamo analytics? Oggi il sito non ne ha. Se se ne aggiungono, vanno elencati qui con finalità, fornitore, durata e base giuridica (consenso), e devono restare bloccati finché il consenso non è prestato]]
-
 At the time of writing this version we use **no** analytics, advertising, profiling or
 social media cookies.
+
+Analytics are planned. When they arrive, this policy gets a new version listing the
+purpose, the provider, the retention and the legal basis — consent — and the cookies
+stay blocked until you give it. They will not appear under "strictly necessary",
+because measuring how a site is used is not necessary to make it work.
 
 ### 2.3 Cookies set by others
 
@@ -66,7 +69,7 @@ language.
 
 We record what you chose, when, on which version of this policy and in which language.
 We ask again when this policy changes materially, or after
-[[DA CONFERMARE: durata del consenso — proposta: 6 mesi]].
+6 months.
 
 ## 5. Changes
 
@@ -75,5 +78,5 @@ changes reset consent.
 
 ---
 
-**Contact:** [[DA CONFERMARE: indirizzo email per le richieste privacy]]
-**Operated by:** [[DA CONFERMARE: ragione sociale, sede legale, partita IVA]]
+**Contact:** privacy@postqron.com
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224

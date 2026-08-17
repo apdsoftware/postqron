@@ -13,12 +13,15 @@ about it. It is written to be read, not to be survived.
 ## 1. Who is responsible
 
 The controller of your personal data is
-[[DA CONFERMARE: ragione sociale completa, sede legale, partita IVA, numero REA/registro imprese]].
+Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224.
 
 You can reach us at
-[[DA CONFERMARE: indirizzo email per le richieste privacy — proposta: privacy@postqron.com]].
+privacy@postqron.com.
 
-[[DA CONFERMARE: se è stato nominato un Responsabile della protezione dei dati (DPO), indicarne i contatti; se non è obbligatorio, rimuovere questa riga]]
+We have not appointed a Data Protection Officer: our processing does not meet the
+conditions of Art. 37 GDPR — we are not a public authority, our core activity is not
+large-scale systematic monitoring, and we do not process special categories of data at
+scale. Privacy requests go to the address above and are handled by us directly.
 
 ## 2. What we process, and why
 
@@ -85,7 +88,11 @@ We send email you need in order to use the service: welcome, failed-job alerts, 
 changes, security events. These are not marketing and you cannot unsubscribe from them
 without closing your account, because they are how the service tells you things.
 
-[[DA CONFERMARE: se in futuro si inviano email di marketing, servono base giuridica separata (consenso), disiscrizione in ogni messaggio e separazione dai transazionali. Oggi non ne inviamo: confermare che resta così al lancio]]
+**We do not send marketing email in this version.** When we do, it will be on a
+separate legal basis — your consent, asked for explicitly and never bundled with
+accepting these terms — with an unsubscribe link in every message and a strict
+separation from the transactional email above. Adding it requires a new version of
+this policy, not a silent change of practice.
 
 ## 3. AI features: a transfer you should understand
 
@@ -110,10 +117,10 @@ processing agreement.
 
 | Provider | Role | Where |
 |---|---|---|
-| Hetzner | Servers and database | [[DA CONFERMARE: data centre esatto — Germania o Finlandia]] |
+| Hetzner | Servers and database | Germany |
 | Cloudflare | DNS, TLS, CDN, static hosting, edge protection | Global edge network |
-| Paddle | Merchant of Record: payments, invoicing, tax | [[DA CONFERMARE: entità Paddle applicabile — UK o Irlanda]] |
-| Mailronix | Transactional email delivery | [[DA CONFERMARE: sede e localizzazione del trattamento]] |
+| Paddle | Merchant of Record: payments, invoicing, tax | United Kingdom |
+| Mailronix | Transactional email delivery | European Union â operated by Apdsoftware, the same entity that operates Postqron |
 | GitHub | Repository synchronisation, only if you connect one | United States |
 
 We keep this list current. If we add or change a provider in a way that affects you,
@@ -131,13 +138,13 @@ own technical measures.
 |---|---|
 | Account and profile | While the account exists |
 | Execution logs | 3, 15, 30 or 90 days, by plan |
-| Audit records | [[DA CONFERMARE: periodo di conservazione degli audit log — proposta: 24 mesi]] |
+| Audit records | 24 months |
 | Billing and tax records | As required by law, typically 10 years |
-| Backups | [[DA CONFERMARE: ciclo di rotazione dei backup — proposta: 30 giorni]] |
+| Backups | 30 days |
 
 When you delete your account we stop execution and revoke keys immediately, then
 remove the data after a grace period of
-[[DA CONFERMARE: periodo di sicurezza prima della cancellazione definitiva — proposta: 30 giorni]],
+30 days,
 during which you can change your mind. Data already written to backups disappears as
 those backups rotate out. Records we must keep for tax or legal reasons survive
 deletion, and only those.
@@ -174,7 +181,7 @@ automated means, and we do not profile you.
 ## 9. Children
 
 Postqron is not intended for people under
-[[DA CONFERMARE: età minima — proposta: 16 anni, allineata all'art. 8 GDPR come recepito in Italia]].
+16.
 We do not knowingly collect their data.
 
 ## 10. Changes
@@ -185,5 +192,5 @@ ask for your consent again.
 
 ---
 
-**Contact:** [[DA CONFERMARE: indirizzo email per le richieste privacy]]
-**Operated by:** [[DA CONFERMARE: ragione sociale, sede legale, partita IVA]]
+**Contact:** privacy@postqron.com
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224

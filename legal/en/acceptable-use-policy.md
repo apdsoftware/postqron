@@ -92,27 +92,27 @@ We suspend the narrowest thing that stops the harm. Suspension is not a refund e
 see the Terms.
 
 Where we suspend or terminate, you keep the right to export your data
-[[DA CONFERMARE: per quanti giorni dopo la sospensione resta possibile esportare — proposta: 30]],
+for 30 days,
 unless doing so is unlawful.
 
 ## 5. Reporting abuse
 
 If you believe someone is using Postqron to attack or abuse a system you are
 responsible for, write to
-[[DA CONFERMARE: indirizzo email per le segnalazioni di abuso — proposta: abuse@postqron.com]].
+abuse@postqron.com.
 Include the destination address, timestamps in UTC and, where available, the source IP.
 We investigate reports and will confirm receipt
-[[DA CONFERMARE: entro quanto tempo ci impegniamo a rispondere — proposta: due giorni lavorativi]].
+within two working days.
 
 ## 6. Changes
 
 We may update this policy. When a change materially restricts what is permitted, we
 give you
-[[DA CONFERMARE: preavviso per modifiche restrittive — proposta: 30 giorni]]
+30 days'
 notice before it takes effect, except where a shorter period is required to stop
 ongoing harm or to comply with law.
 
 ---
 
-**Contact:** [[DA CONFERMARE: indirizzo email di contatto generale]]
-**Operated by:** [[DA CONFERMARE: ragione sociale completa, sede legale, partita IVA, numero di iscrizione al registro delle imprese]]
+**Contact:** hello@postqron.com
+**Operated by:** Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy â VAT 03835250162, REA BG 431224
