@@ -109,12 +109,36 @@ export interface PricingPlan {
   currency: string
   price: string
   period: string
+  /** Opzione annuale: SPEC R62 la consente esclusivamente su Pro. */
+  annual?: {
+    price: string
+    period: string
+    savingNote: string
+  }
   features: readonly PlanFeature[]
   ctaLabel: string
   /** Destinazione senza prefisso di lingua, come in `NavItem`. */
   ctaTo: string
   /** Il piano in evidenza, con intestazione a gradiente. */
   featured?: boolean
+}
+
+export interface PricingComparisonRow {
+  label: string
+  values: readonly [string, string, string, string]
+}
+
+export interface PricingPageContent {
+  meta: ContentPageIntro
+  intro: ContentPageIntro
+  priceRowLabel: string
+  comparisonTitle: string
+  comparisonLead: string
+  rows: readonly PricingComparisonRow[]
+  includedLabel: string
+  notIncludedLabel: string
+  downgrade: FaqItem
+  checkoutNote: string
 }
 
 export interface Stat {
