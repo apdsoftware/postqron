@@ -10,13 +10,13 @@ export const de: SiteContent = {
   meta: {
     title: 'Verlässliche Cronjobs, als Code definiert',
     description:
-      'Beschreibe deine Zeitpläne in einer Datei in deinem Repository. PostQron führt '
+      'Beschreibe deine Zeitpläne in einer Datei in deinem Repository. Postqron führt '
       + 'sie pünktlich aus, wiederholt sie bei Bedarf und sagt dir immer, wie es lief.',
   },
 
   ui: {
     menu: 'Menü',
-    homeLink: 'PostQron, zurück zur Startseite',
+    homeLink: 'Postqron, zurück zur Startseite',
     language: 'Sprache',
     emailPlaceholder: 'E-Mail-Adresse eingeben',
     emailSubmit: 'Loslegen',
@@ -71,8 +71,8 @@ export const de: SiteContent = {
   },
 
   company: {
-    name: 'PostQron',
-    legalName: 'PostQron',
+    name: 'Postqron',
+    legalName: 'Postqron',
     about:
       'Verwaltete Cronjobs, in deinem eigenen Repository definiert und an einem Ort '
       + 'zusammengeführt: verlässliche Zeitpläne, ein Protokoll jeder Ausführung und '
@@ -87,20 +87,20 @@ export const de: SiteContent = {
   hero: {
     title: 'Verlässliche Cronjobs, als Code definiert',
     text:
-      'Beschreibe deine Zeitpläne in einer Datei in deinem Repository. PostQron führt '
+      'Beschreibe deine Zeitpläne in einer Datei in deinem Repository. Postqron führt '
       + 'sie pünktlich aus, wiederholt sie bei Bedarf und sagt dir immer, wie es lief.',
     image: '/img/hero.jpg',
-    imageAlt: 'Die PostQron-Konsole mit der Liste der Ausführungen',
+    imageAlt: 'Die Postqron-Konsole mit der Liste der Ausführungen',
     note: '30 Tage testen im Pro-Tarif — ohne Kreditkarte',
     video: {
       href: 'https://www.youtube.com/@postqron',
       embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'PostQron in zwei Minuten ansehen',
+      title: 'Postqron in zwei Minuten ansehen',
     },
   },
 
   featuresIntro: {
-    title: 'Vier Dinge, die PostQron von deiner Liste nimmt',
+    title: 'Vier Dinge, die Postqron von deiner Liste nimmt',
     lead:
       'Kein Cron-Server, den du am Leben halten musst, kein Skript, das stillschweigend '
       + 'scheitert, keine Zweifel daran, was wann gelaufen ist.',
@@ -135,7 +135,7 @@ export const de: SiteContent = {
       title: 'Deine Zeitpläne leben in deinem Repository',
       text:
         'Eine cron.yaml beschreibt Jobs, Zeiten und Ziele. Bei jedem Push liest '
-        + 'PostQron sie neu und gleicht alles ab: die Prüfung läuft über den Pull '
+        + 'Postqron sie neu und gleicht alles ab: die Prüfung läuft über den Pull '
         + 'Request.',
       bullets: [
         'Cron-Ausdrücke mit Zeitzone, Sommerzeit inklusive',
@@ -208,7 +208,7 @@ export const de: SiteContent = {
       role: 'Platform Engineer',
       quote:
         'Der Intervallmodus hat uns einen ganzen Dienst erspart: was alle zehn Sekunden '
-        + 'in eine Queue schrieb, macht jetzt PostQron.',
+        + 'in eine Queue schrieb, macht jetzt Postqron.',
       avatar: '/img/people/3.svg',
       placeholder: true,
     },

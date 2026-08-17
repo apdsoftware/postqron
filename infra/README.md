@@ -1,6 +1,6 @@
 # infra
 
-Provisioning e delivery di PostQron (SPEC §2, E10 del backlog).
+Provisioning e delivery di Postqron (SPEC §2, E10 del backlog).
 
 ## Topologia
 

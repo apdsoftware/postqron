@@ -16,13 +16,13 @@ export const en: SiteContent = {
   meta: {
     title: 'Reliable cron jobs, defined as code',
     description:
-      'Describe your schedules in a file in your repository. PostQron runs them on '
+      'Describe your schedules in a file in your repository. Postqron runs them on '
       + 'time, retries when it should, and always tells you how it went.',
   },
 
   ui: {
     menu: 'Menu',
-    homeLink: 'PostQron, back to the home page',
+    homeLink: 'Postqron, back to the home page',
     language: 'Language',
     emailPlaceholder: 'Enter your email',
     emailSubmit: 'Get started',
@@ -77,8 +77,8 @@ export const en: SiteContent = {
   },
 
   company: {
-    name: 'PostQron',
-    legalName: 'PostQron',
+    name: 'Postqron',
+    legalName: 'Postqron',
     about:
       'Managed cron jobs, defined in your own repository and brought back to a '
       + 'single place: scheduling you can rely on, a log of every run, and an alert '
@@ -93,20 +93,20 @@ export const en: SiteContent = {
   hero: {
     title: 'Reliable cron jobs, defined as code',
     text:
-      'Describe your schedules in a file in your repository. PostQron runs them on '
+      'Describe your schedules in a file in your repository. Postqron runs them on '
       + 'time, retries when it should, and always tells you how it went.',
     image: '/img/hero.jpg',
-    imageAlt: 'The PostQron console showing the list of runs',
+    imageAlt: 'The Postqron console showing the list of runs',
     note: '30-day trial on the Pro plan — no credit card',
     video: {
       href: 'https://www.youtube.com/@postqron',
       embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'Watch PostQron in two minutes',
+      title: 'Watch Postqron in two minutes',
     },
   },
 
   featuresIntro: {
-    title: 'Four things PostQron takes off your list',
+    title: 'Four things Postqron takes off your list',
     lead:
       'No cron server to keep alive, no script failing in silence, no doubt about '
       + 'what ran and when.',
@@ -140,7 +140,7 @@ export const en: SiteContent = {
     {
       title: 'Your schedules live in your repository',
       text:
-        'A cron.yaml file describes jobs, times and targets. On every push PostQron '
+        'A cron.yaml file describes jobs, times and targets. On every push Postqron '
         + 'reads it again and realigns everything: review happens in the pull request.',
       bullets: [
         'Cron expressions with time zones, daylight saving included',
@@ -213,7 +213,7 @@ export const en: SiteContent = {
       role: 'Platform engineer',
       quote:
         'Interval mode removed an entire service for us: what used to write to a queue '
-        + 'every ten seconds is now PostQron.',
+        + 'every ten seconds is now Postqron.',
       avatar: '/img/people/3.svg',
       placeholder: true,
     },

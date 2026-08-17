@@ -9,5 +9,5 @@
 # Chiave Google Maps del demo `blue-contact.html` del template Hexagon.
 # design/hexagon/ è il mirror byte per byte del template acquistato (SPEC §7,
 # Q1) e non va modificato: la chiave è dell'autore del template ed è pubblica
-# sul suo sito demo, non è una credenziale di PostQron.
+# sul suo sito demo, non è una credenziale di Postqron.
 design/hexagon/blue-contact.html:gcp-api-key:275

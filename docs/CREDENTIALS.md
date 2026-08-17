@@ -76,7 +76,7 @@ Motore di recapito. L'HTML lo compiliamo noi (R20): a Mailronix serve solo invia
 MAILRONIX_API_KEY=          # formato mrx_live_<segreto>
 MAILRONIX_API_URL=https://api.mailronix.com
 MAILRONIX_FROM_EMAIL=noreply@postqron.com
-MAILRONIX_FROM_NAME=PostQron
+MAILRONIX_FROM_NAME=Postqron
 ```
 
 ### Contratto dell'API
@@ -121,7 +121,7 @@ mutuamente esclusivo con `subject`/`html_body`/`text_body`.
    somiglia a un problema di autenticazione o di dominio non verificato, mentre la
    richiesta non ha mai raggiunto Mailronix: il corpo non è il JSON `{"error":{...}}`
    documentato. Il client Go deve impostare uno `User-Agent` proprio (per esempio
-   `PostQron/1.0 (+https://postqron.com)`) e trattare una risposta non-JSON come
+   `Postqron/1.0 (+https://postqron.com)`) e trattare una risposta non-JSON come
    errore di trasporto, non come errore applicativo.
 
 ---
@@ -172,7 +172,7 @@ Serve una **GitHub App**, non un personal access token: l'utente la installa sui
 repository e concede solo i permessi dichiarati.
 
 1. **Settings → Developer settings → GitHub Apps → New GitHub App**.
-2. Nome `PostQron`, homepage `https://postqron.com`.
+2. Nome `Postqron`, homepage `https://postqron.com`.
 3. **Webhook URL** `https://api.postqron.com/webhooks/github`, e genera un **webhook
    secret** casuale robusto (serve per la verifica HMAC di R11).
 4. **Permessi del repository:** `Contents: Read-only`, `Metadata: Read-only`. Nient'altro:

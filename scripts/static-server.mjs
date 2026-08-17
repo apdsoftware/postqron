@@ -1,6 +1,6 @@
 // Server statico minimo per i test end-to-end.
 //
-// I frontend di PostQron sono distribuiti come file statici su Cloudflare Pages
+// I frontend di Postqron sono distribuiti come file statici su Cloudflare Pages
 // (SPEC §2): in produzione nessun processo Node serve quelle pagine. I test e2e
 // devono quindi partire da `apps/*/.output/public` così com'è, non da `nuxt
 // preview` — che avvia Nitro e proverebbe una cosa che in produzione non esiste.

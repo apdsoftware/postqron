@@ -2,7 +2,7 @@
 const { htmlLang } = useLocale()
 
 useHead({
-  titleTemplate: title => (title ? `${title} · PostQron` : 'PostQron'),
+  titleTemplate: title => (title ? `${title} · Postqron` : 'Postqron'),
 
   /*
    * `lang` segue la lingua scelta (R31, R32) invece di essere fisso.

@@ -1,4 +1,4 @@
-# PostQron — ambiente di sviluppo locale (SPEC §2).
+# Postqron — ambiente di sviluppo locale (SPEC §2).
 #
 # Solo servizi di supporto: l'API Go e i frontend girano fuori da Docker
 # (`make dev`). In produzione PostgreSQL sta sulla stessa VPS Hetzner

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Verifica che il PostgreSQL raggiungibile su POSTGRES_HOST:POSTGRES_PORT sia
-# davvero il container di PostQron, e non un altro server in ascolto sulla
+# davvero il container di Postqron, e non un altro server in ascolto sulla
 # stessa porta.
 #
 # Il problema che risolve (follow-up della issue #385). Se sulla porta indicata
@@ -35,7 +35,7 @@ fi
 published=$(docker compose port postgres 5432 2>/dev/null | tr -d '[:space:]')
 
 if [ -z "$published" ]; then
-  echo "✗ il container PostgreSQL di PostQron non è in esecuzione." >&2
+  echo "✗ il container PostgreSQL di Postqron non è in esecuzione." >&2
   echo "  Avvialo con \`make db-up\`. Se db-up fallisce con «port is already" >&2
   echo "  allocated», la porta $POSTGRES_PORT è occupata da un altro server:" >&2
   echo "  cambia POSTGRES_PORT in .env invece di riusare quello che c'è." >&2
@@ -45,7 +45,7 @@ fi
 expected="$POSTGRES_HOST:$POSTGRES_PORT"
 
 if [ "$published" != "$expected" ]; then
-  echo "✗ il container di PostQron pubblica $published, ma .env punta a $expected." >&2
+  echo "✗ il container di Postqron pubblica $published, ma .env punta a $expected." >&2
   echo "  Su $expected risponde quindi un altro server: connettersi significherebbe" >&2
   echo "  migrare il database sbagliato. Allinea POSTGRES_HOST/POSTGRES_PORT in" >&2
   echo "  .env e riavvia con \`make db-down && make db-up\`." >&2
@@ -56,10 +56,10 @@ fi
 # initdb gira al primo avvio e dura qualche secondo.
 if ! docker compose exec -T postgres \
   pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
-  echo "✗ il container di PostQron risponde su $expected ma non è pronto." >&2
+  echo "✗ il container di Postqron risponde su $expected ma non è pronto." >&2
   echo "  Attendi qualche secondo e riprova, oppure controlla i log:" >&2
   echo "  docker compose logs postgres" >&2
   exit 1
 fi
 
-echo "  ✓ PostgreSQL su $expected è il container di PostQron"
+echo "  ✓ PostgreSQL su $expected è il container di Postqron"

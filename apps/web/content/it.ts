@@ -10,13 +10,13 @@ export const it: SiteContent = {
   meta: {
     title: 'Cronjob affidabili, definiti come codice',
     description:
-      'Descrivi le schedulazioni in un file del tuo repository. PostQron le esegue '
+      'Descrivi le schedulazioni in un file del tuo repository. Postqron le esegue '
       + 'all\'orario giusto, ritenta quando serve e ti dice sempre com\'è andata.',
   },
 
   ui: {
     menu: 'Menu',
-    homeLink: 'PostQron, torna alla home',
+    homeLink: 'Postqron, torna alla home',
     language: 'Lingua',
     emailPlaceholder: 'Inserisci la tua email',
     emailSubmit: 'Inizia ora',
@@ -71,8 +71,8 @@ export const it: SiteContent = {
   },
 
   company: {
-    name: 'PostQron',
-    legalName: 'PostQron',
+    name: 'Postqron',
+    legalName: 'Postqron',
     about:
       'Cronjob gestiti, definiti nel tuo repository e ricondotti a un solo posto: '
       + 'una schedulazione affidabile, i log di ogni esecuzione e un avviso quando '
@@ -87,20 +87,20 @@ export const it: SiteContent = {
   hero: {
     title: 'Cronjob affidabili, definiti come codice',
     text:
-      'Descrivi le schedulazioni in un file del tuo repository. PostQron le esegue '
+      'Descrivi le schedulazioni in un file del tuo repository. Postqron le esegue '
       + 'all\'orario giusto, ritenta quando serve e ti dice sempre com\'è andata.',
     image: '/img/hero.jpg',
-    imageAlt: 'La console di PostQron con l\'elenco delle esecuzioni',
+    imageAlt: 'La console di Postqron con l\'elenco delle esecuzioni',
     note: '30 giorni di prova sul piano Pro — nessuna carta di credito',
     video: {
       href: 'https://www.youtube.com/@postqron',
       embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'Guarda PostQron in due minuti',
+      title: 'Guarda Postqron in due minuti',
     },
   },
 
   featuresIntro: {
-    title: 'Quattro cose che PostQron toglie dalla tua lista',
+    title: 'Quattro cose che Postqron toglie dalla tua lista',
     lead:
       'Nessun server cron da tenere in piedi, nessuno script che fallisce in '
       + 'silenzio, nessun dubbio su cosa è stato eseguito e quando.',
@@ -134,7 +134,7 @@ export const it: SiteContent = {
     {
       title: 'Le schedulazioni vivono nel tuo repository',
       text:
-        'Un file cron.yaml descrive job, orari e destinazioni. A ogni push PostQron '
+        'Un file cron.yaml descrive job, orari e destinazioni. A ogni push Postqron '
         + 'lo rilegge e riallinea tutto: la revisione passa dalla pull request.',
       bullets: [
         'Espressioni cron con fuso orario, ora legale compresa',
@@ -206,7 +206,7 @@ export const it: SiteContent = {
       role: 'Platform engineer',
       quote:
         'La modalità a intervallo ci ha tolto un servizio intero: quello che scriveva '
-        + 'ogni dieci secondi su una coda lo fa PostQron.',
+        + 'ogni dieci secondi su una coda lo fa Postqron.',
       avatar: '/img/people/3.svg',
       placeholder: true,
     },
