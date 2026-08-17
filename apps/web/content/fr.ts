@@ -40,7 +40,7 @@ export const fr: SiteContent = {
       {
         label: 'Produit',
         children: [
-          { label: 'Fonctionnalités', to: '/#features' },
+          { label: 'Fonctionnalités', to: '/features' },
           { label: 'Témoignages', to: '/#testimonials' },
           { label: 'Tarifs', to: '/#pricing' },
         ],
@@ -52,14 +52,15 @@ export const fr: SiteContent = {
           { label: 'Du blog', to: '/#blog' },
         ],
       },
-      { label: 'Contact', to: '/#contact' },
+      { label: 'FAQ', to: '/faq' },
+      { label: 'Contact', to: '/contact' },
     ],
-    cta: { label: 'Essai gratuit', to: '/#welcome' },
+    cta: { label: 'Créer un compte Free', to: '/#welcome' },
     footer: [
       {
         title: 'Produit',
         items: [
-          { label: 'Fonctionnalités', to: '/#features' },
+          { label: 'Fonctionnalités', to: '/features' },
           { label: 'Tarifs', to: '/#pricing' },
           { label: 'API et webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
@@ -69,7 +70,8 @@ export const fr: SiteContent = {
         title: 'Assistance',
         items: [
           { label: 'Témoignages', to: '/#testimonials' },
-          { label: 'Contact', to: '/#contact' },
+          { label: 'FAQ', to: '/faq' },
+          { label: 'Contact', to: '/contact' },
         ],
       },
       {
@@ -86,13 +88,13 @@ export const fr: SiteContent = {
 
   company: {
     name: 'Postqron',
-    legalName: 'Postqron',
+    legalName: 'Apdsoftware di Carlo Zuffetti',
     about:
       'Des tâches cron gérées pour vous, définies dans votre propre dépôt et ramenées '
       + 'à un seul endroit : une planification fiable, le journal de chaque exécution '
       + 'et une alerte quand quelque chose ne démarre pas.',
-    address: 'Adresse à confirmer',
-    email: 'support@postqron.com',
+    address: 'Via C. Colombo 15, 24047 Treviglio (BG), Italie · TVA 03835250162 · REA BG 431224',
+    email: 'hello@postqron.com',
   },
 
   // En français le symbole suit le chiffre, avec une espace : «9 € + TVA».

@@ -40,7 +40,7 @@ export const de: SiteContent = {
       {
         label: 'Produkt',
         children: [
-          { label: 'Funktionen', to: '/#features' },
+          { label: 'Funktionen', to: '/features' },
           { label: 'Stimmen', to: '/#testimonials' },
           { label: 'Preise', to: '/#pricing' },
         ],
@@ -52,14 +52,15 @@ export const de: SiteContent = {
           { label: 'Aus dem Blog', to: '/#blog' },
         ],
       },
-      { label: 'Kontakt', to: '/#contact' },
+      { label: 'FAQ', to: '/faq' },
+      { label: 'Kontakt', to: '/contact' },
     ],
-    cta: { label: 'Kostenlos testen', to: '/#welcome' },
+    cta: { label: 'Free-Konto erstellen', to: '/#welcome' },
     footer: [
       {
         title: 'Produkt',
         items: [
-          { label: 'Funktionen', to: '/#features' },
+          { label: 'Funktionen', to: '/features' },
           { label: 'Preise', to: '/#pricing' },
           { label: 'API und Webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
@@ -69,7 +70,8 @@ export const de: SiteContent = {
         title: 'Support',
         items: [
           { label: 'Stimmen', to: '/#testimonials' },
-          { label: 'Kontakt', to: '/#contact' },
+          { label: 'FAQ', to: '/faq' },
+          { label: 'Kontakt', to: '/contact' },
         ],
       },
       {
@@ -86,13 +88,13 @@ export const de: SiteContent = {
 
   company: {
     name: 'Postqron',
-    legalName: 'Postqron',
+    legalName: 'Apdsoftware di Carlo Zuffetti',
     about:
       'Verwaltete Cronjobs, in deinem eigenen Repository definiert und an einem Ort '
       + 'zusammengeführt: verlässliche Zeitpläne, ein Protokoll jeder Ausführung und '
       + 'eine Meldung, wenn etwas nicht startet.',
-    address: 'Anschrift folgt',
-    email: 'support@postqron.com',
+    address: 'Via C. Colombo 15, 24047 Treviglio (BG), Italien · USt-IdNr. 03835250162 · REA BG 431224',
+    email: 'hello@postqron.com',
   },
 
   // Im Deutschen folgt das Symbol der Zahl, mit Leerzeichen: «9 € + MwSt.».

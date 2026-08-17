@@ -40,7 +40,7 @@ export const it: SiteContent = {
       {
         label: 'Prodotto',
         children: [
-          { label: 'Funzionalità', to: '/#features' },
+          { label: 'Funzionalità', to: '/features' },
           { label: 'Testimonianze', to: '/#testimonials' },
           { label: 'Prezzi', to: '/#pricing' },
         ],
@@ -52,14 +52,15 @@ export const it: SiteContent = {
           { label: 'Dal blog', to: '/#blog' },
         ],
       },
-      { label: 'Contatti', to: '/#contact' },
+      { label: 'FAQ', to: '/faq' },
+      { label: 'Contatti', to: '/contact' },
     ],
-    cta: { label: 'Prova gratis', to: '/#welcome' },
+    cta: { label: 'Crea un account Free', to: '/#welcome' },
     footer: [
       {
         title: 'Prodotto',
         items: [
-          { label: 'Funzionalità', to: '/#features' },
+          { label: 'Funzionalità', to: '/features' },
           { label: 'Prezzi', to: '/#pricing' },
           { label: 'API e webhook', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
@@ -69,7 +70,8 @@ export const it: SiteContent = {
         title: 'Assistenza',
         items: [
           { label: 'Testimonianze', to: '/#testimonials' },
-          { label: 'Contatti', to: '/#contact' },
+          { label: 'FAQ', to: '/faq' },
+          { label: 'Contatti', to: '/contact' },
         ],
       },
       {
@@ -86,13 +88,13 @@ export const it: SiteContent = {
 
   company: {
     name: 'Postqron',
-    legalName: 'Postqron',
+    legalName: 'Apdsoftware di Carlo Zuffetti',
     about:
       'Cronjob gestiti, definiti nel tuo repository e ricondotti a un solo posto: '
       + 'una schedulazione affidabile, i log di ogni esecuzione e un avviso quando '
       + 'qualcosa non parte.',
-    address: 'Indirizzo da definire',
-    email: 'supporto@postqron.com',
+    address: 'Via C. Colombo 15, 24047 Treviglio (BG), Italia · P. IVA 03835250162 · REA BG 431224',
+    email: 'hello@postqron.com',
   },
 
   // In italiano il simbolo segue la cifra, con spazio: «9 € + IVA».

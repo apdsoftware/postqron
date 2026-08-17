@@ -176,6 +176,42 @@ export interface CompanyInfo {
   email: string
 }
 
+export interface ContentPageIntro {
+  title: string
+  lead: string
+}
+
+export interface FaqItem {
+  question: string
+  answer: string
+}
+
+export interface ContactDetail {
+  label: string
+  value: string
+  href?: string
+}
+
+export interface PublicPages {
+  features: {
+    meta: ContentPageIntro
+    intro: ContentPageIntro
+    features: readonly Feature[]
+    showcases: readonly Showcase[]
+  }
+  faq: {
+    meta: ContentPageIntro
+    intro: ContentPageIntro
+    items: readonly FaqItem[]
+  }
+  contact: {
+    meta: ContentPageIntro
+    intro: ContentPageIntro
+    details: readonly ContactDetail[]
+    responseNote: string
+  }
+}
+
 /**
  * Etichette dell'interfaccia: tutto ciò che il tema scriveva dentro il markup e
  * che qui non può starci. Sono poche e devono restare tali — una frase di
