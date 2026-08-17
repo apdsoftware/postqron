@@ -51,7 +51,7 @@ export const fr: SiteContent = {
         children: [
           { label: 'Fonctionnalités', to: '/features' },
           { label: 'Témoignages', to: '/#testimonials' },
-          { label: 'Tarifs', to: '/#pricing' },
+          { label: 'Tarifs', to: '/pricing' },
         ],
       },
       {
@@ -70,7 +70,7 @@ export const fr: SiteContent = {
         title: 'Produit',
         items: [
           { label: 'Fonctionnalités', to: '/features' },
-          { label: 'Tarifs', to: '/#pricing' },
+          { label: 'Tarifs', to: '/pricing' },
           { label: 'API et webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
         ],
@@ -293,9 +293,10 @@ export const fr: SiteContent = {
       currency: '€',
       price: '9',
       period: '/mois',
+      annual: { price: '90', period: '/an', savingNote: 'Deux mois offerts' },
       featured: true,
-      ctaLabel: 'Choisir Pro',
-      ctaTo: '/#welcome',
+      ctaLabel: 'Nous contacter pour Pro',
+      ctaTo: '/contact',
       features: [
         { label: '200 tâches cron', included: true },
         { label: 'Résolution de 10 secondes', included: true },
@@ -313,8 +314,8 @@ export const fr: SiteContent = {
       currency: '€',
       price: '29',
       period: '/mois',
-      ctaLabel: 'Choisir Team',
-      ctaTo: '/#welcome',
+      ctaLabel: 'Nous contacter pour Team',
+      ctaTo: '/contact',
       features: [
         { label: 'Tâches cron illimitées', included: true },
         { label: 'Résolution d\'une seconde', included: true },
@@ -334,7 +335,7 @@ export const fr: SiteContent = {
       price: '79',
       period: '/mois',
       ctaLabel: 'Parlons-en',
-      ctaTo: '/#contact',
+      ctaTo: '/contact',
       features: [
         { label: 'Tâches cron illimitées', included: true },
         { label: 'Résolution d\'une seconde', included: true },

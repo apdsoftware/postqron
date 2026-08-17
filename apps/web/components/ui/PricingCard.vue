@@ -32,6 +32,14 @@ const NON_BREAKING_SPACE = '\u00A0'
 
 const trailingCurrency = computed(() => `${NON_BREAKING_SPACE}${props.plan.currency}`)
 
+const annualPrice = computed(() => {
+  if (!props.plan.annual) return ''
+  const amount = props.currencyPosition === 'before'
+    ? `${props.plan.currency}${props.plan.annual.price}`
+    : `${props.plan.annual.price}${NON_BREAKING_SPACE}${props.plan.currency}`
+  return `${amount}${props.plan.annual.period}`
+})
+
 /**
  * Anche fra qualificatore e cifra lo spazio \u00E8 nel testo, non solo nel margine:
  * un margine si vede ma non si copia, e \u00ABab79 \u20AC\u00BB \u00E8 ci\u00F2 che finisce negli
@@ -86,6 +94,14 @@ const leadingPrefix = computed(() =>
       </p>
       <p class="pricing__tax">
         {{ taxNote }}
+      </p>
+      <p
+        v-if="plan.annual"
+        class="pricing__annual"
+      >
+        <span>{{ annualPrice }}</span>
+        <span>{{ taxNote }}</span>
+        <strong>{{ plan.annual.savingNote }}</strong>
       </p>
       <ul class="pricing__features">
         <li
@@ -246,6 +262,22 @@ const leadingPrefix = computed(() =>
   font-weight: var(--pq-weight-medium);
   letter-spacing: 0.75px;
   text-align: center;
+}
+
+.pricing__annual {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--pq-space-2);
+  margin: 0 var(--pq-space-4) var(--pq-space-4);
+  color: var(--pq-text);
+  font-size: var(--pq-text-xs);
+  text-align: center;
+}
+
+.pricing__annual strong {
+  flex-basis: 100%;
+  color: var(--pq-primary);
 }
 
 /* Le voci non incluse restano leggibili ma spente. */

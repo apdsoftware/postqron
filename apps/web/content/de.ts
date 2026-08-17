@@ -51,7 +51,7 @@ export const de: SiteContent = {
         children: [
           { label: 'Funktionen', to: '/features' },
           { label: 'Stimmen', to: '/#testimonials' },
-          { label: 'Preise', to: '/#pricing' },
+          { label: 'Preise', to: '/pricing' },
         ],
       },
       {
@@ -70,7 +70,7 @@ export const de: SiteContent = {
         title: 'Produkt',
         items: [
           { label: 'Funktionen', to: '/features' },
-          { label: 'Preise', to: '/#pricing' },
+          { label: 'Preise', to: '/pricing' },
           { label: 'API und Webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
         ],
@@ -292,9 +292,10 @@ export const de: SiteContent = {
       currency: '€',
       price: '9',
       period: '/Monat',
+      annual: { price: '90', period: '/Jahr', savingNote: 'Zwei Monate gratis' },
       featured: true,
-      ctaLabel: 'Pro wählen',
-      ctaTo: '/#welcome',
+      ctaLabel: 'Kontakt zu Pro',
+      ctaTo: '/contact',
       features: [
         { label: '200 Cronjobs', included: true },
         { label: 'Auflösung von 10 Sekunden', included: true },
@@ -312,8 +313,8 @@ export const de: SiteContent = {
       currency: '€',
       price: '29',
       period: '/Monat',
-      ctaLabel: 'Team wählen',
-      ctaTo: '/#welcome',
+      ctaLabel: 'Kontakt zu Team',
+      ctaTo: '/contact',
       features: [
         { label: 'Unbegrenzte Cronjobs', included: true },
         { label: 'Auflösung von 1 Sekunde', included: true },
@@ -333,7 +334,7 @@ export const de: SiteContent = {
       price: '79',
       period: '/Monat',
       ctaLabel: 'Sprich mit uns',
-      ctaTo: '/#contact',
+      ctaTo: '/contact',
       features: [
         { label: 'Unbegrenzte Cronjobs', included: true },
         { label: 'Auflösung von 1 Sekunde', included: true },

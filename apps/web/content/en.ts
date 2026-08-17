@@ -57,7 +57,7 @@ export const en: SiteContent = {
         children: [
           { label: 'Features', to: '/features' },
           { label: 'Testimonials', to: '/#testimonials' },
-          { label: 'Pricing', to: '/#pricing' },
+          { label: 'Pricing', to: '/pricing' },
         ],
       },
       {
@@ -76,7 +76,7 @@ export const en: SiteContent = {
         title: 'Product',
         items: [
           { label: 'Features', to: '/features' },
-          { label: 'Pricing', to: '/#pricing' },
+          { label: 'Pricing', to: '/pricing' },
           { label: 'API and webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
         ],
@@ -297,9 +297,10 @@ export const en: SiteContent = {
       currency: '€',
       price: '9',
       period: '/month',
+      annual: { price: '90', period: '/year', savingNote: 'Two months free' },
       featured: true,
-      ctaLabel: 'Choose Pro',
-      ctaTo: '/#welcome',
+      ctaLabel: 'Contact us about Pro',
+      ctaTo: '/contact',
       features: [
         { label: '200 cron jobs', included: true },
         { label: '10-second resolution', included: true },
@@ -317,8 +318,8 @@ export const en: SiteContent = {
       currency: '€',
       price: '29',
       period: '/month',
-      ctaLabel: 'Choose Team',
-      ctaTo: '/#welcome',
+      ctaLabel: 'Contact us about Team',
+      ctaTo: '/contact',
       features: [
         { label: 'Unlimited cron jobs', included: true },
         { label: '1-second resolution', included: true },
@@ -338,7 +339,7 @@ export const en: SiteContent = {
       price: '79',
       period: '/month',
       ctaLabel: 'Talk to us',
-      ctaTo: '/#contact',
+      ctaTo: '/contact',
       features: [
         { label: 'Unlimited cron jobs', included: true },
         { label: '1-second resolution', included: true },
