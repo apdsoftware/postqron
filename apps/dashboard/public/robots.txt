@@ -1,0 +1,15 @@
+# Dashboard cliente e amministratore (SPEC §4.2, §4.3).
+#
+# Niente qui va indicizzato — ogni pagina sta dietro autenticazione e non ha
+# valore SEO — e a dirlo è il `<meta name="robots" content="noindex">` che il
+# guscio della SPA serve su ogni indirizzo.
+#
+# **Non c'è un `Disallow: /`, ed è deliberato.** `robots.txt` governa la
+# *scansione*, non l'indicizzazione: vietare la scansione impedirebbe al
+# crawler di leggere proprio quel `noindex`, e un indirizzo raggiunto da un
+# link esterno finirebbe nell'indice come voce senza contenuto. Le due
+# direttive si annullano a vicenda, e quella che vale è il `noindex`.
+#
+# Questo file esiste per dirlo qui, dove qualcuno andrebbe a cercarlo.
+User-agent: *
+Allow: /
