@@ -1,0 +1,34 @@
+# Dipendenze
+node_modules/
+.pnpm-store/
+vendor/
+
+# Build
+dist/
+.output/
+.nuxt/
+.nitro/
+bin/
+*.exe
+
+# Ambiente e segreti
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Test e coverage
+coverage/
+*.out
+test-results/
+playwright-report/
+
+# Locale / editor
+.DS_Store
+.idea/
+*.swp
+.tmp/
+
+# Archivi legacy (mai versionare)
+*.bundle
