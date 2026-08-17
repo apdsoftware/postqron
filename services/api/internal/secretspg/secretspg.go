@@ -4,7 +4,7 @@
 // internal/apikeypg: internal/secrets non deve dipendere da pgx, ed è ciò che
 // permette di provare la risoluzione, la validazione al sync e il fatto che il
 // valore non esca senza un database in piedi. Qui non c'è logica: solo le query,
-// sui vincoli che la migrazione 0011 già garantisce.
+// sui vincoli che la migrazione 0012 già garantisce.
 package secretspg
 
 import (

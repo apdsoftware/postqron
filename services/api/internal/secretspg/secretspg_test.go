@@ -470,9 +470,18 @@ func TestSecretsFollowTheAccount(t *testing.T) {
 	}
 }
 
-// La 0011 è reversibile (AGENTS.md §5): la `down` toglie la tabella e il suo
-// trigger, e la `up` che segue la rimette senza inciampare in ciò che la `down`
-// avesse lasciato indietro.
+// migrationName è la migrazione dei segreti, senza il numero.
+//
+// Il numero **non** è scritto nei test. Questa migrazione è nata 0011 e ha
+// dovuto diventare 0012 perché il webhook GitHub (#421) si è preso il numero
+// per primo: un test che dicesse `Down(ctx, 1)` fidandosi di essere l'ultimo
+// avrebbe continuato a passare annullando la migrazione di qualcun altro. Il
+// nome, quello, non collide.
+const migrationName = "workspace_secrets"
+
+// La migrazione dei segreti è reversibile (AGENTS.md §5): la `down` toglie la
+// tabella e il suo trigger, e la `up` che segue la rimette senza inciampare in
+// ciò che la `down` avesse lasciato indietro.
 //
 // Il test annulla e riapplica **la migrazione vera**, non un `DROP TABLE`
 // scritto qui: un `down` che dimentica qualcosa fallirebbe solo alla riapplicazione,
@@ -502,6 +511,19 @@ func TestMigrationIsReversible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("caricamento delle migrazioni: %v", err)
 	}
+
+	// L'annullamento parte dall'ultima applicata, quindi questo giro ha senso solo
+	// se l'ultima è la nostra. Se un giorno non lo fosse, il test lo dice invece di
+	// annullare in silenzio la migrazione di un'altra issue.
+	ultima := migrations[len(migrations)-1]
+	if ultima.Name != migrationName {
+		t.Fatalf(
+			"l'ultima migrazione è %s, non %s: questo test annulla l'ultima applicata "+
+				"e con un'altra davanti annullerebbe quella. Rinumera, oppure riscrivi il test "+
+				"per annullare fino alla propria versione.",
+			ultima, migrationName)
+	}
+
 	conn, err := f.pool.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("acquisizione della connessione: %v", err)
@@ -510,14 +532,14 @@ func TestMigrationIsReversible(t *testing.T) {
 	migrator := migrate.New(conn, migrations, nil)
 
 	if _, err := migrator.Down(ctx, 1); err != nil {
-		t.Fatalf("annullamento della 0011: %v", err)
+		t.Fatalf("annullamento di %s: %v", ultima, err)
 	}
 	if exists() {
 		t.Fatal("la tabella esiste ancora dopo l'annullamento")
 	}
 
 	if _, err := migrator.Up(ctx, 1); err != nil {
-		t.Fatalf("riapplicazione della 0011: %v", err)
+		t.Fatalf("riapplicazione di %s: %v", ultima, err)
 	}
 	if !exists() {
 		t.Fatal("la tabella non è tornata dopo la riapplicazione")

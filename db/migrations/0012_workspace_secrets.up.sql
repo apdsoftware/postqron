@@ -1,4 +1,4 @@
--- 0011 — Segreti del workspace (R42, R43).
+-- 0012 — Segreti del workspace (R42, R43).
 --
 -- Sono i valori contro cui `cron.yaml` risolve i suoi `${VAR}` (SPEC §9): un
 -- token di autenticazione che finisce in una testata, una firma che finisce nel

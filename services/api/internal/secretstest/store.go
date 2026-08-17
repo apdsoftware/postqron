@@ -24,7 +24,7 @@ import (
 
 // Store è un'implementazione in memoria di [secrets.Store] per i test.
 //
-// Riproduce i vincoli della 0011 che contano per il Service: l'unicità del nome
+// Riproduce i vincoli della 0012 che contano per il Service: l'unicità del nome
 // **fra i soli vivi**, e lo svuotamento del testo cifrato alla revoca. Le
 // proprietà che dipendono da PostgreSQL — che quei vincoli reggano anche sotto
 // concorrenza, che l'indice parziale sia quello usato — sono provate in

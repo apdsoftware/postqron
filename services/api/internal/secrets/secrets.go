@@ -49,16 +49,16 @@ import (
 )
 
 // Vincoli di forma. Sono nel codice e non in configurazione perché sono lo
-// stesso contratto che il `CHECK` della 0011 impone al database e che il parser
+// stesso contratto che il `CHECK` della 0012 impone al database e che il parser
 // di `cron.yaml` deve applicare al file: un limite d'esercizio configurabile
 // renderebbe valido in un ambiente ciò che è invalido in un altro.
 const (
 	// MaxNameLength è la lunghezza massima del nome, allineata al CHECK della
-	// 0011.
+	// 0012.
 	MaxNameLength = 64
 
 	// MaxDescriptionLength è la lunghezza massima della nota, allineata al CHECK
-	// della 0011.
+	// della 0012.
 	MaxDescriptionLength = 200
 
 	// MinValueLength è la lunghezza minima del valore.

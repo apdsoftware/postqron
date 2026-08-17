@@ -21,7 +21,7 @@ import (
 // Regole della sintassi, tutte e tre necessarie:
 //
 //   - `${NOME}` è un riferimento. Il nome ha la forma di [nameFormat], la stessa
-//     che il `CHECK` della 0011 impone alla colonna: un riferimento che il
+//     che il `CHECK` della 0012 impone alla colonna: un riferimento che il
 //     database non potrebbe mai soddisfare è un errore di battitura, e va detto
 //     invece di essere trattato come testo.
 //   - `$${` è un `${` letterale. Serve a chi manda a un altro sistema un corpo
@@ -39,7 +39,7 @@ import (
 // leggerne un altro, e trasformerebbe un valore scritto da chi ha accesso a un
 // solo segreto in una leva per estrarne altri.
 
-// nameFormat è la forma di un nome di segreto: la stessa del `CHECK` della 0011.
+// nameFormat è la forma di un nome di segreto: la stessa del `CHECK` della 0012.
 //
 // Solo maiuscole, e non è pignoleria: se `${digest}` e `${DIGEST}` fossero due
 // nomi possibili, un errore di battitura sarebbe indistinguibile dal

@@ -3,7 +3,7 @@
 // Espone un mazzo di chiavi ([Keyring]) e due operazioni, [Keyring.Seal] e
 // [Keyring.Open]. Non sa che cosa sta cifrando: i segreti del workspace
 // (internal/secrets) sono il primo utente, le chiavi AI di R18 saranno il
-// secondo, e il formato è lo stesso perché la 0007 e la 0011 hanno le stesse tre
+// secondo, e il formato è lo stesso perché la 0007 e la 0012 hanno le stesse tre
 // colonne — `ciphertext`, `nonce`, `key_version`.
 //
 // # AES-256-GCM
@@ -98,7 +98,7 @@ var (
 	ErrNotAuthenticated = errors.New("secretbox: testo cifrato non integro o non di questa riga")
 )
 
-// Box è un valore cifrato, nella forma in cui sta nelle colonne della 0011.
+// Box è un valore cifrato, nella forma in cui sta nelle colonne della 0012.
 //
 // Non contiene il testo in chiaro e non ha nessun metodo che lo restituisca:
 // aprirlo richiede il [Keyring], che sta nel processo e non nella struttura.
@@ -225,7 +225,7 @@ func (k Keyring) Seal(plaintext []byte, binding []byte) (Box, error) {
 	}
 
 	// Il primo argomento è nil e non `nonce`: `Seal` accoderebbe il testo cifrato
-	// al buffer che riceve, e le due colonne della 0011 sono separate proprio
+	// al buffer che riceve, e le due colonne della 0012 sono separate proprio
 	// perché il nonce vada conservato per conto suo.
 	return Box{
 		Ciphertext: gcm.Seal(nil, nonce, plaintext, binding),
