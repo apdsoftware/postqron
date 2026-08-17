@@ -47,6 +47,30 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, exec Execution) error
 }
 
+// Concurrency dice quanto un workspace sta occupando del tetto tecnico di
+// esecuzioni contemporanee (R10).
+//
+// L'implementazione d'esercizio è il worker pool, che è l'unico a sapere cosa è
+// in volo; l'adattatore sta in cmd/api, dove i due mondi si incontrano — questo
+// package non importa internal/dispatch, per la stessa ragione per cui non
+// importa internal/scheduler.
+//
+// # Perché serve qui e non solo là
+//
+// Il tetto lo applica comunque la coda del dispatch, che rimanda l'esecuzione
+// invece di rifiutarla. Per un'occorrenza schedulata è la cosa giusta: aspetta
+// il proprio turno, ed è precisamente ciò per cui la coda esiste. Per un «esegui
+// adesso» no — accettarlo significherebbe rispondere 202 a una richiesta che
+// resterà ferma dietro alle esecuzioni dello stesso workspace, cioè promettere
+// «adesso» e consegnare «prima o poi». Meglio dirlo subito, con un rifiuto che
+// spiega di che tetto si tratta.
+type Concurrency interface {
+	// InFlight restituisce quante esecuzioni il workspace ha in volo adesso e
+	// qual è il suo tetto. Un tetto a zero o negativo significa «nessun tetto» e
+	// non rifiuta niente.
+	InFlight(workspaceID string) (used, limit int)
+}
+
 // Options sono le dipendenze del [Service].
 type Options struct {
 	// Store è obbligatorio.
@@ -66,6 +90,11 @@ type Options struct {
 	Guard TargetGuard
 	// Dispatcher può essere nil: vedi [Dispatcher].
 	Dispatcher Dispatcher
+	// Concurrency è la sorgente del tetto tecnico di esecuzioni contemporanee
+	// (R10). Nil significa che il tetto non viene anticipato qui: resta applicato
+	// dalla coda del dispatch, che rimanda l'esecuzione invece di rifiutarla.
+	// Vedi [Concurrency].
+	Concurrency Concurrency
 	// Now sostituisce l'orologio nei test.
 	Now func() time.Time
 }
@@ -73,12 +102,13 @@ type Options struct {
 // Service è la logica di R8: CRUD dei job, registro delle esecuzioni, trigger
 // manuale.
 type Service struct {
-	store      Store
-	log        *slog.Logger
-	guard      TargetGuard
-	dispatcher Dispatcher
-	now        func() time.Time
-	budget     *triggerBudget
+	store       Store
+	log         *slog.Logger
+	guard       TargetGuard
+	dispatcher  Dispatcher
+	concurrency Concurrency
+	now         func() time.Time
+	budget      *triggerBudget
 }
 
 // NewService costruisce il servizio.
@@ -99,12 +129,13 @@ func NewService(opts Options) (*Service, error) {
 		guard = netguard.New(netguard.Options{Logger: opts.Logger})
 	}
 	return &Service{
-		store:      opts.Store,
-		log:        opts.Logger,
-		guard:      guard,
-		dispatcher: opts.Dispatcher,
-		now:        now,
-		budget:     newTriggerBudget(now),
+		store:       opts.Store,
+		log:         opts.Logger,
+		guard:       guard,
+		dispatcher:  opts.Dispatcher,
+		concurrency: opts.Concurrency,
+		now:         now,
+		budget:      newTriggerBudget(now),
 	}, nil
 }
 
@@ -489,6 +520,7 @@ type Patch struct {
 	Timeout        *time.Duration
 	MaxRetries     *int
 	RetryBackoff   *Backoff
+	OverlapPolicy  *OverlapPolicy
 	AlertOnFailure *[]AlertChannel
 	Enabled        *bool
 }
@@ -498,7 +530,7 @@ func (p Patch) Empty() bool {
 	return p.Name == nil && p.Description == nil && p.Schedule == nil && p.Every == nil &&
 		p.Timezone == nil && p.Environments == nil && p.URL == nil && p.Method == nil &&
 		p.Headers == nil && p.Body == nil && p.Timeout == nil && p.MaxRetries == nil &&
-		p.RetryBackoff == nil && p.AlertOnFailure == nil && p.Enabled == nil
+		p.RetryBackoff == nil && p.OverlapPolicy == nil && p.AlertOnFailure == nil && p.Enabled == nil
 }
 
 // onlyEnabled indica una patch che tocca solo la pausa.
@@ -519,6 +551,7 @@ func (p Patch) ApplyTo(job *Job) {
 	assign(&job.Timeout, p.Timeout)
 	assign(&job.MaxRetries, p.MaxRetries)
 	assign(&job.RetryBackoff, p.RetryBackoff)
+	assign(&job.OverlapPolicy, p.OverlapPolicy)
 	assign(&job.Enabled, p.Enabled)
 	assign(&job.Environments, p.Environments)
 	assign(&job.AlertOnFailure, p.AlertOnFailure)
@@ -686,6 +719,15 @@ func (s *Service) Trigger(ctx context.Context, userID, jobID string, env Environ
 		return Execution{}, err
 	}
 
+	// Il tetto tecnico si verifica **prima** della quota di piano, e l'ordine è
+	// una scelta di merito, non di prestazioni: un rifiuto tecnico non deve far
+	// consumare all'utente un gettone della portata che ha comprato (R10). Far
+	// pagare al suo budget una richiesta che rifiutiamo per difendere la nostra
+	// macchina sarebbe fargli pagare due volte lo stesso limite.
+	if err := s.checkExecutionCeiling(ctx, userID, job); err != nil {
+		return Execution{}, err
+	}
+
 	plan, err := s.store.PlanForUser(ctx, userID)
 	if err != nil {
 		return Execution{}, err
@@ -749,6 +791,52 @@ func (s *Service) Trigger(ctx context.Context, userID, jobID string, env Environ
 
 	s.log.InfoContext(ctx, "esecuzione manuale registrata", attributes...)
 	return created, nil
+}
+
+// executionCeilingRetryAfter è cosa si risponde a chi ha sbattuto contro il
+// tetto tecnico delle esecuzioni contemporanee.
+//
+// Non è ricavato da un contatore, perché non c'è: il tetto si libera quando
+// un'esecuzione finisce, e quando finisce dipende dal bersaglio dell'utente, non
+// da noi. Cinque secondi sono un'attesa che ha senso per un job ordinario — il
+// timeout predefinito è trenta (0005) — e che non trasforma un rifiuto
+// temporaneo in un invito a smettere. La testata `Retry-After` è comunque un
+// suggerimento, non un contratto.
+const executionCeilingRetryAfter = 5 * time.Second
+
+// checkExecutionCeiling rifiuta un «esegui adesso» quando il workspace ha già
+// riempito il proprio tetto tecnico di esecuzioni contemporanee (R10).
+//
+// Il workspace è oggi l'account: il workspace di SPEC §9 coincide con l'utente
+// finché R25 non lo farà diventare un'entità (migrazione 0012). La chiave è
+// quindi `job.UserID`, che è il proprietario del job e non chi sta chiamando —
+// coincidono, ma è il primo dei due che il tetto deve contare, perché è quello
+// che consuma capacità.
+func (s *Service) checkExecutionCeiling(ctx context.Context, userID string, job Job) error {
+	if s.concurrency == nil {
+		return nil
+	}
+	used, limit := s.concurrency.InFlight(job.UserID)
+	if limit <= 0 || used < limit {
+		return nil
+	}
+
+	s.log.InfoContext(ctx, "trigger manuale rifiutato dal tetto tecnico delle esecuzioni contemporanee",
+		slog.String("job_id", job.ID), slog.String("user_id", userID),
+		slog.Int("in_volo", used), slog.Int("tetto", limit))
+
+	return &ServiceLimitError{
+		Limit:      LimitExecutionCeiling,
+		RetryAfter: executionCeilingRetryAfter,
+		// Nessun piano nominato, e nessun invito all'upgrade: è un tetto tecnico,
+		// uguale su tutti i piani, e suggerire un aggiornamento che non
+		// servirebbe sarebbe una bugia commerciale (R10).
+		message: fmt.Sprintf(
+			"hai già %d esecuzioni in corso, che è il tetto tecnico del servizio: è uguale su tutti i piani "+
+				"e nessun piano ne concede di più. Riprova quando qualcuna sarà finita. "+
+				"Le esecuzioni schedulate non vengono rifiutate: aspettano il proprio turno.",
+			limit),
+	}
 }
 
 // explainConflict distingue le due ragioni per cui la casella era occupata.

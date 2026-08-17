@@ -22,8 +22,8 @@ import (
 // queste — suggerire quale si intendeva.
 var (
 	rootKeys     = []string{"version", "defaults", "jobs"}
-	defaultsKeys = []string{"timezone", "timeout", "retries"}
-	jobKeys      = []string{"name", "schedule", "every", "timezone", "environments", "request", "timeout", "retries", "alerts"}
+	defaultsKeys = []string{"timezone", "timeout", "retries", "on_overlap"}
+	jobKeys      = []string{"name", "schedule", "every", "timezone", "environments", "request", "timeout", "retries", "on_overlap", "alerts"}
 	requestKeys  = []string{"url", "method", "headers", "body"}
 	retriesKeys  = []string{"max", "backoff"}
 	alertsKeys   = []string{"on_failure"}
@@ -235,6 +235,8 @@ type fileDefaults struct {
 	timeout     time.Duration
 	hasTimeout  bool
 	retries     retries
+	overlap     string
+	hasOverlap  bool
 	anchors     anchors
 }
 
@@ -272,6 +274,12 @@ func parseDefaults(read *reader, root *mapping) *fileDefaults {
 	}
 	if value, ok := m.value("retries"); ok {
 		out.retries = parseRetries(read, value, "defaults.retries", out.anchors)
+	}
+	if value, ok := m.value("on_overlap"); ok {
+		if text, ok := read.text(value, "defaults.on_overlap", overlapHint()); ok {
+			out.overlap, out.hasOverlap = strings.ToLower(strings.TrimSpace(text)), true
+			out.anchors.set("on_overlap", m.pos("on_overlap"), "defaults.on_overlap")
+		}
 	}
 
 	read.rejectUnknown(m, "defaults", defaultsKeys)
@@ -384,6 +392,9 @@ func parseJob(ctx context.Context, read *reader, node *yaml.Node, index int, def
 	if defs.retries.hasBackoff {
 		job.RetryBackoff = jobs.Backoff(defs.retries.backoff)
 	}
+	if defs.hasOverlap {
+		job.OverlapPolicy = jobs.OverlapPolicy(defs.overlap)
+	}
 
 	// broken sono i campi la cui **forma** non si è lasciata leggere. Sui campi
 	// che ci finiscono la validazione semantica viene taciuta: dire «serve
@@ -473,6 +484,15 @@ func parseJob(ctx context.Context, read *reader, node *yaml.Node, index int, def
 		if got.hasBackoff {
 			job.RetryBackoff = jobs.Backoff(got.backoff)
 		}
+	}
+
+	if value, ok := m.value("on_overlap"); ok {
+		if text, ok := read.text(value, path+".on_overlap", overlapHint()); ok {
+			job.OverlapPolicy = jobs.OverlapPolicy(strings.ToLower(strings.TrimSpace(text)))
+		} else {
+			broken["on_overlap"] = true
+		}
+		anc.set("on_overlap", m.pos("on_overlap"), path+".on_overlap")
 	}
 
 	if value, ok := m.value("alerts"); ok {
@@ -731,6 +751,16 @@ const (
 	timeoutHint = "Un timeout si scrive con l'unità, per esempio `timeout: 30s`."
 )
 
+// overlapHint spiega `on_overlap` (R41). Non è una costante perché i valori
+// ammessi vengono dall'elenco di internal/jobs: riscriverli qui a mano
+// significherebbe che un valore aggiunto al dominio non compare nel
+// suggerimento, e il file direbbe all'utente che non esiste.
+func overlapHint() string {
+	return fmt.Sprintf(
+		"Si scrive `on_overlap: %s`, cioè cosa fare quando un'occorrenza scatta mentre la precedente è ancora in corso. I valori ammessi sono %s; senza, vale `%s`.",
+		jobs.DefaultOverlapPolicy, quoteJoin(overlapNames()), jobs.DefaultOverlapPolicy)
+}
+
 var remedies = map[string]string{
 	"name/required":       "Aggiungi `name: nome-del-job`: è la chiave su cui il sync decide se creare, aggiornare o disattivare, e rinominarla equivale a cancellare il job e crearne un altro.",
 	"name/too_long":       "Accorcialo: per esempio `daily-digest` invece della frase intera.",
@@ -755,6 +785,8 @@ var remedies = map[string]string{
 	"timeout/out_of_range":     timeoutHint,
 	"timeout/invalid_format":   "Le durate di questo file sono in secondi interi: `30s`, `5m`, `1h`.",
 	"retries.max/out_of_range": "Per esempio `retries: { max: 3 }`; `max: 0` significa nessun nuovo tentativo.",
+
+	"on_overlap/unknown_value": "`skip` salta l'occorrenza in eccesso, `queue` la fa aspettare il proprio turno, `allow` la lascia partire insieme alla precedente.",
 
 	"*/invalid_reference":        "Un riferimento a un segreto si scrive `${NOME}` in maiuscolo, per esempio `${API_TOKEN}`.",
 	"*/reference_in_header_name": "Scrivi la testata con il suo nome e metti il riferimento nel valore, per esempio `Authorization: \"Bearer ${API_TOKEN}\"`.",
@@ -932,6 +964,7 @@ func environmentNames() []string { return stringsOf(jobs.Environments) }
 func methodNames() []string      { return stringsOf(jobs.Methods) }
 func backoffNames() []string     { return stringsOf(jobs.Backoffs) }
 func channelNames() []string     { return stringsOf(jobs.AlertChannels) }
+func overlapNames() []string     { return stringsOf(jobs.OverlapPolicies) }
 
 func stringsOf[T ~string](values []T) []string {
 	out := make([]string, 0, len(values))

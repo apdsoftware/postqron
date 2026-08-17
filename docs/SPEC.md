@@ -398,6 +398,7 @@ defaults:
   timezone: Europe/Rome
   timeout: 30s
   retries: { max: 3, backoff: exponential }
+  on_overlap: skip               # R41 — predefinito dichiarato
 
 jobs:
   - name: daily-digest          # identità stabile del job: chiave della riconciliazione
@@ -422,6 +423,7 @@ jobs:
       url: https://api.example.com/health
       method: GET
     timeout: 5s
+    on_overlap: allow           # sovrascrive defaults: un healthcheck può convivere con sé stesso
 ```
 
 ### Regole
@@ -438,6 +440,13 @@ jobs:
   non l'esecuzione.
 - **La validazione è totale.** Un file non valido non modifica lo stato esistente: gli
   errori vengono riportati all'utente con riga e colonna (R13).
+- **`on_overlap` dichiara cosa fare quando un'occorrenza scatta mentre la precedente
+  è ancora in corso** (R41): `skip` non la esegue e la chiude come `skipped`, `queue`
+  la fa aspettare il proprio turno, `allow` la lascia partire in parallelo. **Il
+  predefinito è `skip`**, ed è l'unico dei tre che non fa danni a un job di cui non si
+  sa niente: `allow` chiama due volte insieme un bersaglio che potrebbe emettere una
+  fattura per chiamata, `queue` accumula un arretrato illimitato quando il job è
+  stabilmente più lento del proprio intervallo. Vale in `defaults` e per singolo job.
 - `version` è obbligatorio: consente evoluzioni future dello schema senza rompere i
   file esistenti.
 - Limiti di piano e risoluzione minima sono verificati al momento del sync: un `every:

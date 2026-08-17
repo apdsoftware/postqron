@@ -32,6 +32,48 @@
 //     da solo non basta: con la coda di un job sola non c'è nessuno con cui
 //     alternarsi.
 //
+// # Il tetto tecnico per workspace (R10)
+//
+// I due tetti sopra proteggono i job **fra loro**. Ne serve un terzo che
+// protegga la macchina da un cliente: un workspace con cento job lenti non
+// sfonda nessun tetto per job e occupa comunque tutto il pool. Il tetto è
+// [Options.MaxInFlightPerWorkspace] e vive nella stessa [queue.pick], nella
+// stessa forma: **si salta il workspace pieno invece di aspettarlo**. È quel
+// dettaglio a distinguere una difesa da un guasto distribuito equamente — con
+// l'attesa, il workspace al tetto fermerebbe i worker e quindi tutti gli altri.
+//
+// Non è una quota di piano e non va confuso con una: è uguale su tutti i piani e
+// nessuno ne concede di più (R10). Vedi [DefaultMaxInFlightPerWorkspace] per il
+// numero e per come è stato scelto — e per il fatto, dichiarato, che il valore
+// giusto si saprà solo misurandolo in esercizio.
+//
+// # La politica sulle esecuzioni sovrapposte (R41)
+//
+// Un job può durare più del proprio intervallo, e con la risoluzione al secondo
+// non è un caso limite. Che cosa farne è una scelta **del job** — saltare
+// l'occorrenza in eccesso, accodarla, o lasciarla partire in parallelo — e vive
+// su `jobs.overlap_policy` (migrazione 0013), da dove arriva fin qui dentro
+// [scheduler.Job.Overlap].
+//
+// Si applica alla **corsia**, cioè alla coppia (job, ambiente): è quella la cosa
+// che si sovrappone a sé stessa. Una prova in staging e un'esecuzione in
+// produzione sono due esecuzioni distinte con esiti e alert separati (R23), e
+// farle aspettare a vicenda sarebbe un ritardo che nessuno ha chiesto.
+//
+//   - `skip` ammette una sola occorrenza in carico per corsia. L'eccedente non
+//     entra nemmeno in coda: [Pool.Dispatch] restituisce [ErrOverlapSkipped] e
+//     chi possiede la riga la chiude `skipped`, con scritto perché. Accodarla
+//     per poi saltarla dopo occuperebbe la coda con lavoro già deciso morto.
+//   - `queue` ammette una sola occorrenza **in volo** per corsia: le altre
+//     aspettano nella coda del job, in ordine di arrivo. È ciò che serializza le
+//     esecuzioni senza perderne nessuna, e il prezzo — dichiarato — è che un job
+//     stabilmente più lento del proprio intervallo accumula arretrato finché la
+//     sua coda non si riempie e comincia a rifiutare.
+//   - `allow` non limita la corsia: resta il solo tetto di risorse per job.
+//
+// Il tetto di [Options.MaxInFlightPerJob] vale **sempre**, anche su `allow`: non
+// è una politica, è la difesa degli altri job.
+//
 // C'è una terza scelta, meno visibile ma dello stesso peso: **il worker non
 // tiene una connessione al database mentre la chiamata HTTP è in corso**. Prende
 // la riga, la chiude, esegue, riapre per scrivere l'esito. Un pool da 32 worker
@@ -348,6 +390,13 @@ type Stats struct {
 	Duplicated int64
 	Refused    int64
 
+	// Overlapped sono le occorrenze non accettate perché la precedente dello
+	// stesso job e ambiente era ancora in carico e il job dichiara
+	// `on_overlap: skip` (R41). Non sono fra le Refused, ed è la distinzione che
+	// conta: una Refused torna, questa no — chi possiede la riga la chiude
+	// `skipped`. Vedi [ErrOverlapSkipped].
+	Overlapped int64
+
 	// Claimed sono le occorrenze di cui questo pool ha vinto l'aggiornamento
 	// condizionato; Lost quelle che al momento della presa erano già di qualcun
 	// altro. Lost > 0 non è un errore: è R4 che funziona.
@@ -421,11 +470,55 @@ const (
 	// succeda.
 	//
 	// Non è la politica delle esecuzioni sovrapposte di R41 — saltare, accodare o
-	// consentire — che è una scelta per job e vive su una colonna che oggi non
-	// esiste. È un tetto di risorse del processo: le occorrenze eccedenti non
-	// vengono saltate, aspettano il loro turno nella coda del job. Quando R41
-	// arriverà, si innesterà qui, sulla stessa coda per job.
+	// consentire — che è una scelta per job e vive su `jobs.overlap_policy`
+	// (migrazione 0013). Le due si sono innestate sulla stessa coda, come
+	// previsto, e restano due cose:
+	//
+	//   - questo è un **tetto di risorse del processo**, uguale per tutti i job e
+	//     non negoziabile: nemmeno un job `allow` può tenere più di così;
+	//   - quella è una **scelta del job** sulla propria corsia (job, ambiente), e
+	//     decide se l'occorrenza in eccesso si salta, aspetta o parte comunque.
+	//
+	// Un job `skip` o `queue` non arriva mai a questo tetto per conto proprio,
+	// perché la sua corsia ne ammette una per volta; ci arriva un job `allow`, o
+	// un job in due ambienti, o una raffica di retry.
 	DefaultMaxInFlightPerJob = 4
+
+	// DefaultMaxInFlightPerWorkspace è quante esecuzioni un singolo workspace
+	// può tenere in volo, tutti i suoi job messi insieme (R10).
+	//
+	// # Non è una quota di piano, ed è la distinzione che conta
+	//
+	// R10 tiene separate due cose che si somigliano. Le **quote di piano**
+	// derivano da SPEC §8, si comprano e si allargano cambiando piano. Questo è
+	// l'altra: un **tetto tecnico**, uguale su tutti i piani, che protegge la
+	// macchina su cui girano insieme API, motore e database (SPEC §2). Non è una
+	// voce di listino — §8 non lo contiene, deliberatamente — e nessun piano ne
+	// concede di più. Alzarlo non è un upgrade, è una decisione di esercizio.
+	//
+	// # Il numero, e perché è questo
+	//
+	// **Il valore giusto non si può sapere senza misurarlo in produzione**, e va
+	// detto invece che nascosto: dipende da quanto durano le chiamate dei job
+	// reali e da quanta CPU il database lascia al motore, e nessuno dei due si
+	// conosce prima di avere clienti. Quello che si può fare adesso è scegliere
+	// un rapporto difendibile e dichiararlo.
+	//
+	// Otto è un quarto di [DefaultWorkers] e il doppio di
+	// [DefaultMaxInFlightPerJob]. Le due proprietà che ne discendono sono quelle
+	// per cui il tetto esiste:
+	//
+	//   - **nessun workspace può prendersi più di un quarto del pool**, quindi ne
+	//     servono almeno quattro attivi insieme per saturarlo, e un solo cliente
+	//     con mille job non è mai il motivo per cui gli altri aspettano;
+	//   - **un workspace può comunque tenere due job lenti al loro tetto per
+	//     job**, che è il caso normale di chi ha un paio di job pesanti e non deve
+	//     accorgersi che esiste un tetto.
+	//
+	// La misura in esercizio è la issue #462, che osserva il ritardo di dispatch:
+	// se il tetto fosse troppo basso si vedrebbe lì, come ritardo di workspace
+	// che hanno lavoro pronto e worker liberi davanti.
+	DefaultMaxInFlightPerWorkspace = 8
 
 	// DefaultQueueDepth è quante occorrenze il pool tiene in attesa in totale.
 	//

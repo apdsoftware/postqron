@@ -3,6 +3,8 @@ package scheduler_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -623,6 +625,95 @@ func TestUnOccorrenzaInSospesoTroppoVecchiaVieneChiusa(t *testing.T) {
 	rows := executions(t, pool)
 	if len(rows) != 1 || rows[0].Status != "skipped" {
 		t.Fatalf("esecuzioni = %+v, attesa una riga skipped", rows)
+	}
+}
+
+// ------------------------------------------------- sovrapposizioni (R41)
+
+// La politica di sovrapposizione la applica il dispatch — è l'unico a sapere
+// cosa sia in volo — ma la riga è dello scheduler finché qualcuno non la prende.
+// Questi due test coprono il confine fra i due: che il valore arrivi a valle, e
+// che il rifiuto torni indietro chiudendo la riga invece di lasciarla in giro.
+
+// TestLaPoliticaDiSovrapposizioneArrivaAlDispatch: una colonna che nessuno
+// legge è una colonna che non esiste.
+func TestLaPoliticaDiSovrapposizioneArrivaAlDispatch(t *testing.T) {
+	pool := newTestDatabase(t)
+	user := createUser(t, pool)
+
+	now := testClock()
+	due := now.Add(-time.Second)
+	// `queue` e non il predefinito: un test che confrontasse il valore letto con
+	// il proprio default passerebbe anche se la colonna non venisse letta affatto.
+	createJob(t, pool, user, jobSpec{Every: time.Minute, NextRunAt: &due, Overlap: "queue"})
+
+	rec := &recorder{}
+	engine := newEngine(t, pool, rec, &now, nil)
+	if _, err := engine.Tick(t.Context()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	occs := rec.all()
+	if len(occs) != 1 {
+		t.Fatalf("occorrenze consegnate = %d, attesa una", len(occs))
+	}
+	if occs[0].Job.Overlap != scheduler.OverlapQueue {
+		t.Fatalf("politica consegnata = %q, attesa `queue`", occs[0].Job.Overlap)
+	}
+}
+
+// TestUnOccorrenzaSovrappostaVieneChiusaSkipped è la quarta clausola del
+// contratto di [scheduler.Dispatcher] dal lato di chi possiede la riga.
+//
+// La differenza con un rifiuto qualunque è tutta nel destino della riga, ed è
+// quella che il test guarda: un rifiuto la lascia `pending`, perché il recupero
+// la riproporrà; questa la chiude `skipped`, perché nessuno la riproporrà mai —
+// il job ha chiesto di saltarla. Lasciarla `pending` significherebbe riprovare a
+// ogni passata, per cinque minuti, a fare una cosa che l'utente ha vietato.
+func TestUnOccorrenzaSovrappostaVieneChiusaSkipped(t *testing.T) {
+	pool := newTestDatabase(t)
+	user := createUser(t, pool)
+
+	now := testClock()
+	due := now.Add(-time.Second)
+	createJob(t, pool, user, jobSpec{Every: time.Minute, NextRunAt: &due})
+
+	rec := &recorder{fail: func(scheduler.Occurrence) error {
+		return fmt.Errorf("il dispatch dice di saltarla: %w", scheduler.ErrOverlap)
+	}}
+	engine := newEngine(t, pool, rec, &now, nil)
+
+	st, err := engine.Tick(t.Context())
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if st.Overlapped != 1 {
+		t.Fatalf("stats = %+v, attesa un'occorrenza sovrapposta", st)
+	}
+	if st.Rejected != 0 {
+		t.Fatalf("stats = %+v: una sovrapposizione non è un rifiuto, e contarla lì farebbe "+
+			"credere che la riga vada ripresa", st)
+	}
+
+	rows := executions(t, pool)
+	if len(rows) != 1 || rows[0].Status != "skipped" {
+		t.Fatalf("esecuzioni = %+v, attesa una riga skipped", rows)
+	}
+	// Il motivo nomina il campo che ha deciso: chi la vede in dashboard deve
+	// poter risalire dalla riga all'impostazione senza indovinare.
+	if motivo := executionError(t, pool, rows[0]); !strings.Contains(motivo, "on_overlap") {
+		t.Fatalf("motivo = %q: non dice quale impostazione ha saltato l'occorrenza", motivo)
+	}
+
+	// E la passata successiva non la ripropone: la riga non è più `pending`.
+	rec.fail = nil
+	if _, err := engine.Tick(t.Context()); err != nil {
+		t.Fatalf("seconda Tick: %v", err)
+	}
+	for _, occ := range rec.all() {
+		if occ.ScheduledFor.Equal(rows[0].ScheduledFor) {
+			t.Fatal("l'occorrenza saltata è stata riproposta: una riga chiusa non si riprende")
+		}
 	}
 }
 

@@ -42,12 +42,35 @@ func (c *clockDiProva) avanza(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
+// concorrenzaDiProva è il tetto tecnico sulle esecuzioni contemporanee (R10)
+// come lo vede il servizio dei job. Parte a zero, cioè «nessun tetto»: quasi
+// nessun test di questa suite lo riguarda, e uno che scattasse per sbaglio si
+// mascherebbe da difetto del trigger.
+type concorrenzaDiProva struct {
+	mu     sync.Mutex
+	inVolo int
+	tetto  int
+}
+
+func (c *concorrenzaDiProva) InFlight(string) (used, limit int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inVolo, c.tetto
+}
+
+func (c *concorrenzaDiProva) riempi(tetto int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.inVolo, c.tetto = tetto, tetto
+}
+
 type jobsFixture struct {
 	*api
-	store *jobstest.Store
-	clock *clockDiProva
-	user  auth.User
-	token string
+	store       *jobstest.Store
+	clock       *clockDiProva
+	concorrenza *concorrenzaDiProva
+	user        auth.User
+	token       string
 }
 
 // newJobsFixture costruisce il router con autenticazione e job agganciati ad
@@ -58,12 +81,14 @@ func newJobsFixture(t *testing.T) *jobsFixture {
 	clock := &clockDiProva{now: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)}
 	store := jobstest.NewStore()
 	store.Now = clock.Now
+	concorrenza := &concorrenzaDiProva{}
 
 	a := newAPI(t, func(_ *config.Config, _ *auth.Options, deps *httpapi.Deps) {
 		svc, err := jobs.NewService(jobs.Options{
-			Store:  store,
-			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-			Now:    clock.Now,
+			Store:       store,
+			Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Concurrency: concorrenza,
+			Now:         clock.Now,
 		})
 		if err != nil {
 			t.Fatalf("jobs.NewService: %v", err)
@@ -76,7 +101,10 @@ func newJobsFixture(t *testing.T) *jobsFixture {
 	})
 
 	user, token := a.registerAndLogin()
-	return &jobsFixture{api: a, store: store, clock: clock, user: user, token: token}
+	return &jobsFixture{
+		api: a, store: store, clock: clock, concorrenza: concorrenza,
+		user: user, token: token,
+	}
 }
 
 // call esegue una richiesta autenticata.
@@ -773,6 +801,56 @@ func TestIlTriggerManualeERateLimitato(t *testing.T) {
 	f.clock.avanza(time.Minute)
 	if rec := f.call(http.MethodPost, "/jobs/"+created.ID+"/executions", nil); rec.Code != http.StatusAccepted {
 		t.Fatalf("terzo trigger: status = %d, corpo = %s", rec.Code, rec.Body)
+	}
+}
+
+// TestIDue429DelTriggerDicono CoseDiverse è R10 letto dal lato della risposta.
+//
+// Il tetto tecnico sulle esecuzioni contemporanee e la quota di piano sui
+// trigger manuali producono **entrambi** un 429 sulla stessa rotta, e sono due
+// cose diverse: uno protegge la macchina ed è uguale su tutti i piani, l'altro è
+// la capacità che l'utente ha comprato. Il test li mette uno accanto all'altro
+// perché la differenza è tutta nei campi su cui un client decide se mostrare un
+// invito all'upgrade — e proporlo su un tetto tecnico sarebbe una bugia
+// commerciale, visto che l'aggiornamento non servirebbe.
+func TestIDue429DelTriggerDiconoCoseDiverse(t *testing.T) {
+	f := newJobsFixture(t)
+	created := f.creaJob(corpoValido())
+
+	// --- il tetto tecnico.
+	f.concorrenza.riempi(8)
+	rec := f.call(http.MethodPost, "/jobs/"+created.ID+"/executions", nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("tetto tecnico: status = %d, atteso 429 (corpo: %s)", rec.Code, rec.Body)
+	}
+	tecnico := errorDetail(t, rec)
+	if tecnico.Code != "execution_ceiling" {
+		t.Errorf("codice del tetto tecnico = %q, atteso \"execution_ceiling\"", tecnico.Code)
+	}
+	if tecnico.Plan != "" || tecnico.Limit != "" {
+		t.Errorf("il tetto tecnico ha plan=%q limit=%q: sono i campi su cui un client "+
+			"mostra l'invito all'upgrade, e qui l'upgrade non servirebbe", tecnico.Plan, tecnico.Limit)
+	}
+	if tecnico.RetryAfter <= 0 || rec.Header().Get("Retry-After") == "" {
+		t.Errorf("il tetto tecnico non dice fra quanto riprovare: retry_after=%d, testata=%q",
+			tecnico.RetryAfter, rec.Header().Get("Retry-After"))
+	}
+
+	// --- la quota di piano, sulla stessa rotta e con lo stesso status.
+	f.concorrenza.riempi(0)
+	if rec := f.call(http.MethodPost, "/jobs/"+created.ID+"/executions", nil); rec.Code != http.StatusAccepted {
+		t.Fatalf("trigger dopo il tetto: status = %d, corpo = %s", rec.Code, rec.Body)
+	}
+	rec = f.call(http.MethodPost, "/jobs/"+created.ID+"/executions", nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("quota di piano: status = %d, atteso 429 (corpo: %s)", rec.Code, rec.Body)
+	}
+	diPiano := errorDetail(t, rec)
+	if diPiano.Code == tecnico.Code {
+		t.Fatalf("i due 429 hanno lo stesso codice %q: un client non può distinguerli", diPiano.Code)
+	}
+	if diPiano.Plan == "" {
+		t.Error("il 429 di piano non nomina il piano: l'utente non saprebbe se ha sbagliato lui o se deve pagare")
 	}
 }
 

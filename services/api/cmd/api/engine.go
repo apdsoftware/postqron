@@ -137,6 +137,25 @@ func newEngine(opts engineOptions) (*engine, error) {
 // Manual è l'adattatore da passare a [jobs.Options.Dispatcher].
 func (e *engine) Manual() jobs.Dispatcher { return e.manual }
 
+// Concurrency è il tetto tecnico sulle esecuzioni contemporanee di un workspace
+// (R10), da passare a [jobs.Options.Concurrency].
+//
+// Il worker pool soddisfa già l'interfaccia con il proprio metodo: l'adattatore
+// è la sola riga qui sotto, e non c'è niente da tradurre perché le due parti
+// parlano della stessa grandezza — quante esecuzioni di quel workspace sono in
+// volo adesso. Il confine resta comunque un'interfaccia, così internal/jobs non
+// importa internal/dispatch.
+func (e *engine) Concurrency() jobs.Concurrency { return workspaceCeiling{pool: e.workers} }
+
+// workspaceCeiling adatta [dispatch.Pool] a [jobs.Concurrency].
+type workspaceCeiling struct{ pool *dispatch.Pool }
+
+var _ jobs.Concurrency = workspaceCeiling{}
+
+func (c workspaceCeiling) InFlight(workspaceID string) (used, limit int) {
+	return c.pool.WorkspaceInFlight(workspaceID)
+}
+
 // Start avvia il motore e torna subito.
 //
 // Il contesto è quello del processo: alla sua chiusura lo scheduler esce dal
@@ -301,7 +320,8 @@ const jobTargetSQL = `
 	SELECT id::text, user_id::text, name,
 	       coalesce(schedule, ''), coalesce(every_seconds, 0), timezone,
 	       environments::text[], url, method::text, headers, body,
-	       timeout_seconds, max_retries, retry_backoff::text, enabled
+	       timeout_seconds, max_retries, retry_backoff::text,
+	       overlap_policy::text, enabled
 	  FROM jobs
 	 WHERE id = $1::uuid`
 
@@ -311,12 +331,13 @@ func loadJobTarget(ctx context.Context, pool *pgxpool.Pool, jobID string) (sched
 		every   int32
 		timeout int32
 		retries int16
+		overlap string
 	)
 	err := pool.QueryRow(ctx, jobTargetSQL, jobID).Scan(
 		&job.ID, &job.UserID, &job.Name,
 		&job.Expression, &every, &job.Timezone,
 		&job.Environments, &job.URL, &job.Method, &job.Headers, &job.Body,
-		&timeout, &retries, &job.RetryBackoff, &job.Enabled,
+		&timeout, &retries, &job.RetryBackoff, &overlap, &job.Enabled,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Il job è stato cancellato fra la registrazione della riga e la sua
@@ -331,5 +352,6 @@ func loadJobTarget(ctx context.Context, pool *pgxpool.Pool, jobID string) (sched
 	job.Every = time.Duration(every) * time.Second
 	job.Timeout = time.Duration(timeout) * time.Second
 	job.MaxRetries = int(retries)
+	job.Overlap = scheduler.OverlapPolicy(overlap).Or()
 	return job, nil
 }

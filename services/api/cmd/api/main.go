@@ -127,7 +127,7 @@ func run() error {
 		return err
 	}
 
-	jobsService, err := newJobsService(pool, logger, guard, eng.Manual())
+	jobsService, err := newJobsService(pool, logger, guard, eng.Manual(), eng.Concurrency())
 	if err != nil {
 		return err
 	}
@@ -406,16 +406,28 @@ func newAPIKeysService(pool *pgxpool.Pool, logger *slog.Logger) (*apikeys.Servic
 // non è più una riga che nessuno raccoglie. Vedi [jobs.Dispatcher] per il motivo
 // per cui **non** è opzionale come sembra — lo scheduler di #388 non raccoglie i
 // trigger manuali, per scelta dichiarata.
-func newJobsService(pool *pgxpool.Pool, logger *slog.Logger, guard jobs.TargetGuard, dispatcher jobs.Dispatcher) (*jobs.Service, error) {
+//
+// Concurrency è il tetto tecnico sulle esecuzioni contemporanee (R10): lo
+// conosce il worker pool, che è l'unico a sapere cosa è in volo, e serve al
+// trigger manuale per rifiutare invece di promettere un «adesso» che sarebbe una
+// coda.
+func newJobsService(
+	pool *pgxpool.Pool,
+	logger *slog.Logger,
+	guard jobs.TargetGuard,
+	dispatcher jobs.Dispatcher,
+	concurrency jobs.Concurrency,
+) (*jobs.Service, error) {
 	store, err := jobspg.New(pool)
 	if err != nil {
 		return nil, err
 	}
 	return jobs.NewService(jobs.Options{
-		Store:      store,
-		Logger:     logger,
-		Guard:      guard,
-		Dispatcher: dispatcher,
+		Store:       store,
+		Logger:      logger,
+		Guard:       guard,
+		Dispatcher:  dispatcher,
+		Concurrency: concurrency,
 	})
 }
 

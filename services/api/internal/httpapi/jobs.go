@@ -60,14 +60,19 @@ const maxJobRequestBody = 64 << 10
 //	409 job_disabled                trigger manuale su un job in pausa
 //	409 execution_already_exists    occorrenza già registrata (R4)
 //	413 body_too_large              corpo oltre maxJobRequestBody
-//	429 rate_limited                tetto tecnico del servizio (R10, quota.go)
+//	429 rate_limited                tetto tecnico sulle richieste (R10, quota.go)
+//	429 execution_ceiling           tetto tecnico sulle esecuzioni contemporanee (R10)
 //	429 plan_limit_write_rate       quota di scrittura del piano (R10, R15)
 //	429 plan_limit_manual_trigger   con `Retry-After` e `retry_after`
 //	503 executions_unavailable      partizione giornaliera mancante (0006)
 //
-// I due 429 sono diversi apposta: `rate_limited` non nomina nessun piano perché
-// nessun piano ne concede di più, `plan_limit_*` sì perché lì l'upgrade è la
-// risposta. Vedi quota.go.
+// I 429 sono di **due famiglie diverse** apposta, e la differenza arriva fino al
+// corpo della risposta. `rate_limited` ed `execution_ceiling` sono tetti tecnici:
+// non hanno `plan`, non hanno `limit`, e non promettono niente, perché nessun
+// piano ne concede di più. `plan_limit_*` nomina il piano, perché lì l'upgrade è
+// davvero la risposta. Un client decide se mostrare un invito ad aggiornare
+// guardando quei due campi, e suggerirlo su un tetto tecnico sarebbe una bugia
+// commerciale. Vedi quota.go.
 //
 // jobsAPI raccoglie le rotte dei job e delle esecuzioni (R8).
 type jobsAPI struct {
@@ -274,6 +279,11 @@ func (a *jobsAPI) fail(w http.ResponseWriter, r *http.Request, err error) {
 
 	if limit, ok := jobs.AsPlanLimit(err); ok {
 		a.failPlanLimit(w, r, limit)
+		return
+	}
+
+	if limit, ok := jobs.AsServiceLimit(err); ok {
+		failServiceLimit(w, r, a.log, limit)
 		return
 	}
 

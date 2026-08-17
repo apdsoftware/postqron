@@ -29,6 +29,11 @@ type Options struct {
 	// MaxInFlightPerJob è quante occorrenze dello stesso job possono essere in
 	// esecuzione insieme. È il tetto che rende l'isolamento una garanzia.
 	MaxInFlightPerJob int
+	// MaxInFlightPerWorkspace è il tetto tecnico del servizio: quante esecuzioni
+	// un singolo workspace può tenere in volo con tutti i suoi job messi insieme
+	// (R10). Non è una quota di piano — vedi
+	// [DefaultMaxInFlightPerWorkspace], che spiega anche da dove viene il numero.
+	MaxInFlightPerWorkspace int
 	// QueueDepth e QueueDepthPerJob sono i due tetti della coda in attesa.
 	QueueDepth       int
 	QueueDepthPerJob int
@@ -113,6 +118,7 @@ type Pool struct {
 // worker e li legge chiunque chieda [Pool.Stats].
 type counters struct {
 	accepted, duplicated, refused atomic.Int64
+	overlapped                    atomic.Int64
 	claimed, lost                 atomic.Int64
 	succeeded, failed, timedOut   atomic.Int64
 	skipped, blocked              atomic.Int64
@@ -165,7 +171,14 @@ func New(opts Options) (*Pool, error) {
 	queued := intOr(opts.QueueDepth, DefaultQueueDepth)
 	perJob := min(intOr(opts.QueueDepthPerJob, DefaultQueueDepthPerJob), queued)
 	inFlightPerJob := min(intOr(opts.MaxInFlightPerJob, DefaultMaxInFlightPerJob), p.workers)
-	p.q = newQueue(queued, perJob, inFlightPerJob)
+	// Il tetto per workspace si ferma al pool, come quello per job: sopra non
+	// sarebbe più un tetto. Sotto invece è libero di scendere anche sotto quello
+	// per job, e non è una contraddizione — è un aggregato più stretto del
+	// dettaglio, che è esattamente ciò che un aggregato può essere. Su un pool
+	// piccolo vale così, e il tetto per job resta la regola che decide *quale*
+	// job può usare quanto di ciò che il workspace ha.
+	inFlightPerWorkspace := min(intOr(opts.MaxInFlightPerWorkspace, DefaultMaxInFlightPerWorkspace), p.workers)
+	p.q = newQueue(queued, perJob, inFlightPerJob, inFlightPerWorkspace)
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	return p, nil
 }
@@ -228,6 +241,12 @@ func (p *Pool) Dispatch(_ context.Context, occ scheduler.Occurrence) error {
 	case errors.Is(err, errDuplicate):
 		p.counters.duplicated.Add(1)
 		return nil
+	case errors.Is(err, scheduler.ErrOverlap):
+		// Non è un rifiuto: è la politica del job che ha deciso (R41). L'errore
+		// esce perché la riga va chiusa `skipped`, e a chiuderla è chi ce l'ha
+		// scritta — vedi la quarta clausola di [scheduler.Dispatcher].
+		p.counters.overlapped.Add(1)
+		return err
 	default:
 		p.counters.refused.Add(1)
 		return err
@@ -243,6 +262,7 @@ func (p *Pool) Stats() Stats {
 		Accepted:   p.counters.accepted.Load(),
 		Duplicated: p.counters.duplicated.Load(),
 		Refused:    p.counters.refused.Load(),
+		Overlapped: p.counters.overlapped.Load(),
 		Claimed:    p.counters.claimed.Load(),
 		Lost:       p.counters.lost.Load(),
 		Succeeded:  p.counters.succeeded.Load(),
@@ -258,6 +278,25 @@ func (p *Pool) Stats() Stats {
 		RetryOverrun:   p.counters.retryOverrun.Load(),
 		RetryAbandoned: p.counters.retryAbandoned.Load(),
 	}
+}
+
+// WorkspaceInFlight dice quanto un workspace sta occupando adesso del proprio
+// tetto tecnico, e quanto è quel tetto (R10).
+//
+// Esiste per un chiamante solo, e non è il pool a decidere cosa farne: il
+// trigger manuale dell'API (R8) rifiuta un «esegui adesso» quando il workspace è
+// già al tetto, perché accettarlo significherebbe registrare una riga che resta
+// in coda dietro alle esecuzioni dello stesso workspace e rispondere 202 a
+// qualcosa che non partirà adesso. Le occorrenze *schedulate* invece non si
+// rifiutano: aspettano il proprio turno in coda, che è ciò per cui la coda
+// esiste.
+//
+// La lettura è istantanea e non prenota niente: fra questa risposta e la presa
+// del worker il numero può cambiare. Va bene — è un tetto di protezione, non un
+// contatore contabile, e sbagliare per eccesso di un'esecuzione ogni tanto non
+// cambia nulla di ciò che protegge.
+func (p *Pool) WorkspaceInFlight(workspaceID string) (used, limit int) {
+	return p.q.workspaceInFlight(workspaceID)
 }
 
 // ------------------------------------------------------------------- worker
