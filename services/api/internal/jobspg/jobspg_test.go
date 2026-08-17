@@ -121,8 +121,14 @@ func TestAndataERitornoDelJob(t *testing.T) {
 	if len(letto.AlertOnFailure) != 1 || letto.AlertOnFailure[0] != jobs.AlertEmail {
 		t.Errorf("alert_on_failure = %v", letto.AlertOnFailure)
 	}
-	if letto.NextRunAt == nil || !letto.NextRunAt.Equal(*want.NextRunAt) {
-		t.Errorf("next_run_at = %v, atteso %v", letto.NextRunAt, want.NextRunAt)
+	// Il confronto è con il valore **restituito dalla scrittura**, non con quello
+	// di un secondo `sampleJob`: quella funzione prende l'ora al momento della
+	// chiamata, e le due chiamate di questo test cadono ai due lati di un secondo
+	// tondo circa una volta su mille — un rosso che non descrive niente. È lo
+	// stesso errore del confronto fra `created_at` e `updated_at`: il paragone
+	// giusto è con il valore precedente, non con uno nuovo che gli somiglia.
+	if letto.NextRunAt == nil || created.NextRunAt == nil || !letto.NextRunAt.Equal(*created.NextRunAt) {
+		t.Errorf("next_run_at = %v, atteso %v", letto.NextRunAt, created.NextRunAt)
 	}
 }
 

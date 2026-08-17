@@ -118,6 +118,40 @@ func (p Plan) CheckJobCount(current int) error {
 	}
 }
 
+// CheckActiveJobCount verifica il tetto ai job **accesi**, che è un controllo
+// diverso da [Plan.CheckJobCount] e serve a un momento diverso: la riaccensione
+// dopo un cambio di piano (R58).
+//
+// La differenza fra i due merita di essere esplicita, perché sembrano lo stesso
+// controllo e non lo sono. [Plan.CheckJobCount] conta i job **non archiviati**,
+// compresi quelli in pausa, e difende il *catalogo*: senza contare le pause il
+// tetto si aggirerebbe creando job spenti e accendendoli a rotazione. Questo
+// conta i soli job **accesi**, e difende la *capacità*: dopo un downgrade
+// l'utente ha più job in catalogo di quanti il piano ne consenta — è
+// esattamente la situazione che R58 crea — e il catalogo pieno non deve
+// impedirgli di riaccenderne quanti il piano gli concede.
+//
+// Applicare qui il controllo del catalogo produrrebbe il difetto peggiore
+// possibile su questa regola: un utente sceso da Pro a Free con cinquanta job
+// sospesi non riuscirebbe a riaccenderne **nessuno**, perché ne ha già
+// cinquanta. R58 gli promette per iscritto che ne riaccende venti.
+//
+// `current` è il numero di job accesi e non archiviati **prima** di questa
+// riaccensione.
+func (p Plan) CheckActiveJobCount(current int) error {
+	if p.MaxJobs == nil || current < *p.MaxJobs {
+		return nil
+	}
+	return &PlanLimitError{
+		Limit: LimitJobs,
+		Plan:  p.Code,
+		Field: "enabled",
+		message: fmt.Sprintf(
+			"il piano %s consente %d job attivi e ne hai già %d accesi. Metti in pausa un altro job oppure passa a un piano superiore.",
+			p.label(), *p.MaxJobs, current),
+	}
+}
+
 // CheckEnvironments verifica che gli ambienti richiesti siano concessi (R23).
 func (p Plan) CheckEnvironments(envs []Environment) error {
 	if p.EnvironmentsEnabled {

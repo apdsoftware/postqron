@@ -56,6 +56,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0010 | `jobs_unscheduled_idx`: i job in attesa della prima occorrenza |
 | 0011 | `github_webhook_deliveries` e la sua pulizia periodica |
 | 0012 | `workspace_secrets`: i segreti contro cui `cron.yaml` risolve `${VAR}` |
+| 0013 | `paddle_webhook_events`, `paddle_checkout_intents` e la sospensione dei job al cambio di piano |
 
 ## Scelte di schema
 
@@ -153,6 +154,32 @@ repository che nessuno ha collegato, e una chiave esterna li rifiuterebbe
 facendo rispondere 500 — cioè chiedendo a GitHub di ripetere all'infinito una
 consegna che non ci serve. Il legame è per `repository_external_id`, sull'indice
 che la 0004 ha già.
+
+**Gli eventi Paddle hanno bisogno di due difese, non di una.**
+`paddle_webhook_events` (0013) è la stessa idea di `github_webhook_deliveries`,
+con `event_id` al posto di `X-GitHub-Delivery`, e copre la **seconda copia dello
+stesso evento**. Non copre il caso peggiore, che è un evento *diverso e più
+vecchio* che arriva dopo uno più recente: Paddle ritenta con backoff, e un
+`subscription.updated` ripetuto dieci minuti dopo può atterrare dopo la
+cancellazione che lo seguiva. Con la sola deduplicazione, quell'evento è nuovo,
+legittimo e firmato — e riporta in vita un piano a pagamento che l'utente non ha
+più.
+
+La seconda difesa è `subscriptions.paddle_event_occurred_at`, la filigrana
+dell'ultimo evento applicato: l'aggiornamento porta `occurred_at >= filigrana`
+nella **stessa** istruzione che scrive, perché letta prima e confrontata in Go
+due consegne concorrenti passerebbero entrambe. L'istante è quello del payload e
+non quello di arrivo: `received_at` mette le consegne nell'ordine in cui la rete
+le ha portate, che è precisamente l'ordine di cui non ci si può fidare.
+
+**La sospensione di un job non è la sua pausa.** `jobs.enabled = false` è una
+scelta dell'utente; `jobs.suspended_at` (0013) è un cambio di piano che ha spento
+il job (R58). Le due convivono — un job sospeso è anche spento, altrimenti il
+motore continuerebbe a eseguirlo — e `suspended_reason` dice *quale* vincolo il
+job viola, perché è quello a decidere il rimedio: riaccenderne di meno
+(`plan_job_limit`) oppure cambiarne la schedulazione (`plan_resolution`). Nulla
+viene cancellato in nessuno dei due casi, che è la promessa che R58 e i Termini
+fanno per iscritto.
 
 **Sessioni e token monouso conservati come impronta.** `sessions.token_hash` e
 `user_tokens.token_hash` non contengono il valore che il client possiede ma il suo

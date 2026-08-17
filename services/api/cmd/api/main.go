@@ -24,6 +24,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/authpg"
+	"github.com/apdsoftware/postqron/services/api/internal/billing"
+	"github.com/apdsoftware/postqron/services/api/internal/billingpg"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
 	"github.com/apdsoftware/postqron/services/api/internal/cronyaml"
 	"github.com/apdsoftware/postqron/services/api/internal/database"
@@ -36,6 +38,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/paddle"
+	"github.com/apdsoftware/postqron/services/api/internal/paddlepg"
 	"github.com/apdsoftware/postqron/services/api/internal/reposync"
 	"github.com/apdsoftware/postqron/services/api/internal/reposyncpg"
 	"github.com/apdsoftware/postqron/services/api/internal/retention"
@@ -164,6 +168,30 @@ func run() error {
 		return err
 	}
 
+	// La fatturazione (R16, R58). Il servizio si costruisce sempre: senza
+	// catalogo Paddle non si vende — e `CanSell` lo dice — ma il piano in forza
+	// va comunque letto, e un evento che arrivasse su una macchina senza catalogo
+	// deve fallire rumorosamente invece di essere ignorato.
+	billingService, err := billingpg.NewService(pool, os.Getenv, logger)
+	if err != nil {
+		return err
+	}
+	if !billingService.CanSell() {
+		logger.Warn("checkout non disponibile: catalogo Paddle o token del checkout non configurati",
+			slog.String("env", "PADDLE_PRICE_*, PADDLE_CLIENT_TOKEN"))
+	}
+
+	// Il webhook Paddle (R16). **Senza `PADDLE_WEBHOOK_SECRET` il servizio è
+	// nil**, e la rotta non viene registrata affatto: vale la stessa regola del
+	// webhook GitHub, con la posta in gioco più alta. Un endpoint di
+	// fatturazione che accetta corpi non verificati è un modo per farsi regalare
+	// un piano a pagamento da chiunque ne conosca l'indirizzo, quindi l'assenza
+	// del segreto non è un errore d'avvio ma la rinuncia alla rotta.
+	paddleWebhook, err := paddlepg.NewService(pool, os.Getenv, logger, sinkOrNilEntitlement(billingService))
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
@@ -175,6 +203,8 @@ func run() error {
 			// motore non risolverà mai.
 			Secrets:        secretsService,
 			GitHubWebhook:  gitHubWebhook,
+			PaddleWebhook:  paddleWebhook,
+			Billing:        billingService,
 			TrustedProxies: trustedProxies,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -457,6 +487,22 @@ func newRepoSyncService(
 // quello di una macchina senza GitHub App, cioè quello in cui il difetto non si
 // noterebbe fino al primo cliente collegato.
 func sinkOrNil(svc *reposync.Service) githubhook.PushSink {
+	if svc == nil {
+		return nil
+	}
+	return svc
+}
+
+// sinkOrNilEntitlement converte un servizio assente in un'interfaccia **davvero**
+// nil, per la stessa ragione di [sinkOrNil]: un `(*billing.Service)(nil)`
+// assegnato a [paddle.EntitlementSink] produce un'interfaccia non nil con dentro
+// un puntatore nil, e il primo evento che arriva chiamerebbe un metodo su un
+// ricevitore nil.
+//
+// Oggi il servizio non è mai nil — si costruisce sempre — ma la conversione
+// resta esplicita: il giorno in cui qualcuno lo rendesse opzionale, il difetto
+// si manifesterebbe alla prima consegna di un cliente vero.
+func sinkOrNilEntitlement(svc *billing.Service) paddle.EntitlementSink {
 	if svc == nil {
 		return nil
 	}

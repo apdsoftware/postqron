@@ -180,9 +180,38 @@ type Job struct {
 	ArchivedAt *time.Time
 	NextRunAt  *time.Time
 
+	// SuspendedAt è valorizzato quando è stato **un cambio di piano** a spegnere
+	// il job (R58), non l'utente. La 0005 tiene già distinta la pausa
+	// dall'archiviazione, e questa è la terza cosa: `enabled = false` da solo non
+	// dice chi ha premuto, e all'utente che ritrova venti job fermi la differenza
+	// è tutto ciò che conta.
+	SuspendedAt *time.Time
+	// SuspendedReason è il vincolo di piano che il job viola, cioè cosa serve per
+	// riaccenderlo. Vuoto se il job non è sospeso.
+	SuspendedReason SuspensionReason
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// SuspensionReason è il motivo per cui un cambio di piano ha spento un job,
+// uguale all'enumerato `job_suspension_reason` della migrazione 0013.
+//
+// I due valori esistono perché i rimedi sono diversi, ed è l'unica cosa che
+// l'interfaccia deve dire all'utente: R58 pretende che gliela dica, non che si
+// limiti a rifiutare.
+type SuspensionReason string
+
+const (
+	// SuspendedByJobLimit: i job attivi superavano il tetto del piano di
+	// destinazione. Rimedio: riaccenderne quanti il piano ne consente — la scelta
+	// è dell'utente, e R58 spiega per esteso perché non può essere nostra.
+	SuspendedByJobLimit SuspensionReason = "plan_job_limit"
+	// SuspendedByResolution: la schedulazione è più fitta di quanto il piano
+	// consenta. Rimedio: **cambiare la schedulazione**. Non è una questione di
+	// posto, e riaccendere un altro job non ne libera.
+	SuspendedByResolution SuspensionReason = "plan_resolution"
+)
 
 // NewJob restituisce un job con i valori predefiniti della migrazione 0005.
 //
@@ -215,6 +244,9 @@ func (j Job) Managed() bool { return j.RepositoryID != "" }
 
 // Archived indica un job disattivato dalla riconciliazione.
 func (j Job) Archived() bool { return j.ArchivedAt != nil }
+
+// Suspended indica un job spento da un cambio di piano (R58).
+func (j Job) Suspended() bool { return j.SuspendedAt != nil }
 
 // Spec è la schedulazione del job nella forma che [schedule.Parse] accetta.
 func (j Job) Spec() schedule.Spec {

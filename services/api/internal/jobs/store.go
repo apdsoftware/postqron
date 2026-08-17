@@ -53,6 +53,14 @@ type Store interface {
 	// CountJobs conta i job non archiviati dell'utente (tetto di piano).
 	CountJobs(ctx context.Context, userID string) (int, error)
 
+	// CountActiveJobs conta i job **accesi** e non archiviati dell'utente.
+	//
+	// È un conteggio distinto da CountJobs e non un suo filtro perché risponde a
+	// una domanda diversa: quanta capacità l'utente sta usando, non quanto è
+	// grande il suo catalogo. Serve alla riaccensione dopo un downgrade (R58) —
+	// vedi [Plan.CheckActiveJobCount], dove la differenza è spiegata per esteso.
+	CountActiveJobs(ctx context.Context, userID string) (int, error)
+
 	// UpdateJob riscrive le colonne modificabili di un job. Il job porta già
 	// l'esito dell'applicazione della patch e della validazione: qui non si
 	// decide più niente.

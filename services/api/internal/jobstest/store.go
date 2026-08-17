@@ -172,6 +172,26 @@ func (s *Store) CountJobs(_ context.Context, userID string) (int, error) {
 	return count, nil
 }
 
+// CountActiveJobs conta i job accesi e non archiviati dell'utente.
+//
+// È il conteggio della capacità e non del catalogo: vedi
+// [jobs.Plan.CheckActiveJobCount] per la differenza, che è ciò che permette a un
+// utente sceso di piano di riaccendere qualcosa dopo un downgrade (R58).
+func (s *Store) CountActiveJobs(_ context.Context, userID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.fail("CountActiveJobs"); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, job := range s.jobs {
+		if job.UserID == userID && job.Enabled && job.ArchivedAt == nil {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // ListJobs elenca i job secondo il filtro, dal più recente, con una riga in più.
 func (s *Store) ListJobs(_ context.Context, filter jobs.JobFilter) ([]jobs.Job, error) {
 	s.mu.Lock()
@@ -238,6 +258,18 @@ func (s *Store) UpdateJob(_ context.Context, job jobs.Job, resetNextRun bool) (j
 		job.NextRunAt = nil
 	} else {
 		job.NextRunAt = current.NextRunAt
+	}
+	// Anche la sospensione di R58 è una colonna che il chiamante non scrive: si
+	// scioglie quando il job torna acceso, e resta dov'era altrimenti. Riprodurre
+	// qui il `CASE` di jobspg non è pedanteria — un doppio che lasciasse il job
+	// riacceso *e* marcato come sospeso renderebbe verde un test che sul database
+	// vero sarebbe rosso.
+	if job.Enabled {
+		job.SuspendedAt = nil
+		job.SuspendedReason = ""
+	} else {
+		job.SuspendedAt = current.SuspendedAt
+		job.SuspendedReason = current.SuspendedReason
 	}
 	s.jobs[job.ID] = job
 	return job, nil

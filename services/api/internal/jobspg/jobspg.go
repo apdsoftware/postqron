@@ -70,7 +70,9 @@ const jobColumns = `id::text, user_id::text, coalesce(repository_id::text, ''),
 	schedule, every_seconds, timezone, environments::text[],
 	url, method::text, headers, coalesce(body, ''),
 	timeout_seconds, max_retries, retry_backoff::text, alert_on_failure::text[],
-	enabled, archived_at, next_run_at, created_at, updated_at`
+	enabled, archived_at, next_run_at,
+	suspended_at, coalesce(suspended_reason::text, ''),
+	created_at, updated_at`
 
 const executionColumns = `job_id::text, scheduled_for, environment::text, attempt,
 	status::text, triggered_by::text,
@@ -123,7 +125,7 @@ func (s *Store) CreateJob(ctx context.Context, job jobs.Job, maxJobs *int) (jobs
 	// solo a chiudere i percorsi d'uscita anticipata.
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, advisoryKey(job.UserID)); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, UserJobsLockKey(job.UserID)); err != nil {
 		return jobs.Job{}, annotate("lock sulla creazione del job", err)
 	}
 
@@ -177,17 +179,25 @@ func (s *Store) insertJob(ctx context.Context, db querier, job jobs.Job, headers
 	return jobs.Job{}, notFoundOnMalformedID(annotate("inserimento del job", err))
 }
 
-// advisoryKey trasforma l'identificativo dell'utente nella chiave del lock
-// consultivo.
+// UserJobsLockKey trasforma l'identificativo dell'utente nella chiave del lock
+// consultivo che serializza le scritture che dipendono da **quanti job attivi ha
+// un utente**.
 //
 // Due utenti diversi possono in teoria collidere sulla stessa chiave: l'effetto
-// è che le loro creazioni si aspettano a vicenda per il tempo di un inserimento,
-// il che è irrilevante. Ciò che conta è il contrario — che lo stesso utente
-// produca sempre la stessa chiave — ed è garantito.
-func advisoryKey(userID string) int64 {
+// è che le loro operazioni si aspettano a vicenda per il tempo di un
+// inserimento, il che è irrilevante. Ciò che conta è il contrario — che lo stesso
+// utente produca sempre la stessa chiave — ed è garantito.
+//
+// È esportata perché i chiamanti sono due e devono prendere lo *stesso* lock. Il
+// secondo è la sospensione di R58 in internal/billingpg: senza condividere la
+// chiave, una creazione in volo durante un downgrade inserirebbe un job acceso
+// subito dopo che tutti gli altri sono stati spenti — un utente sul piano Free
+// con un job attivo che il downgrade non ha visto. Due stringhe uguali scritte in
+// due package sono una che diverge, quindi la derivazione è una sola.
+func UserJobsLockKey(userID string) int64 {
 	h := fnv.New64a()
 	// L'hash non fallisce mai: Write su fnv restituisce sempre nil.
-	_, _ = h.Write([]byte("postqron:jobs:create:" + userID))
+	_, _ = h.Write([]byte("postqron:jobs:user:" + userID))
 	return int64(h.Sum64())
 }
 
@@ -212,6 +222,23 @@ func (s *Store) CountJobs(ctx context.Context, userID string) (int, error) {
 		userID).Scan(&count)
 	if err != nil {
 		return 0, annotate("conteggio dei job", err)
+	}
+	return count, nil
+}
+
+// CountActiveJobs conta i job accesi e non archiviati dell'utente.
+//
+// È il conteggio che difende la capacità, non il catalogo: la differenza fra i
+// due è in [jobs.Plan.CheckActiveJobCount], e serve alla riaccensione dopo un
+// downgrade (R58).
+func (s *Store) CountActiveJobs(ctx context.Context, userID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM jobs
+		  WHERE user_id = $1::uuid AND enabled AND archived_at IS NULL`,
+		userID).Scan(&count)
+	if err != nil {
+		return 0, annotate("conteggio dei job attivi", err)
 	}
 	return count, nil
 }
@@ -281,7 +308,15 @@ func (s *Store) UpdateJob(ctx context.Context, job jobs.Job, resetNextRun bool) 
 		    headers = $11::jsonb, body = $12, timeout_seconds = $13,
 		    max_retries = $14, retry_backoff = $15::retry_backoff,
 		    alert_on_failure = $16::text[]::alert_channel[], enabled = $17,
-		    next_run_at = CASE WHEN $18::boolean THEN NULL ELSE jobs.next_run_at END
+		    next_run_at = CASE WHEN $18::boolean THEN NULL ELSE jobs.next_run_at END,
+		    -- La sospensione di R58 si scioglie quando il job torna acceso, e lo
+		    -- fa **qui** e non nel chiamante: è una proprietà della riga —
+		    -- «questo job è spento perché il piano si è ristretto» — e un job
+		    -- acceso non può portarla. Scritta nel servizio, sarebbe una riga che
+		    -- il prossimo percorso di riaccensione dimentica, e resterebbe un job
+		    -- funzionante che l'interfaccia continua a mostrare come fermo.
+		    suspended_at = CASE WHEN $17::boolean THEN NULL ELSE jobs.suspended_at END,
+		    suspended_reason = CASE WHEN $17::boolean THEN NULL ELSE jobs.suspended_reason END
 		  WHERE id = $2::uuid AND user_id = $1::uuid
 		 RETURNING `+jobColumns,
 		job.UserID, job.ID, job.Name, nullable(job.Description),
@@ -502,16 +537,17 @@ type scanner interface {
 
 func scanJob(row scanner) (jobs.Job, error) {
 	var (
-		job          jobs.Job
-		schedule     *string
-		every        *int32
-		environments []string
-		headers      []byte
-		timeout      int32
-		maxRetries   int16
-		backoff      string
-		method       string
-		channels     []string
+		job             jobs.Job
+		suspendedReason string
+		schedule        *string
+		every           *int32
+		environments    []string
+		headers         []byte
+		timeout         int32
+		maxRetries      int16
+		backoff         string
+		method          string
+		channels        []string
 	)
 	err := row.Scan(
 		&job.ID, &job.UserID, &job.RepositoryID,
@@ -519,7 +555,9 @@ func scanJob(row scanner) (jobs.Job, error) {
 		&schedule, &every, &job.Timezone, &environments,
 		&job.URL, &method, &headers, &job.Body,
 		&timeout, &maxRetries, &backoff, &channels,
-		&job.Enabled, &job.ArchivedAt, &job.NextRunAt, &job.CreatedAt, &job.UpdatedAt)
+		&job.Enabled, &job.ArchivedAt, &job.NextRunAt,
+		&job.SuspendedAt, &suspendedReason,
+		&job.CreatedAt, &job.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return jobs.Job{}, jobs.ErrNotFound
 	}
@@ -533,6 +571,7 @@ func scanJob(row scanner) (jobs.Job, error) {
 	if every != nil {
 		job.Every = time.Duration(*every) * time.Second
 	}
+	job.SuspendedReason = jobs.SuspensionReason(suspendedReason)
 	job.Method = jobs.Method(method)
 	job.RetryBackoff = jobs.Backoff(backoff)
 	job.Timeout = time.Duration(timeout) * time.Second
