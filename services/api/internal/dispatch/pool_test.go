@@ -58,6 +58,19 @@ func (s *memStore) transition(occ scheduler.Occurrence, from, to string) bool {
 	return true
 }
 
+// Enqueue crea la riga di un tentativo successivo. Come sul database, un
+// tentativo che esiste già non si ricrea: è il primo cancello di R4.
+func (s *memStore) Enqueue(_ context.Context, occ scheduler.Occurrence) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := occurrenceKey(occ)
+	if _, exists := s.status[key]; exists {
+		return false, nil
+	}
+	s.status[key] = "pending"
+	return true, nil
+}
+
 func (s *memStore) Claim(_ context.Context, occ scheduler.Occurrence) (bool, error) {
 	if s.claimErr != nil {
 		return false, s.claimErr

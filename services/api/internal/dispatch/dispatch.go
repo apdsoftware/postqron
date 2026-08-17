@@ -97,12 +97,42 @@
 // dall'esecutore **non viene mai scritto**. L'errore serve a classificare
 // l'esito, il testo arriva da [Result.ErrorText].
 //
+// # Il retry, e perché non è un'occorrenza nuova (R5)
+//
+// Un'esecuzione fallita può meritarne un'altra. La politica — che cosa si
+// ritenta, con che backoff, quante volte — è in internal/retry, che è puro e non
+// sa niente di righe e di orologi; qui c'è ciò che la esegue, e sono tre cose.
+//
+//  1. **La riga.** Il tentativo successivo è la *stessa* occorrenza con
+//     `attempt` incrementato: stesso `job_id`, stesso `scheduled_for`, stesso
+//     ambiente. È il motivo per cui `attempt` è nella chiave primaria di
+//     `job_executions` invece di essere un contatore su una riga sola: tre
+//     tentativi di una stessa occorrenza si leggono come la storia di un
+//     fallimento, non come tre esecuzioni scollegate, e il prefisso
+//     `(job_id, scheduled_for)` dell'indice li tiene già insieme e in ordine.
+//     La riga nasce da [Store.Enqueue], che è per il retry ciò che l'inserimento
+//     dello scheduler è per l'occorrenza: il primo cancello di R4.
+//  2. **L'attesa.** Il ritardo lo tiene un timer in memoria, non il database.
+//     La riga del tentativo successivo viene creata **quando il timer scade**,
+//     non quando il retry viene deciso: una riga `pending` che aspetta il proprio
+//     turno sarebbe invisibile a chiunque, perché il recupero dello scheduler
+//     salta di proposito ciò che ha `triggered_by = 'retry'` (vedi
+//     `pendingOccurrencesSQL`), e resterebbe dentro `job_executions_in_flight_idx`
+//     — l'indice che deve restare piccolo — fino alla fine dei tempi. Il prezzo è
+//     dichiarato: **un retry pianificato non sopravvive all'arresto del
+//     processo**. Il tentativo fallito resta scritto con il suo esito vero, ed è
+//     ciò che l'utente vede; la garanzia di R5 è sul comportamento del motore
+//     acceso, non attraverso un riavvio.
+//  3. **Il confine con l'occorrenza successiva.** Un job a `every: 10s` che
+//     fallisce non deve ritentare l'occorrenza delle 12:00:00 dopo che quella
+//     delle 12:00:10 è già dovuta. Vince la schedulazione: vedi
+//     [Pool.planRetry].
+//
 // # Che cosa non c'è
 //
 // L'esecuzione HTTP vera è la issue #390 e sta dietro [Executor]; il blocco
 // degli indirizzi interni (R38) è la #455 e sta dietro [Guard], che questo
-// package chiama a ogni occorrenza e che di default non blocca niente; il retry
-// (R5) è la #392 e nascerà da [Outcome], non da qui.
+// package chiama a ogni occorrenza e che di default non blocca niente.
 package dispatch
 
 import (
@@ -167,6 +197,20 @@ type Result struct {
 	// guasto dell'esecuzione: il messaggio dell'`error` non ci arriva mai. Vedi
 	// la quarta clausola di [Executor].
 	ErrorText secrets.Excerpt
+
+	// RetryAfter è il ritardo che il bersaglio ha chiesto con la testata
+	// `Retry-After`, zero se non l'ha chiesto (R5).
+	//
+	// È l'unico campo di questa struttura che descrive la risposta **e non è un
+	// [secrets.Excerpt]**, e la differenza non è una dimenticanza: gli altri due
+	// sono testo scelto dal bersaglio, questo è una durata. Un numero non può
+	// portare con sé il valore di un segreto, non finisce in nessuna colonna e
+	// non viene mai mostrato all'utente — serve solo a internal/retry per
+	// decidere fra quanto riprovare.
+	//
+	// Chi implementa [Executor] può lasciarlo a zero: significa «il bersaglio non
+	// ha chiesto niente», e la politica applica il proprio backoff.
+	RetryAfter time.Duration
 }
 
 // Executor esegue una singola occorrenza. È l'implementazione HTTP della issue
@@ -247,13 +291,13 @@ type Record struct {
 	Error           secrets.Excerpt
 }
 
-// Store è ciò che il pool sa di `job_executions`: quattro transizioni di stato,
-// tutte condizionate sullo stato di partenza.
+// Store è ciò che il pool sa di `job_executions`: la nascita di una riga e
+// quattro transizioni di stato, tutte condizionate sullo stato di partenza.
 //
-// Tutte restituiscono un booleano che dice se la riga è stata davvero
-// aggiornata. Non è una comodità: è il valore su cui si regge R4. `false` da
-// [Store.Claim] significa «l'occorrenza è di qualcun altro» ed è l'unica cosa
-// che impedisce una seconda esecuzione.
+// Tutte restituiscono un booleano che dice se la riga è stata davvero scritta.
+// Non è una comodità: è il valore su cui si regge R4. `false` da [Store.Claim]
+// significa «l'occorrenza è di qualcun altro» ed è l'unica cosa che impedisce
+// una seconda esecuzione.
 //
 // L'interfaccia esiste perché l'isolamento di R3 è una proprietà della coda, non
 // del database, e va provato senza: vedi TestUnJobLentoNonRitardaGliAltri, che
@@ -261,6 +305,15 @@ type Record struct {
 // L'implementazione vera è [PostgresStore] ed è provata contro il database
 // reale.
 type Store interface {
+	// Enqueue crea la riga `pending` di un tentativo successivo al primo (R5).
+	//
+	// È l'unico metodo che *inserisce* invece di aggiornare, e l'unico che serve
+	// al retry: l'occorrenza di partenza la scrive lo scheduler, i tentativi
+	// successivi nascono qui. Restituisce `false` — senza errore — quando la
+	// riga esisteva già: la chiave primaria naturale è il primo cancello di R4
+	// anche per un retry, e un conflitto significa che quel tentativo è di
+	// qualcun altro.
+	Enqueue(ctx context.Context, occ scheduler.Occurrence) (bool, error)
 	// Claim porta l'occorrenza da `pending` a `running`. È il secondo cancello
 	// dell'idempotenza: vedi la documentazione del package.
 	Claim(ctx context.Context, occ scheduler.Occurrence) (bool, error)
@@ -314,6 +367,26 @@ type Stats struct {
 	Released int64
 	// Errors sono gli errori del database durante una transizione di stato.
 	Errors int64
+
+	// I quattro esiti di una decisione di retry che vale la pena contare (R5).
+	// Un fallimento che non si ritenta perché non è ritentabile — un `4xx`, una
+	// destinazione rifiutata — non compare qui: è già [Stats.Failed], e il motivo
+	// sta nel log.
+
+	// Retried sono i tentativi successivi al primo effettivamente accodati.
+	Retried int64
+	// RetryExhausted sono i fallimenti che non hanno avuto un tentativo
+	// successivo perché il tetto del job era finito. Non è un errore: è la
+	// politica che si ferma dove l'utente ha detto di fermarsi.
+	RetryExhausted int64
+	// RetryOverrun sono i retry rinunciati perché sarebbero caduti dopo
+	// l'occorrenza successiva dello stesso job. Vedi [Pool.planRetry] per il
+	// motivo per cui non lasciano una riga.
+	RetryOverrun int64
+	// RetryAbandoned sono i retry pianificati e mai partiti: l'arresto del
+	// processo li ha interrotti durante l'attesa, o la coda li ha rifiutati
+	// all'ultimo momento.
+	RetryAbandoned int64
 }
 
 // I valori di partenza. Vedi [Options] per il ragionamento su ciascuno.

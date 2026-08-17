@@ -93,6 +93,14 @@
 // che ripasserà da qui come una qualunque altra — che è il motivo per cui
 // `attempt` è nella chiave primaria di `job_executions` invece che un contatore
 // su una riga sola.
+//
+// L'unica cosa che questo pacchetto aggiunge al retry è un'osservazione:
+// [dispatch.Result.RetryAfter] riporta la testata `Retry-After` quando il
+// bersaglio l'ha mandata. È il bersaglio che dice fra quanto è disposto a
+// riparlarci — su un `429` o su un `503` è l'informazione più attendibile che
+// esista sul suo stato — e riportarla è il compito di chi ha la risposta in
+// mano. Onorarla, no: quella è una decisione sui tentativi, e le decisioni sui
+// tentativi non stanno qui.
 package httpexec
 
 import (
