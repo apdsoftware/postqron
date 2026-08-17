@@ -1,7 +1,7 @@
 // Package httpapi espone il router HTTP del servizio.
 //
-// Contiene l'health check e le rotte di autenticazione (R14); le rotte REST dei
-// job e delle esecuzioni arrivano con le issue dedicate.
+// Contiene l'health check, le rotte di autenticazione (R14) e le rotte REST dei
+// job, delle esecuzioni e del trigger manuale (R8).
 package httpapi
 
 import (
@@ -19,6 +19,7 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
+	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 )
 
 // maxRequestBody è la dimensione massima di un corpo JSON accettato.
@@ -36,6 +37,11 @@ const maxRequestBody = 8 << 10
 // normale, e NewRouter lo segnala nel log.
 type Deps struct {
 	Auth *auth.Service
+
+	// Jobs può essere nil: in quel caso le rotte dei job non vengono
+	// registrate. Vale lo stesso discorso di Auth — è la configurazione dei
+	// test dell'health check, non quella normale.
+	Jobs *jobs.Service
 
 	// TrustedProxies elenca le reti da cui il servizio accetta la testata
 	// `X-Forwarded-For`. Vuoto significa «nessuna»: vedi [ClientIP].
@@ -62,7 +68,17 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 	})
 
 	if deps.Auth != nil {
-		newAuthAPI(cfg, logger, deps).routes(mux)
+		guard := newGuard(cfg, logger, deps.Auth)
+		newAuthAPI(guard, logger, deps).routes(mux)
+
+		// Le rotte dei job vivono dietro lo stesso guard: senza autenticazione
+		// non c'è un utente a cui ancorare né i job né i limiti di piano, quindi
+		// registrarle da sole non avrebbe senso.
+		if deps.Jobs != nil {
+			newJobsAPI(guard, logger, deps.Jobs).routes(mux)
+		} else {
+			logger.Warn("rotte dei job non registrate: nessun servizio jobs configurato")
+		}
 	} else {
 		logger.Warn("rotte di autenticazione non registrate: nessun servizio auth configurato")
 	}
@@ -82,7 +98,30 @@ type ErrorBody struct {
 }
 
 // ErrorDetail è il contenuto di un errore.
+//
+// I campi facoltativi servono al branching applicativo di R53. `details`
+// ancora i motivi di rifiuto ai campi che li causano, così che un form possa
+// evidenziarli senza interpretare il messaggio; `limit` e `plan` dicono quale
+// limite di piano è scattato e su quale piano, che è ciò che decide se mostrare
+// un invito all'upgrade o una correzione del campo; `retry_after` ripete in
+// forma leggibile dal codice ciò che la testata omonima già dice.
 type ErrorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+
+	Details    []FieldErrorBody `json:"details,omitempty"`
+	Limit      string           `json:"limit,omitempty"`
+	Plan       string           `json:"plan,omitempty"`
+	RetryAfter int              `json:"retry_after,omitempty"`
+}
+
+// FieldErrorBody è un motivo di rifiuto ancorato al campo che lo causa.
+//
+// `field` usa la notazione a punti del corpo (`request.url`,
+// `alerts.on_failure`): è il percorso dentro il JSON mandato, non un nome di
+// colonna.
+type FieldErrorBody struct {
+	Field   string `json:"field"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
@@ -104,6 +143,10 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, sta
 	writeJSON(w, r, logger, status, ErrorBody{Error: ErrorDetail{Code: code, Message: message}})
 }
 
+func writeErrorDetail(w http.ResponseWriter, r *http.Request, logger *slog.Logger, status int, detail ErrorDetail) {
+	writeJSON(w, r, logger, status, ErrorBody{Error: detail})
+}
+
 // ------------------------------------------------------------------ richieste
 
 var errBodyTooLarge = errors.New("corpo della richiesta troppo grande")
@@ -115,6 +158,12 @@ var errBodyTooLarge = errors.New("corpo della richiesta troppo grande")
 // un secondo oggetto JSON dopo il primo, che è la forma più semplice di
 // contrabbando di payload.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	return decodeJSONLimit(w, r, dst, maxRequestBody)
+}
+
+// decodeJSONLimit è decodeJSON con un tetto esplicito al corpo. Le rotte dei job
+// ne hanno bisogno di uno più alto: vedi [maxJobRequestBody].
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) error {
 	if contentType := r.Header.Get("Content-Type"); contentType != "" {
 		mediaType, _, err := mime.ParseMediaType(contentType)
 		if err != nil || mediaType != "application/json" {
@@ -128,7 +177,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		return errors.New("Content-Type mancante: atteso application/json")
 	}
 
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
 		var maxBytesErr *http.MaxBytesError
