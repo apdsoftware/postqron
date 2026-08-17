@@ -1,0 +1,13 @@
+# Rilevamenti noti e valutati. Ogni riga è un fingerprint gitleaks
+# (`file:regola:riga`) accompagnato dal motivo: senza motivo, la voce va tolta e
+# il segreto ruotato.
+#
+# Il fingerprint include il numero di riga: se il file cambia, la voce smette di
+# applicarsi e il rilevamento torna a fallire. È voluto — un'esclusione non deve
+# sopravvivere al contesto che la giustificava.
+
+# Chiave Google Maps del demo `blue-contact.html` del template Hexagon.
+# design/hexagon/ è il mirror byte per byte del template acquistato (SPEC §7,
+# Q1) e non va modificato: la chiave è dell'autore del template ed è pubblica
+# sul suo sito demo, non è una credenziale di PostQron.
+design/hexagon/blue-contact.html:gcp-api-key:275

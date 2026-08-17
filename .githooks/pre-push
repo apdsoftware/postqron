@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# Esegue la CI locale prima di ogni push. Se `make ci` fallisce, l'hook esce
+# diverso da zero e git rifiuta il push (AGENTS.md §2).
+#
+# L'hook è versionato qui e non in .git/hooks perché quella directory non è nel
+# repository — e soprattutto perché in un worktree `.git` è un *file*, non una
+# directory: `mkdir -p .git/hooks` da un worktree fallisce, ed è esattamente da
+# un worktree che lavora ogni agente (AGENTS.md §3). `make hooks` imposta invece
+# core.hooksPath, che git risolve rispetto alla radice di ciascun worktree.
+#
+# Per saltare la CI serve `git push --no-verify`, che è esplicito e resta nella
+# cronologia della shell di chi lo digita.
+
+set -e
+
+echo "pre-push: eseguo la CI locale…"
+
+if ! make ci; then
+  echo ""
+  echo "✗ push rifiutato: \`make ci\` è fallita."
+  echo "  Correggi, oppure usa \`git push --no-verify\` se sai perché lo stai facendo."
+  exit 1
+fi
