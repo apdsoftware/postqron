@@ -32,10 +32,32 @@ func newEngine(t *testing.T, pool *pgxpool.Pool, d scheduler.Dispatcher) *schedu
 	return engine
 }
 
+// unSecondoFa restituisce un istante di un secondo fa, garantendo che nessun
+// confine di minuto cada nella finestra [ritorno, adesso].
+//
+// Serve perché la modalità a intervallo è ancorata all'epoch (SPEC §9): lo
+// scheduler accoda *tutte* le occorrenze dovute in quella finestra, e per un job
+// `every: 1m` un confine di minuto che ci cade dentro ne produce due invece di
+// una. Con `time.Now().Add(-time.Second)` succede quando il secondo corrente è 0
+// o 1 — cioè per due secondi ogni sessanta, il 3,3% delle esecuzioni.
+//
+// Era la causa del guasto intermittente della CI (#489): non riproducibile a
+// comando perché dipende dall'orologio da parete, non dal carico.
+func unSecondoFa(t *testing.T) time.Time {
+	t.Helper()
+	for {
+		now := time.Now().UTC()
+		if now.Second() >= 2 {
+			return now.Add(-time.Second).Truncate(time.Second)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func TestLoSchedulerAccodaEIlPoolPortaLOccorrenzaATermine(t *testing.T) {
 	db := newTestDatabase(t)
 	user := createUser(t, db)
-	past := time.Now().UTC().Add(-time.Second).Truncate(time.Second)
+	past := unSecondoFa(t)
 	job := createJob(t, db, user, jobSpec{Every: time.Minute, NextRunAt: &past, Enabled: true})
 
 	var (
@@ -91,7 +113,7 @@ func TestLoSchedulerAccodaEIlPoolPortaLOccorrenzaATermine(t *testing.T) {
 func TestCioCheLArrestoRilasciaIlRecuperoLoRitrova(t *testing.T) {
 	db := newTestDatabase(t)
 	user := createUser(t, db)
-	past := time.Now().UTC().Add(-time.Second).Truncate(time.Second)
+	past := unSecondoFa(t)
 	createJob(t, db, user, jobSpec{Every: time.Minute, NextRunAt: &past, Enabled: true})
 
 	store := dispatch.NewPostgresStore(db)
