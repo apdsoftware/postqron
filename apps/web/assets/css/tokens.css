@@ -1,33 +1,94 @@
 /*
- * Token del design system Hexagon.
+ * Sistema visivo di Postqron (SPEC §4.0, R35).
  *
- * Ogni valore è estratto da `design/hexagon/assets/css/blue.css`, che resta la
- * fonte di verità visiva (design/README.md). I nomi sono semantici: nel CSS dei
- * componenti si usano solo questi token, mai i literal esadecimali, così una
- * revisione della palette non richiede una caccia al colore in tutto il sito.
+ * Questo file è la sola fonte dei valori visivi: palette, tipografia, scala
+ * tipografica, spaziature, raggi, ombre, durate. Nel CSS dei componenti si usano
+ * solo questi token, mai un literal — così una revisione del sistema è una
+ * modifica qui, non una caccia al valore in cinquanta file.
+ *
+ * ## Cosa è ereditato e cosa è deciso
+ *
+ * I valori nascono dal template Hexagon (`design/hexagon/assets/css/blue.css`).
+ * R35 chiede di confermarli come scelta o di sostituirli, non di ereditarli per
+ * inerzia. L'esito della revisione:
+ *
+ * - **Palette: confermata.** Il blu/viola distingue il prodotto in un mercato di
+ *   verdi e neri, e il gradiente ciano→viola è la sola cosa del tema che valga
+ *   la pena di tenere come segno proprio. È anche la vernice del marchio.
+ * - **Quicksand: confermato.** È geometrico e costruito su cerchi e aste
+ *   diritte, la stessa geometria del simbolo: logotipo e marchio condividono la
+ *   costruzione invece di limitarsi a stare vicini. È SIL OFL — quindi lecito
+ *   anche disegnarci sopra un logotipo — variabile, e già servito dal nostro
+ *   dominio. Al peso 600 stretto perde il tono morbido che ha da testo.
+ * - **Scala tipografica: rifatta.** Il tema usava tredici corpi diversi fra 12 e
+ *   42 px, che non è una scala ma un elenco. Sono nove, e i tre accorpamenti
+ *   spostano di due pixel al massimo (30→28, 32→34, 40→42).
+ * - **Spaziature: dichiarate.** Il ritmo del tema è già un multiplo di 5 px —
+ *   5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 140 — ma non era scritto da
+ *   nessuna parte. Ora sì, e il nome dice il multiplo.
  */
 :root {
-  /* tipografia */
+  /* ------------------------------------------------------------ tipografia */
   --pq-font: 'Quicksand', sans-serif;
+
+  /*
+   * Quicksand è variabile da 300 a 700: i pesi sono quelli usati davvero, e non
+   * costano un file in più.
+   */
+  --pq-weight-regular: 400;
+  --pq-weight-medium: 500;
+  --pq-weight-semibold: 600;
+  --pq-weight-bold: 700;
+
+  /*
+   * Scala tipografica. I nomi dicono il ruolo e non il numero: `--pq-text-hero`
+   * resta il titolo dell'hero anche se domani misura 46 px.
+   */
+  --pq-text-2xs: 12px; /* etichette, note legali, pulsanti a filetto */
+  --pq-text-xs: 14px; /* voci di menu, testo delle card, didascalie */
+  --pq-text-base: 16px; /* corpo del testo e sottotitoli */
+  --pq-text-md: 18px; /* titolo di una card funzionalità */
+  --pq-text-lg: 20px; /* valuta del prezzo, numero della statistica piccola */
+  --pq-text-xl: 22px; /* titolo di blocco */
+  --pq-text-2xl: 28px; /* titolo di sezione, titolo di articolo */
+  --pq-text-3xl: 34px; /* cifra del prezzo, titolo dell'hero sotto i 992 px */
+  --pq-text-4xl: 42px; /* titolo dell'hero */
+
+  --pq-leading-tight: 1.2; /* titoli */
+  --pq-leading-normal: 1.5; /* testo corrente */
+
+  /* --------------------------------------------------------------- palette */
+  /*
+   * Le due fermate del gradiente sono valori del marchio prima che del sito:
+   * sono la vernice del simbolo, e vivono anche in `design/marchio/`.
+   */
+  --pq-accent-start: #0fb4e5;
+  --pq-accent-end: #743fe5;
+  --pq-primary: #4278e5;
+
+  --pq-gradient: linear-gradient(135deg, var(--pq-accent-start) 0%, var(--pq-accent-end) 100%);
+  --pq-gradient-band: linear-gradient(127deg, var(--pq-accent-start) 0%, var(--pq-accent-end) 91%);
 
   /* superfici */
   --pq-page: #f7fafd; /* sfondo del documento */
   --pq-surface: #fff; /* sezioni bianche, card prezzi */
   --pq-surface-soft: #f9faff; /* card funzionalità e testimonianze */
   --pq-surface-tint: #f4f8fb; /* footer, blockquote */
+  --pq-surface-inverted: #0b1120; /* fondo di un dialogo a tutto schermo */
 
   /* testo */
   --pq-heading: #3b566e; /* titoli di sezione e card */
   --pq-heading-hero: #1e3056; /* h1 dell'hero */
   --pq-text: #6f8ba4; /* testo corrente */
   --pq-text-hero: #697ba2; /* paragrafo dell'hero */
+  --pq-text-inverted: #fff; /* testo su fondo pieno o su immagine */
   --pq-text-on-gradient: #c7e5ff; /* testo su fondo gradiente */
   --pq-text-disabled: #bcd2e6; /* voci di piano non incluse */
+  --pq-ink-solid: #000; /* un solo inchiostro: stampa e bande nere del video */
 
-  /* accenti */
-  --pq-primary: #4278e5;
-  --pq-gradient: linear-gradient(135deg, #0fb4e5 0%, #743fe5 100%);
-  --pq-gradient-band: linear-gradient(127deg, #0fb4e5 0%, #743fe5 91%);
+  /* marchio: l'inchiostro del logotipo non è quello dei titoli */
+  --pq-logo-ink: #1e3056;
+  --pq-logo-ink-inverted: #fff;
 
   /* bordi */
   --pq-border: #e2ebff; /* separatori su fondo chiaro */
@@ -35,14 +96,38 @@
   --pq-border-footer: #dae6fd;
   --pq-border-hairline: #f5f5f5;
 
+  /* ------------------------------------------------------------ spaziature */
+  /*
+   * Multipli di 5 px: il numero nel nome è il moltiplicatore, così `--pq-space-6`
+   * è 30 px e la somma di due spazi resta calcolabile a mente.
+   */
+  --pq-space-1: 5px;
+  --pq-space-2: 10px;
+  --pq-space-3: 15px;
+  --pq-space-4: 20px;
+  --pq-space-5: 25px;
+  --pq-space-6: 30px;
+  --pq-space-7: 35px;
+  --pq-space-8: 40px;
+  --pq-space-10: 50px;
+  --pq-space-12: 60px;
+  --pq-space-14: 70px;
+  --pq-space-16: 80px;
+  --pq-space-28: 140px; /* respiro verticale delle sezioni */
+
+  /* ----------------------------------------------------------------- forme */
+  --pq-radius: 5px;
+  --pq-radius-sm: 4px;
+  --pq-radius-lg: 10px;
+  --pq-radius-pill: 100px;
+
   /* profondità */
   --pq-shadow-card: 0 2px 48px 0 rgb(0 0 0 / 6%);
   --pq-shadow-header: 0 2px 28px 0 rgb(0 0 0 / 6%);
-
-  /* forme */
-  --pq-radius: 5px;
-  --pq-radius-sm: 4px;
-  --pq-radius-pill: 100px;
+  --pq-shadow-hex: drop-shadow(0 2px 24px rgb(0 0 0 / 13%));
+  --pq-ring: 0 0 0 3px rgb(66 120 229 / 25%);
+  --pq-ring-strong: 0 0 0 3px rgb(66 120 229 / 35%);
+  --pq-scrim: rgb(11 17 32 / 80%); /* velo sotto un dialogo */
 
   /* movimento */
   --pq-transition: all 0.3s ease 0s;

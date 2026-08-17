@@ -57,6 +57,13 @@ onMounted(() => {
   border-right-width: 17px;
   border-left-width: 17px;
 
+  /*
+   * Il colore dello spicchio è una tappa fra le due fermate del gradiente di
+   * marca: il tema elencava sei esadecimali che non erano riconducibili a
+   * nulla, e che una revisione della palette avrebbe lasciato indietro.
+   */
+  border-top-color: color-mix(in oklab, var(--pq-primary), var(--pq-accent-end) var(--quota));
+
   /* Stato di partenza: invisibile finché il ritardo dello spicchio non scade. */
   opacity: 0;
   translate: -50% -50%;
@@ -65,37 +72,37 @@ onMounted(() => {
 }
 
 .preloader__slice:nth-child(1) {
-  border-top-color: #4278e5;
+  --quota: 0%;
   rotate: 0deg;
   animation-delay: 0.07s;
 }
 
 .preloader__slice:nth-child(2) {
-  border-top-color: #425de5;
+  --quota: 20%;
   rotate: 60deg;
   animation-delay: 0.14s;
 }
 
 .preloader__slice:nth-child(3) {
-  border-top-color: #4242e5;
+  --quota: 40%;
   rotate: 120deg;
   animation-delay: 0.21s;
 }
 
 .preloader__slice:nth-child(4) {
-  border-top-color: #5e42e5;
+  --quota: 60%;
   rotate: 180deg;
   animation-delay: 0.28s;
 }
 
 .preloader__slice:nth-child(5) {
-  border-top-color: #7942e5;
+  --quota: 80%;
   rotate: 240deg;
   animation-delay: 0.35s;
 }
 
 .preloader__slice:nth-child(6) {
-  border-top-color: #9442e5;
+  --quota: 100%;
   rotate: 300deg;
   animation-delay: 0.42s;
 }

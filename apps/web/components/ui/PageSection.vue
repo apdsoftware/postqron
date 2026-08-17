@@ -33,7 +33,7 @@ withDefaults(
 <style scoped>
 .section {
   padding-top: 100px;
-  padding-bottom: 70px;
+  padding-bottom: var(--pq-space-14);
 }
 
 .section--white {
@@ -41,8 +41,8 @@ withDefaults(
 }
 
 .section--tight {
-  padding-top: 60px;
-  padding-bottom: 60px;
+  padding-top: var(--pq-space-12);
+  padding-bottom: var(--pq-space-12);
 }
 
 .section--divider {

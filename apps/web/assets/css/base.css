@@ -44,7 +44,7 @@ html {
    * l'altezza dell'header fisso che altrimenti coprirebbe il titolo.
    */
   scroll-behavior: smooth;
-  scroll-padding-top: calc(var(--pq-header-height-compact) + 30px);
+  scroll-padding-top: calc(var(--pq-header-height-compact) + var(--pq-space-6));
 }
 
 html,
@@ -52,8 +52,8 @@ body {
   background: var(--pq-page);
   color: var(--pq-text);
   font-family: var(--pq-font);
-  font-size: 16px;
-  font-weight: 400;
+  font-size: var(--pq-text-base);
+  font-weight: var(--pq-weight-regular);
 
   /*
    * Interlinea di base 1.5 e titoli a 1.2/500: sono i valori del reboot di
@@ -73,7 +73,7 @@ h3,
 h4,
 h5,
 h6 {
-  font-weight: 500;
+  font-weight: var(--pq-weight-medium);
   line-height: 1.2;
 }
 
@@ -105,7 +105,7 @@ input {
 
 ::selection {
   background: var(--pq-primary);
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 /*

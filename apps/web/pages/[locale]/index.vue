@@ -201,16 +201,16 @@ function staggered(index: number) {
 
 <style scoped>
 .api-band__text {
-  color: #fff;
-  font-size: 22px;
-  font-weight: 500;
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-xl);
+  font-weight: var(--pq-weight-medium);
   letter-spacing: 1.38px;
   line-height: 34px;
   text-align: center;
 }
 
 .api-band__cell {
-  margin-top: 60px;
+  margin-top: var(--pq-space-12);
   text-align: center;
 }
 
@@ -220,7 +220,7 @@ function staggered(index: number) {
   width: 160px;
   height: 40px;
   overflow: hidden;
-  border: 1px solid #fff;
+  border: 1px solid var(--pq-text-inverted);
   border-radius: var(--pq-radius-pill);
 
   /* Poco meno dell'altezza del pulsante: centra icona ed etichetta. */
@@ -234,7 +234,7 @@ function staggered(index: number) {
   inset: 0;
   z-index: 1;
   opacity: 0.3;
-  background: #fff;
+  background: var(--pq-surface);
   transition: var(--pq-transition);
 }
 
@@ -245,8 +245,8 @@ function staggered(index: number) {
 .api-band__icon {
   position: relative;
   z-index: 2;
-  margin-right: 5px;
-  color: #fff;
+  margin-right: var(--pq-space-1);
+  color: var(--pq-text-inverted);
   transition: var(--pq-transition);
 }
 
@@ -254,9 +254,9 @@ function staggered(index: number) {
   display: inline-block;
   position: relative;
   z-index: 2;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-xs);
+  font-weight: var(--pq-weight-bold);
   letter-spacing: 0.88px;
   transition: var(--pq-transition);
 }
@@ -268,7 +268,7 @@ function staggered(index: number) {
 
 @media (max-width: 991px) {
   .api-band__cell {
-    margin-top: 20px;
+    margin-top: var(--pq-space-4);
   }
 }
 </style>

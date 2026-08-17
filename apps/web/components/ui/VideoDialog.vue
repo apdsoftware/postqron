@@ -84,10 +84,10 @@ function close() {
   width: 60px;
   height: 60px;
   overflow: hidden;
-  border: 1px solid #fff;
+  border: 1px solid var(--pq-text-inverted);
   border-radius: var(--pq-radius-pill);
-  color: #fff;
-  font-size: 22px;
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-xl);
   line-height: 60px;
   text-align: center;
 }
@@ -99,7 +99,7 @@ function close() {
   inset: 0;
   z-index: 1;
   opacity: 0.19;
-  background: #fff;
+  background: var(--pq-surface);
 }
 
 .video-dialog__glyph {
@@ -107,7 +107,7 @@ function close() {
   z-index: 2;
 
   /* Il triangolo è otticamente decentrato: va spostato a destra. */
-  margin-left: 5px;
+  margin-left: var(--pq-space-1);
 }
 
 .video-dialog__modal {
@@ -115,11 +115,11 @@ function close() {
   padding: 0;
   border: none;
   border-radius: var(--pq-radius);
-  background: #000;
+  background: var(--pq-ink-solid);
 }
 
 .video-dialog__modal::backdrop {
-  background: rgb(11 17 32 / 80%);
+  background: var(--pq-scrim);
 }
 
 .video-dialog__modal iframe {
@@ -136,9 +136,9 @@ function close() {
   padding: 0;
   border: 0;
   background: none;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
+  color: var(--pq-text-inverted);
+  font-size: var(--pq-text-2xs);
+  font-weight: var(--pq-weight-bold);
   letter-spacing: 0.75px;
   text-transform: uppercase;
   cursor: pointer;

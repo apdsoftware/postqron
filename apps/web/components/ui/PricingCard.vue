@@ -111,7 +111,7 @@ const leadingPrefix = computed(() =>
 
 <style scoped>
 .pricing {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
   overflow: hidden;
   border-radius: var(--pq-radius);
   background: var(--pq-surface);
@@ -131,8 +131,8 @@ const leadingPrefix = computed(() =>
   top: 50%;
   width: 100%;
   color: var(--pq-heading);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--pq-text-base);
+  font-weight: var(--pq-weight-bold);
   letter-spacing: 1px;
   text-transform: uppercase;
   transform: perspective(1px) translateY(-50%);
@@ -152,7 +152,7 @@ const leadingPrefix = computed(() =>
 .pricing__position {
   display: block;
   color: var(--pq-primary);
-  font-size: 16px;
+  font-size: var(--pq-text-base);
   line-height: 56px;
   text-align: center;
 }
@@ -162,20 +162,20 @@ const leadingPrefix = computed(() =>
 }
 
 .is-featured .pricing__name {
-  color: #fff;
+  color: var(--pq-text-inverted);
 }
 
 .is-featured .pricing__badge {
-  --hex-fill: #fff;
-  --hex-shadow: drop-shadow(0 2px 24px rgb(0 0 0 / 13%));
+  --hex-fill: var(--pq-text-inverted);
+  --hex-shadow: var(--pq-shadow-hex);
 }
 
 .pricing__body {
-  margin-bottom: 40px;
+  margin-bottom: var(--pq-space-8);
 }
 
 .pricing__price {
-  margin-top: 60px;
+  margin-top: var(--pq-space-12);
   margin-bottom: 8px;
   color: var(--pq-primary);
   text-align: center;
@@ -189,8 +189,8 @@ const leadingPrefix = computed(() =>
 .pricing__prefix {
   position: relative;
   top: -15px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--pq-text-xs);
+  font-weight: var(--pq-weight-medium);
 }
 
 /*
@@ -206,13 +206,13 @@ const leadingPrefix = computed(() =>
 .pricing__currency {
   position: relative;
   top: -15px;
-  font-size: 20px;
-  font-weight: 500;
+  font-size: var(--pq-text-lg);
+  font-weight: var(--pq-weight-medium);
 }
 
 .pricing__amount {
-  font-size: 34px;
-  font-weight: 700;
+  font-size: var(--pq-text-3xl);
+  font-weight: var(--pq-weight-bold);
   letter-spacing: 2.12px;
 }
 
@@ -225,8 +225,8 @@ const leadingPrefix = computed(() =>
 }
 
 .pricing__period {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--pq-text-xs);
+  font-weight: var(--pq-weight-bold);
   letter-spacing: 0.88px;
 }
 
@@ -240,10 +240,10 @@ const leadingPrefix = computed(() =>
  * selezionato non esce come «/Monat+ MwSt.».
  */
 .pricing__tax {
-  margin-bottom: 30px;
+  margin-bottom: var(--pq-space-6);
   color: var(--pq-text);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--pq-text-2xs);
+  font-weight: var(--pq-weight-medium);
   letter-spacing: 0.75px;
   text-align: center;
 }
@@ -252,7 +252,7 @@ const leadingPrefix = computed(() =>
 .pricing__features li {
   margin-bottom: 12px;
   color: var(--pq-text-disabled);
-  font-size: 14px;
+  font-size: var(--pq-text-xs);
   letter-spacing: 0.88px;
   text-align: center;
 }
@@ -262,7 +262,7 @@ const leadingPrefix = computed(() =>
 }
 
 .pricing__footer {
-  padding-bottom: 40px;
+  padding-bottom: var(--pq-space-8);
   text-align: center;
 }
 </style>

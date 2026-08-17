@@ -144,18 +144,18 @@ function onSubmit() {
 }
 
 .hero__title {
-  margin-bottom: 40px;
+  margin-bottom: var(--pq-space-8);
   color: var(--pq-heading-hero);
-  font-size: 42px;
-  font-weight: 400;
+  font-size: var(--pq-text-4xl);
+  font-weight: var(--pq-weight-regular);
   letter-spacing: 1.4px;
   line-height: 54px;
 }
 
 .hero__lead {
-  margin-bottom: 40px;
+  margin-bottom: var(--pq-space-8);
   color: var(--pq-text-hero);
-  font-size: 16px;
+  font-size: var(--pq-text-base);
   letter-spacing: 1px;
   line-height: 28px;
 }
@@ -187,7 +187,7 @@ function onSubmit() {
   }
 
   .hero__title {
-    font-size: 32px;
+    font-size: var(--pq-text-3xl);
     line-height: 42px;
   }
 }
@@ -209,16 +209,16 @@ function onSubmit() {
 
   /* Il testo passa sopra la foto: serve il contrasto del bianco. */
   .hero__title {
-    margin-bottom: 10px;
-    color: #fff;
-    font-size: 22px;
-    font-weight: 500;
+    margin-bottom: var(--pq-space-2);
+    color: var(--pq-text-inverted);
+    font-size: var(--pq-text-xl);
+    font-weight: var(--pq-weight-medium);
     line-height: 32px;
     text-align: center;
   }
 
   .hero__lead {
-    color: #fff;
+    color: var(--pq-text-inverted);
     text-align: center;
   }
 }
