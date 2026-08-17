@@ -370,18 +370,23 @@ func TestUpdateScopeAndRevoked(t *testing.T) {
 	if aggiornato.KeyVersion != 2 || aggiornato.Description != nota {
 		t.Errorf("aggiornato = %+v", aggiornato)
 	}
-	// `After` stretto sarebbe un flake: creazione e aggiornamento cadono a pochi
-	// microsecondi di distanza e i due `now()` possono restituire lo stesso
-	// istante. Ciò che il test deve accertare è che il trigger *scriva* la
-	// colonna, non che l'orologio abbia una risoluzione sufficiente a
-	// distinguerle: quindi si verifica che non sia rimasta indietro, e che il
-	// trigger l'abbia toccata confrontandola con il valore precedente.
-	if aggiornato.UpdatedAt.Before(aggiornato.CreatedAt) {
-		t.Errorf("updated_at (%s) precede created_at (%s)",
-			aggiornato.UpdatedAt, aggiornato.CreatedAt)
-	}
-	if aggiornato.UpdatedAt.Before(secret.UpdatedAt) {
-		t.Error("il trigger non ha aggiornato updated_at")
+	// **`updated_at` non va confrontato con `created_at`: sono due orologi.**
+	//
+	// `created_at` arriva dal processo Go (`in.CreatedAt`), `updated_at` dal
+	// trigger dentro PostgreSQL. In sviluppo il database sta in un container, e
+	// l'orologio della VM che lo ospita insegue quello dell'host a strappi: fra
+	// una risincronizzazione e l'altra la deriva è di millisecondi — misurata
+	// qui a 1,9 ms come minimo, vista arrivare a 14,5 ms in un fallimento reale.
+	// Un `updated_at` scritto *dopo* può quindi risultare *precedente*, e nessun
+	// ordine delle scritture lo impedisce.
+	//
+	// Il confronto giusto è con il valore che il trigger stesso aveva scritto
+	// prima: stesso orologio, e per giunta è l'unica forma che dimostra davvero
+	// che il trigger sia scattato. `After` stretto qui è sicuro perché le due
+	// transazioni sono distinte e `now()` ha risoluzione al microsecondo.
+	if !aggiornato.UpdatedAt.After(secret.UpdatedAt) {
+		t.Errorf("il trigger non ha aggiornato updated_at: %s non è successivo a %s",
+			aggiornato.UpdatedAt, secret.UpdatedAt)
 	}
 
 	// Senza nota, la nota resta com'era.
@@ -570,11 +575,11 @@ func TestMigrationIsReversible(t *testing.T) {
 		`SELECT updated_at FROM workspace_secrets WHERE id = $1`, secret.ID).Scan(&updatedAt); err != nil {
 		t.Fatal(err)
 	}
-	// Come sopra: non `After` stretto, che va a pari quando le due scritture
-	// cadono nello stesso tick.
-	if updatedAt.Before(secret.CreatedAt) {
-		t.Errorf("il trigger di updated_at non è tornato con la tabella: %s precede %s",
-			updatedAt, secret.CreatedAt)
+	// Come sopra: il paragone è con l'`updated_at` scritto all'inserimento, non
+	// con `created_at`, che viene da un altro orologio.
+	if !updatedAt.After(secret.UpdatedAt) {
+		t.Errorf("il trigger di updated_at non è tornato con la tabella: %s non è successivo a %s",
+			updatedAt, secret.UpdatedAt)
 	}
 }
 

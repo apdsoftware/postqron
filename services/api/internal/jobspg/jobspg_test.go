@@ -367,8 +367,17 @@ func TestAggiornamentoEdEliminazione(t *testing.T) {
 	}
 	// Il trigger `jobs_set_updated_at` della 0005 tiene la colonna allineata
 	// senza dipendere dal chiamante.
-	if !updated.UpdatedAt.After(updated.CreatedAt) {
-		t.Errorf("updated_at = %s, non successivo a created_at = %s", updated.UpdatedAt, updated.CreatedAt)
+	//
+	// Il paragone è con l'`updated_at` precedente, non con `created_at`: quello
+	// lo scrive il processo Go, questo il trigger dentro PostgreSQL, e in
+	// sviluppo il database sta in un container il cui orologio insegue l'host
+	// con una deriva di millisecondi. Confrontarli fa fallire il test quando il
+	// codice è corretto — è successo in `internal/secretspg`, con 14,5 ms di
+	// scarto. Sul valore precedente l'orologio è lo stesso, e la verifica è
+	// anche più stretta: dimostra che il trigger è *scattato*.
+	if !updated.UpdatedAt.After(created.UpdatedAt) {
+		t.Errorf("il trigger non ha aggiornato updated_at: %s non è successivo a %s",
+			updated.UpdatedAt, created.UpdatedAt)
 	}
 
 	// L'ambito sull'utente è parte del contratto, non un filtro dimenticabile.
