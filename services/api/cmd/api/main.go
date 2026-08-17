@@ -1,6 +1,11 @@
-// Command api avvia il servizio HTTP di Postqron: API REST e, in seguito,
-// motore cron. È l'unica origin dinamica del prodotto — i frontend sono
+// Command api avvia il servizio HTTP di Postqron: API REST e motore cron nello
+// stesso processo. È l'unica origin dinamica del prodotto — i frontend sono
 // statici (vedi docs/SPEC.md §2).
+//
+// I due convivono deliberatamente: API, motore e database stanno sulla stessa
+// macchina (SPEC §2, §11 R49), e separarli in due binari significherebbe due
+// pool di connessioni verso lo stesso PostgreSQL e due unità da tenere allineate
+// in cambio di nessun isolamento vero. Il collegamento sta in engine.go.
 package main
 
 import (
@@ -22,10 +27,12 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/config"
 	"github.com/apdsoftware/postqron/services/api/internal/database"
 	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
+	"github.com/apdsoftware/postqron/services/api/internal/githubhookpg"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
+	"github.com/apdsoftware/postqron/services/api/internal/netguard"
 )
 
 // version è sovrascrivibile al build: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
@@ -84,7 +91,24 @@ func run() error {
 		return err
 	}
 
-	jobsService, err := newJobsService(pool, logger)
+	// Un solo guard per tutto il processo: lo stesso che rifiuta un URL alla
+	// creazione del job, che anticipa il rifiuto prima di occupare un worker, e
+	// il cui trasporto è l'unico da cui esce traffico verso i bersagli (R38).
+	// Costruirne uno per punto d'innesto significherebbe tre politiche libere di
+	// divergere, e nessun posto in cui accorgersene.
+	guard := netguard.New(netguard.Options{Logger: logger})
+
+	eng, err := newEngine(engineOptions{
+		Pool:    pool,
+		Logger:  logger,
+		Clients: guard,
+		Targets: guard,
+	})
+	if err != nil {
+		return err
+	}
+
+	jobsService, err := newJobsService(pool, logger, guard, eng.Manual())
 	if err != nil {
 		return err
 	}
@@ -99,17 +123,40 @@ func run() error {
 		return err
 	}
 
+	// Il webhook GitHub (R11, issue #421). Il residuo di cablaggio è qui perché
+	// #421 aveva cmd/api fra i propri percorsi vietati.
+	//
+	// Due cose vanno lette insieme. **Senza `GITHUB_APP_WEBHOOK_SECRET` il
+	// servizio è nil**, e la rotta non viene registrata affatto: una macchina
+	// senza GitHub App non deve ottenere un endpoint pubblico che accetta
+	// qualunque corpo, deve non ottenere l'endpoint. Per questo l'assenza del
+	// segreto non è un errore d'avvio. **Il sink è nil**, e appartiene a #422 e
+	// #423: finché non c'è, le push si registrano come `ignored` invece che come
+	// lavorate, perché il registro non deve far credere a un sync che non è
+	// avvenuto.
+	gitHubWebhook, err := githubhookpg.NewService(pool, os.Getenv, logger, nil)
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
 			Auth:           authService,
 			Jobs:           jobsService,
 			APIKeys:        apiKeysService,
+			GitHubWebhook:  gitHubWebhook,
 			TrustedProxies: trustedProxies,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
+	// Il motore parte prima del server: le occorrenze rimaste in sospeso da una
+	// vita precedente del processo vengono riprese subito (scheduler.Engine.Recover),
+	// e un job creato al primo secondo di vita dell'API trova il motore già in
+	// piedi invece di aspettare la passata successiva.
+	eng.Start(ctx)
 
 	errs := make(chan error, 1)
 	go func() {
@@ -129,9 +176,14 @@ func run() error {
 		errs <- nil
 	}()
 
+	var listenErr error
 	select {
-	case err := <-errs:
-		return err
+	case listenErr = <-errs:
+		// Il server non è partito, o è caduto. Il motore invece sta girando: va
+		// fermato lo stesso, altrimenti resterebbero esecuzioni `running` che
+		// nessuno chiude più. `stop` chiude il contesto del processo, che è il
+		// segnale con cui lo scheduler esce dal proprio ciclo.
+		stop()
 	case <-ctx.Done():
 		logger.Info("segnale di arresto ricevuto, chiusura graceful",
 			slog.Duration("timeout", cfg.ShutdownTimeout))
@@ -140,7 +192,17 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return err
+		return errors.Join(listenErr, err)
+	}
+	// Il motore si ferma **dopo** il server, e l'ordine non è arbitrario: finché
+	// l'API accetta richieste, un trigger manuale può ancora arrivare al worker
+	// pool, e un pool già chiuso lo rifiuterebbe lasciando la riga `pending` per
+	// sempre — nessuno riprende un «esegui adesso» (vedi manualDispatcher).
+	if err := eng.Shutdown(shutdownCtx); err != nil {
+		// Non è un guasto: le esecuzioni interrotte sono tornate `pending` e il
+		// recupero le riprenderà al riavvio. È il fatto da lasciare scritto,
+		// invece di doverlo dedurre dalle esecuzioni che ricompaiono.
+		logger.Warn("esecuzioni interrotte dall'arresto del motore", slog.Any("error", err))
 	}
 	// Le email di conferma e di recupero password partono fuori dal percorso
 	// della richiesta (è ciò che rende costante il tempo di risposta): l'arresto
@@ -151,7 +213,7 @@ func run() error {
 	}
 
 	logger.Info("servizio arrestato")
-	return nil
+	return listenErr
 }
 
 // newAuthService costruisce l'autenticazione (R14).
@@ -239,22 +301,26 @@ func newAPIKeysService(pool *pgxpool.Pool, logger *slog.Logger) (*apikeys.Servic
 
 // newJobsService costruisce le rotte dei job (R8).
 //
-// Guard resta nil **e questo significa il blocco**, non la sua assenza: #455 ha
-// reso il rifiuto degli indirizzi interni il comportamento predefinito di
-// [jobs.NewService], perché il servizio non deve poter nascere indifeso per una
-// riga dimenticata qui. Passare un guard esplicito serve solo a cambiarne la
-// politica, non ad attivarlo.
+// Il guard arriva da fuori invece di lasciare che [jobs.NewService] si costruisca
+// il proprio: nil significherebbe comunque il blocco predefinito (#455), ma
+// sarebbe un *secondo* guard, con una politica libera di divergere da quella con
+// cui il motore esegue davvero le chiamate. Uno solo, quello di run.
 //
-// Dispatcher resta nil in attesa del worker pool (#389), che eseguirà le
-// occorrenze manuali. Vedi [jobs.Dispatcher] per il motivo per cui **non** è
-// opzionale come sembra: lo scheduler di #388 non raccoglie i trigger manuali,
-// per scelta dichiarata. Il collegamento completo è #486.
-func newJobsService(pool *pgxpool.Pool, logger *slog.Logger) (*jobs.Service, error) {
+// Dispatcher è l'adattatore del motore (#486): da qui in poi un trigger manuale
+// non è più una riga che nessuno raccoglie. Vedi [jobs.Dispatcher] per il motivo
+// per cui **non** è opzionale come sembra — lo scheduler di #388 non raccoglie i
+// trigger manuali, per scelta dichiarata.
+func newJobsService(pool *pgxpool.Pool, logger *slog.Logger, guard jobs.TargetGuard, dispatcher jobs.Dispatcher) (*jobs.Service, error) {
 	store, err := jobspg.New(pool)
 	if err != nil {
 		return nil, err
 	}
-	return jobs.NewService(jobs.Options{Store: store, Logger: logger})
+	return jobs.NewService(jobs.Options{
+		Store:      store,
+		Logger:     logger,
+		Guard:      guard,
+		Dispatcher: dispatcher,
+	})
 }
 
 func newLogger(cfg config.Config) *slog.Logger {
