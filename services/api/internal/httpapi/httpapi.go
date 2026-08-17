@@ -25,6 +25,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
+	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 )
 
@@ -55,6 +56,13 @@ type Deps struct {
 	// funziona comunque — ed è per questo che la mancanza si nota nel log
 	// all'avvio invece di far fallire la costruzione del router.
 	APIKeys *apikeys.Service
+
+	// GitHubWebhook può essere nil: in quel caso la rotta `/webhooks/github`
+	// non viene registrata e risponde 404 (R11). Nil è la configurazione di chi
+	// non ha il segreto della GitHub App: un webhook senza segreto non è un
+	// webhook meno sicuro, è un endpoint pubblico che accetta qualunque cosa, e
+	// non registrarlo è l'unica alternativa accettabile a registrarlo verificato.
+	GitHubWebhook *githubhook.Service
 
 	// TrustedProxies elenca le reti da cui il servizio accetta la testata
 	// `X-Forwarded-For`. Vuoto significa «nessuna»: vedi [ClientIP].
@@ -102,6 +110,19 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 		}
 	} else {
 		logger.Warn("rotte di autenticazione non registrate: nessun servizio auth configurato")
+	}
+
+	// Il webhook GitHub sta **fuori** dal guard, e non per dimenticanza: la
+	// richiesta arriva da GitHub, che non ha né una sessione né una chiave API.
+	// La sua credenziale è la firma HMAC del corpo, che il servizio verifica
+	// prima di qualunque altra cosa (R11). Vedi webhooks_github.go.
+	if deps.GitHubWebhook != nil {
+		newGitHubWebhookAPI(logger, deps.GitHubWebhook).routes(mux)
+		if !deps.GitHubWebhook.HasSink() {
+			logger.Info("webhook GitHub attivo senza consumatore: le push vengono verificate e registrate, non sincronizzate")
+		}
+	} else {
+		logger.Warn("rotta del webhook GitHub non registrata: nessun servizio githubhook configurato")
 	}
 
 	return withCORS(cfg, mux)
