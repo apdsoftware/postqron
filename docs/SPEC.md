@@ -73,7 +73,29 @@ produzione: il backend Go è l'unica origin dinamica.
   manuale.
 - **R9 — Autenticazione via API key** con scope e revoca; le chiavi sono mostrate in
   chiaro una sola volta e conservate come hash.
-- **R10 — Rate limiting** e quote applicate **lato server** in base al piano.
+- **R10 — Rate limiting** e quote applicate **lato server** in base al piano. Sono
+  **due cose distinte**, e confonderle produce un prodotto ostile:
+  - il **tetto tecnico** per identità è una **difesa del servizio**, uguale su tutti i
+    piani, scelto nel codice e documentato come tale. Non è una voce di listino, e
+    §8 non lo contiene deliberatamente;
+  - le **quote di piano** derivano da §8 e si applicano alle operazioni che consumano
+    capacità — scritture e trigger — **non alle letture**. Far consumare budget alle
+    letture renderebbe la dashboard inutilizzabile sul piano Free, cioè punirebbe
+    l'uso normale per difendersi dall'abuso.
+
+  I due rifiuti dicono cose diverse: il `429` **di piano** nomina il piano che
+  consente di più; il `429` **tecnico** non promette nulla, perché nessun piano ne
+  concede di più. Un rifiuto che suggerisce un aggiornamento quando l'aggiornamento
+  non servirebbe è una bugia commerciale.
+- **R10-bis — La retention si applica anche in lettura.** I limiti di §8 (3, 15, 30,
+  90 giorni) valgono sul registro delle esecuzioni: una richiesta che chiede
+  esplicitamente oltre la retention del piano viene **rifiutata dicendo perché**, non
+  ristretta in silenzio — un utente che non vede le proprie righe senza sapere il
+  motivo apre un ticket.
+  **È metà del lavoro:** copre l'intervallo fra due passate della cancellazione
+  periodica, non la sostituisce. La privacy policy dichiara che i log sono conservati
+  per il periodo del piano **e poi cancellati**, e nascondere righe che continuano a
+  esistere renderebbe quel documento inesatto.
 
 ### 3.3 Sync GitHub
 
