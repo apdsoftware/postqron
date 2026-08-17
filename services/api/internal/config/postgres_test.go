@@ -3,6 +3,8 @@ package config_test
 import (
 	"bytes"
 	"log/slog"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -52,6 +54,14 @@ func TestDSN(t *testing.T) {
 			with: func(p config.Postgres) config.Postgres { p.SSLMode = "verify-full"; return p },
 			want: "postgres://postqron:postqron_local_dev@127.0.0.1:5432/postqron?sslmode=verify-full",
 		},
+		{
+			// Su socket Unix libpq vuole l'authority vuota e la directory nel
+			// parametro `host`: dentro l'authority gli slash sarebbero separatori.
+			name: "socket Unix",
+			with: func(p config.Postgres) config.Postgres { p.Host = "/var/run/postgresql"; return p },
+			want: "postgres://postqron:postqron_local_dev@/postqron" +
+				"?host=%2Fvar%2Frun%2Fpostgresql&port=5432&sslmode=disable",
+		},
 	}
 
 	for _, tc := range cases {
@@ -61,6 +71,107 @@ func TestDSN(t *testing.T) {
 			}
 		})
 	}
+}
+
+var (
+	localHosts  = []string{"localhost", "127.0.0.1", "127.0.0.53", "::1", "/var/run/postgresql"}
+	remoteHosts = []string{"db.internal", "10.0.0.5", "203.0.113.7", "2001:db8::1"}
+
+	// Non garantiscono la cifratura: disable non cifra, allow e prefer ripiegano
+	// sul chiaro in silenzio se il server non offre TLS.
+	unsafeSSLModes = []string{"disable", "allow", "prefer"}
+	safeSSLModes   = []string{"require", "verify-ca", "verify-full"}
+)
+
+// In produzione la modalità TLS ammessa dipende dall'host. PostgreSQL gira sulla
+// stessa VPS dell'API (SPEC §2), quindi la connessione locale in chiaro è quella
+// che useremo davvero e non va vietata; su host remoto invece serve una modalità
+// che garantisca la cifratura, non una che la negozi e ripieghi senza dirlo.
+func TestSSLModeInProduzione(t *testing.T) {
+	load := func(t *testing.T, env, host, sslmode string) error {
+		t.Helper()
+		_, err := config.LoadFrom(envMap(map[string]string{
+			"POSTQRON_ENV":      env,
+			"POSTGRES_HOST":     host,
+			"POSTGRES_PORT":     "5432",
+			"POSTGRES_DB":       "postqron",
+			"POSTGRES_USER":     "api",
+			"POSTGRES_PASSWORD": "s3gr3to",
+			"POSTGRES_SSLMODE":  sslmode,
+		}))
+		return err
+	}
+
+	// Sull'host locale la regola non entra: la connessione non esce dalla macchina,
+	// quindi ogni modalità resta lecita, `disable` compresa.
+	t.Run("su host locale ogni modalità è ammessa", func(t *testing.T) {
+		for _, host := range localHosts {
+			for _, sslmode := range slices.Concat(unsafeSSLModes, safeSSLModes) {
+				t.Run(host+"/"+sslmode, func(t *testing.T) {
+					if err := load(t, config.EnvProduction, host, sslmode); err != nil {
+						t.Errorf("host locale %q con sslmode=%s rifiutato in produzione: %v", host, sslmode, err)
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("su host remoto le modalità non cifrate sono rifiutate", func(t *testing.T) {
+		for _, host := range remoteHosts {
+			for _, sslmode := range unsafeSSLModes {
+				t.Run(host+"/"+sslmode, func(t *testing.T) {
+					err := load(t, config.EnvProduction, host, sslmode)
+					if err == nil {
+						t.Fatalf("host remoto %q con sslmode=%s accettato in produzione", host, sslmode)
+					}
+					// Il messaggio deve dire *questo* problema, non un generico
+					// "sslmode non valido": è ciò che rende l'errore azionabile.
+					// Deve anche indicare la via d'uscita preferibile.
+					want := []string{
+						"POSTGRES_SSLMODE=" + strconv.Quote(sslmode),
+						host,
+						"in chiaro",
+						"verify-full",
+					}
+					// Per allow e prefer il punto non è l'assenza di TLS ma il
+					// ripiegamento muto: se il messaggio non lo dice, chi lo legge
+					// non capisce perché una modalità che «usa TLS» sia rifiutata.
+					if sslmode != "disable" {
+						want = append(want, "senza segnalarlo")
+					}
+					for _, w := range want {
+						if !strings.Contains(err.Error(), w) {
+							t.Errorf("messaggio privo di %q: %v", w, err)
+						}
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("su host remoto le modalità cifrate sono ammesse", func(t *testing.T) {
+		for _, host := range remoteHosts {
+			for _, sslmode := range safeSSLModes {
+				t.Run(host+"/"+sslmode, func(t *testing.T) {
+					if err := load(t, config.EnvProduction, host, sslmode); err != nil {
+						t.Errorf("host remoto %q con sslmode=%s rifiutato: %v", host, sslmode, err)
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("nessun vincolo fuori dalla produzione", func(t *testing.T) {
+		for _, env := range []string{config.EnvDevelopment, config.EnvStaging} {
+			for _, sslmode := range unsafeSSLModes {
+				t.Run(env+"/"+sslmode, func(t *testing.T) {
+					if err := load(t, env, "db.internal", sslmode); err != nil {
+						t.Errorf("host remoto con sslmode=%s rifiutato in %s: %v", sslmode, env, err)
+					}
+				})
+			}
+		}
+	})
 }
 
 // La password non deve poter finire nei log nemmeno per distrazione (SPEC §5).
