@@ -196,6 +196,17 @@ type Stats struct {
 	Backlog bool
 	// Duration è quanto è durata la passata.
 	Duration time.Duration
+
+	// Failed dice che la passata si è interrotta su un errore, e quindi che i
+	// numeri qui sopra sono parziali.
+	//
+	// Esiste per una ragione sola, ed è quella che rende utile un battito: chi
+	// osserva deve poter distinguere «il motore ha girato» da «il motore ci ha
+	// provato». Senza questo campo, uno scheduler che fallisce ogni passata
+	// perché il database non risponde continuerebbe a chiamare [Observer.Tick]
+	// quattro volte al secondo, e un controllo di prontezza costruito su quella
+	// chiamata direbbe che va tutto bene proprio mentre non parte più niente.
+	Failed bool
 }
 
 // Options configura il motore. Pool e Dispatcher sono obbligatori; tutto il
@@ -361,13 +372,17 @@ func (e *Engine) Run(ctx context.Context) error {
 // consegnare al dispatch qualcosa che di lì a poco verrebbe dichiarato troppo
 // vecchio; dare la prima occorrenza prima di accodare fa sì che un job appena
 // creato entri nel giro dalla passata successiva, non da quella dopo ancora.
-func (e *Engine) Tick(ctx context.Context) (Stats, error) {
-	var st Stats
+// I risultati sono nominati perché il differito ha bisogno di entrambi:
+// [Stats.Failed] è la risposta a «la passata è arrivata in fondo?», e senza il
+// nome quel differito vedrebbe solo la struttura, non l'errore che l'ha
+// interrotta.
+func (e *Engine) Tick(ctx context.Context) (st Stats, err error) {
 	started := e.now()
 	now := started.UTC()
 
 	defer func() {
 		st.Duration = e.now().Sub(started)
+		st.Failed = err != nil
 		e.obs.Tick(st)
 	}()
 

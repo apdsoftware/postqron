@@ -717,6 +717,51 @@ func TestUnOccorrenzaSovrappostaVieneChiusaSkipped(t *testing.T) {
 	}
 }
 
+// ------------------------------------------------------- il battito del motore
+
+// TestUnaPassataFallitaSiDichiaraTale.
+//
+// [Observer.Tick] viene chiamato a ogni passata, riuscita o no. Senza un modo di
+// distinguere le due, un motore che fallisce quattro volte al secondo perché il
+// database non risponde produrrebbe lo stesso battito di uno sano — e un
+// controllo di prontezza costruito su quel battito direbbe che va tutto bene
+// proprio mentre non parte più niente.
+func TestUnaPassataFallitaSiDichiaraTale(t *testing.T) {
+	pool := newTestDatabase(t)
+	user := createUser(t, pool)
+
+	now := testClock()
+	due := now.Add(-time.Second)
+	createJob(t, pool, user, jobSpec{Every: time.Hour, NextRunAt: &due})
+
+	obs := &collector{}
+	engine := newEngine(t, pool, &recorder{}, &now, func(o *scheduler.Options) { o.Observer = obs })
+
+	if _, err := engine.Tick(t.Context()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	// Un contesto già chiuso: la prima query della passata non parte nemmeno.
+	// Non c'è niente da aspettare e niente da tarare — è il modo deterministico
+	// di ottenere una passata che non arriva in fondo.
+	morto, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := engine.Tick(morto); err == nil {
+		t.Fatal("una passata su un contesto chiuso è tornata senza errore")
+	}
+
+	passate := obs.passate()
+	if len(passate) != 2 {
+		t.Fatalf("passate osservate = %d, attese 2", len(passate))
+	}
+	if passate[0].Failed {
+		t.Error("la passata riuscita si è dichiarata fallita")
+	}
+	if !passate[1].Failed {
+		t.Error("la passata interrotta si è dichiarata riuscita: il battito mentirebbe")
+	}
+}
+
 // ------------------------------------------------------------- tolleranza R47
 
 func TestIlRitardoDiOgniOccorrenzaEMisurabile(t *testing.T) {
@@ -878,6 +923,12 @@ func (c *collector) dropped() []scheduler.Dropped {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]scheduler.Dropped(nil), c.drops...)
+}
+
+func (c *collector) passate() []scheduler.Stats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]scheduler.Stats(nil), c.ticks...)
 }
 
 // insertExecution scrive a mano una riga di `job_executions`: è il modo di
