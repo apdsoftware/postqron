@@ -3,5 +3,5 @@
   <title>Postqron</title>
   <defs><linearGradient id="pq-icona" gradientUnits="userSpaceOnUse" x1="0" y1="32" x2="32" y2="0"><stop offset="0" stop-color="#0fb4e5"/><stop offset="1" stop-color="#743fe5"/></linearGradient></defs>
   <rect width="512" height="512" fill="url(#pq-icona)"/>
-  <g transform="translate(53.4 67.3) scale(11.5757)"><path fill="#fff" fill-rule="evenodd" d="M6.00 19.00A8.00 8.00 0 0 1 22.00 19.00A8.00 8.00 0 0 1 6.00 19.00ZM14.80 16.40A2.60 2.60 0 0 0 20.00 16.40A2.60 2.60 0 0 0 14.80 16.40Z"/><path fill="#fff" fill-rule="evenodd" d="M6.40 10.60A3.00 3.00 0 0 1 12.40 10.60A3.00 3.00 0 0 1 6.40 10.60ZM11.00 8.60A3.00 3.00 0 0 1 17.00 8.60A3.00 3.00 0 0 1 11.00 8.60ZM15.40 10.40A3.00 3.00 0 0 1 21.40 10.40A3.00 3.00 0 0 1 15.40 10.40Z"/><path fill="#fff" fill-rule="evenodd" d="M19.60 15.40L29.00 19.40L19.60 23.40Z"/></g>
+  <g transform="translate(54.1 28.2) scale(12.6180)"><path fill="#fff" fill-rule="evenodd" d="M6.50 26.00L7.80 16.80A1.80 1.80 0 0 1 11.40 16.80L12.80 22.70L14.20 9.30A1.80 1.80 0 0 1 17.80 9.30L19.20 21.80L20.60 13.80A1.80 1.80 0 0 1 24.20 13.80L25.50 26.00A18.66 18.66 0 0 1 6.50 26.00Z"/></g>
 </svg>

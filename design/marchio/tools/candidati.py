@@ -121,39 +121,45 @@ def sezione(chiave: str) -> str:
   <h3>{s['nome']} <em>— {s['sottotitolo']}</em> <b>{s['famiglia']}</b>
     {'<i>consigliata</i>' if consigliata else ''}</h3>
   <p class="costo"><strong>Cosa si perde:</strong> {COSTI[chiave]}</p>
-  <div class="scale">{scale}</div>
   <div class="lockups">{lockups}</div>
   {header}
+  <div class="scale">{scale}</div>
   {tab}
 </section>"""
 
 
 COSTI = {
-    "testa": "il registro, e i 16 px. È il disegno che il proprietario ha già "
-             "visto: l'occhio si chiude sotto i 20 px e il tono resta quello del "
-             "personaggio, non dello strumento. Sta qui come primo gradino della "
-             "scala, per misurare gli altri.",
-    "profilo": "la leggibilità alle misure piccole, che con una figura intera è "
-               "il prezzo obbligato: coda, zampe e collo valgono un pixel a testa "
-               "a 16 px e si impastano. In cambio è il grado con il registro "
-               "migliore — la banderuola non è mai stata un personaggio.",
-    "tratto": "la solidità. Un tratto aperto è elegante e fragile: su fondo "
-              "gradiente perde contrasto, in stampa piccola si chiude, e a 16 px "
-              "il vuoto interno della testa si riempie. Regge dove c'è spazio, "
-              "non dove non ce n'è.",
-    "geometrico": "un po' di gallo. Cerchi e triangoli lo rendono una costruzione "
-                  "e non un ritratto: guadagna in registro e in parentela col "
-                  "logotipo, e perde la vitalità del disegno a mano. È anche il "
-                  "grado in cui il rischio «polleria» sparisce del tutto.",
-    "cresta-becco": "la certezza. Senza testa, i due segni vanno letti insieme e "
-                    "il becco rischia di diventare una freccia «play». Chi conosce "
-                    "il nome vede il gallo; chi arriva freddo vede un segno, e "
-                    "bisogna accettare che quella prima lettura non sia gratis.",
-    "cresta": "il gallo, letteralmente. Restano tre gobbe che a 16 px non hanno "
-              "niente da perdere e in un header non fanno ridere nessuno, ma da "
-              "sole possono leggersi come una corona o come delle colline. "
-              "Funziona se il nome lo si dice sempre accanto — cioè nel lockup, "
-              "che è dove il marchio vive il 90% delle volte.",
+    "graduata": "la lettura, ed è il difetto che la gamma ha trovato a schermo: tre "
+                "punte **in salita** non dicono «cresta», dicono **grafico di "
+                "crescita**. Sta qui perché è l'idea di partenza nella sua forma "
+                "diretta, e perché il confronto con la Centrata — stesse altezze, "
+                "ordine diverso — è la cosa più utile di tutta la pagina.",
+    "centrata": "la simmetria dell'ordine, che qualcuno chiamerà disordine. È la "
+                "variante che risolve il difetto trovato a schermo — in salita si "
+                "legge un grafico di crescita, non ordinate si legge un ritmo — e "
+                "il prezzo è che la progressione non si «capisce» più a colpo "
+                "d'occhio: va guardata, non letta.",
+    "acuta": "la calma. Le valli fino alla base e le punte a spillo danno "
+             "precisione e tolgono peso, ma spingono verso la fiamma e la corona "
+             "di spine: è il registro più nervoso dei sei, e il meno adatto a "
+             "stare in un header per otto ore di fila.",
+    "lame": "tutto, e va detto senza girarci intorno. Staccando le punte in salita "
+            "il disegno diventa **tre barre di altezza crescente**: cioè "
+            "esattamente il marchio del template Hexagon che questa issue esiste "
+            "per sostituire. Il gradiente ci lavora meglio che altrove, ma non "
+            "compra niente contro quella somiglianza.",
+    "contorno": "i 16 px, ed è il prezzo dichiarato in partenza. Il tratto respira "
+                "e alle misure grandi è il più elegante della gamma; alla misura "
+                "della favicon le valli larghe due unità e mezza si chiudono e "
+                "resta una macchia con tre bozzi.",
+    "sghemba": "la stabilità. L'inclinazione dà spinta e toglie ordine: accanto a "
+               "un logotipo dritto la cresta pende, e in un lockup centrato "
+               "quell'asse in più si nota. Guadagna in energia quello che perde "
+               "in compostezza.",
+    "bassa": "quasi tutto quello che la gamma stava cercando. È qui per isolare un "
+             "asse solo — se anche graduata continua a leggersi «colline», allora "
+             "il difetto era la proporzione e non la graduazione. Serve al "
+             "confronto, non alla scelta.",
 }
 
 
@@ -163,7 +169,9 @@ HTML = """<!doctype html>
   body {{ margin:0; padding:40px 48px 80px; background:#f7fafd; color:#1e3056;
          font:14px/1.55 -apple-system, system-ui, sans-serif; }}
   h1 {{ font-size:22px; margin:0 0 4px; }}
-  h1 + p {{ margin:0 0 28px; color:#6f8ba4; max-width:78ch; }}
+  h1 + p {{ margin:0 0 10px; color:#6f8ba4; max-width:78ch; }}
+  .nota {{ margin:0 0 28px; color:#6f8ba4; max-width:78ch; }}
+  h1 + p b, .nota b {{ color:#43536f; font-weight:600; }}
   h3 {{ margin:0 0 10px; font-size:17px; font-weight:600; }}
   h3 em {{ font-style:normal; font-weight:400; color:#6f8ba4; font-size:14px; }}
   h3 b {{ font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:#6f8ba4;
@@ -200,14 +208,17 @@ HTML = """<!doctype html>
   .favicon {{ flex:none; display:flex; }}
   svg {{ display:block; }}
 </style></head><body>
-<h1>Postqron — la gamma di riduzione del gallo</h1>
-<p>Il concetto è confermato; qui si cerca il <b>grado di figurazione</b>. Dall'alto
-in basso si scende dal disegno al segno: testa, profilo intero, tratto continuo,
-costruzione geometrica, cresta con becco, cresta sola. L'ipotesi da verificare è
-che l'occhio che si chiude a 16 px e il registro troppo simpatico siano lo stesso
-difetto, e che cadano insieme scendendo la scala. Ognuna alle dimensioni in cui
-vivrà: 48, 24 e 16 px, in colore, monocromatica su chiaro e invertita su scuro;
-poi il lockup, l'header reale del sito e la scheda del browser a 16 px.</p>
+<h1>Postqron — la gamma della cresta</h1>
+<p>La direzione è decisa: il pettine da solo. Qui si cerca il disegno lungo cinque
+assi — <b>peso</b>, <b>proporzioni</b>, <b>graduazione</b>, <b>terminali</b>,
+<b>simmetria</b> — perché il primo pettine sbagliava tutti e cinque insieme:
+pieno, largo, basso, con le punte alla stessa altezza. Il gradiente non è un asse
+a parte: essendo ancorato alla griglia e non al singolo oggetto, attraversa il
+disegno da sinistra a destra e le punte lo incontrano a tappe diverse per
+costruzione.</p>
+<p class="nota">Il <b>lockup viene per primo</b> in ogni riquadro: è lì che il
+marchio vive il 90% delle volte, ed è lì che va giudicato. Le misure isolate —
+48, 24 e 16 px, in colore, monocromatiche e invertite — vengono dopo.</p>
 {sezioni}
 </body></html>
 """

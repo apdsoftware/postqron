@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
 """
-La gamma di riduzione del gallo, dal figurativo al segno.
+La gamma della cresta.
 
-Il concetto è confermato — il gallo è l'animale che canta a ora fissa, e in
-questa categoria non lo ha nessuno (`PANORAMA.md`). Qui si cerca il **grado di
-figurazione** giusto, che è una scala e non un elenco di alternative.
+La direzione è decisa: il pettine da solo, non il gallo. Qui si cerca il
+disegno, lungo gli assi che il primo pettine sbagliava — era pieno, largo,
+basso, con le punte tutte alla stessa altezza, e il risultato era inerte: da lì
+la lettura «colline» o «corona».
 
-L'ipotesi che governa la scala: i due difetti della prima testa — l'occhio che
-si chiude sotto i 20 px e il registro troppo simpatico per un prodotto che
-chiede una partita IVA — **sono lo stesso difetto**. Nascono entrambi dal grado
-di figurazione: un animale disegnato ha bisogno di occhi e becchi, e sono
-proprio quelli a collassare alle misure piccole e a spostare il tono verso il
-giocattolo. Scendendo lungo la scala i due dovrebbero cadere insieme.
+Gli assi attraversati sono cinque, e ogni variante ne sposta uno o due:
 
-Ogni simbolo vive su una griglia di 32 unità per lato. Le forme possono essere
-più di una: il gradiente è ancorato alla griglia
-(`gradientUnits="userSpaceOnUse"`) e non al riquadro del singolo oggetto, quindi
-tracciati sovrapposti condividono una sfumatura sola. Le controforme restano
-sottotracciati in `evenodd` del tracciato che le contiene.
+- **peso** — massa piena, contorno, o punte staccate;
+- **proporzioni** — largo e basso è la forma anatomica, alto e stretto sta
+  meglio accanto a un logotipo;
+- **graduazione** — tre punte di altezza diversa smettono di essere un profilo
+  e diventano un ritmo. Né le colline né le corone sono graduate;
+- **terminali** — punta acuta o raccordata cambiano il registro; raccordare
+  troppo riporta alle colline;
+- **simmetria** — un pettine simmetrico è un ornamento, uno sbilanciato è un
+  segno.
 
-Sotto le 4 unità di griglia un dettaglio vale meno di 2 px a 16 px di resa: è la
-soglia che decide cosa può esistere e cosa no.
+Il gradiente non è un asse a parte: essendo ancorato alla griglia
+(`gradientUnits="userSpaceOnUse"`) e non al riquadro del singolo oggetto,
+attraversa il disegno da sinistra a destra. Le punte lo incontrano a tappe
+diverse per costruzione, senza che nessuno debba assegnargliele.
+
+Ogni simbolo vive su una griglia di 32 unità per lato. Sotto le 4 unità un
+dettaglio vale meno di 2 px a 16 px di resa, e il rendering subpixel lo sfoca
+via: è la soglia che decide cosa può esistere.
 
 `ink` è il riquadro dell'inchiostro, misurato con `getBBox()` nel browser e
 riportato qui: serve al lockup, che allinea il simbolo alle lettere sull'altezza
@@ -37,228 +43,212 @@ def _p(x: float, y: float) -> str:
     return f"{x:.2f} {y:.2f}"
 
 
-def _cerchio(cx: float, cy: float, r: float, orario: bool = True) -> str:
-    """Cerchio come sottotracciato chiuso, in due archi."""
-    verso = 1 if orario else 0
-    return (
-        f"M{_p(cx - r, cy)}"
-        f"A{r:.2f} {r:.2f} 0 0 {verso} {_p(cx + r, cy)}"
-        f"A{r:.2f} {r:.2f} 0 0 {verso} {_p(cx - r, cy)}Z"
-    )
-
-
-def _sul_cerchio(cx: float, cy: float, r: float, gradi: float) -> tuple[float, float]:
-    a = math.radians(gradi)
-    return cx + r * math.cos(a), cy + r * math.sin(a)
-
-
 def _arco_di_freccia(da: tuple[float, float], a: tuple[float, float],
-                     freccia: float, verso: int = 1) -> str:
+                     freccia: float) -> str:
     """
     Arco dichiarato per **freccia** — la sua altezza — invece che per raggio.
 
-    È la misura che interessa a chi disegna: «questa gobba sporge di tre unità».
-    Oltre la metà della corda serve l'arco maggiore, perché un arco minore non
-    supera il semicerchio per quanto si stringa il raggio: i primi tentativi di
-    cresta erano tre gobbe da mezzo millimetro proprio per questo.
+    È la misura che interessa a chi disegna: «questa pancia scende di tre
+    unità». Oltre la metà della corda serve l'arco maggiore, perché un arco
+    minore non supera il semicerchio per quanto si stringa il raggio.
     """
     mezza_corda = math.hypot(a[0] - da[0], a[1] - da[1]) / 2
     raggio = (freccia**2 + mezza_corda**2) / (2 * freccia)
     maggiore = 1 if freccia > mezza_corda else 0
-    return f"A{raggio:.2f} {raggio:.2f} 0 {maggiore} {verso} {_p(*a)}"
+    return f"A{raggio:.2f} {raggio:.2f} 0 {maggiore} 1 {_p(*a)}"
 
 
-def _pettine(x0: float, x1: float, base: float, altezze: tuple[float, ...],
-             cappello: float = 2.5, valle: float = 0.42, pancia: float = 0.0) -> str:
+def _pettine(punte: tuple[tuple[float, float], ...], base: float,
+             larghezza: float, cappello: float, valle: float,
+             pancia: float = 0.0, inclinazione: float = 0.0) -> str:
     """
-    La cresta: punte affusolate su una base carnosa.
+    Il pettine: punte affusolate unite da valli, su una base curva.
 
-    Il primo disegno erano tre gobbe semicircolari contigue, e leggeva
-    **nuvola** — che in un vicinato di infrastruttura è la lettura peggiore
-    possibile. La differenza fra una nuvola e una cresta non è il numero dei
-    lobi: sono le **valli**. Una nuvola ha gobbe che si toccano in alto; una
-    cresta ha punte che scendono fra loro fin quasi alla base.
+    `punte` è una sequenza di `(centro, altezza)`: i centri sono espliciti e non
+    equidistanti per costruzione, perché la spaziatura è uno degli assi da
+    muovere. `valle` è la frazione dell'altezza a cui scende l'incavo fra due
+    punte — sotto il 20 % le punte si staccano e diventano fiamme, sopra il 60 %
+    si richiudono e tornano gobbe.
 
-    - `altezze` diverse fra loro: punte tutte uguali fanno una corona.
-    - `cappello` è il raggio della punta arrotondata; a zero verrebbe una
-      corona di spine, sopra le tre unità si torna verso la nuvola.
-    - `valle` è la frazione dell'altezza a cui scende l'incavo: sotto il 30 % le
-      punte si staccano e sembrano fiamme, sopra il 60 % si richiudono.
+    `inclinazione` sposta ogni punto a destra in proporzione a quanto è alto: è
+    l'unico modo di far pendere il disegno in avanti senza una trasformazione,
+    che il modulo TypeScript del sito non saprebbe portarsi dietro.
     """
-    n = len(altezze)
-    passo = (x1 - x0) / n
-    centri = [x0 + passo * (i + 0.5) for i in range(n)]
+    def x(px: float, py: float) -> float:
+        return px + inclinazione * (base - py)
 
-    pezzi = [f"M{_p(x0, base)}"]
-    for i, (cx, h) in enumerate(zip(centri, altezze)):
+    def punto(px: float, py: float) -> str:
+        return _p(x(px, py), py)
+
+    sinistra = punte[0][0] - larghezza / 2
+    destra = punte[-1][0] + larghezza / 2
+
+    pezzi = [f"M{punto(sinistra, base)}"]
+    for i, (cx, h) in enumerate(punte):
         cima = base - h
-        pezzi.append(f"L{_p(cx - cappello, cima + cappello)}")
-        pezzi.append(f"A{cappello:.2f} {cappello:.2f} 0 0 1 "
-                     f"{_p(cx + cappello, cima + cappello)}")
-        if i + 1 < n:
-            # L'incavo scende a una frazione della punta più bassa fra le due.
-            fondo = base - min(h, altezze[i + 1]) * valle
-            pezzi.append(f"L{_p((cx + centri[i + 1]) / 2, fondo)}")
-    pezzi.append(f"L{_p(x1, base)}")
+        pezzi.append(f"L{punto(cx - cappello, cima + cappello)}")
+        # La punta è un semicerchio: raggio zero darebbe una spina, e sopra le
+        # due unità si torna verso la gobba.
+        pezzi.append(
+            f"A{cappello:.2f} {cappello:.2f} 0 0 1 {punto(cx + cappello, cima + cappello)}"
+        )
+        if i + 1 < len(punte):
+            prossimo = punte[i + 1]
+            fondo = base - min(h, prossimo[1]) * valle
+            pezzi.append(f"L{punto((cx + prossimo[0]) / 2, fondo)}")
+    pezzi.append(f"L{punto(destra, base)}")
     if pancia:
-        # Il bordo inferiore torna indietro gonfiando verso il basso. Con una
-        # base dritta le tre punte leggevano **montagne**: è la linea di terra
-        # a fare il paesaggio. Curvandola diventano un organo attaccato a
+        # Con la base dritta le punte leggevano **montagne**: è la linea di
+        # terra a fare il paesaggio. Curvandola diventano un organo attaccato a
         # qualcosa, che è quello che una cresta è.
-        pezzi.append(_arco_di_freccia((x1, base), (x0, base), pancia))
+        pezzi.append(_arco_di_freccia((x(destra, base), base),
+                                      (x(sinistra, base), base), pancia))
     pezzi.append("Z")
     return "".join(pezzi)
 
 
-# --------------------------------------------------------- G1 · testa, pulita
-
-
-def _testa() -> list[str]:
-    """
-    Il grado più figurativo: testa di profilo con cresta, occhio, becco,
-    bargiglio. È il punto di partenza della scala, non la sua conclusione.
-    """
-    cx, cy, r = 14.6, 19.2, 7.9
-
-    def punto(g: float) -> tuple[float, float]:
-        return _sul_cerchio(cx, cy, r, g)
-
-    def arco(fino: float) -> str:
-        return f"A{r:.2f} {r:.2f} 0 0 1 {_p(*punto(fino))}"
-
-    contorno = [f"M{_p(*punto(160))}", arco(230)]
-    for da, a in ((234, 260), (260, 286), (286, 312)):
-        contorno.append(_arco_di_freccia(punto(da), punto(a), 4.3))
-    contorno.append(arco(342))
-    contorno.append(f"L{_p(cx + r + 5.4, cy + 1.0)}")
-    contorno.append(f"L{_p(*punto(22))}")
-    contorno.append(arco(36))
-    contorno.append(_arco_di_freccia(punto(36), punto(76), 3.0))
-    contorno.append(arco(160))
-    contorno.append("Z")
-
-    return ["".join(contorno) + _cerchio(17.4, 16.6, 2.3, orario=False)]
-
-
-# ------------------------------------------------- G2 · profilo intero, pieno
-
-
-def _profilo() -> list[str]:
-    """
-    Il gallo intero di profilo, in silhouette piena.
-
-    È il registro della **banderuola**: il gallo segnavento sta sui tetti da
-    cinque secoli e non è mai stato un personaggio. Nessun occhio da chiudere —
-    la silhouette non ne ha bisogno — e nessuna faccia a cui affezionarsi.
-
-    Il corpo è una goccia; la coda tre falci; il collo sale in diagonale perché
-    è quella la posa del canto.
-    """
-    # Corpo, collo e testa sono forme distinte che si uniscono al disegno: il
-    # gradiente è ancorato alla griglia, quindi restano una sfumatura sola.
-    # Tracciarne il contorno unico avrebbe voluto dire calcolare tre
-    # intersezioni per ottenere esattamente la stessa figura.
-    corpo = "M13.6 12.8A8.6 7.6 0 0 1 13.6 28.0A8.6 7.6 0 0 1 13.6 12.8Z"
-    collo = "M15.8 19.6L19.6 8.6L24.0 10.4L21.2 21.0Z"
-    testa = _cerchio(23.0, 9.0, 4.0)
-    cresta = _pettine(19.4, 26.6, 6.6, (3.0, 4.0, 3.2), cappello=1.0, valle=0.4,
-                      pancia=1.6)
-    becco = f"M{_p(26.2, 7.4)}L{_p(31.0, 9.4)}L{_p(26.2, 11.4)}Z"
-    # Bargiglio: la goccia sotto il becco. Sotto le 2,5 unità sparirebbe, quindi
-    # è grande abbastanza da esistere o non ci sarebbe affatto.
-    bargiglio = _cerchio(24.4, 13.6, 2.4)
-    # Coda: tre falci che si aprono a ventaglio all'indietro. Una sola sembra
-    # una foglia, cinque diventano una spazzola.
-    coda = (
-        "M9.0 17.0C4.4 13.6 2.6 8.6 2.4 3.2C6.0 6.4 9.2 10.4 11.6 15.0Z"
-        "M10.6 15.4C8.2 10.6 8.0 5.8 9.4 1.2C12.0 5.4 13.4 10.0 13.8 14.6Z"
-        "M12.8 15.0C13.4 10.4 15.4 6.6 18.6 3.6C18.6 8.2 17.6 12.2 15.8 15.6Z"
+def _lama(cx: float, base: float, altezza: float, larghezza: float,
+          cappello: float) -> str:
+    """Una punta sola, staccata: affusolata dalla base alla cima arrotondata."""
+    cima = base - altezza
+    return (
+        f"M{_p(cx - larghezza / 2, base)}"
+        f"L{_p(cx - cappello, cima + cappello)}"
+        f"A{cappello:.2f} {cappello:.2f} 0 0 1 {_p(cx + cappello, cima + cappello)}"
+        f"L{_p(cx + larghezza / 2, base)}Z"
     )
-    zampe = "M12.0 26.6H14.0V30.4H12.0ZM16.6 26.2H18.6V30.4H16.6Z"
-    return [coda, corpo, collo, zampe, testa + becco + bargiglio, cresta]
 
 
-# ---------------------------------------------------- G3 · testa in un tratto
+# ------------------------------------------------------------ 1 · la graduata
+
+#: Le tre altezze in salita: basso, medio, alto.
+SALITA = (9.0, 13.5, 18.5)
+
+#: Le stesse tre altezze, ma non ordinate — la più alta al centro.
+#:
+#: È la differenza che la gamma ha scoperto a schermo. Tre punte **in salita**
+#: non leggono «cresta»: leggono **grafico di crescita**, e le lame staccate
+#: leggono addirittura le barre del marchio Hexagon che stiamo sostituendo.
+#: Bastano le stesse altezze in un ordine diverso perché il grafico sparisca e
+#: resti il ritmo, che è quel che si cercava. È anche l'ordine anatomico: su un
+#: gallo vero il pettine è più alto in mezzo.
+CENTRATA = (11.0, 18.5, 14.0)
 
 
-def _tratto() -> list[str]:
+def _graduata() -> list[str]:
     """
-    La stessa testa, ridotta a una linea continua aperta.
+    Punte in salita, alte e strette, terminali raccordati, base curva.
 
-    Il tratto è il registro adulto della figurazione: dice «disegno», non
-    «personaggio». E toglie il problema alla radice, perché non c'è nessun
-    occhio da rimpicciolire — la faccia resta il vuoto dentro la linea.
+    È l'ipotesi centrale della gamma: tre altezze diverse smettono di essere un
+    profilo e diventano un **ritmo**, che è letteralmente il prodotto. E tolgono
+    le due letture sbagliate alla radice, perché né le colline né le corone
+    sono graduate.
     """
-    cx, cy, r = 14.6, 19.6, 8.8
-
-    def punto(g: float) -> tuple[float, float]:
-        return _sul_cerchio(cx, cy, r, g)
-
-    def arco(fino: float) -> str:
-        return f"A{r:.2f} {r:.2f} 0 0 1 {_p(*punto(fino))}"
-
-    pezzi = [f"M{_p(*punto(120))}", arco(228)]
-    for da, a in ((232, 262), (262, 292), (292, 322)):
-        pezzi.append(_arco_di_freccia(punto(da), punto(a), 4.2))
-    pezzi.append(arco(346))
-    pezzi.append(f"L{_p(cx + r + 5.0, cy + 0.8)}")
-    pezzi.append(f"L{_p(*punto(26))}")
-    pezzi.append(arco(88))
-    return ["".join(pezzi)]
+    return [_pettine(
+        punte=((9.6, SALITA[0]), (16.0, SALITA[1]), (22.4, SALITA[2])),
+        base=26.0, larghezza=6.2, cappello=1.8, valle=0.30, pancia=2.6,
+    )]
 
 
-# ------------------------------------------------ G4 · costruzione geometrica
-
-
-def _geometrico() -> list[str]:
+def _centrata() -> list[str]:
     """
-    Lo stesso gallo, ma costruito come è costruito il logotipo.
+    Le stesse tre altezze della graduata, con la più alta al centro.
 
-    Quicksand è una geometrica: cerchi perfetti e aste diritte. Qui il gallo usa
-    lo stesso alfabeto di forme — una testa che è un cerchio, tre cerchi di
-    cresta, un triangolo di becco — così simbolo e lettere condividono la
-    costruzione invece di limitarsi a stare accanto.
-
-    Nessuna curva è disegnata a mano: sono tutti archi di cerchio su un reticolo.
+    È l'unica differenza fra questa e la precedente, ed è quella che decide: in
+    salita si legge un grafico, non ordinate si legge un ritmo. In più è
+    l'ordine che un pettine ha davvero.
     """
-    testa = _cerchio(14.0, 19.0, 8.0) + _cerchio(17.4, 16.4, 2.6, orario=False)
-    cresta = "".join(
-        _cerchio(x, y, 3.0) for x, y in ((9.4, 10.6), (14.0, 8.6), (18.4, 10.4))
-    )
-    becco = f"M{_p(19.6, 15.4)}L{_p(29.0, 19.4)}L{_p(19.6, 23.4)}Z"
-    return [testa, cresta, becco]
+    return [_pettine(
+        punte=((9.6, CENTRATA[0]), (16.0, CENTRATA[1]), (22.4, CENTRATA[2])),
+        base=26.0, larghezza=6.2, cappello=1.8, valle=0.30, pancia=2.6,
+    )]
 
 
-# ----------------------------------------------------- G5 · cresta più becco
+# -------------------------------------------------------------- 3 · l'acuta
 
 
-def _cresta_becco() -> list[str]:
+def _acuta() -> list[str]:
     """
-    La testa sparisce e restano i due segni che la dicono: il pettine e il becco.
+    Le punte quasi a spillo, con le valli che scendono fino alla base.
 
-    È il punto della scala in cui il gallo smette di essere disegnato e comincia
-    a essere sottinteso. Chi conosce il nome del prodotto lo vede; chi non lo
-    conosce vede un segno, che è comunque meglio di un animale male stampato.
+    È l'estremo del registro «misura»: geometria netta e molto spazio negativo.
+    Il rischio è opposto a quello delle colline — troppo aguzza si legge
+    «fiamma» o «corona di spine».
+    """
+    return [_pettine(
+        punte=((9.6, CENTRATA[0]), (16.0, CENTRATA[1]), (22.4, CENTRATA[2])),
+        base=26.0, larghezza=6.6, cappello=0.7, valle=0.14, pancia=1.6,
+    )]
+
+
+# --------------------------------------------------------------- 3 · le lame
+
+
+def _lame() -> list[str]:
+    """
+    Le tre punte staccate: il pettine diventa una sequenza, non una sagoma.
+
+    È la variante in cui il gradiente fa da struttura senza che glielo si
+    chieda: attraversando la griglia da sinistra a destra, ogni lama incontra
+    una tappa diversa fra le due fermate, e il colore racconta la successione.
     """
     return [
-        _pettine(3.0, 20.5, 19.5, (9.0, 12.0, 10.0), cappello=2.2, pancia=4.4),
-        f"M{_p(19.0, 15.8)}L{_p(29.5, 20.2)}L{_p(19.0, 24.6)}Z",
+        _lama(9.0, 26.0, SALITA[0], 5.0, 1.7),
+        _lama(16.0, 26.0, SALITA[1], 5.0, 1.7),
+        _lama(23.0, 26.0, SALITA[2], 5.0, 1.7),
     ]
 
 
-# --------------------------------------------------------------- G6 · cresta
+# ------------------------------------------------------------ 4 · il contorno
 
 
-def _solo_cresta() -> list[str]:
+def _contorno() -> list[str]:
     """
-    Il grado massimo di riduzione: le tre gobbe del pettine, e nient'altro.
+    La graduata svuotata: resta la linea, il pieno se ne va.
 
-    Tre punte disuguali su una base sono un segno geometrico che a 16 px non ha
-    niente da perdere: non ci sono controforme che si chiudano né dettagli che
-    si sfochino. Resta gallo per chiunque abbia sentito il nome una volta — e
-    resta un segno, non una figura, per tutti gli altri.
+    È il grado più leggero della gamma, e quello che a 16 px ha più da perdere:
+    le valli sono larghe due unità e mezza, cioè poco più di un pixel.
     """
-    return [_pettine(3.0, 29.0, 21.5, (11.0, 15.0, 12.5), pancia=5.5)]
+    return [_pettine(
+        punte=((9.6, CENTRATA[0]), (16.0, CENTRATA[1]), (22.4, CENTRATA[2])),
+        base=25.4, larghezza=6.6, cappello=1.4, valle=0.30, pancia=2.4,
+    )]
+
+
+# ------------------------------------------------------------- 5 · la sghemba
+
+
+def _sghemba() -> list[str]:
+    """
+    La graduata che pende in avanti, con le punte non equidistanti.
+
+    Una cresta simmetrica è un ornamento; una sbilanciata è un segno. Qui la
+    spinta viene da due cose insieme: l'inclinazione, che sposta ogni punto a
+    destra in proporzione all'altezza, e la spaziatura che si allarga salendo.
+    """
+    return [_pettine(
+        punte=((9.4, 11.0), (15.2, 18.5), (22.8, 14.0)),
+        base=26.0, larghezza=6.0, cappello=1.7, valle=0.28, pancia=2.4,
+        inclinazione=0.14,
+    )]
+
+
+# --------------------------------------------------------------- 6 · la bassa
+
+
+def _bassa() -> list[str]:
+    """
+    La proporzione anatomica — larga e bassa — ma con le punte graduate.
+
+    Sta nella gamma per isolare un asse solo: serve a vedere se il difetto del
+    primo pettine fosse la proporzione o la graduazione. Se questa continua a
+    leggersi «colline», allora era la graduazione, e le altre cinque hanno
+    ragione a essere alte.
+    """
+    return [_pettine(
+        punte=((7.6, 8.5), (16.0, 13.5), (24.4, 10.5)),
+        base=24.5, larghezza=8.4, cappello=2.4, valle=0.34, pancia=3.4,
+    )]
 
 
 # ---------------------------------------------------------------- il catalogo
@@ -267,52 +257,60 @@ def _solo_cresta() -> list[str]:
 # non il pieno. `ink` è il riquadro misurato, non quello nominale.
 
 CANDIDATI: dict[str, dict] = {
-    "testa": {
-        "nome": "Testa",
-        "famiglia": "figurativo",
-        "sottotitolo": "il gallo disegnato: cresta, occhio, becco, bargiglio",
-        "tracciati": _testa(),
+    "graduata": {
+        "nome": "Graduata",
+        "famiglia": "punte in salita",
+        "sottotitolo": "tre altezze diverse: un ritmo, non un profilo",
+        "tracciati": _graduata(),
         "stroke": 0.0,
-        "ink": (6.7, 7.2, 27.9, 28.3),
+        "ink": (6.5, 7.5, 25.5, 28.6),
     },
-    "profilo": {
-        "nome": "Profilo",
-        "famiglia": "figurativo",
-        "sottotitolo": "la banderuola: il gallo intero, in silhouette",
-        "tracciati": _profilo(),
+    "centrata": {
+        "nome": "Centrata",
+        "famiglia": "ordine delle punte",
+        "sottotitolo": "le stesse altezze, con la più alta in mezzo",
+        "tracciati": _centrata(),
         "stroke": 0.0,
-        "ink": (4.8, 1.8, 27.8, 30.6),
+        "ink": (6.5, 7.5, 25.5, 28.6),
     },
-    "tratto": {
-        "nome": "Tratto",
-        "famiglia": "lineare",
-        "sottotitolo": "la stessa testa, in una linea continua sola",
-        "tracciati": _tratto(),
-        "stroke": 3.4,
-        "ink": (5.6, 6.3, 30.4, 28.8),
-    },
-    "geometrico": {
-        "nome": "Geometrico",
-        "famiglia": "costruito",
-        "sottotitolo": "cerchi e triangoli, l'alfabeto di forme del logotipo",
-        "tracciati": _geometrico(),
+    "acuta": {
+        "nome": "Acuta",
+        "famiglia": "terminali a spillo",
+        "sottotitolo": "punte a spillo e valli fino alla base",
+        "tracciati": _acuta(),
         "stroke": 0.0,
-        "ink": (6.0, 5.6, 29.0, 27.0),
+        "ink": (6.3, 7.5, 25.7, 27.6),
     },
-    "cresta-becco": {
-        "nome": "Cresta e becco",
-        "famiglia": "segno",
-        "sottotitolo": "la testa sottintesa, ridotta ai due segni che la dicono",
-        "tracciati": _cresta_becco(),
+    "lame": {
+        "nome": "Lame",
+        "famiglia": "punte staccate",
+        "sottotitolo": "il gradiente diventa la successione delle punte",
+        "tracciati": _lame(),
         "stroke": 0.0,
-        "ink": (3.9, 13.0, 29.5, 26.0),
+        "ink": (6.5, 7.5, 25.5, 26.0),
     },
-    "cresta": {
-        "nome": "Cresta",
-        "famiglia": "segno",
-        "sottotitolo": "le tre gobbe del pettine, e nient'altro",
-        "tracciati": _solo_cresta(),
+    "contorno": {
+        "nome": "Contorno",
+        "famiglia": "peso: solo linea",
+        "sottotitolo": "la graduata svuotata, tutta spazio negativo",
+        "tracciati": _contorno(),
+        "stroke": 2.6,
+        "ink": (5.0, 5.6, 27.0, 29.1),
+    },
+    "sghemba": {
+        "nome": "Sghemba",
+        "famiglia": "asimmetria",
+        "sottotitolo": "pende in avanti, e le punte non sono equidistanti",
+        "tracciati": _sghemba(),
         "stroke": 0.0,
-        "ink": (2.4, 11.5, 30.2, 24.0),
+        "ink": (6.0, 7.5, 27.0, 28.4),
+    },
+    "bassa": {
+        "nome": "Bassa",
+        "famiglia": "proporzione anatomica",
+        "sottotitolo": "larga e bassa, ma graduata: il controllo della gamma",
+        "tracciati": _bassa(),
+        "stroke": 0.0,
+        "ink": (3.4, 11.0, 28.6, 27.9),
     },
 }
