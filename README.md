@@ -239,6 +239,32 @@ Per lanciare un pezzo alla volta: `make lint`, `make test`, `make build`,
 `make e2e`, oppure il singolo componente (`make ci-web`, `make test-go`,
 `make lint-dashboard`).
 
+### Quando un job fallisce
+
+Ogni corsa lascia una directory datata sotto `.ci-logs/` (ignorata da git) con il
+log integrale di **ogni** job — non solo dei falliti — e un `corsa.txt` che
+riporta ora, ramo, revisione, stato dell'albero e componenti eseguiti in
+parallelo. Il riepilogo finale stampa il percorso dei log dei job falliti.
+
+```
+.ci-logs/20260817-181205-45123/
+├─ corsa.txt        contesto: ora, ramo, revisione, componenti in parallelo
+├─ ci-go.log        output integrale del job
+├─ ci-web.log
+└─ esito            ok | ko
+```
+
+Serve perché i log **sopravvivano alla riesecuzione**: un fallimento
+intermittente si perdeva del tutto, dato che la corsa successiva è di solito
+verde. È costato tre indagini fallite sullo stesso flake ([#489](https://github.com/apdsoftware/postqron/issues/489)) prima che
+qualcuno lo caratterizzasse con ottocento esecuzioni.
+
+La rotazione tiene **10 corse rosse e 3 verdi**, contate separatamente: davanti a
+un rosso intermittente la prima cosa che si fa è rilanciare, e con un tetto unico
+le riesecuzioni verdi spingerebbero fuori proprio il log da leggere. I tetti si
+cambiano con `CI_LOG_KEEP_FAILED` e `CI_LOG_KEEP_PASSED`, la radice con
+`CI_LOG_DIR`.
+
 ### La CI pretende i componenti
 
 `make preflight` fallisce se un componente dichiarato nel manifest del

@@ -134,7 +134,24 @@ mano-b:
 		echo "mano-b: nessun segnale da mano-a"; exit 1
 MAKEFILE
 
-run_parallel() { (cd "$TMP/make" && "$ROOT/scripts/ci-parallel.sh" "$@"); }
+# I log delle corse finte finiscono sotto $TMP: il selftest non deve scrivere in
+# .ci-logs del worktree, né far rotare le corse vere di chi sta indagando un
+# fallimento.
+run_parallel() {
+  (cd "$TMP/make" && CI_LOG_DIR="$TMP/ci-logs" "$ROOT/scripts/ci-parallel.sh" "$@")
+}
+
+# Come sopra, ma con radice dei log e tetti di rotazione espliciti.
+# `logs keep_verdi keep_rosse -- target…`
+run_parallel_in() {
+  local logs=$1 keep_ok=$2 keep_ko=$3
+  shift 4 # logs, keep_ok, keep_ko, "--"
+  (cd "$TMP/make" && CI_LOG_DIR="$logs" \
+    CI_LOG_KEEP_PASSED="$keep_ok" CI_LOG_KEEP_FAILED="$keep_ko" \
+    "$ROOT/scripts/ci-parallel.sh" "$@")
+}
+
+conta_corse() { ls -1d "$1"/*/ 2>/dev/null | wc -l | tr -d ' '; }
 
 expect_exit 0 "esce 0 se tutti i job passano" -- run_parallel ok lento
 expect_exit 1 "esce 1 se un job fallisce" -- run_parallel ok rotto
@@ -149,6 +166,83 @@ case "$riepilogo" in
 esac
 
 expect_exit 0 "esegue i job in parallelo" -- run_parallel mano-a mano-b
+
+# ------------------------------------------------- conservazione (issue #497)
+#
+# Il difetto storico: il log del job fallito veniva stampato e poi cancellato
+# insieme alla directory temporanea. Su un fallimento intermittente vuol dire che
+# alla riesecuzione — verde — non resta niente da indagare, ed è andata così tre
+# volte di fila sullo stesso flake (#489). Stampare non basta: deve *restare*.
+
+conserva="$TMP/ci-logs-conserva"
+uscita=$(run_parallel_in "$conserva" 3 10 -- ok rotto 2>&1)
+
+if grep -rq 'errore atteso' "$conserva" 2>/dev/null; then
+  pass "conserva su disco l'output del job fallito"
+else
+  fail "l'output del job fallito non è rimasto su disco sotto $conserva"
+fi
+
+# Un log conservato che chi legge deve andare a cercare è conservato a metà.
+case "$uscita" in
+  *"$conserva"*) pass "il riepilogo indica dove sta il log conservato" ;;
+  *) fail "il riepilogo non nomina il percorso dei log" ;;
+esac
+
+# Contesto della corsa: senza revisione e senza l'elenco dei componenti in
+# parallelo, un log di ieri dice cosa è fallito ma non su cosa.
+contesto=$(cat "$conserva"/*/corsa.txt 2>/dev/null)
+if printf '%s\n' "$contesto" | grep -q 'revisione' \
+  && printf '%s\n' "$contesto" | grep -q 'parallelo.*rotto'; then
+  pass "registra revisione e componenti della corsa"
+else
+  fail "corsa.txt non riporta revisione e componenti in parallelo"
+fi
+
+# Anche i job passati lasciano il loro log: quando un componente fallisce per
+# colpa di un altro (le connessioni PostgreSQL esaurite di #489 fanno
+# esattamente questo) l'output da leggere è quello di chi *non* è fallito.
+if ls "$conserva"/*/ok.log >/dev/null 2>&1; then
+  pass "conserva anche il log dei job passati"
+else
+  fail "il log del job passato non è stato conservato"
+fi
+
+# ------------------------------------------------------------------ rotazione
+#
+# Senza tetto la directory cresce a ogni corsa. Con un tetto *unico* invece le
+# riesecuzioni verdi — la prima cosa che si fa davanti a un rosso intermittente —
+# spingerebbero fuori proprio il log da leggere: i due tetti sono separati per
+# questo.
+
+rotazione="$TMP/ci-logs-rotazione"
+run_parallel_in "$rotazione" 1 10 -- ok rotto >/dev/null 2>&1
+rossa=$(ls -1d "$rotazione"/*/ 2>/dev/null | head -1)
+rossa=${rossa%/}
+for _ in 1 2 3 4; do
+  run_parallel_in "$rotazione" 1 10 -- ok >/dev/null 2>&1
+done
+if [ -d "$rossa" ]; then
+  pass "quattro corse verdi non cancellano la rossa"
+else
+  fail "la corsa rossa è stata rotata via da corse verdi"
+fi
+if [ "$(conta_corse "$rotazione")" = "2" ]; then
+  pass "delle corse verdi resta solo l'ultima"
+else
+  fail "atteso 1 rossa + 1 verde, trovate $(conta_corse "$rotazione") corse"
+fi
+
+# L'altro lato: neanche le rosse si accumulano senza fine.
+tetto="$TMP/ci-logs-tetto"
+for _ in 1 2 3 4; do
+  run_parallel_in "$tetto" 3 2 -- ok rotto >/dev/null 2>&1
+done
+if [ "$(conta_corse "$tetto")" = "2" ]; then
+  pass "le corse rosse si fermano al tetto di rotazione"
+else
+  fail "tetto rosse=2 ma dopo quattro fallimenti ci sono $(conta_corse "$tetto") corse"
+fi
 
 echo "→ server statico dei test e2e"
 
