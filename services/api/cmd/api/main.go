@@ -13,12 +13,26 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/apdsoftware/postqron/services/api/internal/auth"
+	"github.com/apdsoftware/postqron/services/api/internal/authpg"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
+	"github.com/apdsoftware/postqron/services/api/internal/database"
+	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 )
 
 // version è sovrascrivibile al build: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
 var version = "dev"
+
+// trustedProxiesEnvVar elenca le reti da cui accettare `X-Forwarded-For`.
+//
+// Non passa da internal/config perché quel package appartiene a un'altra issue;
+// il posto giusto, a regime, è lì. Vedi httpapi.ClientIP per il motivo per cui
+// serve: senza, dietro un reverse proxy il rate limiting del login mette tutti
+// gli utenti nello stesso secchio.
+const trustedProxiesEnvVar = "POSTQRON_TRUSTED_PROXIES"
 
 func main() {
 	if err := run(); err != nil {
@@ -28,6 +42,18 @@ func main() {
 }
 
 func run() error {
+	// In sviluppo la configurazione sta nel `.env` del monorepo, lo stesso file
+	// con cui `make db-up` ha creato il container (AGENTS.md §7). In produzione
+	// il file non esiste e l'ambiente basta: dotenv non sovrascrive mai una
+	// variabile già impostata.
+	workdir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if _, err := dotenv.LoadNearest(workdir); err != nil {
+		return err
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -40,9 +66,30 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	pool, err := database.Open(ctx, cfg.Postgres, database.Options{
+		ApplicationName: "postqron-api",
+	})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	authService, err := newAuthService(pool, logger)
+	if err != nil {
+		return err
+	}
+
+	trustedProxies, err := httpapi.ParseTrustedProxies(os.Getenv(trustedProxiesEnvVar))
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(cfg, version, logger),
+		Addr: cfg.HTTPAddr,
+		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
+			Auth:           authService,
+			TrustedProxies: trustedProxies,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -53,6 +100,7 @@ func run() error {
 			slog.String("addr", cfg.HTTPAddr),
 			slog.String("env", cfg.Env),
 			slog.String("version", version),
+			slog.Int("trusted_proxies", len(trustedProxies)),
 			// Postgres si redige da sé: la password non compare. Vedere all'avvio
 			// host e porta effettivi è ciò che rende visibile subito un disallineamento
 			// fra il container e la configurazione dell'API.
@@ -77,9 +125,42 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}
+	// Le email di conferma e di recupero password partono fuori dal percorso
+	// della richiesta (è ciò che rende costante il tempo di risposta): l'arresto
+	// le aspetta, altrimenti un riavvio farebbe sparire in silenzio i messaggi
+	// delle ultime richieste servite.
+	if err := authService.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("attività in coda non completate prima dell'arresto", slog.Any("error", err))
+	}
 
 	logger.Info("servizio arrestato")
 	return nil
+}
+
+// newAuthService costruisce l'autenticazione (R14).
+//
+// Il Mailer è [auth.LogMailer]: il client Mailronix è la issue #419 e i template
+// la #418. Quando arriveranno, questa è l'unica riga da cambiare.
+func newAuthService(pool *pgxpool.Pool, logger *slog.Logger) (*auth.Service, error) {
+	store, err := authpg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	hasher, err := auth.NewHasher(auth.DefaultParams)
+	if err != nil {
+		return nil, err
+	}
+	keyring, err := auth.KeyringFromEnv(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return auth.NewService(auth.Options{
+		Store:   store,
+		Hasher:  hasher,
+		Keyring: keyring,
+		Mailer:  auth.LogMailer{Logger: logger},
+		Logger:  logger,
+	})
 }
 
 func newLogger(cfg config.Config) *slog.Logger {
