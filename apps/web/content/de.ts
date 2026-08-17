@@ -81,6 +81,9 @@ export const de: SiteContent = {
     email: 'support@postqron.com',
   },
 
+  // Im Deutschen folgt das Symbol der Zahl, mit Leerzeichen: «9 € + MwSt.».
+  money: { currencyPosition: 'after', taxNote: '+ MwSt.' },
+
   hero: {
     title: 'Verlässliche Cronjobs, als Code definiert',
     text:
@@ -248,7 +251,7 @@ export const de: SiteContent = {
   plans: [
     {
       name: 'Free',
-      currency: '$',
+      currency: '€',
       price: '0',
       period: '/Monat',
       ctaLabel: 'Kostenlos starten',
@@ -267,11 +270,11 @@ export const de: SiteContent = {
     },
     {
       name: 'Pro',
-      currency: '$',
-      price: '12',
+      currency: '€',
+      price: '9',
       period: '/Monat',
       featured: true,
-      ctaLabel: '30 Tage testen',
+      ctaLabel: 'Pro wählen',
       ctaTo: '/#welcome',
       features: [
         { label: '200 Cronjobs', included: true },
@@ -287,8 +290,8 @@ export const de: SiteContent = {
     },
     {
       name: 'Team',
-      currency: '$',
-      price: '39',
+      currency: '€',
+      price: '29',
       period: '/Monat',
       ctaLabel: 'Team wählen',
       ctaTo: '/#welcome',
@@ -307,8 +310,8 @@ export const de: SiteContent = {
     {
       name: 'Agency',
       pricePrefix: 'ab',
-      currency: '$',
-      price: '99',
+      currency: '€',
+      price: '79',
       period: '/Monat',
       ctaLabel: 'Sprich mit uns',
       ctaTo: '/#contact',

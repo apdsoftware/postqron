@@ -44,6 +44,24 @@ struttura:
 - **ogni pagina dichiara** il proprio `canonical` e un `hreflang` verso tutte le
   lingue, sé compresa, più `x-default` sull'inglese.
 
+### Prezzi
+
+La valuta **non** segue la lingua: è l'euro e gli importi sono gli stessi in
+tutte e cinque (R61). Quel che cambia sono due convenzioni di scrittura, e
+stanno in `money` di ogni file di lingua:
+
+| | `en` | `it` · `es` · `de` · `fr` |
+|---|---|---|
+| `currencyPosition` | `before` → `€9` | `after` → `9 €` |
+| `taxNote` | `+ VAT` | `+ IVA` · `+ IVA` · `+ MwSt.` · `+ TVA` |
+
+Gli importi di SPEC §8 sono **al netto dell'IVA** — Paddle la calcola sul paese
+del cliente in quanto Merchant of Record — quindi `taxNote` accompagna ogni
+cifra (R61-bis). Vale per la pagina prezzi e il riepilogo del checkout quanto
+per le card: un prezzo senza indicazione dell'imposta è un difetto.
+
+Il listino non prevede periodi di prova: il piano Free è l'ingresso (R59).
+
 ```bash
 pnpm --filter @postqron/web run test    # rilevamento, percorsi, hreflang, parità fra lingue
 pnpm exec playwright test --project=web # le cinque rotte servite come in produzione

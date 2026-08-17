@@ -72,14 +72,40 @@ export interface PlanFeature {
   included: boolean
 }
 
+/**
+ * Convenzioni di scrittura del prezzo che cambiano con la lingua.
+ *
+ * La **valuta** non cambia: è l'euro in tutte e cinque (R61), e gli importi
+ * sono gli stessi ovunque. Cambia dove va il simbolo — `€9` in inglese, `9 €`
+ * nelle altre quattro — e quella è una regola locale, quindi un dato di questo
+ * file e non una posizione fissa nel markup.
+ */
+export interface MoneyFormat {
+  /** `before` → «€9»; `after` → «9 €», con spazio unificatore. */
+  currencyPosition: 'before' | 'after'
+  /**
+   * Indicazione dell'imposta accanto al prezzo (R61-bis): «+ VAT», «+ IVA»,
+   * «+ MwSt.», «+ TVA».
+   *
+   * Gli importi di SPEC §8 sono al netto — Paddle calcola e aggiunge l'imposta
+   * sul paese del cliente in quanto Merchant of Record — e una cifra senza
+   * questa indicazione è un difetto, non una semplificazione grafica.
+   *
+   * È testo tradotto e sta qui, non nel componente: il tedesco lo dimostra da
+   * solo, «+ MwSt.» non è «+ IVA» con un'altra sigla.
+   */
+  taxNote: string
+}
+
 export interface PricingPlan {
   name: string
   /**
    * Qualificatore davanti al prezzo, per i piani che partono da una soglia
    * invece di costare una cifra fissa: «from», «da». SPEC §8 dichiara Agency
-   * «da $99/mese», e un `$99` secco prometterebbe un prezzo che non è quello.
+   * «da €79/mese», e un `€79` secco prometterebbe un prezzo che non è quello.
    */
   pricePrefix?: string
+  /** Simbolo di valuta. È `€` in tutte le lingue (R61): l'euro non segue la lingua. */
   currency: string
   price: string
   period: string
@@ -191,6 +217,7 @@ export interface SiteContent {
     footer: readonly NavGroup[]
   }
   company: CompanyInfo
+  money: MoneyFormat
   hero: Hero
   featuresIntro: Intro
   features: readonly Feature[]

@@ -101,10 +101,10 @@ describe('TestimonialCard', () => {
 
 const plan: PricingPlan = {
   name: 'Pro',
-  currency: '$',
-  price: '12',
+  currency: '€',
+  price: '9',
   period: '/mese',
-  ctaLabel: 'Prova 30 giorni',
+  ctaLabel: 'Scegli Pro',
   ctaTo: '/#welcome',
   features: [
     { label: '200 cronjob', included: true },
@@ -114,9 +114,13 @@ const plan: PricingPlan = {
 
 const href = '/it/#welcome'
 
+/** Le due convenzioni locali che agiscono sulla riga del prezzo. */
+const italian = { currencyPosition: 'after', taxNote: '+ IVA' } as const
+const english = { currencyPosition: 'before', taxNote: '+ VAT' } as const
+
 describe('PricingCard', () => {
   it('distingue le voci comprese da quelle escluse', () => {
-    const wrapper = mount(PricingCard, { props: { plan, position: 2, href } })
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href, ...italian } })
     const items = wrapper.findAll('li')
 
     expect(items).toHaveLength(2)
@@ -125,27 +129,77 @@ describe('PricingCard', () => {
   })
 
   it('mostra prezzo, periodo e posizione nel listino', () => {
-    const wrapper = mount(PricingCard, { props: { plan, position: 2, href } })
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href, ...italian } })
 
-    expect(wrapper.text()).toContain('$')
-    expect(wrapper.text()).toContain('12')
+    expect(wrapper.text()).toContain('\u20ac')
+    expect(wrapper.text()).toContain('9')
     expect(wrapper.text()).toContain('/mese')
     expect(wrapper.find('.pricing__position').text()).toBe('2')
     expect(wrapper.find('.pricing__prefix').exists()).toBe(false)
   })
 
   it('antepone il qualificatore ai piani che partono da una soglia', () => {
-    // SPEC §8 dichiara Agency «da $99/mese»: un `$99` secco prometterebbe un
+    // SPEC §8 dichiara Agency «da €79/mese»: un `€79` secco prometterebbe un
     // prezzo fisso che non esiste.
     const wrapper = mount(PricingCard, {
-      props: { plan: { ...plan, pricePrefix: 'da', price: '99' }, position: 4, href },
+      props: { plan: { ...plan, pricePrefix: 'da', price: '79' }, position: 4, href, ...italian },
     })
 
-    expect(wrapper.find('.pricing__prefix').text()).toBe('da')
+    // Lo spazio dopo il qualificatore è nel testo e non solo nel margine: un
+    // margine non finisce negli appunti di chi copia il prezzo.
+    expect(wrapper.find('.pricing__prefix').element.textContent).toBe('da\u00a0')
+    expect(wrapper.find('.pricing__price').text()).toContain('da\u00a079')
+  })
+
+  it('allinea il qualificatore a ciò che lo segue', () => {
+    // Con il simbolo in coda il qualificatore precede la cifra grande: se
+    // restasse sollevato sembrerebbe il richiamo a una nota.
+    const posposto = mount(PricingCard, {
+      props: { plan: { ...plan, pricePrefix: 'da' }, position: 4, href, ...italian },
+    })
+    expect(posposto.find('.pricing__prefix').classes()).toContain('pricing__prefix--baseline')
+
+    const anteposto = mount(PricingCard, {
+      props: { plan: { ...plan, pricePrefix: 'from' }, position: 4, href, ...english },
+    })
+    expect(anteposto.find('.pricing__prefix').classes()).not.toContain('pricing__prefix--baseline')
+  })
+
+  it('scrive il prezzo secondo la convenzione della lingua', () => {
+    // Due regole locali sulla stessa riga: dove va il simbolo e come si chiama
+    // l'imposta. La valuta e l'importo, invece, non cambiano mai (R61).
+    const inEnglish = mount(PricingCard, { props: { plan, position: 2, href, ...english } })
+    const inItalian = mount(PricingCard, { props: { plan, position: 2, href, ...italian } })
+
+    expect(inEnglish.find('.pricing__price').text()).toContain('\u20ac9')
+    expect(inItalian.find('.pricing__price').text()).toContain('9\u00a0\u20ac')
+  })
+
+  it('separa cifra e simbolo posposto con uno spazio unificatore', () => {
+    // «9 €» è una quantità sola: spezzarla a fine riga la renderebbe due cose.
+    // Il confronto è su `textContent` e non su `text()`, che toglie gli spazi
+    // ai bordi — compreso quello che il test deve vedere.
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href, ...italian } })
+
+    expect(wrapper.find('.pricing__currency--after').element.textContent).toBe('\u00a0\u20ac')
+  })
+
+  it('dichiara l\'imposta accanto al prezzo, nella lingua della pagina', () => {
+    // R61-bis: gli importi sono al netto e una cifra senza indicazione è un
+    // difetto. La dicitura arriva tradotta, non è un suffisso del componente.
+    const inGerman = mount(PricingCard, {
+      props: { plan, position: 2, href, currencyPosition: 'after', taxNote: '+ MwSt.' },
+    })
+
+    expect(inGerman.find('.pricing__tax').text()).toBe('+ MwSt.')
+
+    // Sta fuori dal paragrafo del prezzo: è un'affermazione distinta sulla
+    // cifra, e da lì il testo selezionato non esce come «/Monat+ MwSt.».
+    expect(inGerman.find('.pricing__price').text()).not.toContain('MwSt.')
   })
 
   it('manda il pulsante alla destinazione già tradotta in lingua', () => {
-    const wrapper = mount(PricingCard, { props: { plan, position: 2, href } })
+    const wrapper = mount(PricingCard, { props: { plan, position: 2, href, ...italian } })
 
     // La destinazione arriva prefissata dalla pagina: la card non conosce la
     // lingua, e `plan.ctaTo` da solo punterebbe fuori da tutte e cinque.
@@ -153,12 +207,12 @@ describe('PricingCard', () => {
   })
 
   it('evidenzia il piano in vetrina e ne rende pieno il pulsante', () => {
-    const plain = mount(PricingCard, { props: { plan, position: 1, href } })
+    const plain = mount(PricingCard, { props: { plan, position: 1, href, ...italian } })
     expect(plain.classes()).not.toContain('is-featured')
     expect(plain.find('.line-button').classes()).toContain('line-button--outline')
 
     const featured = mount(PricingCard, {
-      props: { plan: { ...plan, featured: true }, position: 2, href },
+      props: { plan: { ...plan, featured: true }, position: 2, href, ...italian },
     })
     expect(featured.classes()).toContain('is-featured')
     expect(featured.find('.line-button').classes()).toContain('line-button--solid')

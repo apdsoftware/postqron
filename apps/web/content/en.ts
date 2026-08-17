@@ -87,6 +87,9 @@ export const en: SiteContent = {
     email: 'support@postqron.com',
   },
 
+  // In inglese il simbolo precede la cifra e non ha spazio: «€9 + VAT».
+  money: { currencyPosition: 'before', taxNote: '+ VAT' },
+
   hero: {
     title: 'Reliable cron jobs, defined as code',
     text:
@@ -253,7 +256,7 @@ export const en: SiteContent = {
   plans: [
     {
       name: 'Free',
-      currency: '$',
+      currency: '€',
       price: '0',
       period: '/month',
       ctaLabel: 'Start free',
@@ -272,11 +275,11 @@ export const en: SiteContent = {
     },
     {
       name: 'Pro',
-      currency: '$',
-      price: '12',
+      currency: '€',
+      price: '9',
       period: '/month',
       featured: true,
-      ctaLabel: 'Try 30 days',
+      ctaLabel: 'Choose Pro',
       ctaTo: '/#welcome',
       features: [
         { label: '200 cron jobs', included: true },
@@ -292,8 +295,8 @@ export const en: SiteContent = {
     },
     {
       name: 'Team',
-      currency: '$',
-      price: '39',
+      currency: '€',
+      price: '29',
       period: '/month',
       ctaLabel: 'Choose Team',
       ctaTo: '/#welcome',
@@ -312,8 +315,8 @@ export const en: SiteContent = {
     {
       name: 'Agency',
       pricePrefix: 'from',
-      currency: '$',
-      price: '99',
+      currency: '€',
+      price: '79',
       period: '/month',
       ctaLabel: 'Talk to us',
       ctaTo: '/#contact',

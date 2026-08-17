@@ -81,6 +81,9 @@ export const it: SiteContent = {
     email: 'supporto@postqron.com',
   },
 
+  // In italiano il simbolo segue la cifra, con spazio: «9 € + IVA».
+  money: { currencyPosition: 'after', taxNote: '+ IVA' },
+
   hero: {
     title: 'Cronjob affidabili, definiti come codice',
     text:
@@ -246,7 +249,7 @@ export const it: SiteContent = {
   plans: [
     {
       name: 'Free',
-      currency: '$',
+      currency: '€',
       price: '0',
       period: '/mese',
       ctaLabel: 'Inizia gratis',
@@ -265,11 +268,11 @@ export const it: SiteContent = {
     },
     {
       name: 'Pro',
-      currency: '$',
-      price: '12',
+      currency: '€',
+      price: '9',
       period: '/mese',
       featured: true,
-      ctaLabel: 'Prova 30 giorni',
+      ctaLabel: 'Scegli Pro',
       ctaTo: '/#welcome',
       features: [
         { label: '200 cronjob', included: true },
@@ -285,8 +288,8 @@ export const it: SiteContent = {
     },
     {
       name: 'Team',
-      currency: '$',
-      price: '39',
+      currency: '€',
+      price: '29',
       period: '/mese',
       ctaLabel: 'Scegli Team',
       ctaTo: '/#welcome',
@@ -305,8 +308,8 @@ export const it: SiteContent = {
     {
       name: 'Agency',
       pricePrefix: 'da',
-      currency: '$',
-      price: '99',
+      currency: '€',
+      price: '79',
       period: '/mese',
       ctaLabel: 'Parliamone',
       ctaTo: '/#contact',

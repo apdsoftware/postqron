@@ -151,6 +151,8 @@ function staggered(index: number) {
             :plan="plan"
             :position="index + 1"
             :href="href(plan.ctaTo)"
+            :currency-position="content.money.currencyPosition"
+            :tax-note="content.money.taxNote"
           />
         </div>
       </div>

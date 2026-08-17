@@ -81,6 +81,9 @@ export const es: SiteContent = {
     email: 'soporte@postqron.com',
   },
 
+  // En español el símbolo sigue a la cifra, con espacio: «9 € + IVA».
+  money: { currencyPosition: 'after', taxNote: '+ IVA' },
+
   hero: {
     title: 'Tareas cron fiables, definidas como código',
     text:
@@ -247,7 +250,7 @@ export const es: SiteContent = {
   plans: [
     {
       name: 'Free',
-      currency: '$',
+      currency: '€',
       price: '0',
       period: '/mes',
       ctaLabel: 'Empezar gratis',
@@ -266,11 +269,11 @@ export const es: SiteContent = {
     },
     {
       name: 'Pro',
-      currency: '$',
-      price: '12',
+      currency: '€',
+      price: '9',
       period: '/mes',
       featured: true,
-      ctaLabel: 'Prueba 30 días',
+      ctaLabel: 'Elegir Pro',
       ctaTo: '/#welcome',
       features: [
         { label: '200 tareas cron', included: true },
@@ -286,8 +289,8 @@ export const es: SiteContent = {
     },
     {
       name: 'Team',
-      currency: '$',
-      price: '39',
+      currency: '€',
+      price: '29',
       period: '/mes',
       ctaLabel: 'Elegir Team',
       ctaTo: '/#welcome',
@@ -306,8 +309,8 @@ export const es: SiteContent = {
     {
       name: 'Agency',
       pricePrefix: 'desde',
-      currency: '$',
-      price: '99',
+      currency: '€',
+      price: '79',
       period: '/mes',
       ctaLabel: 'Hablemos',
       ctaTo: '/#contact',

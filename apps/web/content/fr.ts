@@ -81,6 +81,9 @@ export const fr: SiteContent = {
     email: 'support@postqron.com',
   },
 
+  // En français le symbole suit le chiffre, avec une espace : «9 € + TVA».
+  money: { currencyPosition: 'after', taxNote: '+ TVA' },
+
   hero: {
     title: 'Des tâches cron fiables, définies comme du code',
     text:
@@ -249,7 +252,7 @@ export const fr: SiteContent = {
   plans: [
     {
       name: 'Free',
-      currency: '$',
+      currency: '€',
       price: '0',
       period: '/mois',
       ctaLabel: 'Commencer gratuitement',
@@ -268,11 +271,11 @@ export const fr: SiteContent = {
     },
     {
       name: 'Pro',
-      currency: '$',
-      price: '12',
+      currency: '€',
+      price: '9',
       period: '/mois',
       featured: true,
-      ctaLabel: 'Essayer 30 jours',
+      ctaLabel: 'Choisir Pro',
       ctaTo: '/#welcome',
       features: [
         { label: '200 tâches cron', included: true },
@@ -288,8 +291,8 @@ export const fr: SiteContent = {
     },
     {
       name: 'Team',
-      currency: '$',
-      price: '39',
+      currency: '€',
+      price: '29',
       period: '/mois',
       ctaLabel: 'Choisir Team',
       ctaTo: '/#welcome',
@@ -308,8 +311,8 @@ export const fr: SiteContent = {
     {
       name: 'Agency',
       pricePrefix: 'dès',
-      currency: '$',
-      price: '99',
+      currency: '€',
+      price: '79',
       period: '/mois',
       ctaLabel: 'Parlons-en',
       ctaTo: '/#contact',
