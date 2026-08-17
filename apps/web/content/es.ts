@@ -40,7 +40,7 @@ export const es: SiteContent = {
       {
         label: 'Producto',
         children: [
-          { label: 'Funciones', to: '/#features' },
+          { label: 'Funciones', to: '/features' },
           { label: 'Testimonios', to: '/#testimonials' },
           { label: 'Precios', to: '/#pricing' },
         ],
@@ -52,14 +52,15 @@ export const es: SiteContent = {
           { label: 'Del blog', to: '/#blog' },
         ],
       },
-      { label: 'Contacto', to: '/#contact' },
+      { label: 'FAQ', to: '/faq' },
+      { label: 'Contacto', to: '/contact' },
     ],
-    cta: { label: 'Prueba gratis', to: '/#welcome' },
+    cta: { label: 'Crea una cuenta Free', to: '/#welcome' },
     footer: [
       {
         title: 'Producto',
         items: [
-          { label: 'Funciones', to: '/#features' },
+          { label: 'Funciones', to: '/features' },
           { label: 'Precios', to: '/#pricing' },
           { label: 'API y webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
@@ -69,7 +70,8 @@ export const es: SiteContent = {
         title: 'Soporte',
         items: [
           { label: 'Testimonios', to: '/#testimonials' },
-          { label: 'Contacto', to: '/#contact' },
+          { label: 'FAQ', to: '/faq' },
+          { label: 'Contacto', to: '/contact' },
         ],
       },
       {
@@ -86,13 +88,13 @@ export const es: SiteContent = {
 
   company: {
     name: 'Postqron',
-    legalName: 'Postqron',
+    legalName: 'Apdsoftware di Carlo Zuffetti',
     about:
       'Tareas cron gestionadas, definidas en tu propio repositorio y reunidas en un '
       + 'solo sitio: una programación fiable, el registro de cada ejecución y un aviso '
       + 'cuando algo no arranca.',
-    address: 'Dirección por confirmar',
-    email: 'soporte@postqron.com',
+    address: 'Via C. Colombo 15, 24047 Treviglio (BG), Italia · NIF-IVA 03835250162 · REA BG 431224',
+    email: 'hello@postqron.com',
   },
 
   // En español el símbolo sigue a la cifra, con espacio: «9 € + IVA».

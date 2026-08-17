@@ -46,7 +46,7 @@ export const en: SiteContent = {
       {
         label: 'Product',
         children: [
-          { label: 'Features', to: '/#features' },
+          { label: 'Features', to: '/features' },
           { label: 'Testimonials', to: '/#testimonials' },
           { label: 'Pricing', to: '/#pricing' },
         ],
@@ -58,14 +58,15 @@ export const en: SiteContent = {
           { label: 'From the blog', to: '/#blog' },
         ],
       },
-      { label: 'Contact', to: '/#contact' },
+      { label: 'FAQ', to: '/faq' },
+      { label: 'Contact', to: '/contact' },
     ],
-    cta: { label: 'Try for free', to: '/#welcome' },
+    cta: { label: 'Create a free account', to: '/#welcome' },
     footer: [
       {
         title: 'Product',
         items: [
-          { label: 'Features', to: '/#features' },
+          { label: 'Features', to: '/features' },
           { label: 'Pricing', to: '/#pricing' },
           { label: 'API and webhooks', to: '/#api' },
           { label: 'Blog', to: '/#blog' },
@@ -75,7 +76,8 @@ export const en: SiteContent = {
         title: 'Support',
         items: [
           { label: 'Testimonials', to: '/#testimonials' },
-          { label: 'Contact', to: '/#contact' },
+          { label: 'FAQ', to: '/faq' },
+          { label: 'Contact', to: '/contact' },
         ],
       },
       {
@@ -92,13 +94,13 @@ export const en: SiteContent = {
 
   company: {
     name: 'Postqron',
-    legalName: 'Postqron',
+    legalName: 'Apdsoftware di Carlo Zuffetti',
     about:
       'Managed cron jobs, defined in your own repository and brought back to a '
       + 'single place: scheduling you can rely on, a log of every run, and an alert '
       + 'when something does not start.',
-    address: 'Address to be confirmed',
-    email: 'support@postqron.com',
+    address: 'Via C. Colombo 15, 24047 Treviglio (BG), Italy · VAT 03835250162 · REA BG 431224',
+    email: 'hello@postqron.com',
   },
 
   // In inglese il simbolo precede la cifra e non ha spazio: «€9 + VAT».
