@@ -490,6 +490,21 @@ parte dell'offerta.
   piano Free è l'ingresso. Ogni affermazione contraria nell'interfaccia è un difetto.
 - **R60 — Accesso ai documenti fiscali.** L'utente accede a fatture e ricevute
   emesse da Paddle in quanto Merchant of Record.
+- **R61-bis — I prezzi sono al netto dell'IVA.** Gli importi di §8 sono **IVA
+  esclusa**: Paddle calcola e aggiunge l'imposta sul paese del cliente in quanto
+  Merchant of Record. Il cliente italiano paga €9 + 22%, non €9.
+  **Il sito espone il netto con l'indicazione dell'imposta accanto al prezzo**, in
+  tutti i punti in cui compare una cifra: card dei piani, pagina prezzi, riepilogo
+  del checkout. Un «€9/mese» privo di qualsiasi indicazione è un difetto, non una
+  semplificazione grafica.
+  L'indicazione è **testo tradotto**, non un suffisso fisso: «+ VAT» in inglese,
+  «+ IVA» in italiano e spagnolo, «+ MwSt.» in tedesco, «+ TVA» in francese. Segue
+  le regole di §8-bis come qualunque altra stringa.
+  Resta aperto un punto che non si risolve con una dicitura: verso i **consumatori**
+  l'Unione Europea richiede il prezzo comprensivo di imposta, mentre verso le imprese
+  è normale esporre il netto. PostQron si rivolge a entrambi — Free e Pro parlano a
+  sviluppatori singoli, Team e Agency a organizzazioni. Da verificare con un
+  consulente prima del lancio.
 - **R61 — Valuta unica in euro.** I prezzi sono in **euro** e **non seguono la
   lingua**: le cinque localizzazioni (§8-bis) mostrano gli stessi importi. La
   conversione e la presentazione in valuta locale, dove avvengono, sono competenza di
