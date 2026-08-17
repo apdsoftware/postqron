@@ -25,14 +25,19 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/authpg"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
+	"github.com/apdsoftware/postqron/services/api/internal/cronyaml"
 	"github.com/apdsoftware/postqron/services/api/internal/database"
 	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
+	"github.com/apdsoftware/postqron/services/api/internal/githubapp"
+	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhookpg"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/reposync"
+	"github.com/apdsoftware/postqron/services/api/internal/reposyncpg"
 	"github.com/apdsoftware/postqron/services/api/internal/retention"
 	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
@@ -133,18 +138,28 @@ func run() error {
 		return err
 	}
 
+	// Il sink delle push: la riconciliazione di `cron.yaml` (R13, issue #423).
+	// nil se la GitHub App non è configurata — vedi newRepoSyncService.
+	repoSync, err := newRepoSyncService(pool, logger, guard, secretsService)
+	if err != nil {
+		return err
+	}
+
 	// Il webhook GitHub (R11, issue #421). Il residuo di cablaggio è qui perché
 	// #421 aveva cmd/api fra i propri percorsi vietati.
 	//
-	// Due cose vanno lette insieme. **Senza `GITHUB_APP_WEBHOOK_SECRET` il
-	// servizio è nil**, e la rotta non viene registrata affatto: una macchina
-	// senza GitHub App non deve ottenere un endpoint pubblico che accetta
-	// qualunque corpo, deve non ottenere l'endpoint. Per questo l'assenza del
-	// segreto non è un errore d'avvio. **Il sink è nil**, e appartiene a #422 e
-	// #423: finché non c'è, le push si registrano come `ignored` invece che come
-	// lavorate, perché il registro non deve far credere a un sync che non è
-	// avvenuto.
-	gitHubWebhook, err := githubhookpg.NewService(pool, os.Getenv, logger, nil)
+	// **Senza `GITHUB_APP_WEBHOOK_SECRET` il servizio è nil**, e la rotta non
+	// viene registrata affatto: una macchina senza GitHub App non deve ottenere
+	// un endpoint pubblico che accetta qualunque corpo, deve non ottenere
+	// l'endpoint. Per questo l'assenza del segreto non è un errore d'avvio.
+	//
+	// Il sink può essere nil a sua volta, e i due nil sono indipendenti: il
+	// segreto del webhook e la chiave privata dell'App si configurano con
+	// variabili diverse, e chi ha impostato solo la prima ottiene un endpoint
+	// che verifica e registra le push senza sincronizzarle — che è ciò che
+	// [githubhook.Service] fa quando il sink manca, registrandole come
+	// `ignored` invece che come lavorate.
+	gitHubWebhook, err := githubhookpg.NewService(pool, os.Getenv, logger, sinkOrNil(repoSync))
 	if err != nil {
 		return err
 	}
@@ -372,6 +387,80 @@ func newJobsService(pool *pgxpool.Pool, logger *slog.Logger, guard jobs.TargetGu
 		Guard:      guard,
 		Dispatcher: dispatcher,
 	})
+}
+
+// newRepoSyncService costruisce la riconciliazione di `cron.yaml` (R13).
+//
+// **Restituisce (nil, nil) se la GitHub App non è configurata**, come già fa
+// [githubhookpg.NewService] per il segreto del webhook: leggere un file da un
+// repository richiede la chiave privata dell'App, e senza non c'è un modo
+// degradato di farlo. La macchina di sviluppo di chi non ha l'App si avvia lo
+// stesso, e il log lo dice.
+//
+// Le tre dipendenze che non sono lo store vengono da fuori, e nessuna delle tre
+// per comodità:
+//
+//   - il **piano** è [jobspg.Store], che è la stessa query da cui l'API legge i
+//     limiti: due letture del listino divergerebbero, e la differenza si
+//     noterebbe come un `every: 1s` accettato dal sync e rifiutato dal form;
+//   - i **segreti** sono lo stesso servizio delle rotte `/secrets` e del motore,
+//     per la ragione scritta in newSecretsService — qui serve solo l'elenco dei
+//     nomi, che non decifra niente;
+//   - il **guard** è quello del processo (R38), lo stesso che apre le
+//     connessioni verso i bersagli.
+func newRepoSyncService(
+	pool *pgxpool.Pool,
+	logger *slog.Logger,
+	guard jobs.TargetGuard,
+	secretsService *secrets.Service,
+) (*reposync.Service, error) {
+	// Il tetto è quello del parser: scaricare più byte di quanti `cron.yaml`
+	// possa averne significherebbe leggere memoria per poi rifiutarla.
+	contents, err := githubapp.LoadFromEnv(os.Getenv, githubapp.Options{
+		MaxBytes: cronyaml.MaxFileSize,
+		Logger:   logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if contents == nil {
+		logger.Warn("sync di cron.yaml non attivo: GitHub App non configurata",
+			slog.String("env", githubapp.AppIDEnvVar+", "+githubapp.PrivateKeyPathEnvVar))
+		return nil, nil
+	}
+
+	store, err := reposyncpg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	plans, err := jobspg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+
+	return reposync.NewService(reposync.Options{
+		Store:    store,
+		Plans:    plans,
+		Secrets:  secretsService,
+		Contents: contents,
+		Guard:    guard,
+		Logger:   logger,
+	})
+}
+
+// sinkOrNil converte un servizio assente in un'interfaccia **davvero** nil.
+//
+// Non è una precauzione teorica: un `(*reposync.Service)(nil)` assegnato a
+// [githubhook.PushSink] produce un'interfaccia non nil con dentro un puntatore
+// nil, il controllo `sink == nil` di quel package non scatta, e la prima push
+// che arriva chiama un metodo su un ricevitore nil. Il caso è esattamente
+// quello di una macchina senza GitHub App, cioè quello in cui il difetto non si
+// noterebbe fino al primo cliente collegato.
+func sinkOrNil(svc *reposync.Service) githubhook.PushSink {
+	if svc == nil {
+		return nil
+	}
+	return svc
 }
 
 // newSecretsService costruisce i segreti del workspace (R42, R43).
