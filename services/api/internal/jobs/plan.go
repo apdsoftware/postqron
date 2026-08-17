@@ -229,9 +229,13 @@ func (p Plan) RetentionFloor(now time.Time) time.Time {
 //
 // Lo dice R10-bis e va ripetuto qui, dove qualcuno potrebbe concludere che la
 // retention è applicata e togliere l'altra metà: **non sostituisce la
-// cancellazione periodica** delle righe e delle partizioni (R6, issue #393,
-// funzioni di appoggio nella migrazione 0006), la copre soltanto
-// nell'intervallo fra due passate. La privacy policy dichiara che i log sono
+// cancellazione periodica** delle righe e delle partizioni — che da #393 vive in
+// `internal/retention`, sulle funzioni di appoggio della migrazione 0006 — la
+// copre soltanto nell'intervallo fra due passate. Il confine che quel package
+// applica per riga è esattamente [Plan.RetentionFloor], e deve restare lo
+// stesso: se divergessero, o spariscono righe che questa API sta ancora
+// mostrando, o ne restano di illeggibili che la policy dichiara cancellate. La
+// privacy policy dichiara che i log sono
 // conservati per il periodo del piano e poi *cancellati*: nascondere righe che
 // continuano a esistere renderebbe quel documento inesatto, e un documento legale
 // inesatto è un problema peggiore di un limite non applicato.

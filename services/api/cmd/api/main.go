@@ -33,6 +33,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/retention"
 	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 	"github.com/apdsoftware/postqron/services/api/internal/secretspg"
@@ -165,6 +166,33 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	// La retention dei log (R6, issue #393) parte **prima** del motore.
+	//
+	// Non è una preferenza estetica: la sua prima passata prepara le partizioni
+	// giornaliere di `job_executions`, e senza una partizione disponibile
+	// l'inserimento di un'esecuzione fallisce (`23514`). La 0006 ne crea
+	// quattordici in avanti al momento della migrazione e poi non le crea più
+	// nessuno — un processo che riparte dopo un fermo lungo troverebbe una
+	// tabella su cui non si può scrivere. L'ordine non è comunque una garanzia,
+	// e non ha bisogno di esserlo: un inserimento fallito lascia l'occorrenza non
+	// accodata, e la passata successiva dello scheduler la riprende.
+	//
+	// Questo residuo di cablaggio sta qui perché #393 aveva `cmd/api` fra i
+	// percorsi di altri: le funzioni della 0006 esistevano dalla prima
+	// migrazione e non le invocava nessuno, che è esattamente il modo in cui una
+	// promessa scritta nella privacy policy resta non mantenuta.
+	retentionSvc, err := retention.New(retention.Options{Pool: pool, Logger: logger})
+	if err != nil {
+		return err
+	}
+	retentionStopped := make(chan struct{})
+	go func() {
+		defer close(retentionStopped)
+		if err := retentionSvc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("retention: ciclo interrotto", slog.Any("error", err))
+		}
+	}()
+
 	// Il motore parte prima del server: le occorrenze rimaste in sospeso da una
 	// vita precedente del processo vengono riprese subito (scheduler.Engine.Recover),
 	// e un job creato al primo secondo di vita dell'API trova il motore già in
@@ -223,6 +251,16 @@ func run() error {
 	// delle ultime richieste servite.
 	if err := authService.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("attività in coda non completate prima dell'arresto", slog.Any("error", err))
+	}
+	// La retention si aspetta perché usa lo stesso pool, che viene chiuso
+	// all'uscita di run: un lotto ancora in volo su un pool chiuso produrrebbe
+	// un errore che non descrive niente. Ciò che il contesto ha interrotto a
+	// metà non è perso — sono righe scadute che restano scadute, e le porta via
+	// la prima passata dopo il riavvio.
+	select {
+	case <-retentionStopped:
+	case <-shutdownCtx.Done():
+		logger.Warn("retention: passata non conclusa entro il tempo dell'arresto")
 	}
 
 	logger.Info("servizio arrestato")
