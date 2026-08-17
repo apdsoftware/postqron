@@ -154,9 +154,9 @@ export interface Hero {
   text: string
   image: string
   imageAlt: string
-  /** Nota sotto al campo email. */
-  note: string
-  video: {
+  /** Nota sotto al campo email, solo quando descrive un impegno approvato. */
+  note?: string
+  video?: {
     href: string
     embedSrc: string
     title: string
@@ -211,6 +211,12 @@ export interface SiteContent {
     description: string
   }
   ui: UiLabels
+  legal: {
+    /** Avviso mostrato quando manca la traduzione richiesta. */
+    sourceNotice: string
+    versionLabel: string
+    effectiveDateLabel: string
+  }
   nav: {
     main: readonly NavItem[]
     cta: Required<Pick<NavItem, 'label' | 'to'>>
