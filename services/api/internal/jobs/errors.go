@@ -118,8 +118,14 @@ const (
 	// uno solo (SPEC §8, R23).
 	LimitEnvironments LimitKind = "environments"
 	// LimitManualTrigger è il tetto alla frequenza dei trigger manuali. Non è
-	// una riga del listino: è derivato dagli altri due, vedi [Plan.ManualBudget].
+	// una riga del listino: è derivato dagli altri due, vedi [Plan.Throughput].
 	LimitManualTrigger LimitKind = "manual_trigger"
+	// LimitWriteRate è la quota di scrittura dell'API pubblica (R10). Come il
+	// precedente è derivato dalla portata del piano, non aggiunto al listino.
+	LimitWriteRate LimitKind = "write_rate"
+	// LimitRetention è la conservazione dei log di esecuzione (R6, SPEC §8: 3,
+	// 15, 30 e 90 giorni).
+	LimitRetention LimitKind = "retention"
 )
 
 // PlanLimitError è il rifiuto dovuto a un limite di piano.

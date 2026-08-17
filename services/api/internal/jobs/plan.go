@@ -3,6 +3,8 @@ package jobs
 import (
 	"fmt"
 	"time"
+
+	"github.com/apdsoftware/postqron/services/api/internal/ratelimit"
 )
 
 // Plan è la parte della matrice di SPEC §8 che vincola un job (R15).
@@ -37,6 +39,16 @@ type Plan struct {
 	// EnvironmentsEnabled indica se il piano ha staging oltre a production
 	// (R23). Su Free è falso: un solo ambiente, che è `production`.
 	EnvironmentsEnabled bool
+
+	// MultiWorkspace indica se il piano include workspace isolati (R25, SPEC §8:
+	// solo Agency, fino a dieci).
+	//
+	// Qui non serve a contare i workspace — non esistono ancora come entità, vedi
+	// la migrazione 0012 — ma a riconoscere **la forma del piano**: R25-bis dice
+	// che Agency non è «Team con più potenza» ma «Team moltiplicato», e la
+	// colonna che dichiara la moltiplicazione è questa. È ciò che permette a
+	// [Service.Budget] di derivare la portata di Agency senza inventarla.
+	MultiWorkspace bool
 }
 
 // FreePlan è il piano di riserva quando un utente non ha una sottoscrizione
@@ -134,19 +146,35 @@ func (p Plan) CheckEnvironments(envs []Environment) error {
 	return nil
 }
 
-// ManualBudget è il tetto aggregato ai trigger manuali di un utente: quante
-// esecuzioni manuali in quanto tempo.
+// Throughput è la portata che il piano già vende: quante operazioni in quanto
+// tempo.
 //
 // Il numero **non è una riga nuova del listino**, ed è deliberato: è la stessa
-// portata che la schedulazione del piano già concede. Un piano che permette N
-// job alla risoluzione R può produrre N esecuzioni ogni R senza che nessuno lo
-// consideri abuso; i trigger manuali si misurano con quello stesso metro. Free:
-// 20 al minuto. Pro: 200 ogni 10 secondi. Team: 1.000 al secondo, dalla soglia
-// di fair use.
+// portata che la schedulazione del piano concede. Un piano che permette N job
+// alla risoluzione R può produrre N esecuzioni ogni R senza che nessuno lo
+// consideri abuso; ciò che l'utente chiede a mano si misura con quello stesso
+// metro. Free: 20 al minuto. Pro: 200 ogni 10 secondi. Team: 1.000 al secondo,
+// dalla soglia di fair use.
 //
-// Il secondo valore è falso quando il piano non dichiara né tetto né soglia —
-// il caso di Agency, venduto come illimitato: lì non c'è un numero da cui
-// derivare, e inventarne uno sarebbe una decisione commerciale presa dal codice.
+// Il secondo valore è falso quando il piano non dichiara né tetto né soglia — il
+// caso di Agency, venduto come illimitato: lì non c'è un numero **in questa
+// riga** da cui derivare. Non significa «nessun limite»: significa che la
+// portata di Agency sta altrove, e R25-bis dice dove. La risoluzione è in
+// [Service.Budget], perché richiede di leggere un secondo piano e un metodo su
+// una struttura di soli dati non può farlo.
+//
+// # Chi la usa
+//
+// Due limiti distinti, con la stessa misura e contatori separati:
+//
+//   - il tetto aggregato ai **trigger manuali** (R8), applicato in
+//     [Service.Trigger];
+//   - la quota delle **scritture** dell'API pubblica (R10), applicata sulla riga
+//     di routing in internal/httpapi.
+//
+// Contatori separati perché sono due poteri diversi — cambiare il catalogo dei
+// job e far partire adesso una chiamata verso l'esterno — e la stessa misura
+// perché la capacità che consumano è la stessa.
 //
 // Il tetto **per singolo job** non passa di qui: lo applica la chiave naturale
 // di `job_executions`, vedi [Service.Trigger]. I due si dividono il lavoro in
@@ -160,22 +188,94 @@ func (p Plan) CheckEnvironments(envs []Environment) error {
 //     cinquemila job supererebbe di cinque volte la propria soglia di fair use
 //     senza che nessuna casella si opponga, perché ogni job ha la sua. È lì che
 //     questo tetto trasforma una soglia dichiarata in un limite applicato.
-//
-// È anche il punto in cui la issue #398 innesterà le quote generali di R10: la
-// firma che serve è già quella di un limitatore per chiave utente.
-func (p Plan) ManualBudget() (burst int, window time.Duration, ok bool) {
-	window = p.MinInterval
+func (p Plan) Throughput() (ratelimit.Rule, bool) {
+	window := p.MinInterval
 	if window <= 0 {
 		window = time.Minute
 	}
 	switch {
 	case p.MaxJobs != nil:
-		return *p.MaxJobs, window, true
+		return ratelimit.Rule{Burst: *p.MaxJobs, Window: window}, true
 	case p.FairUseJobs != nil:
-		return *p.FairUseJobs, window, true
+		return ratelimit.Rule{Burst: *p.FairUseJobs, Window: window}, true
 	default:
-		return 0, 0, false
+		return ratelimit.Rule{}, false
 	}
+}
+
+// RetentionFloor è il momento oltre il quale il piano non conserva più i log di
+// esecuzione (R6, SPEC §8: 3, 15, 30, 90 giorni).
+//
+// Zero quando il piano non dichiara una retention: senza un numero non c'è un
+// confine, e inventarlo taglierebbe lo storico di qualcuno.
+func (p Plan) RetentionFloor(now time.Time) time.Time {
+	if p.LogRetention <= 0 {
+		return time.Time{}
+	}
+	return now.Add(-p.LogRetention)
+}
+
+// CheckRetention verifica che la finestra richiesta stia dentro la retention del
+// piano (R15).
+//
+// # Perché un rifiuto e non una finestra ristretta in silenzio
+//
+// Restringere senza dirlo darebbe all'utente meno righe di quelle che ha chiesto
+// e nessun modo di sapere perché: aprirebbe un ticket, e avremmo speso lavoro per
+// produrre confusione. Vale qui la stessa regola di [PlanLimitError]: un limite
+// applicato in silenzio è indistinguibile, per chi lo subisce, da un guasto.
+//
+// # Questa è metà del lavoro
+//
+// Non sostituisce la cancellazione periodica delle righe e delle partizioni (R6,
+// issue #393, funzioni di appoggio nella migrazione 0006): la **copre soltanto
+// nell'intervallo fra due passate**. La privacy policy dichiara che i log sono
+// conservati per il periodo del piano e poi *cancellati*: nascondere righe che
+// continuano a esistere renderebbe quel documento inesatto, e un documento legale
+// inesatto è un problema peggiore di un limite non applicato.
+func (p Plan) CheckRetention(since, until, now time.Time) error {
+	floor := p.RetentionFloor(now)
+	if floor.IsZero() {
+		return nil
+	}
+
+	// `until` prima del confine descrive una finestra che sta tutta oltre la
+	// retention: `since` da solo non basta a riconoscerla, perché un `until`
+	// antico con `since` assente chiede comunque righe che il piano non conserva.
+	field, requested := "since", since
+	if since.IsZero() || (!until.IsZero() && until.Before(since)) {
+		field, requested = "until", until
+	}
+	if requested.IsZero() || !requested.Before(floor) {
+		return nil
+	}
+
+	return &PlanLimitError{
+		Limit: LimitRetention,
+		Plan:  p.Code,
+		Field: field,
+		message: fmt.Sprintf(
+			"il piano %s conserva i log di esecuzione per %s: `%s` non può precedere il %s. Passa a un piano superiore per uno storico più lungo.",
+			p.label(), formatRetention(p.LogRetention), field, floor.UTC().Format(time.RFC3339)),
+	}
+}
+
+// formatRetention scrive una retention come la scrive il listino: in giorni.
+//
+// [FormatDuration] direbbe «72h», che è esatto e non è la lingua di SPEC §8 —
+// dove i tre giorni del piano Free sono tre giorni. Non è un dettaglio estetico:
+// il messaggio serve a far riconoscere all'utente la riga del listino che ha
+// letto prima di iscriversi.
+func formatRetention(d time.Duration) string {
+	const day = 24 * time.Hour
+	if d <= 0 || d%day != 0 {
+		return FormatDuration(d)
+	}
+	days := int64(d / day)
+	if days == 1 {
+		return "1 giorno"
+	}
+	return fmt.Sprintf("%d giorni", days)
 }
 
 // FormatDuration scrive una durata come la scriverebbe un `cron.yaml`: `1s`,

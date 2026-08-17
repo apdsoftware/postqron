@@ -328,8 +328,7 @@ func (s *Store) DeleteJob(ctx context.Context, userID, jobID string) error {
 // pagamento in ritardo di un'ora sarebbe la scelta peggiore delle due.
 func (s *Store) PlanForUser(ctx context.Context, userID string) (jobs.Plan, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT code, name, max_jobs, fair_use_jobs, min_interval_seconds,
-		        log_retention_days, environments_enabled
+		`SELECT `+planColumns+`
 		   FROM plans
 		  WHERE code = coalesce(
 		            (SELECT plan_code FROM subscriptions
@@ -337,10 +336,7 @@ func (s *Store) PlanForUser(ctx context.Context, userID string) (jobs.Plan, erro
 		              LIMIT 1),
 		            'free')`, userID)
 
-	var plan jobs.Plan
-	var minInterval, retentionDays int32
-	err := row.Scan(&plan.Code, &plan.Name, &plan.MaxJobs, &plan.FairUseJobs,
-		&minInterval, &retentionDays, &plan.EnvironmentsEnabled)
+	plan, err := scanPlan(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// La 0003 inserisce i quattro piani: se `free` non c'è, il database non è
 		// migrato. Dirlo è meglio che far girare l'API con limiti inventati.
@@ -348,6 +344,41 @@ func (s *Store) PlanForUser(ctx context.Context, userID string) (jobs.Plan, erro
 	}
 	if err != nil {
 		return jobs.Plan{}, annotate("lettura del piano", err)
+	}
+	return plan, nil
+}
+
+// PlanByCode legge una riga del listino per codice.
+//
+// A differenza di [Store.PlanForUser] non passa dalle sottoscrizioni: serve alla
+// portata dei piani che ne moltiplicano un altro (R25-bis), dove il piano da
+// leggere non è quello di nessun utente in particolare.
+func (s *Store) PlanByCode(ctx context.Context, code string) (jobs.Plan, error) {
+	row := s.pool.QueryRow(ctx, `SELECT `+planColumns+` FROM plans WHERE code = $1`, code)
+
+	plan, err := scanPlan(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return jobs.Plan{}, jobs.ErrNotFound
+	}
+	if err != nil {
+		return jobs.Plan{}, annotate("lettura del piano", err)
+	}
+	return plan, nil
+}
+
+// planColumns è il sottoinsieme della matrice di SPEC §8 che l'API applica.
+// L'elenco è uno solo perché le due letture devono restituire la stessa forma:
+// due elenchi divergerebbero alla prima colonna aggiunta, e la differenza si
+// noterebbe come un limite che si applica a un utente e non a un altro.
+const planColumns = `code, name, max_jobs, fair_use_jobs, min_interval_seconds,
+	        log_retention_days, environments_enabled, multi_workspace_enabled`
+
+func scanPlan(row pgx.Row) (jobs.Plan, error) {
+	var plan jobs.Plan
+	var minInterval, retentionDays int32
+	if err := row.Scan(&plan.Code, &plan.Name, &plan.MaxJobs, &plan.FairUseJobs,
+		&minInterval, &retentionDays, &plan.EnvironmentsEnabled, &plan.MultiWorkspace); err != nil {
+		return jobs.Plan{}, err
 	}
 	plan.MinInterval = time.Duration(minInterval) * time.Second
 	plan.LogRetention = time.Duration(retentionDays) * 24 * time.Hour

@@ -52,6 +52,7 @@ const maxJobRequestBody = 64 << 10
 //	403 plan_limit_jobs             tetto al numero di job (R15)
 //	403 plan_limit_resolution       risoluzione minima del piano (R15, R22)
 //	403 plan_limit_environments     ambienti non inclusi nel piano (R23)
+//	403 plan_limit_retention        finestra oltre la retention del piano (R15)
 //	404 job_not_found               inesistente, oppure di un altro utente
 //	409 job_name_taken              il nome è l'identità del job
 //	409 job_managed_by_repository   definito in un `cron.yaml` (R13)
@@ -59,8 +60,14 @@ const maxJobRequestBody = 64 << 10
 //	409 job_disabled                trigger manuale su un job in pausa
 //	409 execution_already_exists    occorrenza già registrata (R4)
 //	413 body_too_large              corpo oltre maxJobRequestBody
+//	429 rate_limited                tetto tecnico del servizio (R10, quota.go)
+//	429 plan_limit_write_rate       quota di scrittura del piano (R10, R15)
 //	429 plan_limit_manual_trigger   con `Retry-After` e `retry_after`
 //	503 executions_unavailable      partizione giornaliera mancante (0006)
+//
+// I due 429 sono diversi apposta: `rate_limited` non nomina nessun piano perché
+// nessun piano ne concede di più, `plan_limit_*` sì perché lì l'upgrade è la
+// risposta. Vedi quota.go.
 //
 // jobsAPI raccoglie le rotte dei job e delle esecuzioni (R8).
 type jobsAPI struct {
@@ -321,31 +328,12 @@ func (a *jobsAPI) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
+// failPlanLimit risponde a un limite di piano. La forma della risposta è una
+// sola, e sta in quota.go: gli stessi limiti scattano anche sulla riga di
+// routing, e due risposte diverse per lo stesso rifiuto costringerebbero il
+// client a riconoscerle entrambe.
 func (a *jobsAPI) failPlanLimit(w http.ResponseWriter, r *http.Request, limit *jobs.PlanLimitError) {
-	detail := ErrorDetail{
-		Code:    "plan_limit_" + string(limit.Limit),
-		Message: limit.Error(),
-		Limit:   string(limit.Limit),
-		Plan:    limit.Plan,
-	}
-	if limit.Field != "" {
-		detail.Details = []FieldErrorBody{{Field: limit.Field, Code: detail.Code, Message: limit.Error()}}
-	}
-
-	// 429 per i limiti di frequenza, 403 per quelli di capienza. La differenza
-	// non è formale: sul primo il client riprova, sul secondo deve cambiare
-	// qualcosa — il piano o la richiesta.
-	status := http.StatusForbidden
-	if limit.RetryAfter > 0 {
-		status = http.StatusTooManyRequests
-		seconds := int(limit.RetryAfter.Round(time.Second).Seconds())
-		if seconds < 1 {
-			seconds = 1
-		}
-		detail.RetryAfter = seconds
-		w.Header().Set("Retry-After", strconv.Itoa(seconds))
-	}
-	writeErrorDetail(w, r, a.log, status, detail)
+	failPlanLimit(w, r, a.log, limit)
 }
 
 // ------------------------------------------------------------------ supporto

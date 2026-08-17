@@ -100,6 +100,10 @@ type guard struct {
 	// [ClientIP].
 	trustedProxies []netip.Prefix
 
+	// quota applica i limiti di R10. Sta nel guard e non nelle rotte perché è il
+	// punto da cui passano tutte: vedi quota.go.
+	quota *quota
+
 	secure   bool
 	sameSite http.SameSite
 }
@@ -110,6 +114,7 @@ func newGuard(cfg config.Config, logger *slog.Logger, deps Deps) *guard {
 		keys:           deps.APIKeys,
 		log:            logger,
 		trustedProxies: deps.TrustedProxies,
+		quota:          newQuota(logger, deps),
 		// `Secure` in produzione e in staging, non in sviluppo: su
 		// http://localhost un cookie Secure non verrebbe mai memorizzato, e il
 		// risultato sarebbe uno sviluppatore che disattiva il flag per far
@@ -135,6 +140,9 @@ type identityHandler func(w http.ResponseWriter, r *http.Request, identity Ident
 // authenticated rifiuta le richieste senza una sessione valida.
 func (g *guard) authenticated(next authHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !g.quota.allowCeiling(w, r, g.credentialKey(r)) {
+			return
+		}
 		user, session, err := g.resolve(w, r)
 		if err != nil {
 			g.failAuth(w, r, err)
@@ -154,8 +162,17 @@ func (g *guard) authenticated(next authHandler) http.HandlerFunc {
 // chi non doveva. Scritto all'altezza della registrazione della rotta, invece,
 // il permesso richiesto è visibile accanto al metodo e al percorso: vedi
 // jobsAPI.routes.
+//
+// **È anche il punto in cui si applicano i limiti di R10**, e per la stessa
+// ragione: una quota verificata dentro al gestore è una quota che il gestore
+// successivo dimentica. L'ordine dei tre controlli non è indifferente — tetto
+// tecnico, riconoscimento, scope, quota di piano — e ciascuno sta dove sta
+// perché costa meno di quello che lo segue: vedi quota.go.
 func (g *guard) scoped(scope apikeys.Scope, next identityHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !g.quota.allowCeiling(w, r, g.credentialKey(r)) {
+			return
+		}
 		identity, err := g.identify(w, r)
 		if err != nil {
 			g.failAuth(w, r, err)
@@ -163,6 +180,12 @@ func (g *guard) scoped(scope apikeys.Scope, next identityHandler) http.HandlerFu
 		}
 		if !identity.Allows(scope) {
 			g.failScope(w, r, identity, scope)
+			return
+		}
+		// Dopo lo scope: una richiesta che non ha il permesso di scrivere non
+		// scrive, quindi non consuma la capacità di scrittura del piano. Prima del
+		// gestore: è lì che sta il lavoro che la quota protegge.
+		if writeScopes[scope] && !g.quota.allowWrite(w, r, identity) {
 			return
 		}
 		next(w, r, identity)

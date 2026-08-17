@@ -39,6 +39,7 @@ func planAgency() jobs.Plan {
 		MinInterval:         time.Second,
 		LogRetention:        90 * 24 * time.Hour,
 		EnvironmentsEnabled: true,
+		MultiWorkspace:      true,
 	}
 }
 
@@ -176,9 +177,9 @@ func TestAmbientiPerPiano(t *testing.T) {
 	}
 }
 
-// TestBudgetDeiTriggerManualiDerivaDalListino: il numero non è una riga nuova
-// del listino, è la portata che la schedulazione del piano già concede.
-func TestBudgetDeiTriggerManualiDerivaDalListino(t *testing.T) {
+// TestLaPortataDerivaDalListino: il numero non è una riga nuova del listino, è
+// la portata che la schedulazione del piano già concede.
+func TestLaPortataDerivaDalListino(t *testing.T) {
 	cases := []struct {
 		piano  jobs.Plan
 		burst  int
@@ -188,22 +189,102 @@ func TestBudgetDeiTriggerManualiDerivaDalListino(t *testing.T) {
 		{jobs.FreePlan, 20, time.Minute, true},
 		{planPro(), 200, 10 * time.Second, true},
 		{planTeam(), 1000, time.Second, true},
-		// Agency non dichiara né tetto né soglia: non c'è un numero da cui
-		// derivare, e inventarlo sarebbe una decisione commerciale presa dal
-		// codice.
+		// Agency non dichiara né tetto né soglia: in *questa riga* non c'è un
+		// numero da cui derivare. Non significa illimitato — R25-bis dice che la
+		// portata è quella di Team applicata per workspace — e la risoluzione
+		// richiede di leggere un secondo piano: vedi
+		// TestLaPortataDiAgencyEQuellaDiTeamPerWorkspace.
 		{planAgency(), 0, 0, false},
 	}
 
 	for _, tc := range cases {
-		burst, window, ok := tc.piano.ManualBudget()
+		rule, ok := tc.piano.Throughput()
 		if ok != tc.ok {
 			t.Errorf("%s: ok = %v, atteso %v", tc.piano.Code, ok, tc.ok)
 			continue
 		}
-		if ok && (burst != tc.burst || window != tc.window) {
-			t.Errorf("%s: budget = %d ogni %s, atteso %d ogni %s",
-				tc.piano.Code, burst, window, tc.burst, tc.window)
+		if ok && (rule.Burst != tc.burst || rule.Window != tc.window) {
+			t.Errorf("%s: portata = %d ogni %s, atteso %d ogni %s",
+				tc.piano.Code, rule.Burst, rule.Window, tc.burst, tc.window)
 		}
+	}
+}
+
+// TestRetentionPerPiano è la riga «Retention log» di SPEC §8: 3 giorni su Free,
+// 15 su Pro, 30 su Team, 90 su Agency.
+func TestRetentionPerPiano(t *testing.T) {
+	adesso := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		piano  jobs.Plan
+		giorni int
+	}{
+		{jobs.FreePlan, 3},
+		{planPro(), 15},
+		{planTeam(), 30},
+		{planAgency(), 90},
+	}
+
+	for _, tc := range cases {
+		atteso := adesso.AddDate(0, 0, -tc.giorni)
+		if got := tc.piano.RetentionFloor(adesso); !got.Equal(atteso) {
+			t.Errorf("%s: confine = %s, atteso %s", tc.piano.Code, got, atteso)
+		}
+
+		// Dentro la finestra si legge.
+		dentro := adesso.AddDate(0, 0, -tc.giorni).Add(time.Hour)
+		if err := tc.piano.CheckRetention(dentro, time.Time{}, adesso); err != nil {
+			t.Errorf("%s: rifiutata una finestra dentro la retention: %v", tc.piano.Code, err)
+		}
+
+		// Un'ora oltre il confine no, e il rifiuto dice quale piano e quanto
+		// conserva: è ciò che distingue «hai sbagliato» da «devi cambiare piano».
+		fuori := atteso.Add(-time.Hour)
+		limit := planLimit(t, tc.piano.CheckRetention(fuori, time.Time{}, adesso))
+		if limit.Limit != jobs.LimitRetention {
+			t.Errorf("%s: limite = %q, atteso %q", tc.piano.Code, limit.Limit, jobs.LimitRetention)
+		}
+		if limit.Field != "since" {
+			t.Errorf("%s: campo = %q, atteso \"since\"", tc.piano.Code, limit.Field)
+		}
+		if !strings.Contains(limit.Error(), tc.piano.Name) {
+			t.Errorf("%s: il messaggio non nomina il piano: %q", tc.piano.Code, limit.Error())
+		}
+		if !strings.Contains(limit.Error(), "giorni") {
+			t.Errorf("%s: il messaggio non dice quanto conserva il piano: %q", tc.piano.Code, limit.Error())
+		}
+	}
+}
+
+// TestRetentionRifiutaAncheLaFinestraTuttaNelPassato: `until` da solo descrive
+// una finestra che finisce prima del confine, e `since` assente non la salva.
+func TestRetentionRifiutaAncheLaFinestraTuttaNelPassato(t *testing.T) {
+	adesso := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+
+	limit := planLimit(t, jobs.FreePlan.CheckRetention(time.Time{}, adesso.AddDate(0, 0, -10), adesso))
+	if limit.Field != "until" {
+		t.Errorf("campo = %q, atteso \"until\"", limit.Field)
+	}
+
+	// Senza finestra richiesta non c'è niente da rifiutare: il confine diventa
+	// il valore predefinito, e lo applica [jobs.Service.Executions].
+	if err := jobs.FreePlan.CheckRetention(time.Time{}, time.Time{}, adesso); err != nil {
+		t.Errorf("una richiesta senza finestra non va rifiutata: %v", err)
+	}
+}
+
+// TestRetentionNonSiApplicaSenzaUnNumero: un piano che non dichiara una
+// retention non ha un confine, e inventarne uno taglierebbe lo storico di
+// qualcuno.
+func TestRetentionNonSiApplicaSenzaUnNumero(t *testing.T) {
+	adesso := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	senzaRetention := jobs.Plan{Code: "custom", Name: "Custom", MinInterval: time.Minute}
+
+	if got := senzaRetention.RetentionFloor(adesso); !got.IsZero() {
+		t.Errorf("confine = %s, atteso lo zero", got)
+	}
+	if err := senzaRetention.CheckRetention(adesso.AddDate(-5, 0, 0), time.Time{}, adesso); err != nil {
+		t.Errorf("rifiuto senza un numero da applicare: %v", err)
 	}
 }
 

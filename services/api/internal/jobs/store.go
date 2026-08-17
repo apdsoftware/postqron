@@ -72,6 +72,16 @@ type Store interface {
 	// viva restituisce il piano `free`.
 	PlanForUser(ctx context.Context, userID string) (Plan, error)
 
+	// PlanByCode legge una riga del listino per codice, indipendentemente da chi
+	// la sottoscrive. [ErrNotFound] se quel codice non esiste.
+	//
+	// Serve a un solo caso, e non è generale per caso: R25-bis dice che la
+	// portata di Agency è quella di Team applicata per workspace, e derivarla
+	// richiede di leggere i numeri di un piano che non è quello dell'utente. Il
+	// codice del piano di riferimento sta nel codice — lo nomina R25-bis — ma i
+	// **numeri** restano nel database, che è la fonte di verità della matrice.
+	PlanByCode(ctx context.Context, code string) (Plan, error)
+
 	// ListExecutions elenca le esecuzioni di un job, dalla più recente. Come
 	// ListJobs, restituisce fino a `Limit + 1` righe.
 	ListExecutions(ctx context.Context, filter ExecutionFilter) ([]Execution, error)
