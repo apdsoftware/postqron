@@ -1,0 +1,5 @@
+# Fallback di routing per Cloudflare Pages.
+# La dashboard è una SPA statica: ogni percorso non corrispondente a un file
+# viene servito da index.html, che lascia al router Vue la risoluzione della
+# rotta. Senza questa regola un refresh su /jobs/42 restituirebbe 404.
+/* /index.html 200

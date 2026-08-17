@@ -1,0 +1,11 @@
+# Workspace pnpm del monorepo PostQron.
+# Il backend Go vive fuori dal workspace, in services/api (vedi go.work).
+packages:
+  - apps/*
+# pnpm blocca per default gli script di installazione delle dipendenze.
+# Queste due scaricano il proprio binario nativo (esbuild per Vite, unrs-resolver
+# per ESLint) e senza build non funzionano: sono parte della toolchain Nuxt.
+# Ogni nuova voce va valutata: uno script di install è codice arbitrario.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true

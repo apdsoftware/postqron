@@ -5,6 +5,10 @@ vendor/
 
 # Build
 dist/
+# `nuxi generate` crea anche un symlink `dist` -> `.output/public` con path
+# assoluto: il pattern `dist/` non intercetta i symlink, quindi serve anche
+# questa riga.
+dist
 .output/
 .nuxt/
 .nitro/

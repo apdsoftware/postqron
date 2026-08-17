@@ -1,0 +1,6 @@
+{
+  // Il tsconfig generato da Nuxt (.nuxt/tsconfig.json) porta alias e tipi
+  // auto-importati; tsconfig.base.json aggiunge le regole condivise del
+  // monorepo. L'ordine conta: le opzioni di Nuxt hanno la precedenza.
+  "extends": ["../../tsconfig.base.json", "./.nuxt/tsconfig.json"]
+}
