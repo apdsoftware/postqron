@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apdsoftware/postqron/services/api/internal/netguard"
 	"github.com/apdsoftware/postqron/services/api/internal/ratelimit"
 )
 
@@ -53,8 +54,16 @@ type Options struct {
 	Store Store
 	// Logger è obbligatorio.
 	Logger *slog.Logger
-	// Guard è il controllo sul target (R38). Può essere nil finché la issue
-	// #455 non lo fornisce: vedi [TargetGuard].
+	// Guard è il controllo sul target (R38).
+	//
+	// **Nil significa il blocco predefinito, non "nessun blocco"**: il servizio
+	// costruisce un [netguard.Guard] con la policy predefinita. È il contrario
+	// di ciò che questo campo faceva finché #455 non esisteva, ed è un
+	// cambiamento voluto: un servizio che esegue richieste HTTP verso URL scelti
+	// dall'utente, dalla stessa macchina del database, non deve poter nascere
+	// senza difesa perché qualcuno ha dimenticato una riga di composizione. Chi
+	// vuole un guard diverso — con [netguard.Policy.Deny] valorizzato con
+	// l'indirizzo pubblico della VPS, per esempio — lo passa qui.
 	Guard TargetGuard
 	// Dispatcher può essere nil: vedi [Dispatcher].
 	Dispatcher Dispatcher
@@ -85,10 +94,15 @@ func NewService(opts Options) (*Service, error) {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
+	guard := opts.Guard
+	if guard == nil {
+		// Vedi [Options.Guard]: il predefinito è il blocco, non la sua assenza.
+		guard = netguard.New(netguard.Options{Logger: opts.Logger})
+	}
 	return &Service{
 		store:      opts.Store,
 		log:        opts.Logger,
-		guard:      opts.Guard,
+		guard:      guard,
 		dispatcher: opts.Dispatcher,
 		now:        now,
 		budget:     newTriggerBudget(now),
