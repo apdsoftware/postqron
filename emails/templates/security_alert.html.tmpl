@@ -1,0 +1,42 @@
+{{/*
+  Evento di sicurezza (R21): password reimpostata, chiave API creata o
+  revocata, accesso di un amministratore in impersonificazione.
+
+  Questa email **notifica**, non autorizza. Non contiene link con token, non
+  contiene chiavi e non contiene niente che, intercettato, permetta di agire
+  sull'account: un template che interpola un segreto è un difetto anche se il
+  risultato non finisce nei log. I flussi che hanno bisogno di un token
+  monouso — la conferma di un reset di password, per dire — appartengono
+  all'autenticazione, non a questo template.
+
+  Della risorsa coinvolta si stampa solo il nome, mai il valore: «CI deploy»,
+  non la chiave che quel nome identifica.
+*/ -}}
+
+{{define "preheader"}}{{.T "security_alert.preheader"}}{{end}}
+
+{{define "content" -}}
+<h1 class="pq-heading" style="margin:0 0 20px 0;font-family:Helvetica,Arial,sans-serif;font-size:26px;line-height:32px;font-weight:bold;color:#3b566e;">{{.T "security_alert.heading"}}</h1>
+
+<p style="margin:0 0 24px 0;">{{.KindDescription}}</p>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px 0;background-color:#f9faff;border-radius:6px;">
+<tr><td style="padding:10px 16px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+{{template "detail" (detail (.T "common.label_when") (.Time .Data.OccurredAt))}}
+{{if .Data.ResourceName}}{{template "detail" (detail (.T "common.label_resource") .Data.ResourceName)}}{{end}}
+{{if .Data.SourceIP}}{{template "detail" (detail (.T "common.label_source_ip") .Data.SourceIP)}}{{end}}
+</table>
+</td></tr>
+</table>
+
+<p style="margin:0 0 8px 0;">{{.T "security_alert.expected"}}</p>
+
+<p style="margin:0 0 8px 0;">{{.T "security_alert.unexpected" "support" .Site.SupportEmail}}</p>
+
+{{template "button" (button .Accent (.AppURL "/settings/security") (.T "security_alert.cta"))}}
+
+<p style="margin:24px 0 0 0;font-size:14px;line-height:20px;color:#6f8ba4;">{{.T "security_alert.phishing_note" "product" .Site.ProductName}}</p>
+
+<p style="margin:8px 0 0 0;font-size:13px;line-height:20px;color:#6f8ba4;">{{.T "common.time_note"}}</p>
+{{- end}}
