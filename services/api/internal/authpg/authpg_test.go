@@ -818,8 +818,15 @@ func TestLaMigrazione0009EReversibile(t *testing.T) {
 		}
 	}
 
-	// Annulla la sola 0009.
-	if _, err := migrator.Down(ctx, 1); err != nil {
+	// Annulla tutto ciò che sta sopra la 0008: la 0009 e qualunque migrazione
+	// sia arrivata dopo di lei. Il conteggio non può essere fisso a uno, o il
+	// test smette di provare la reversibilità della 0009 — e comincia a fallire
+	// — nel momento in cui un'altra issue aggiunge la propria migrazione.
+	version, err := migrator.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if _, err := migrator.Down(ctx, version-8); err != nil {
 		t.Fatalf("Down: %v", err)
 	}
 	for _, name := range []string{"sessions", "user_tokens"} {

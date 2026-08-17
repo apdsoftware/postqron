@@ -53,6 +53,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0007 | `ai_credentials` |
 | 0008 | `audit_log`, `notifications` |
 | 0009 | `sessions`, `user_tokens` e le loro funzioni di pulizia |
+| 0010 | `jobs_unscheduled_idx`: i job in attesa della prima occorrenza |
 
 ## Scelte di schema
 
@@ -120,6 +121,16 @@ indice: `jobs_due_idx` è parziale su `(next_run_at)` e contiene solo i job
 abilitati, non archiviati e con una prossima occorrenza — il dispatch la
 interroga in continuazione, e l'indice cresce con quei job soltanto, non con il
 catalogo. Per i log, l'indice è la chiave primaria di `job_executions`.
+
+A queste si è aggiunta con la 0010 una terza query calda, `jobs_unscheduled_idx`:
+lo scheduler cerca a ogni passata i job che una prossima occorrenza non ce
+l'hanno ancora, perché `next_run_at` — anche il primo valore — è «calcolato dallo
+scheduler» e un job appena creato nasce con la colonna a NULL. L'indice è
+parziale sulle stesse condizioni della query, quindi a regime è vuoto: contiene
+solo i job che stanno aspettando. Che il pianificatore usi davvero tutti e tre
+gli indici è verificato con un EXPLAIN su tabelle popolate, in
+`internal/scheduler/plan_test.go` — un indice che esiste e un indice che viene
+usato sono cose diverse.
 
 **Sessioni e token monouso conservati come impronta.** `sessions.token_hash` e
 `user_tokens.token_hash` non contengono il valore che il client possiede ma il suo
