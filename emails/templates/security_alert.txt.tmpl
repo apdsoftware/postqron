@@ -1,0 +1,21 @@
+{{define "subject"}}{{.T "security_alert.subject" "product" .Site.ProductName}}{{end}}
+
+{{define "content" -}}
+{{.T "security_alert.heading"}}
+
+{{.KindDescription}}
+
+{{.T "common.label_when"}}: {{.Time .Data.OccurredAt}}
+{{if .Data.ResourceName}}{{.T "common.label_resource"}}: {{.Data.ResourceName}}
+{{end}}{{if .Data.SourceIP}}{{.T "common.label_source_ip"}}: {{.Data.SourceIP}}
+{{end}}
+{{.T "security_alert.expected"}}
+
+{{.T "security_alert.unexpected" "support" .Site.SupportEmail}}
+
+{{.T "security_alert.cta"}}: {{.AppURL "/settings/security"}}
+
+{{.T "security_alert.phishing_note" "product" .Site.ProductName}}
+
+{{.T "common.time_note"}}
+{{end}}

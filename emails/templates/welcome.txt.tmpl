@@ -1,0 +1,19 @@
+{{define "subject"}}{{.T "welcome.subject" "product" .Site.ProductName}}{{end}}
+
+{{define "content" -}}
+{{.T "welcome.heading" "product" .Site.ProductName}}
+
+{{.Greeting}}
+
+{{.T "welcome.intro" "product" .Site.ProductName}}
+
+{{.T "welcome.steps_heading"}}
+
+1. {{.T "welcome.step_1"}}
+2. {{.T "welcome.step_2"}}
+3. {{.T "welcome.step_3"}}
+
+{{.T "welcome.cta"}}: {{.AppURL "/jobs/new"}}
+
+{{.T "welcome.docs"}} {{.URL "/docs"}}
+{{end}}

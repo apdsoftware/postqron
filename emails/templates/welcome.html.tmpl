@@ -1,0 +1,23 @@
+{{/* Benvenuto / onboarding (R21). Nessun testo letterale: solo chiavi. */ -}}
+
+{{define "preheader"}}{{.T "welcome.preheader"}}{{end}}
+
+{{define "content" -}}
+<h1 class="pq-heading" style="margin:0 0 20px 0;font-family:Helvetica,Arial,sans-serif;font-size:26px;line-height:32px;font-weight:bold;color:#3b566e;">{{.T "welcome.heading" "product" .Site.ProductName}}</h1>
+
+<p style="margin:0 0 16px 0;">{{.Greeting}}</p>
+
+<p style="margin:0 0 24px 0;">{{.T "welcome.intro" "product" .Site.ProductName}}</p>
+
+<h2 style="margin:0 0 12px 0;font-family:Helvetica,Arial,sans-serif;font-size:17px;line-height:24px;font-weight:bold;color:#3b566e;">{{.T "welcome.steps_heading"}}</h2>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+{{template "detail" (detail "1." (.T "welcome.step_1"))}}
+{{template "detail" (detail "2." (.T "welcome.step_2"))}}
+{{template "detail" (detail "3." (.T "welcome.step_3"))}}
+</table>
+
+{{template "button" (button .Accent (.AppURL "/jobs/new") (.T "welcome.cta"))}}
+
+<p style="margin:20px 0 0 0;font-size:14px;line-height:20px;color:#6f8ba4;">{{.T "welcome.docs"}} <a href="{{.URL "/docs"}}" style="color:#4278e5;">{{.T "welcome.docs_link"}}</a></p>
+{{- end}}

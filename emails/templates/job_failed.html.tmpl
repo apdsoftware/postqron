@@ -1,0 +1,42 @@
+{{/*
+  Alert di job fallito (R21).
+
+  Il testo non presume che l'email arrivi, né che ne siano arrivate altre
+  prima: Mailronix risponde 202 anche quando il destinatario è in suppression
+  list, quindi il recapito non è osservabile (R20.1). Di qui la nota finale,
+  che rimanda alla cronologia in dashboard come unica fonte attendibile.
+*/ -}}
+
+{{define "preheader"}}{{.T "job_failed.preheader"}}{{end}}
+
+{{define "content" -}}
+<h1 class="pq-heading" style="margin:0 0 20px 0;font-family:Helvetica,Arial,sans-serif;font-size:26px;line-height:32px;font-weight:bold;color:#3b566e;">{{.T "job_failed.heading"}}</h1>
+
+<p style="margin:0 0 24px 0;">{{.TN "job_failed.summary" .Data.ConsecutiveFailures "job" .Data.JobName}}</p>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px 0;background-color:#f9faff;border-radius:6px;">
+<tr><td style="padding:10px 16px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+{{template "detail" (detail (.T "common.label_job") .Data.JobName)}}
+{{template "detail" (detail (.T "common.label_environment") .EnvironmentLabel)}}
+{{template "detail" (detail (.T "common.label_failures") .Data.ConsecutiveFailures)}}
+{{template "detail" (detail (.T "common.label_last_attempt") (.Time .Data.LastAttemptAt))}}
+{{template "detail" (detail (.T "common.label_outcome") .FailureReason)}}
+</table>
+</td></tr>
+</table>
+
+<h2 style="margin:0 0 12px 0;font-family:Helvetica,Arial,sans-serif;font-size:17px;line-height:24px;font-weight:bold;color:#3b566e;">{{.T "job_failed.checks_heading"}}</h2>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+{{template "detail" (detail "1." (.T "job_failed.check_1"))}}
+{{template "detail" (detail "2." (.T "job_failed.check_2"))}}
+{{template "detail" (detail "3." (.T "job_failed.check_3"))}}
+</table>
+
+{{template "button" (button .Accent .JobURL (.T "job_failed.cta"))}}
+
+<p style="margin:24px 0 0 0;font-size:14px;line-height:20px;color:#6f8ba4;">{{.T "job_failed.delivery_note"}}</p>
+
+<p style="margin:8px 0 0 0;font-size:13px;line-height:20px;color:#6f8ba4;">{{.T "common.time_note"}}</p>
+{{- end}}

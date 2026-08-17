@@ -1,0 +1,25 @@
+{{define "subject"}}{{.T "job_failed.subject" "job" .Data.JobName "environment" .EnvironmentLabel}}{{end}}
+
+{{define "content" -}}
+{{.T "job_failed.heading"}}
+
+{{.TN "job_failed.summary" .Data.ConsecutiveFailures "job" .Data.JobName}}
+
+{{.T "common.label_job"}}: {{.Data.JobName}}
+{{.T "common.label_environment"}}: {{.EnvironmentLabel}}
+{{.T "common.label_failures"}}: {{.Data.ConsecutiveFailures}}
+{{.T "common.label_last_attempt"}}: {{.Time .Data.LastAttemptAt}}
+{{.T "common.label_outcome"}}: {{.FailureReason}}
+
+{{.T "job_failed.checks_heading"}}
+
+1. {{.T "job_failed.check_1"}}
+2. {{.T "job_failed.check_2"}}
+3. {{.T "job_failed.check_3"}}
+
+{{.T "job_failed.cta"}}: {{.JobURL}}
+
+{{.T "job_failed.delivery_note"}}
+
+{{.T "common.time_note"}}
+{{end}}

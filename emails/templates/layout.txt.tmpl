@@ -1,0 +1,14 @@
+{{/*
+  Layout della variante testuale, gemello di layout.html.tmpl.
+
+  Non è un ripiego: un corpo `text_body` accompagna sempre l'HTML nel payload
+  verso Mailronix, perché è quello che leggono i client che rifiutano l'HTML e
+  i filtri antispam che penalizzano i messaggi solo-HTML.
+*/ -}}
+{{define "layout" -}}
+{{template "content" .}}
+----------------------------------------------------------------------
+{{.T "common.footer_transactional" "product" .Site.ProductName}}
+{{.T "common.footer_support" "support" .Site.SupportEmail}}
+{{.Year}} {{.Site.ProductName}} - {{.Site.PublicBaseURL}}
+{{end}}

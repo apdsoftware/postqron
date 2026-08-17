@@ -1,0 +1,19 @@
+{{define "subject"}}{{.T "plan_changed.subject" "product" .Site.ProductName "next" .Data.NewPlan}}{{end}}
+
+{{define "content" -}}
+{{.T "plan_changed.heading"}}
+
+{{.T "plan_changed.summary" "previous" .Data.PreviousPlan "next" .Data.NewPlan}}
+
+{{.T "common.label_previous_plan"}}: {{.Data.PreviousPlan}}
+{{.T "common.label_new_plan"}}: {{.Data.NewPlan}}
+{{.T "common.label_effective_from"}}: {{.Time .Data.EffectiveAt}}
+
+{{.T "plan_changed.limits" "next" .Data.NewPlan}}
+
+{{.T "plan_changed.cta"}}: {{.AppURL "/settings/billing"}}
+
+{{.T "plan_changed.unexpected" "support" .Site.SupportEmail}}
+
+{{.T "common.time_note"}}
+{{end}}

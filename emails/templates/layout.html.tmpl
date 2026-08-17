@@ -1,0 +1,112 @@
+{{/*
+  Layout HTML condiviso da tutte le email transazionali (R19, R20).
+
+  Ogni template di evento definisce "preheader" e "content"; qui c'è tutto il
+  resto — intestazione, cornice, piè di pagina — una volta sola. È il punto in
+  cui si paga il vincolo del multilingua: cinque lingue, una sola struttura.
+
+  Vincoli di questo file, spiegati in emails/templates/README.md:
+    - tabelle per il layout, niente flexbox né grid;
+    - CSS inline su ogni elemento che conta; il blocco <style> aggiunge solo
+      miglioramenti che si possono perdere senza danno;
+    - nessun commento condizionale MSO: html/template rimuove i commenti HTML
+      dall'output, quindi non sarebbero nel messaggio spedito. Il layout è
+      costruito per non averne bisogno;
+    - nessuna immagine: il marchio è testo, perché i client di posta bloccano
+      le immagini per impostazione predefinita e un logo che non carica non è
+      un logo;
+    - markup ben formato secondo XML, così i test possono verificarlo con
+      encoding/xml senza dipendenze aggiuntive. Da qui i tag auto-chiusi e le
+      entità numeriche.
+*/ -}}
+{{define "layout" -}}
+<!DOCTYPE html>
+<html lang="{{.Language}}" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="x-apple-disable-message-reformatting" />
+<meta name="color-scheme" content="light dark" />
+<meta name="supported-color-schemes" content="light dark" />
+<title>{{.Subject}}</title>
+<style type="text/css">
+body { margin: 0; padding: 0; width: 100%; }
+table { border-collapse: collapse; }
+img { border: 0; }
+a { color: #4278e5; }
+@media only screen and (max-width: 620px) {
+  .pq-container { width: 100% !important; }
+  .pq-pad { padding-left: 24px !important; padding-right: 24px !important; }
+  .pq-heading { font-size: 22px !important; }
+}
+</style>
+</head>
+<body style="margin:0;padding:0;width:100%;background-color:#f4f8fb;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f8fb;">{{template "preheader" .}}&#8203;&#160;&#8203;&#160;&#8203;&#160;&#8203;&#160;&#8203;&#160;&#8203;&#160;&#8203;&#160;&#8203;&#160;</div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f8fb;">
+<tr>
+<td align="center" style="padding:24px 12px;">
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" class="pq-container" style="width:600px;max-width:600px;">
+
+<tr>
+<td class="pq-pad" style="padding:8px 40px 20px 40px;font-family:Helvetica,Arial,sans-serif;font-size:18px;line-height:24px;font-weight:bold;color:#3b566e;">
+{{.Site.ProductName}}
+</td>
+</tr>
+
+<tr>
+<td style="background-color:#ffffff;border-radius:8px;border:1px solid #e1ecf4;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+<tr>
+<td style="height:4px;line-height:4px;font-size:4px;background-color:{{.Accent}};border-radius:8px 8px 0 0;">&#160;</td>
+</tr>
+<tr>
+<td class="pq-pad" style="padding:32px 40px 36px 40px;font-family:Helvetica,Arial,sans-serif;font-size:16px;line-height:24px;color:#3b566e;">
+{{template "content" .}}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<tr>
+<td class="pq-pad" style="padding:24px 40px 8px 40px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;color:#6f8ba4;">
+<p style="margin:0 0 8px 0;">{{.T "common.footer_transactional" "product" .Site.ProductName}}</p>
+<p style="margin:0 0 8px 0;">{{.T "common.footer_support" "support" .Site.SupportEmail}}</p>
+<p style="margin:0;">{{.Year}} {{.Site.ProductName}} &#183; <a href="{{.URL "/"}}" style="color:#6f8ba4;">{{.Site.PublicBaseURL}}</a></p>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+</table>
+</body>
+</html>
+{{- end}}
+
+{{/*
+  Pulsante. Il riempimento sta sulla `td` e non sull'`a`: il motore di
+  rendering di Word, che Outlook per Windows usa per l'HTML, ignora il padding
+  sugli elementi inline, e un pulsante con il padding sull'ancora si
+  ridurrebbe lì a un link nudo. Sulla cella lo rispettano tutti.
+*/ -}}
+{{define "button" -}}
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:20px 0 8px 0;">
+<tr>
+<td align="center" bgcolor="{{.Accent}}" style="border-radius:6px;padding:14px 28px;">
+<a href="{{.URL}}" style="font-family:Helvetica,Arial,sans-serif;font-size:16px;line-height:20px;font-weight:bold;color:#ffffff;text-decoration:none;">{{.Label}}</a>
+</td>
+</tr>
+</table>
+{{- end}}
+
+{{/* Riga «etichetta: valore» dei riquadri di dettaglio. */ -}}
+{{define "detail" -}}
+<tr>
+<td style="padding:5px 16px 5px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#6f8ba4;vertical-align:top;">{{.Label}}</td>
+<td style="padding:5px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#3b566e;vertical-align:top;">{{.Value}}</td>
+</tr>
+{{- end}}
