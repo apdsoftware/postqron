@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import heroHexagons from '~/assets/images/hero-hexagons.svg'
+import { srcSet, type RasterImageName } from '~/utils/images'
 
-defineProps<{
+const props = defineProps<{
   title: string
   text: string
-  image: string
+  /** Nome nel registro delle immagini: è l'elemento LCP della home. */
+  image: RasterImageName
   imageAlt: string
   /** Nota sotto al campo email, se esiste un messaggio approvato. */
   note?: string
@@ -15,6 +17,33 @@ defineProps<{
   emailSubmit: string
   closeVideoLabel: string
 }>()
+
+/*
+ * Larghezza di rendering della foto: `.hero__photo` occupa il 55,5% della
+ * finestra da 992px in su e tutta la larghezza sotto. Va tenuta allineata alle
+ * media query qui sotto — è la stessa misura detta due volte, una al layout e
+ * una alla rete, e non c'è modo di dedurne una dall'altra.
+ */
+const HERO_SIZES = '(min-width: 992px) 55.5vw, 100vw'
+
+/*
+ * L'unica immagine precaricata del sito. È l'elemento LCP: senza il precarico
+ * la richiesta parte quando il parser incontra il tag, cioè dopo il foglio di
+ * stile. Il precarico dichiara `type` e ripete `srcset`/`sizes` identici a
+ * quelli del `<source>` AVIF del `<picture>`: se divergessero il browser
+ * scaricherebbe due file invece di uno, ed è il modo classico in cui un
+ * precarico peggiora la pagina che doveva accelerare.
+ */
+useHead({
+  link: [{
+    rel: 'preload',
+    as: 'image',
+    type: 'image/avif',
+    imagesrcset: srcSet(props.image, 'avif'),
+    imagesizes: HERO_SIZES,
+    fetchpriority: 'high',
+  }],
+})
 
 const email = ref('')
 
@@ -33,13 +62,12 @@ function onSubmit() {
     class="hero"
   >
     <div class="hero__photo">
-      <img
-        :src="image"
+      <ResponsiveImage
+        :name="image"
         :alt="imageAlt"
-        width="1065"
-        height="955"
-        fetchpriority="high"
-      >
+        :sizes="HERO_SIZES"
+        priority
+      />
     </div>
 
     <!--
@@ -106,7 +134,8 @@ function onSubmit() {
   overflow: hidden;
 }
 
-.hero__photo img {
+/* `:deep`: fra il contenitore e l'immagine c'è il `<picture>` di ResponsiveImage. */
+.hero__photo :deep(img) {
   display: block;
   max-width: 100%;
   height: auto;

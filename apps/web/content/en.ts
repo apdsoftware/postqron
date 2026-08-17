@@ -120,7 +120,7 @@ export const en: SiteContent = {
     text:
       'Describe your schedules in a file in your repository. Postqron runs them on '
       + 'time, retries when it should, and always tells you how it went.',
-    image: '/img/hero.jpg',
+    image: 'hero',
     imageAlt: 'The Postqron console showing the list of runs',
   },
 
@@ -167,10 +167,8 @@ export const en: SiteContent = {
         'Separate environments for staging and production',
         'Syntax errors reported on the commit',
       ],
-      image: '/img/screenshots/jobs.png',
+      image: 'screenshots/jobs',
       imageAlt: 'List of cron jobs synced from a repository',
-      imageWidth: 593,
-      imageHeight: 467,
       imageSide: 'left',
     },
     {
@@ -183,10 +181,8 @@ export const en: SiteContent = {
         'Average duration and failure rate per job',
         'Alerts by email or webhook on Slack and Discord',
       ],
-      image: '/img/screenshots/metrics.png',
+      image: 'screenshots/metrics',
       imageAlt: 'Chart of run duration over time',
-      imageWidth: 605,
-      imageHeight: 375,
       imageSide: 'right',
     },
   ],
@@ -372,7 +368,7 @@ export const en: SiteContent = {
       excerpt:
         'Reboots, time zones and daylight saving: the three ways a schedule that looked '
         + 'simple stops running without telling anyone.',
-      image: '/img/blog/1.jpg',
+      image: 'blog/1',
       to: '/#blog',
     },
     {
@@ -380,7 +376,7 @@ export const en: SiteContent = {
       excerpt:
         'Scheduling is configuration; the work is not. Where the line falls, and why it '
         + 'pays to keep it sharp from the very first job.',
-      image: '/img/blog/2.jpg',
+      image: 'blog/2',
       to: '/#blog',
     },
     {
@@ -388,7 +384,7 @@ export const en: SiteContent = {
       excerpt:
         'One more attempt can fix a passing glitch or charge a customer twice. How to '
         + 'pick the right policy for each job.',
-      image: '/img/blog/3.jpg',
+      image: 'blog/3',
       to: '/#blog',
     },
   ],

@@ -6,8 +6,9 @@
   "description": "Sito pubblico postqron.com — Nuxt 3 a build statica",
   "scripts": {
     "postinstall": "nuxt prepare",
-    "dev": "nuxt dev --port 3000",
-    "generate": "nuxt generate",
+    "images": "node scripts/images.ts",
+    "dev": "pnpm run images && nuxt dev --port 3000",
+    "generate": "pnpm run images && nuxt generate",
     "postgenerate": "find .output -mindepth 1 -maxdepth 1 ! -name public -delete",
     "preview": "nuxt preview",
     "lint": "nuxt prepare && eslint .",
@@ -27,6 +28,7 @@
     "@vue/test-utils": "^2.4.11",
     "eslint": "^10.8.1",
     "happy-dom": "^20.11.2",
+    "sharp": "^0.35.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
     "vue-tsc": "^3.3.10"

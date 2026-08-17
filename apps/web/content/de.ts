@@ -114,7 +114,7 @@ export const de: SiteContent = {
     text:
       'Beschreibe deine Zeitpläne in einer Datei in deinem Repository. Postqron führt '
       + 'sie pünktlich aus, wiederholt sie bei Bedarf und sagt dir immer, wie es lief.',
-    image: '/img/hero.jpg',
+    image: 'hero',
     imageAlt: 'Die Postqron-Konsole mit der Liste der Ausführungen',
   },
 
@@ -162,10 +162,8 @@ export const de: SiteContent = {
         'Getrennte Umgebungen für Staging und Produktion',
         'Syntaxfehler direkt am Commit gemeldet',
       ],
-      image: '/img/screenshots/jobs.png',
+      image: 'screenshots/jobs',
       imageAlt: 'Liste der aus einem Repository synchronisierten Cronjobs',
-      imageWidth: 593,
-      imageHeight: 467,
       imageSide: 'left',
     },
     {
@@ -178,10 +176,8 @@ export const de: SiteContent = {
         'Durchschnittsdauer und Fehlerquote pro Job',
         'Meldungen per E-Mail oder Webhook an Slack und Discord',
       ],
-      image: '/img/screenshots/metrics.png',
+      image: 'screenshots/metrics',
       imageAlt: 'Diagramm der Ausführungsdauer im Zeitverlauf',
-      imageWidth: 605,
-      imageHeight: 375,
       imageSide: 'right',
     },
   ],
@@ -367,7 +363,7 @@ export const de: SiteContent = {
       excerpt:
         'Neustarts, Zeitzonen und Sommerzeit: die drei Arten, wie ein Zeitplan, der '
         + 'einfach aussah, aufhört zu laufen, ohne es jemandem zu sagen.',
-      image: '/img/blog/1.jpg',
+      image: 'blog/1',
       to: '/#blog',
     },
     {
@@ -375,7 +371,7 @@ export const de: SiteContent = {
       excerpt:
         'Der Zeitplan ist Konfiguration, die Arbeit nicht. Wo die Grenze verläuft und '
         + 'warum es sich lohnt, sie ab dem ersten Job scharf zu halten.',
-      image: '/img/blog/2.jpg',
+      image: 'blog/2',
       to: '/#blog',
     },
     {
@@ -383,7 +379,7 @@ export const de: SiteContent = {
       excerpt:
         'Ein Versuch mehr kann eine kurze Störung beheben oder eine Abbuchung '
         + 'verdoppeln. Wie man für jeden Job die richtige Strategie wählt.',
-      image: '/img/blog/3.jpg',
+      image: 'blog/3',
       to: '/#blog',
     },
   ],

@@ -114,7 +114,7 @@ export const it: SiteContent = {
     text:
       'Descrivi le schedulazioni in un file del tuo repository. Postqron le esegue '
       + 'all\'orario giusto, ritenta quando serve e ti dice sempre com\'è andata.',
-    image: '/img/hero.jpg',
+    image: 'hero',
     imageAlt: 'La console di Postqron con l\'elenco delle esecuzioni',
   },
 
@@ -161,10 +161,8 @@ export const it: SiteContent = {
         'Ambienti separati per staging e produzione',
         'Errori di sintassi segnalati sul commit',
       ],
-      image: '/img/screenshots/jobs.png',
+      image: 'screenshots/jobs',
       imageAlt: 'Elenco dei cronjob sincronizzati da un repository',
-      imageWidth: 593,
-      imageHeight: 467,
       imageSide: 'left',
     },
     {
@@ -177,10 +175,8 @@ export const it: SiteContent = {
         'Durata media e tasso di fallimento per job',
         'Avvisi via email o webhook su Slack e Discord',
       ],
-      image: '/img/screenshots/metrics.png',
+      image: 'screenshots/metrics',
       imageAlt: 'Grafico della durata delle esecuzioni nel tempo',
-      imageWidth: 605,
-      imageHeight: 375,
       imageSide: 'right',
     },
   ],
@@ -365,7 +361,7 @@ export const it: SiteContent = {
       excerpt:
         'Riavvii, fusi orari e ora legale: i tre modi in cui una schedulazione che '
         + 'sembrava semplice smette di partire senza dirlo a nessuno.',
-      image: '/img/blog/1.jpg',
+      image: 'blog/1',
       to: '/#blog',
     },
     {
@@ -373,7 +369,7 @@ export const it: SiteContent = {
       excerpt:
         'La schedulazione è configurazione, il lavoro no. Dove passa il confine e '
         + 'perché conviene tenerlo netto fin dal primo job.',
-      image: '/img/blog/2.jpg',
+      image: 'blog/2',
       to: '/#blog',
     },
     {
@@ -381,7 +377,7 @@ export const it: SiteContent = {
       excerpt:
         'Un tentativo in più può risolvere un guasto momentaneo o raddoppiare un '
         + 'addebito. Come scegliere la politica giusta per ogni job.',
-      image: '/img/blog/3.jpg',
+      image: 'blog/3',
       to: '/#blog',
     },
   ],

@@ -23,6 +23,9 @@ pnpm --filter @postqron/web run generate  # statico in .output/public
 | `content/<lingua>.ts` | i testi di una lingua, separati dal markup |
 | `content/index.ts` | le cinque lingue indicizzate per codice |
 | `types/content.ts` | la forma di quei dati |
+| `images/` | i sorgenti delle fotografie — **non** vengono pubblicati |
+| `utils/images.ts` | il registro: dimensioni, larghezze e tetti di peso |
+| `scripts/images.ts` | genera le varianti in `public/img/gen/` prima della build |
 | `utils/locale.ts` | lingue, rilevamento e percorsi prefissati |
 | `composables/useSiteLocale.ts` | lingua e contenuti della pagina corrente |
 | `composables/useLocalizedHead.ts` | `lang`, `canonical` e `hreflang` |
@@ -66,6 +69,42 @@ Il listino non prevede periodi di prova: il piano Free è l'ingresso (R59).
 pnpm --filter @postqron/web run test    # rilevamento, percorsi, hreflang, parità fra lingue
 pnpm exec playwright test --project=web # le cinque rotte servite come in produzione
 ```
+
+## Immagini
+
+Nessuna fotografia si aggiunge scrivendo un `<img>`: il percorso è sempre
+sorgente in `images/` → voce in `utils/images.ts` → `<ResponsiveImage>`.
+
+```bash
+pnpm --filter @postqron/web run images   # rigenera public/img/gen/ (lo fa già dev e generate)
+```
+
+`scripts/images.ts` produce, per ogni larghezza dichiarata, un AVIF, un WebP e
+un ripiego JPEG o PNG; `<ResponsiveImage>` li monta in un `<picture>` prendendo
+`width` e `height` dal registro. **Le varianti non stanno in Git**: sono
+artefatti, si rigenerano a ogni build e la directory `public/img/gen/` è
+ignorata.
+
+Perché non `@nuxt/image`: quel modulo trasforma a runtime immagini che arrivano
+da un CMS o da un dominio terzo, e qui non esiste né l'uno né l'altro — il sito
+è statico su Cloudflare Pages e non può servire `/_ipx/`. In cambio aggiungerebbe
+JavaScript a una pagina che ne ha già troppo (R53-bis). Lo script fa la stessa
+cosa in build e non lascia niente a runtime.
+
+Tre cose che rompono la build o i test se sbagliate, ed è voluto:
+
+- una **larghezza maggiore del nativo** nel registro è un ingrandimento: byte in
+  più, dettaglio uguale. È il difetto da cui partiva #502, con `hero.jpg` portato
+  a 1200px da un originale di 1065;
+- una variante **oltre il tetto di peso** dichiarato ferma `scripts/images.ts`, e
+  con lui `generate`;
+- un `<img>` **senza `width` e `height`** fa fallire `test/images.test.ts`: è da
+  lì che nasce quasi tutto lo spostamento di contenuto.
+
+L'unica immagine **precaricata** è quella dell'hero, che è l'elemento LCP. Il
+verso conta: `loading="lazy"` va su tutto ciò che sta sotto la piega e mai
+sull'LCP, e il precarico solo sull'LCP e mai sul resto. Sbagliare verso peggiora
+il punteggio invece di migliorarlo.
 
 ## Regole che valgono per le pagine successive
 

@@ -2,5 +2,12 @@
   // Il tsconfig generato da Nuxt (.nuxt/tsconfig.json) porta alias e tipi
   // auto-importati; tsconfig.base.json aggiunge le regole condivise del
   // monorepo. L'ordine conta: le opzioni di Nuxt hanno la precedenza.
-  "extends": ["../../tsconfig.base.json", "./.nuxt/tsconfig.json"]
+  "extends": ["../../tsconfig.base.json", "./.nuxt/tsconfig.json"],
+  "compilerOptions": {
+    // `scripts/images.ts` gira con `node`, non passa da un bundler: in ESM
+    // l'estensione nell'import è obbligatoria, e senza questa opzione TypeScript
+    // rifiuterebbe la sola forma che Node accetta. Non emette nulla (`noEmit`),
+    // quindi non c'è un output in cui l'estensione possa restare sbagliata.
+    "allowImportingTsExtensions": true
+  }
 }

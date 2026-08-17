@@ -1,4 +1,5 @@
 import type { HexIconName } from '~/utils/icons'
+import type { RasterImageName } from '~/utils/images'
 
 /**
  * Forma dei contenuti del sito pubblico.
@@ -41,10 +42,14 @@ export interface Showcase {
   title: string
   text: string
   bullets: readonly string[]
-  image: string
+  /**
+   * Nome nel registro delle immagini, non un indirizzo. Le dimensioni native
+   * stavano qui accanto (`imageWidth`, `imageHeight`) e ora stanno in
+   * `utils/images.ts`: erano una copia di un dato che il file già porta con sé,
+   * e una copia che diverge fa riservare al browser lo spazio sbagliato.
+   */
+  image: RasterImageName
   imageAlt: string
-  imageWidth: number
-  imageHeight: number
   imageSide: 'left' | 'right'
 }
 
@@ -152,7 +157,8 @@ export interface Stat {
 export interface Article {
   title: string
   excerpt: string
-  image: string
+  /** Nome nel registro delle immagini, non un indirizzo: `utils/images.ts`. */
+  image: RasterImageName
   /** Destinazione senza prefisso di lingua, come in `NavItem`. */
   to: string
 }
@@ -178,7 +184,8 @@ export interface Intro {
 export interface Hero {
   title: string
   text: string
-  image: string
+  /** Nome nel registro delle immagini, non un indirizzo: `utils/images.ts`. */
+  image: RasterImageName
   imageAlt: string
   /** Nota sotto al campo email, solo quando descrive un impegno approvato. */
   note?: string
