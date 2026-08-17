@@ -197,12 +197,16 @@ func newMailer(workdir string, cfg config.Config, logger *slog.Logger) (auth.Mai
 
 // newJobsService costruisce le rotte dei job (R8).
 //
-// Guard e Dispatcher restano nil, ed è il punto in cui due issue si innestano:
-// il blocco SSRF di R38 (#455) fornirà un [jobs.TargetGuard], e il worker pool
-// (#389) un [jobs.Dispatcher] che esegue le occorrenze manuali. Vedi
-// [jobs.Dispatcher] per il motivo per cui la seconda **non** è opzionale come
-// sembra: lo scheduler di #388 non raccoglie i trigger manuali, per scelta
-// dichiarata.
+// Guard resta nil **e questo significa il blocco**, non la sua assenza: #455 ha
+// reso il rifiuto degli indirizzi interni il comportamento predefinito di
+// [jobs.NewService], perché il servizio non deve poter nascere indifeso per una
+// riga dimenticata qui. Passare un guard esplicito serve solo a cambiarne la
+// politica, non ad attivarlo.
+//
+// Dispatcher resta nil in attesa del worker pool (#389), che eseguirà le
+// occorrenze manuali. Vedi [jobs.Dispatcher] per il motivo per cui **non** è
+// opzionale come sembra: lo scheduler di #388 non raccoglie i trigger manuali,
+// per scelta dichiarata. Il collegamento completo è #486.
 func newJobsService(pool *pgxpool.Pool, logger *slog.Logger) (*jobs.Service, error) {
 	store, err := jobspg.New(pool)
 	if err != nil {
