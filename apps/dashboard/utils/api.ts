@@ -2,6 +2,10 @@
  * Utility per comporre le richieste verso il backend Go, l'unica origin
  * dinamica del prodotto (docs/SPEC.md §2). La base URL arriva da
  * `runtimeConfig.public.apiBaseUrl` e viene incorporata al momento della build.
+ *
+ * Qui sta la parte pura: comporre un indirizzo, serializzare una query,
+ * classificare un guasto. La richiesta vera la fa `composables/useApi.ts`, che è
+ * il solo posto della dashboard da cui parte una `fetch`.
  */
 
 /** Valori ammessi come parametro di query. `undefined` e `null` sono omessi. */
@@ -33,4 +37,82 @@ export function buildQuery(params: Record<string, QueryValue>): string {
   }
   const query = search.toString()
   return query === '' ? '' : `?${query}`
+}
+
+/**
+ * Come è andata male una richiesta, in termini che l'interfaccia sa mostrare.
+ *
+ * Sono sei categorie e non il codice HTTP, perché è a questo livello che cambia
+ * ciò che si dice all'utente e ciò che si può fare dopo:
+ *
+ * - `network` — la richiesta non è mai arrivata: backend spento, connessione
+ *   assente, CORS. È uno dei due casi in cui «riprova» ha senso senza cambiare
+ *   niente.
+ * - `unauthorized` — 401. La sessione non c'è o è scaduta: l'utente non deve
+ *   leggere un errore, deve tornare all'accesso. Il rimedio lo installerà la
+ *   issue #25, in `useApi()`; la categoria esiste da ora perché è ciò che
+ *   permette di distinguerlo senza guardare il numero in dieci componenti.
+ * - `forbidden` — 403. Autenticato ma non autorizzato: riprovare non serve.
+ * - `notFound` — 404. La risorsa non c'è (più).
+ * - `invalid` — 4xx restante: la richiesta è sbagliata, tipicamente un modulo.
+ * - `server` — 5xx. Non è colpa di chi guarda, e riprovare può funzionare.
+ */
+export type ApiErrorKind
+  = | 'network'
+    | 'unauthorized'
+    | 'forbidden'
+    | 'notFound'
+    | 'invalid'
+    | 'server'
+
+/**
+ * Classifica un codice di stato HTTP.
+ *
+ * Un 3xx non compare fra le categorie perché `fetch` segue i reindirizzamenti
+ * da solo: se uno arriva fin qui è una configurazione rotta, e va trattato come
+ * un guasto del server invece che ignorato.
+ */
+export function apiErrorKind(status: number): ApiErrorKind {
+  if (status === 401) return 'unauthorized'
+  if (status === 403) return 'forbidden'
+  if (status === 404) return 'notFound'
+  if (status >= 400 && status < 500) return 'invalid'
+
+  return 'server'
+}
+
+/**
+ * Guasto di una chiamata all'API.
+ *
+ * Estende `Error` — così `catch` senza filtri continua a funzionare e lo stack
+ * resta leggibile in console — ma ciò che l'interfaccia legge è `kind`, non il
+ * messaggio. **Il messaggio non si mostra mai all'utente:** arriva dal backend o
+ * da `fetch`, è in inglese, e sarebbe una frase non tradotta in mezzo a cinque
+ * lingue (SPEC §8-bis). Serve a chi sviluppa, nella console.
+ */
+export class ApiError extends Error {
+  /** Categoria del guasto, quella su cui l'interfaccia decide cosa mostrare. */
+  readonly kind: ApiErrorKind
+  /** Codice HTTP, se una risposta è arrivata. `null` per i guasti di rete. */
+  readonly status: number | null
+  /** Indirizzo chiamato, per il messaggio in console. */
+  readonly url: string
+
+  constructor(kind: ApiErrorKind, url: string, status: number | null, message: string) {
+    super(`${message} (${kind}${status === null ? '' : ` ${status}`}: ${url})`)
+    this.name = 'ApiError'
+    this.kind = kind
+    this.status = status
+    this.url = url
+  }
+
+  /** Guasto di rete: nessuna risposta, quindi nessun codice. */
+  static network(url: string, cause: unknown): ApiError {
+    return new ApiError('network', url, null, cause instanceof Error ? cause.message : 'fetch failed')
+  }
+
+  /** Risposta arrivata con un codice fuori dal 2xx. */
+  static fromStatus(url: string, status: number, statusText: string): ApiError {
+    return new ApiError(apiErrorKind(status), url, status, statusText || 'HTTP error')
+  }
 }

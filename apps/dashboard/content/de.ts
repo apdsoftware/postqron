@@ -15,14 +15,29 @@ export const de: DashboardContent = {
     toDarkTheme: 'Zum dunklen Design wechseln',
   },
 
+  status: {
+    loading: 'Wird geladen…',
+    errorTitle: 'Etwas ist schiefgelaufen',
+    retry: 'Erneut versuchen',
+    errors: {
+      network: 'Das Backend hat nicht geantwortet. Prüfe die Verbindung und versuche es erneut.',
+      unauthorized: 'Deine Sitzung ist abgelaufen. Melde dich erneut an, um fortzufahren.',
+      forbidden: 'Du hast keinen Zugriff darauf.',
+      notFound: 'Das ist nicht mehr vorhanden.',
+      invalid: 'Die Anfrage wurde abgelehnt. Prüfe deine Eingaben.',
+      server: 'Im Backend ist ein Problem aufgetreten. Versuche es gleich noch einmal.',
+    },
+  },
+
   home: {
     title: 'Übersicht',
     intro: 'Der Postqron-Dienst, der deine Cronjobs ausführt — und ob er antwortet.',
     backendTitle: 'Zustand des Dienstes',
     apiBaseLabel: 'Basisadresse der API',
-    check: 'Backend-Status prüfen',
-    checking: 'Wird geprüft…',
-    unreachable: 'Backend nicht erreichbar',
+    statusLabel: 'Status',
+    environmentLabel: 'Umgebung',
+    versionLabel: 'Version',
+    check: 'Erneut prüfen',
   },
 
   notFound: {

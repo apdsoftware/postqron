@@ -21,14 +21,29 @@ export const en: DashboardContent = {
     toDarkTheme: 'Switch to dark theme',
   },
 
+  status: {
+    loading: 'Loading…',
+    errorTitle: 'Something went wrong',
+    retry: 'Try again',
+    errors: {
+      network: 'The backend did not answer. Check your connection, then try again.',
+      unauthorized: 'Your session has expired. Sign in again to continue.',
+      forbidden: 'You do not have access to this.',
+      notFound: 'This is no longer here.',
+      invalid: 'The request was rejected. Check what you entered.',
+      server: 'The backend ran into a problem. Try again in a moment.',
+    },
+  },
+
   home: {
     title: 'Overview',
     intro: 'The Postqron service that runs your cron jobs, and whether it is answering.',
     backendTitle: 'Service health',
     apiBaseLabel: 'API base URL',
-    check: 'Run health check',
-    checking: 'Checking…',
-    unreachable: 'Backend unreachable',
+    statusLabel: 'Status',
+    environmentLabel: 'Environment',
+    versionLabel: 'Version',
+    check: 'Check again',
   },
 
   notFound: {

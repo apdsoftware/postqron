@@ -15,14 +15,29 @@ export const fr: DashboardContent = {
     toDarkTheme: 'Passer au thème sombre',
   },
 
+  status: {
+    loading: 'Chargement…',
+    errorTitle: 'Quelque chose n\'a pas fonctionné',
+    retry: 'Réessayer',
+    errors: {
+      network: 'Le backend n\'a pas répondu. Vérifiez la connexion, puis réessayez.',
+      unauthorized: 'Votre session a expiré. Reconnectez-vous pour continuer.',
+      forbidden: 'Vous n\'avez pas accès à cette ressource.',
+      notFound: 'Cette ressource n\'existe plus.',
+      invalid: 'La requête a été refusée. Vérifiez les données saisies.',
+      server: 'Le backend a rencontré un problème. Réessayez dans un instant.',
+    },
+  },
+
   home: {
     title: 'Aperçu',
     intro: 'Le service Postqron qui exécute vos tâches planifiées, et s\'il répond.',
     backendTitle: 'État du service',
     apiBaseLabel: 'Adresse de base de l\'API',
-    check: 'Vérifier l\'état du backend',
-    checking: 'Vérification…',
-    unreachable: 'Backend injoignable',
+    statusLabel: 'État',
+    environmentLabel: 'Environnement',
+    versionLabel: 'Version',
+    check: 'Vérifier à nouveau',
   },
 
   notFound: {

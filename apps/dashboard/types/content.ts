@@ -10,10 +10,12 @@
  * L'inglese è la lingua sorgente: si scrive lì e si traduce da lì.
  *
  * La struttura segue l'interfaccia, non le pagine: `shell` è ciò che si vede su
- * ogni schermata, `home` e `notFound` sono due schermate. Le sezioni della
- * dashboard vera — job, esecuzioni, chiavi API — aggiungeranno una chiave
- * ciascuna con le issue che le portano, più una voce in `shell.nav`.
+ * ogni schermata, `status` è il vocabolario degli stati che ogni vista può
+ * assumere, `home` e `notFound` sono due schermate. Le sezioni della dashboard
+ * vera — job, esecuzioni, chiavi API — aggiungeranno una chiave ciascuna con le
+ * issue che le portano, più una voce in `shell.nav`.
  */
+import type { ApiErrorKind } from '~/utils/api'
 import type { NavId } from '~/utils/navigation'
 
 /** Testi presenti su ogni schermata, indipendenti dalla rotta. */
@@ -57,6 +59,28 @@ export interface ShellContent {
   toDarkTheme: string
 }
 
+/**
+ * Vocabolario degli stati di una vista (R56).
+ *
+ * Sta in una chiave sua e non dentro ogni schermata perché le frasi sono le
+ * stesse ovunque: «non si è riusciti a caricare» non cambia a seconda che si
+ * stessero caricando i job o le esecuzioni, e duplicarla per vista significa
+ * cinque traduzioni in più per ogni sezione nuova.
+ */
+export interface StatusContent {
+  /** Annuncio del caricamento per i lettori di schermo. */
+  loading: string
+  /** Titolo del riquadro d'errore. */
+  errorTitle: string
+  /** Pulsante che rifà la richiesta. */
+  retry: string
+  /**
+   * Un messaggio per categoria di guasto (`ApiErrorKind`), perché è la
+   * distinzione su cui cambia cosa può fare l'utente.
+   */
+  errors: Record<ApiErrorKind, string>
+}
+
 /** Schermata iniziale. */
 export interface HomeContent {
   title: string
@@ -64,11 +88,12 @@ export interface HomeContent {
   backendTitle: string
   /** Etichetta dell'indirizzo dell'API; il valore accanto non è tradotto. */
   apiBaseLabel: string
-  /** Pulsante di verifica, a riposo e mentre la richiesta è in corso. */
+  /** Etichette dei tre valori restituiti dall'health check. */
+  statusLabel: string
+  environmentLabel: string
+  versionLabel: string
+  /** Pulsante di verifica. */
   check: string
-  checking: string
-  /** Messaggio mostrato quando il backend non risponde. */
-  unreachable: string
 }
 
 /** Indirizzo che non corrisponde a nessuna schermata. */
@@ -81,6 +106,7 @@ export interface NotFoundContent {
 
 export interface DashboardContent {
   shell: ShellContent
+  status: StatusContent
   home: HomeContent
   notFound: NotFoundContent
 }

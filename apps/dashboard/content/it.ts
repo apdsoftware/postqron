@@ -15,14 +15,29 @@ export const it: DashboardContent = {
     toDarkTheme: 'Passa al tema scuro',
   },
 
+  status: {
+    loading: 'Caricamento…',
+    errorTitle: 'Qualcosa non ha funzionato',
+    retry: 'Riprova',
+    errors: {
+      network: 'Il backend non ha risposto. Controlla la connessione e riprova.',
+      unauthorized: 'La sessione è scaduta. Accedi di nuovo per continuare.',
+      forbidden: 'Non hai accesso a questa risorsa.',
+      notFound: 'Questa risorsa non c\'è più.',
+      invalid: 'La richiesta è stata rifiutata. Controlla i dati inseriti.',
+      server: 'Il backend ha avuto un problema. Riprova fra un momento.',
+    },
+  },
+
   home: {
     title: 'Panoramica',
     intro: 'Il servizio Postqron che esegue i tuoi cronjob, e se sta rispondendo.',
     backendTitle: 'Stato del servizio',
     apiBaseLabel: 'Indirizzo base dell\'API',
-    check: 'Verifica lo stato del backend',
-    checking: 'Verifica in corso…',
-    unreachable: 'Backend non raggiungibile',
+    statusLabel: 'Stato',
+    environmentLabel: 'Ambiente',
+    versionLabel: 'Versione',
+    check: 'Controlla di nuovo',
   },
 
   notFound: {

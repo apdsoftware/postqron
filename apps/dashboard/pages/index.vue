@@ -2,42 +2,26 @@
 /**
  * Panoramica.
  *
- * Le schede dei job, delle esecuzioni e del consumo arrivano con le issue che le
- * implementano (#26, #27, #28) e si aggiungono a questa griglia — che è quella
- * del template, `grid gap-4 xl:grid-cols-2 2xl:grid-cols-3`.
+ * Oggi mostra una cosa sola e vera: se il servizio che esegue i cronjob sta
+ * rispondendo. Le schede dei job, delle esecuzioni e del consumo arrivano con le
+ * issue che le implementano (#26, #27, #28) e si aggiungono a questa griglia —
+ * che è la griglia del template, `grid gap-4 xl:grid-cols-2 2xl:grid-cols-3`.
  *
- * La chiamata all'health check è volutamente lato client: la dashboard è una SPA
- * statica e ogni dato dinamico passa dal backend Go.
+ * Vale anche come esempio dell'impianto: la richiesta passa da `useApi()`, lo
+ * stato da `useApiResource()`, e i tre esiti da `<AsyncState>`. Una vista nuova
+ * si scrive così.
  */
 const { public: config } = useRuntimeConfig()
 const { t } = useLocale()
+const api = useApi()
 
-type Health = { status: string, env: string, version: string }
-
-const health = ref<Health | null>(null)
-const error = ref<string | null>(null)
-const pending = ref(false)
-
-async function checkHealth() {
-  pending.value = true
-  error.value = null
-  try {
-    health.value = await $fetch<Health>(apiUrl('/healthz', config.apiBaseUrl))
-  }
-  catch {
-    /*
-     * Il messaggio dell'eccezione arriva da `$fetch` ed è in inglese, sempre:
-     * mostrarlo significherebbe una frase non tradotta in mezzo a quattro
-     * lingue. Resta nella console del browser per chi sviluppa; all'utente va
-     * il testo tradotto.
-     */
-    health.value = null
-    error.value = t.value.home.unreachable
-  }
-  finally {
-    pending.value = false
-  }
+interface Health {
+  status: string
+  env: string
+  version: string
 }
+
+const health = useApiResource(signal => api.request<Health>('/healthz', { signal }))
 
 /*
  * Titolo reattivo: `useHead` con un oggetto statico lo fisserebbe alla lingua
@@ -59,35 +43,69 @@ useHead(computed(() => ({ title: t.value.home.title })))
 
     <div class="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
       <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 sm:p-6 dark:bg-gray-800">
-        <h2 class="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-          {{ t.home.backendTitle }}
-        </h2>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t.home.backendTitle }}
+          </h2>
+          <button
+            type="button"
+            class="inline-flex items-center p-2 text-sm font-medium text-center text-gray-500 rounded-lg hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700"
+            :disabled="health.pending.value"
+            data-testid="health-refresh"
+            @click="health.refresh()"
+          >
+            {{ t.home.check }}
+          </button>
+        </div>
 
-        <p class="font-mono text-sm text-gray-500 break-all dark:text-gray-400">
-          {{ t.home.apiBaseLabel }}: {{ config.apiBaseUrl }}
-        </p>
-
-        <button
-          type="button"
-          class="px-3 py-2 mt-4 text-sm font-medium text-white rounded-lg bg-primary-700 hover:bg-primary-800 focus:ring-4 focus:ring-primary-300 disabled:opacity-60 dark:bg-primary-600 dark:hover:bg-primary-700 dark:focus:ring-primary-800"
-          :disabled="pending"
-          @click="checkHealth"
+        <AsyncState
+          :pending="health.pending.value"
+          :error="health.error.value"
+          @retry="health.refresh()"
         >
-          {{ pending ? t.home.checking : t.home.check }}
-        </button>
-
-        <p
-          v-if="health"
-          class="mt-4 font-mono text-sm text-green-700 dark:text-green-400"
-        >
-          {{ health.status }} · {{ health.env }} · {{ health.version }}
-        </p>
-        <p
-          v-else-if="error"
-          class="mt-4 font-mono text-sm text-red-700 dark:text-red-400"
-        >
-          {{ error }}
-        </p>
+          <dl
+            v-if="health.data.value"
+            class="divide-y divide-gray-200 dark:divide-gray-700"
+            data-testid="health"
+          >
+            <div class="flex items-center justify-between py-2">
+              <dt class="text-sm font-normal text-gray-500 dark:text-gray-400">
+                {{ t.home.statusLabel }}
+              </dt>
+              <dd class="inline-flex items-center text-sm font-medium text-green-700 dark:text-green-400">
+                <AppIcon
+                  name="check"
+                  class="w-4 h-4 me-1"
+                />
+                {{ health.data.value.status }}
+              </dd>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <dt class="text-sm font-normal text-gray-500 dark:text-gray-400">
+                {{ t.home.environmentLabel }}
+              </dt>
+              <dd class="font-mono text-sm text-gray-900 dark:text-white">
+                {{ health.data.value.env }}
+              </dd>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <dt class="text-sm font-normal text-gray-500 dark:text-gray-400">
+                {{ t.home.versionLabel }}
+              </dt>
+              <dd class="font-mono text-sm text-gray-900 dark:text-white">
+                {{ health.data.value.version }}
+              </dd>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <dt class="text-sm font-normal text-gray-500 dark:text-gray-400">
+                {{ t.home.apiBaseLabel }}
+              </dt>
+              <dd class="font-mono text-sm text-gray-900 break-all dark:text-white">
+                {{ config.apiBaseUrl }}
+              </dd>
+            </div>
+          </dl>
+        </AsyncState>
       </div>
     </div>
   </div>

@@ -12,6 +12,23 @@ import { collectPageErrors } from './support/page-errors'
 // che resta vuoto è indistinguibile da una build riuscita se si guarda solo il
 // codice HTTP.
 
+/** Risposta che il backend Go dà a `/healthz` quando sta bene. */
+const HEALTHY = { status: 'ok', env: 'test', version: '0.0.0-test' }
+
+/**
+ * Fa rispondere l'health check senza un backend acceso.
+ *
+ * La panoramica interroga il servizio appena si apre — è ciò che deve fare, e
+ * `useApiResource()` parte al montaggio — ma qui non gira nessun backend Go: la
+ * richiesta fallirebbe, e ogni test finirebbe per misurare quel fallimento
+ * invece di ciò che vuole misurare. Vale per tutti i test del file, quindi sta
+ * in un `beforeEach`; chi vuole provare proprio il guasto lo sovrascrive con un
+ * `page.route()` suo, che ha la precedenza sull'ultimo registrato.
+ */
+test.beforeEach(async ({ page }) => {
+  await page.route('**/healthz', route => route.fulfill({ json: HEALTHY }))
+})
+
 test.describe('dashboard', () => {
   test('l\'HTML servito è un guscio: il contenuto arriva dal client', async ({ request, page }) => {
     const response = await request.get('/')
@@ -347,6 +364,70 @@ test.describe('pagina non trovata', () => {
   })
 })
 
+// Stati di caricamento, errore e vuoto (R56).
+//
+// Sono la ragione per cui `<AsyncState>` esiste: una vista che non li dichiara
+// non sembra rotta, sembra vuota. Qui si verifica che i tre esiti arrivino
+// davvero fino allo schermo, perché è l'unica cosa che i test unitari non
+// possono vedere.
+
+test.describe('stati di una vista (R56)', () => {
+  test('il caricamento si vede, e poi lascia il posto al dato', async ({ page }) => {
+    let release = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+
+    await page.route('**/healthz', async (route) => {
+      await held
+      await route.fulfill({ json: HEALTHY })
+    })
+
+    await page.goto('/')
+
+    await expect(page.locator('[data-testid="state-loading"]')).toBeVisible()
+    release()
+
+    await expect(page.locator('[data-testid="health"]')).toBeVisible()
+    await expect(page.locator('[data-testid="state-loading"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="health"]')).toContainText(HEALTHY.version)
+  })
+
+  test('un guasto del backend si dichiara, e «riprova» funziona davvero', async ({ page }) => {
+    let broken = true
+    await page.route('**/healthz', (route) => {
+      if (broken) return route.fulfill({ status: 503, body: '' })
+      return route.fulfill({ json: HEALTHY })
+    })
+
+    await page.goto('/')
+
+    const error = page.locator('[data-testid="state-error"]')
+    await expect(error).toBeVisible()
+    // `role="alert"`: l'errore va annunciato appena compare, non solo scorrendo.
+    await expect(error).toHaveAttribute('role', 'alert')
+    // Il messaggio è tradotto, non quello dell'eccezione: un 503 non deve
+    // portare in pagina una frase in inglese in mezzo a cinque lingue.
+    await expect(error).toContainText('The backend ran into a problem')
+
+    broken = false
+    await page.locator('[data-testid="state-retry"]').click()
+
+    await expect(page.locator('[data-testid="health"]')).toBeVisible()
+    await expect(error).toHaveCount(0)
+  })
+
+  test('dove riprovare non serve, il pulsante non c\'è', async ({ page }) => {
+    // Un 403 dà lo stesso esito all'infinito: offrire «riprova» inviterebbe a
+    // premerlo e a concludere che l'applicazione è rotta, invece che che la
+    // risposta è quella.
+    await page.route('**/healthz', route => route.fulfill({ status: 403, body: '' }))
+
+    await page.goto('/')
+
+    await expect(page.locator('[data-testid="state-error"]')).toBeVisible()
+    await expect(page.locator('[data-testid="state-retry"]')).toHaveCount(0)
+  })
+})
+
 // Tema chiaro e scuro.
 //
 // Il template Flowbite è disegnato in due temi e ogni sua classe ha una variante
@@ -368,6 +449,7 @@ test.describe('tema', () => {
     await expect(html).toHaveClass(/\bdark\b/)
 
     const later = await context.newPage()
+    await later.route('**/healthz', route => route.fulfill({ json: HEALTHY }))
     await later.goto('/')
     await expect(later.locator('html')).toHaveClass(/\bdark\b/)
     await later.close()
