@@ -78,6 +78,75 @@ test.describe('sito pubblico', () => {
   })
 })
 
+test.describe('reperibilità (R53-ter)', () => {
+  // `robots.txt` e `sitemap.xml` devono essere **file** nell'output statico: in
+  // produzione non gira alcun Nitro (SPEC §2) e una rotta non risponderebbe a
+  // nessuno. È una proprietà del sito servito, non del codice, e i test unitari
+  // di `apps/web/test/sitemap.test.ts` non possono vederla.
+
+  test('robots.txt è un file servito e rimanda alla sitemap', async ({ request }) => {
+    const response = await request.get('/robots.txt')
+    expect(response.status()).toBe(200)
+
+    const body = await response.text()
+    expect(body).toContain('User-agent: *')
+
+    // L'indirizzo della sitemap è assoluto — il formato non ammette percorsi
+    // relativi — e l'origin è quella della build, non quella del server di test.
+    const sitemap = body.match(/^Sitemap: (\S+)$/m)
+    expect(sitemap).not.toBeNull()
+    expect(new URL(sitemap![1]!).pathname).toBe('/sitemap.xml')
+  })
+
+  test('sitemap.xml è XML valido e non contiene un solo 404', async ({ page, request }) => {
+    const response = await request.get('/sitemap.xml')
+    expect(response.status()).toBe(200)
+
+    const xml = await response.text()
+
+    // Il parser è quello del browser, non un'espressione regolare: se l'XML è
+    // malformato `parseFromString` restituisce un documento `<parsererror>`
+    // invece di lanciare, ed è l'unico modo di accorgersene.
+    const parsed = await page.evaluate((source) => {
+      const document = new DOMParser().parseFromString(source, 'application/xml')
+      const error = document.querySelector('parsererror')
+
+      return {
+        error: error?.textContent ?? null,
+        root: document.documentElement.tagName,
+        locations: Array.from(document.querySelectorAll('loc'), loc => loc.textContent!),
+        alternates: Array.from(document.querySelectorAll('url'), url =>
+          Array.from(url.getElementsByTagName('xhtml:link'), link => link.getAttribute('hreflang')),
+        ),
+      }
+    }, xml)
+
+    expect(parsed.error).toBeNull()
+    expect(parsed.root).toBe('urlset')
+
+    // Tutte le pagine in tutte e cinque le lingue (SPEC §8-bis): una sitemap
+    // che elenca solo l'inglese dice a un motore che le altre quattro non
+    // esistono.
+    expect(parsed.locations.length).toBeGreaterThan(0)
+    for (const locale of LOCALES) {
+      const localized = parsed.locations.filter(loc => new URL(loc).pathname.startsWith(`/${locale}/`))
+      expect(localized.length).toBe(parsed.locations.length / LOCALES.length)
+    }
+
+    // Ogni voce dichiara le cinque traduzioni più `x-default`.
+    for (const group of parsed.alternates) {
+      expect(group).toEqual([...LOCALES, 'x-default'])
+    }
+
+    // Il controllo che rende la sitemap utile invece che dannosa. L'origin è
+    // quella della build: qui conta il percorso, che è ciò che il sito serve.
+    for (const location of parsed.locations) {
+      const listed = await request.get(new URL(location).pathname)
+      expect(listed.status(), `${location} non risponde 200`).toBe(200)
+    }
+  })
+})
+
 test.describe('lingua', () => {
   test.describe('browser in tedesco', () => {
     test.use({ locale: 'de-DE' })
