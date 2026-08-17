@@ -26,7 +26,31 @@
 
 <p style="margin:0 0 16px 0;">{{.T "plan_changed.limits" "next" .Data.NewPlan}}</p>
 
+{{if .Data.HasSuspension}}
+{{/*
+  R58: il downgrade ha fermato dei job, e questa è l'unica comunicazione in cui
+  l'utente lo scopre prima che il job che gli serviva non parta. La fascia usa
+  l'ambra degli avvisi e non il blu del resto dell'email, e dice due cose in
+  quest'ordine: che niente è stato cancellato, e cosa deve fare lui.
+
+  I due conteggi restano separati perché i rimedi sono diversi: il tetto sul
+  numero lascia una scelta all'utente, la risoluzione no. Vedi PlanChangedData.
+*/ -}}
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px 0;background-color:#fdf6e9;border-left:4px solid #b4690e;border-radius:6px;">
+<tr><td style="padding:16px 20px;">
+<p style="margin:0 0 12px 0;font-weight:bold;color:#8a5009;">{{.T "plan_changed.suspended_heading"}}</p>
+{{if gt .Data.SuspendedByJobLimit 0}}<p style="margin:0 0 12px 0;">{{.TN "plan_changed.suspended_job_limit" .Data.SuspendedByJobLimit "next" .Data.NewPlan}}</p>{{end}}
+{{if gt .Data.SuspendedByResolution 0}}<p style="margin:0 0 12px 0;">{{.TN "plan_changed.suspended_resolution" .Data.SuspendedByResolution "next" .Data.NewPlan}}</p>{{end}}
+<p style="margin:0;font-size:14px;line-height:20px;color:#6f8ba4;">{{.T "plan_changed.suspended_nothing_lost"}}</p>
+</td></tr>
+</table>
+
+{{template "button" (button "#b4690e" (.AppURL "/jobs") (.T "plan_changed.suspended_cta"))}}
+
+<p style="margin:24px 0 0 0;">{{.T "plan_changed.cta"}}: <a href="{{.AppURL "/settings/billing"}}" style="color:#4278e5;">{{.AppURL "/settings/billing"}}</a></p>
+{{else}}
 {{template "button" (button .Accent (.AppURL "/settings/billing") (.T "plan_changed.cta"))}}
+{{end}}
 
 <p style="margin:24px 0 0 0;font-size:14px;line-height:20px;color:#6f8ba4;">{{.T "plan_changed.unexpected" "support" .Site.SupportEmail}}</p>
 

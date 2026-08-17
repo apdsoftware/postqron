@@ -204,6 +204,17 @@ func (d JobFailedData) validate() error {
 // nomi commerciali, e il listino cambia senza chiedere il permesso a questo
 // package. Non compaiono importi: la fattura è un documento di Paddle, e una
 // cifra ripetuta qui diverge dal listino alla prima revisione.
+//
+// # I due conteggi di R58
+//
+// Un downgrade può fermare dei job, e quando succede questa email è il posto in
+// cui l'utente lo scopre. I conteggi sono **due e restano due** per la stessa
+// ragione per cui l'enumerato `job_suspension_reason` della 0013 li distingue:
+// i rimedi non sono lo stesso. A chi ha job fermi per il numero si chiede di
+// sceglierne alcuni da riaccendere; a chi li ha fermi per la risoluzione si
+// chiede di cambiare la schedulazione, e riaccenderne un altro non gli
+// libererebbe posto. Un totale unico costringerebbe il testo a dire una delle
+// due cose a tutti, e a metà dei destinatari direbbe quella sbagliata.
 type PlanChangedData struct {
 	// PreviousPlan è il nome del piano da cui si proviene.
 	PreviousPlan string
@@ -211,6 +222,16 @@ type PlanChangedData struct {
 	NewPlan string
 	// EffectiveAt è il momento da cui vale il nuovo piano.
 	EffectiveAt time.Time
+
+	// SuspendedByJobLimit è il numero di job fermati perché il piano di
+	// destinazione ne consente meno di quanti ne erano accesi (R58,
+	// `plan_job_limit`). Zero quando non è successo.
+	SuspendedByJobLimit int
+	// SuspendedByResolution è il numero di job fermati perché la loro
+	// schedulazione è più fitta di quanto il piano consenta (R58,
+	// `plan_resolution`). È indipendente dal precedente: si applica anche
+	// quando il tetto sul numero non è stato superato.
+	SuspendedByResolution int
 }
 
 func (d PlanChangedData) validate() error {
@@ -226,7 +247,16 @@ func (d PlanChangedData) validate() error {
 	if d.EffectiveAt.IsZero() {
 		return errors.New("EffectiveAt è obbligatorio")
 	}
+	if d.SuspendedByJobLimit < 0 || d.SuspendedByResolution < 0 {
+		return fmt.Errorf("i job sospesi non possono essere negativi: %d per il tetto, %d per la risoluzione",
+			d.SuspendedByJobLimit, d.SuspendedByResolution)
+	}
 	return nil
+}
+
+// HasSuspension dice se questo cambio di piano ha fermato qualcosa.
+func (d PlanChangedData) HasSuspension() bool {
+	return d.SuspendedByJobLimit > 0 || d.SuspendedByResolution > 0
 }
 
 // -------------------------------------------------------------- sicurezza

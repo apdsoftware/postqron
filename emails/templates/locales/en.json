@@ -58,6 +58,13 @@
     "summary": "Your account moved from {previous} to {next}.",
     "limits": "How many jobs you can keep, how often they may run and how long their history is retained now follow the {next} plan.",
     "cta": "Review your plan",
+    "suspended_heading": "Some of your jobs are paused, and only you can choose what happens next",
+    "suspended_job_limit_one": "{count} job is paused because the {next} plan allows fewer active jobs than you had running. We stopped all of them rather than pick for you — we cannot know which one matters most. Turn back on as many as the plan allows.",
+    "suspended_job_limit_other": "{count} jobs are paused because the {next} plan allows fewer active jobs than you had running. We stopped all of them rather than pick for you — we cannot know which ones matter most. Turn back on as many as the plan allows.",
+    "suspended_resolution_one": "{count} job is paused because it runs more often than the {next} plan permits. This one is not about room: change its schedule to an interval the plan allows, then turn it back on.",
+    "suspended_resolution_other": "{count} jobs are paused because they run more often than the {next} plan permits. These are not about room: change their schedules to an interval the plan allows, then turn them back on.",
+    "suspended_nothing_lost": "Nothing was deleted. Every paused job keeps its settings and its execution history, and stays exportable.",
+    "suspended_cta": "Choose which jobs to run",
     "unexpected": "If you were not expecting this change, write to {support}."
   },
   "security_alert": {

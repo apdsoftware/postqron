@@ -263,6 +263,107 @@ func TestRenderPlanChanged(t *testing.T) {
 			t.Errorf("il testo nomina un prezzo (%q): il listino non appartiene a questo template", forbidden)
 		}
 	}
+
+	// Senza sospensioni non si nomina nessun job fermo: sarebbe un allarme per
+	// un utente che ha soltanto cambiato piano.
+	if strings.Contains(message.Text, "paused") {
+		t.Errorf("un cambio di piano senza sospensioni parla di job fermi:\n%s", message.Text)
+	}
+}
+
+// R58: quando il downgrade ferma dei job, l'email deve dire **cosa deve fare
+// l'utente**, e i due motivi vanno tenuti distinti perché i rimedi lo sono.
+//
+// È il caso in cui una comunicazione mediocre costa un cliente: i suoi job sono
+// fermi, e se lo scopre quando quello che serviva non parte, l'ha scoperto
+// troppo tardi.
+func TestRenderPlanChangedSpellsOutSuspendedJobs(t *testing.T) {
+	r := newRenderer(t)
+
+	data := emailrender.PlanChangedData{
+		PreviousPlan:          "Pro",
+		NewPlan:               "Free",
+		EffectiveAt:           time.Date(2026, 8, 17, 6, 12, 0, 0, time.UTC),
+		SuspendedByJobLimit:   7,
+		SuspendedByResolution: 1,
+	}
+
+	message, err := r.Render(emailrender.EventPlanChanged, "en", data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	for _, variant := range []struct{ name, body string }{
+		{"testo", message.Text},
+		{"HTML", message.HTML},
+	} {
+		// I due conteggi, ciascuno con il proprio rimedio.
+		for _, expected := range []string{
+			"7 jobs are paused",
+			"Turn back on as many as the plan allows",
+			"1 job is paused",
+			"change its schedule",
+			"Nothing was deleted",
+		} {
+			if !strings.Contains(variant.body, expected) {
+				t.Errorf("%s: manca %q\n%s", variant.name, expected, variant.body)
+			}
+		}
+		// Il link alla pagina da cui si riaccende, che è l'azione richiesta.
+		if !strings.Contains(variant.body, "https://app.postqron.test/en/jobs") {
+			t.Errorf("%s: manca il link ai job, che è la cosa da fare:\n%s", variant.name, variant.body)
+		}
+	}
+}
+
+// Il plurale si sceglie per conteggio, e la forma singolare esiste per
+// entrambi i motivi: «1 jobs are paused» in un'email che chiede un'azione è il
+// modo più rapido di far sembrare il messaggio un guasto.
+func TestRenderPlanChangedUsesTheRightPluralForm(t *testing.T) {
+	r := newRenderer(t)
+	when := time.Date(2026, 8, 17, 6, 12, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		data     emailrender.PlanChangedData
+		expected string
+		absent   string
+	}{
+		{
+			name: "un solo job per il tetto",
+			data: emailrender.PlanChangedData{
+				PreviousPlan: "Pro", NewPlan: "Free", EffectiveAt: when,
+				SuspendedByJobLimit: 1,
+			},
+			expected: "1 job is paused",
+			// L'altro motivo non c'è: non se ne parla.
+			absent: "runs more often",
+		},
+		{
+			name: "solo la risoluzione, con il numero che rientra",
+			data: emailrender.PlanChangedData{
+				PreviousPlan: "Pro", NewPlan: "Free", EffectiveAt: when,
+				SuspendedByResolution: 2,
+			},
+			expected: "2 jobs are paused because they run more often",
+			absent:   "as many as the plan allows",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			message, err := r.Render(emailrender.EventPlanChanged, "en", tc.data)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			if !strings.Contains(message.Text, tc.expected) {
+				t.Errorf("manca %q:\n%s", tc.expected, message.Text)
+			}
+			if strings.Contains(message.Text, tc.absent) {
+				t.Errorf("compare %q, che riguarda l'altro motivo:\n%s", tc.absent, message.Text)
+			}
+		})
+	}
 }
 
 func TestRenderSecurityAlert(t *testing.T) {
