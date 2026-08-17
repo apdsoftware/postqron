@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Copre il codice della CI: test e2e, configurazione Playwright e server
+  // statico. Non appartiene a nessuna delle due app Nuxt, che hanno il proprio
+  // tsconfig generato da `nuxt prepare`, e senza questo file sarebbe l'unico
+  // TypeScript del repository che nessuno controlla.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["esnext", "dom"],
+    "types": ["node"],
+    // Il server statico è .mjs — niente build step per uno script di test — ma
+    // va controllato come il resto: i tipi arrivano dal JSDoc.
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["**/*.ts", "../playwright.config.ts", "../scripts/*.mjs"]
+}

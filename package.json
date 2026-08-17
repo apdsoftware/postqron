@@ -21,7 +21,10 @@
     "format": "prettier --write . && pnpm -r --if-present run format"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.2.0",
     "concurrently": "^10.0.5",
-    "prettier": "^3.9.6"
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3"
   }
 }
