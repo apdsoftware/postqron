@@ -261,10 +261,12 @@ func (p *Pool) Dispatch(_ context.Context, occ scheduler.Occurrence) error {
 
 // Stats è la fotografia del pool.
 func (p *Pool) Stats() Stats {
-	queued, inFlight := p.q.depth()
+	queued, inFlight, workspaceStalls := p.q.depth()
 	return Stats{
-		Queued:     queued,
-		InFlight:   inFlight,
+		Queued:          queued,
+		InFlight:        inFlight,
+		WorkspaceStalls: workspaceStalls,
+
 		Accepted:   p.counters.accepted.Load(),
 		Duplicated: p.counters.duplicated.Load(),
 		Refused:    p.counters.refused.Load(),

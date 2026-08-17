@@ -397,6 +397,17 @@ type Stats struct {
 	// `skipped`. Vedi [ErrOverlapSkipped].
 	Overlapped int64
 
+	// WorkspaceStalls sono le scelte in cui il tetto tecnico per workspace (R10)
+	// ha tolto di mezzo del lavoro pronto: un job aveva un'occorrenza da servire
+	// e il suo workspace era già al proprio massimo di esecuzioni in volo.
+	//
+	// Non è un rifiuto e non è una perdita — l'occorrenza resta in coda e parte
+	// appena il workspace libera un posto — ma è l'unico modo di sapere se il
+	// tetto morde. Cresce insieme a [Stats.Queued] quando un cliente solo sta
+	// tenendo occupata la propria quota; se cresce mentre la coda è corta, il
+	// tetto è troppo basso per il carico vero.
+	WorkspaceStalls int64
+
 	// Claimed sono le occorrenze di cui questo pool ha vinto l'aggiornamento
 	// condizionato; Lost quelle che al momento della presa erano già di qualcun
 	// altro. Lost > 0 non è un errore: è R4 che funziona.
