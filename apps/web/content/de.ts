@@ -28,6 +28,12 @@ export const de: SiteContent = {
     rightsReserved: 'Alle Rechte vorbehalten.',
   },
 
+  legal: {
+    sourceNotice: 'Dieses Dokument ist noch nicht auf Deutsch verfügbar. Unten wird das englische Original angezeigt.',
+    versionLabel: 'Version',
+    effectiveDateLabel: 'Gültig ab',
+  },
+
   nav: {
     main: [
       { label: 'Start', to: '/#welcome' },
@@ -62,9 +68,17 @@ export const de: SiteContent = {
       {
         title: 'Support',
         items: [
-          { label: 'Dienststatus', to: '/#stats' },
           { label: 'Stimmen', to: '/#testimonials' },
           { label: 'Kontakt', to: '/#contact' },
+        ],
+      },
+      {
+        title: 'Rechtliches',
+        items: [
+          { label: 'Nutzungsbedingungen', to: '/legal/terms-of-service' },
+          { label: 'Datenschutzerklärung', to: '/legal/privacy-policy' },
+          { label: 'Cookie-Richtlinie', to: '/legal/cookie-policy' },
+          { label: 'Zulässige Nutzung', to: '/legal/acceptable-use-policy' },
         ],
       },
     ],
@@ -91,12 +105,6 @@ export const de: SiteContent = {
       + 'sie pünktlich aus, wiederholt sie bei Bedarf und sagt dir immer, wie es lief.',
     image: '/img/hero.jpg',
     imageAlt: 'Die Postqron-Konsole mit der Liste der Ausführungen',
-    note: '30 Tage testen im Pro-Tarif — ohne Kreditkarte',
-    video: {
-      href: 'https://www.youtube.com/@postqron',
-      embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'Postqron in zwei Minuten ansehen',
-    },
   },
 
   featuresIntro: {

@@ -13,7 +13,7 @@ const year = new Date().getFullYear()
   >
     <div class="container">
       <div class="row">
-        <div class="col-lg-5 col-md-12 col-sm-12">
+        <div class="col-lg-3 col-md-12 col-sm-12">
           <!--
             Qui il marchio non sta dentro un link già etichettato come
             nell'header: ha bisogno di un nome proprio per chi non lo vede.

@@ -6,8 +6,8 @@ defineProps<{
   text: string
   image: string
   imageAlt: string
-  /** Nota sotto al campo email. */
-  note: string
+  /** Nota sotto al campo email, se esiste un messaggio approvato. */
+  note?: string
   /** Video di presentazione; se manca, il pulsante di riproduzione non compare. */
   video?: { href: string, embedSrc: string, title: string }
   /* Etichette dell'interfaccia, da `ui`: qui non nasce nessuna stringa. */

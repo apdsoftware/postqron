@@ -34,6 +34,12 @@ export const en: SiteContent = {
     rightsReserved: 'All rights reserved.',
   },
 
+  legal: {
+    sourceNotice: 'This document is not yet available in your language. The English original is shown below.',
+    versionLabel: 'Version',
+    effectiveDateLabel: 'Effective date',
+  },
+
   nav: {
     main: [
       { label: 'Home', to: '/#welcome' },
@@ -68,9 +74,17 @@ export const en: SiteContent = {
       {
         title: 'Support',
         items: [
-          { label: 'Service status', to: '/#stats' },
           { label: 'Testimonials', to: '/#testimonials' },
           { label: 'Contact', to: '/#contact' },
+        ],
+      },
+      {
+        title: 'Legal',
+        items: [
+          { label: 'Terms of Service', to: '/legal/terms-of-service' },
+          { label: 'Privacy Policy', to: '/legal/privacy-policy' },
+          { label: 'Cookie Policy', to: '/legal/cookie-policy' },
+          { label: 'Acceptable Use', to: '/legal/acceptable-use-policy' },
         ],
       },
     ],
@@ -97,12 +111,6 @@ export const en: SiteContent = {
       + 'time, retries when it should, and always tells you how it went.',
     image: '/img/hero.jpg',
     imageAlt: 'The Postqron console showing the list of runs',
-    note: '30-day trial on the Pro plan — no credit card',
-    video: {
-      href: 'https://www.youtube.com/@postqron',
-      embedSrc: 'https://www.youtube-nocookie.com/embed/videoseries?list=UU',
-      title: 'Watch Postqron in two minutes',
-    },
   },
 
   featuresIntro: {
