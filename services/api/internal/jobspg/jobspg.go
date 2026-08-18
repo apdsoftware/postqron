@@ -485,12 +485,85 @@ func (s *Store) ExecutionAt(ctx context.Context, jobID string, scheduledFor time
 	return exec, nil
 }
 
+// ListExecutionsForward elenca i tentativi di un job in avanti, dal più antico.
+//
+// È [Store.ListExecutions] letto nell'altro verso, ed è la lettura dello
+// streaming (SPEC §4.2). Vale la pena dire le due cose che la rendono
+// sostenibile una volta al secondo per connessione.
+//
+// **Cammina sullo stesso indice.** L'ordinamento crescente è la chiave primaria
+// letta in avanti invece che all'indietro, e il confronto per tuple è la
+// disuguaglianza che PostgreSQL sa trasformare in un posizionamento sull'indice:
+// nessun ordinamento aggiuntivo, nessuna scansione. La query costa la stessa
+// cosa al primo giorno e al novantesimo.
+//
+// **Le colonne dell'ORDER BY sono qualificate, e non è cosmetica.** La SELECT
+// proietta `environment::text`, e PostgreSQL chiama `environment` anche quella
+// colonna in uscita: un `ORDER BY environment` senza qualifica si lega a quella,
+// cioè ordina **alfabeticamente**, mentre il confronto del cursore qui sopra è
+// fra valori dell'enum — dove `staging` precede `production` per ordine di
+// dichiarazione (0001), non di alfabeto. Ordinare in un modo e confrontare
+// nell'altro fa saltare righe a chi pagina o riprende un flusso, e lo fa solo
+// per i job che vivono in due ambienti.
+//
+// **La finestra pota le partizioni.** `job_executions` è partizionata per giorno
+// su `scheduled_for` (0006), e `Since` è un predicato su quella colonna: il
+// pianificatore scarta le partizioni fuori finestra invece di aprirle. Un flusso
+// aperto a cavallo della mezzanotte attraversa due partizioni e le legge
+// entrambe — è un `Append` ordinato, non un buco, ed è provato in
+// `TestUnFlussoAttraversaLaMezzanotte`.
+func (s *Store) ListExecutionsForward(ctx context.Context, filter jobs.ExecutionFilter) ([]jobs.Execution, error) {
+	var cursorScheduledFor *time.Time
+	var cursorEnvironment *string
+	var cursorAttempt *int16
+	if filter.Cursor != nil {
+		scheduledFor := filter.Cursor.ScheduledFor
+		environment := string(filter.Cursor.Environment)
+		attempt := int16(filter.Cursor.Attempt)
+		cursorScheduledFor, cursorEnvironment, cursorAttempt = &scheduledFor, &environment, &attempt
+	}
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+executionColumns+`
+		   FROM job_executions
+		  WHERE job_id = $1::uuid
+		    AND ($2::timestamptz IS NULL OR scheduled_for >= $2::timestamptz)
+		    AND ($3::timestamptz IS NULL
+		         OR (scheduled_for, environment, attempt)
+		            > ($3::timestamptz, $4::text::environment, $5::smallint))
+		  ORDER BY job_executions.scheduled_for, job_executions.environment, job_executions.attempt
+		  LIMIT $6`,
+		filter.JobID,
+		nullableTime(filter.Since),
+		cursorScheduledFor, cursorEnvironment, cursorAttempt,
+		filter.Limit)
+	if err != nil {
+		return nil, notFoundOnMalformedID(annotate("lettura in avanti delle esecuzioni", err))
+	}
+	defer rows.Close()
+
+	var out []jobs.Execution
+	for rows.Next() {
+		exec, err := scanExecution(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, exec)
+	}
+	return out, annotate("lettura in avanti delle esecuzioni", rows.Err())
+}
+
 // ListExecutions elenca i tentativi di un job.
 //
 // L'ordinamento e il cursore seguono la chiave primaria (scheduled_for,
 // environment, attempt): è una lettura all'indietro dell'indice che esiste già,
 // senza ordinamenti aggiuntivi. Con 86.400 righe al giorno per job, è la
 // differenza fra una query costante e una che peggiora ogni giorno.
+//
+// Le colonne dell'ORDER BY sono qualificate per la ragione spiegata in
+// [Store.ListExecutionsForward]: senza, `environment` si legherebbe alla colonna
+// **in uscita**, che è `text`, e l'ordinamento sarebbe alfabetico mentre il
+// cursore confronta valori dell'enum.
 func (s *Store) ListExecutions(ctx context.Context, filter jobs.ExecutionFilter) ([]jobs.Execution, error) {
 	var cursorScheduledFor *time.Time
 	var cursorEnvironment *string
@@ -514,7 +587,7 @@ func (s *Store) ListExecutions(ctx context.Context, filter jobs.ExecutionFilter)
 		    AND ($7::timestamptz IS NULL
 		         OR (scheduled_for, environment, attempt)
 		            < ($7::timestamptz, $8::text::environment, $9::smallint))
-		  ORDER BY scheduled_for DESC, environment DESC, attempt DESC
+		  ORDER BY job_executions.scheduled_for DESC, job_executions.environment DESC, job_executions.attempt DESC
 		  LIMIT $10`,
 		filter.JobID,
 		nullableList(stringsOf(filter.Status)),

@@ -412,6 +412,47 @@ func (s *Store) ListExecutions(_ context.Context, filter jobs.ExecutionFilter) (
 	return out, nil
 }
 
+// ListExecutionsForward elenca i tentativi di un job in avanti, dal più antico.
+//
+// Riproduce il contratto del database anche in ciò che è facile sbagliare: il
+// cursore è un confine **escluso** e `Since` è **incluso**, e le righe tornano
+// esattamente `Limit`, senza la riga in più che la paginazione all'indietro usa
+// per annunciare la pagina successiva.
+func (s *Store) ListExecutionsForward(_ context.Context, filter jobs.ExecutionFilter) ([]jobs.Execution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.fail("ListExecutionsForward"); err != nil {
+		return nil, err
+	}
+
+	var out []jobs.Execution
+	for _, exec := range s.execs {
+		switch {
+		case exec.JobID != filter.JobID:
+		case !filter.Since.IsZero() && exec.ScheduledFor.Before(filter.Since):
+		case filter.Cursor != nil && !afterExecutionCursor(exec, *filter.Cursor):
+		default:
+			out = append(out, exec)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return executionAfter(out[j], out[i]) })
+	if filter.Limit > 0 && len(out) > filter.Limit {
+		out = out[:filter.Limit]
+	}
+	return out, nil
+}
+
+func afterExecutionCursor(exec jobs.Execution, cursor jobs.ExecutionCursor) bool {
+	switch {
+	case !exec.ScheduledFor.Equal(cursor.ScheduledFor):
+		return exec.ScheduledFor.After(cursor.ScheduledFor)
+	case exec.Environment != cursor.Environment:
+		return jobs.EnvironmentRank(exec.Environment) > jobs.EnvironmentRank(cursor.Environment)
+	default:
+		return exec.Attempt > cursor.Attempt
+	}
+}
+
 func executionAfter(a, b jobs.Execution) bool {
 	if !a.ScheduledFor.Equal(b.ScheduledFor) {
 		return a.ScheduledFor.After(b.ScheduledFor)

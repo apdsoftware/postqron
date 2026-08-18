@@ -166,7 +166,29 @@ const (
 	// workspace (R10). Vive nel dispatch, che è l'unico a sapere cosa è in volo;
 	// qui c'è solo il rifiuto che ne consegue.
 	LimitExecutionCeiling ServiceLimitKind = "execution_ceiling"
+
+	// LimitStreamCeiling è il tetto alle connessioni di streaming aperte
+	// contemporaneamente (R10, SPEC §4.2). Vive in internal/execstream, che è
+	// l'unico a sapere quante ce ne sono; qui c'è solo il rifiuto che ne consegue.
+	LimitStreamCeiling ServiceLimitKind = "stream_ceiling"
 )
+
+// NewServiceLimit costruisce il rifiuto dovuto a un tetto tecnico.
+//
+// È esportata perché i tetti tecnici **non vivono qui**: quello sulle esecuzioni
+// contemporanee lo conosce il worker pool, quello sulle connessioni aperte lo
+// conosce l'hub dello streaming, e in entrambi i casi questo package saprebbe
+// solo ripetere un numero che non ha modo di verificare. Ciò che invece deve
+// restare qui è la **forma** del rifiuto — nessun piano nominato, nessun invito
+// all'upgrade, sempre un `RetryAfter` — perché è quella che R10 distingue dal
+// limite di piano, ed è la ragione per cui [ServiceLimitError] non è un valore
+// in più di [LimitKind].
+func NewServiceLimit(limit ServiceLimitKind, retryAfter time.Duration, message string) *ServiceLimitError {
+	if retryAfter < time.Second {
+		retryAfter = time.Second
+	}
+	return &ServiceLimitError{Limit: limit, RetryAfter: retryAfter, message: message}
+}
 
 // ServiceLimitError è il rifiuto dovuto a un **tetto tecnico del servizio**, non
 // a una quota di piano.
