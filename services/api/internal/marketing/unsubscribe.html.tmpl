@@ -1,0 +1,58 @@
+{{/*
+  La pagina di disiscrizione (Privacy Policy §2.8).
+
+  Vincoli, e ognuno è una cosa che potrebbe impedirle di funzionare:
+
+    - nessun JavaScript. L'azione è un form, e la fa il browser. Una pagina che
+      avesse bisogno di eseguire codice per mantenere una promessa legale
+      avrebbe un modo in più di non mantenerla;
+    - nessuna risorsa esterna: niente font, niente immagini, niente fogli di
+      stile da scaricare. La pagina si apre anche se il resto
+      dell'infrastruttura non risponde;
+    - nessun testo scritto qui dentro. Vale la regola di SPEC §8-bis e dei
+      template delle email: le frasi stanno nei file dei testi, in cinque
+      lingue, e la lingua è quella del profilo (R33) — non quella del browser
+      di chi ha aperto il link;
+    - nessun indirizzo email mostrato. La pagina la apre chiunque abbia il
+      link: mostrare l'indirizzo trasformerebbe una revoca in un modo di
+      scoprire a chi appartiene.
+*/ -}}
+<!DOCTYPE html>
+<html lang="{{.Language}}" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}}</title>
+<style>
+body { margin: 0; background: #f4f8fb; color: #3b566e;
+       font: 16px/1.5 Helvetica, Arial, sans-serif; }
+main { max-width: 34rem; margin: 0 auto; padding: 3rem 1.5rem; }
+.card { background: #fff; border: 1px solid #e1ecf4; border-radius: 8px;
+        padding: 2rem; }
+h1 { margin: 0 0 1rem; font-size: 1.5rem; line-height: 1.3; }
+p { margin: 0 0 1rem; }
+.muted { color: #6f8ba4; font-size: .875rem; }
+button { font: inherit; font-weight: 700; color: #fff; background: #4278e5;
+         border: 0; border-radius: 6px; padding: .875rem 1.75rem;
+         cursor: pointer; }
+a { color: #4278e5; }
+</style>
+</head>
+<body>
+<main>
+<p class="muted">{{.ProductName}}</p>
+<div class="card">
+<h1>{{.Heading}}</h1>
+{{range .Paragraphs}}<p>{{.}}</p>{{end}}
+{{if .ShowForm}}
+<form method="post" action="{{.Action}}">
+<input type="hidden" name="token" value="{{.Token}}">
+<button type="submit">{{.Confirm}}</button>
+</form>
+{{end}}
+</div>
+<p class="muted">{{.Support}}</p>
+</main>
+</body>
+</html>

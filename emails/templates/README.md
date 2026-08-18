@@ -1,6 +1,7 @@
 # emails/templates
 
-Template HTML delle email transazionali (SPEC R19–R21).
+Template HTML delle email del prodotto: le quattro transazionali di SPEC R19–R21
+e la comunicazione di marketing della Privacy Policy §2.8.
 
 ## Perché stanno nel repository
 
@@ -31,6 +32,30 @@ traduzione. È un vincolo di SPEC §8-bis — «nessuna stringa nei componenti»
 un test lo verifica togliendo tag e azioni e controllando che non resti nemmeno
 una lettera. Cinque lingue moltiplicate per nove file di markup sarebbero
 quarantacinque file da tenere allineati; così restano nove.
+
+## Le due famiglie, e il piè di pagina che le distingue
+
+I template non sono tutti la stessa cosa, e la differenza è in un documento
+legale prima che nel codice.
+
+- Le **transazionali** (§2.7) si mandano perché l'utente ha un account. Non
+  hanno un link di disiscrizione, e non devono averlo: il documento dice che da
+  queste email non ci si disiscrive senza chiudere l'account, perché sono il modo
+  in cui il servizio comunica. Un link su un avviso di job fallito è un link che
+  l'utente userebbe, perdendo gli avvisi di un servizio che paga.
+- Le **di marketing** (§2.8) si mandano solo con il consenso dell'Art. 6(1)(a) e
+  portano **sempre** un link di disiscrizione.
+
+Il piè di pagina lo sceglie `layout.html.tmpl` — e il suo gemello testuale —
+guardando `.Marketing`, che non è un campo che il chiamante imposta: lo ricava
+`emailrender.Render` da `emailrender.KindOf`. Un template nuovo che non dichiari
+la propria natura in quella mappa **non si compila affatto**, ed è deliberato:
+la domanda «è marketing?» è obbligatoria, non facoltativa, perché sbagliarla nei
+due sensi produce due difetti diversi e nessuno dei due è piccolo.
+
+Un corollario per chi aggiunge un template: il link di disiscrizione **non si
+scrive nel corpo**. Sta nel layout, dove lo ereditano tutte le email di
+marketing insieme, e dove nessuno può dimenticarselo.
 
 ## Convenzioni
 

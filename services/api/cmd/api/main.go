@@ -47,6 +47,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/legal"
 	"github.com/apdsoftware/postqron/services/api/internal/legalpg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
+	"github.com/apdsoftware/postqron/services/api/internal/marketing"
+	"github.com/apdsoftware/postqron/services/api/internal/marketingpg"
 	"github.com/apdsoftware/postqron/services/api/internal/metrics"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
 	"github.com/apdsoftware/postqron/services/api/internal/notify"
@@ -350,6 +352,15 @@ func run() error {
 		return err
 	}
 
+	// Il consenso al marketing e la sua pagina di disiscrizione (Privacy Policy
+	// §2.8). Si costruiscono **senza Mailronix**, al contrario del corriere: il
+	// link di disiscrizione di un'email già spedita deve funzionare anche su una
+	// macchina che non ha la chiave per mandarne di nuove.
+	marketingService, marketingPage, err := newMarketing(pool, workdir, logger)
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
@@ -369,7 +380,12 @@ func run() error {
 			Account: accountService,
 			// Le rotte `/legal/consents` (R46). Vedi legalAPI.routes: stanno dietro la
 			// sessione, perché accettare un contratto è un atto della persona.
-			Legal:          legalService,
+			Legal: legalService,
+			// Le rotte `/marketing` (Privacy Policy §2.8): il consenso dietro la
+			// sessione, la disiscrizione fuori da ogni credenziale. Vedi
+			// marketingAPI.routes.
+			Marketing:      marketingService,
+			MarketingPage:  marketingPage,
 			GitHubWebhook:  gitHubWebhook,
 			PaddleWebhook:  paddleWebhook,
 			Billing:        billingService,
@@ -741,6 +757,64 @@ func newCourier(
 		Sender:   client,
 		Logger:   logger,
 	})
+}
+
+// newMarketing costruisce il consenso al marketing e la sua pagina (§2.8).
+//
+// **Non dipende da Mailronix**, e la differenza rispetto a [newCourier] è tutta
+// nella promessa che deve mantenere: il corriere può mancare — le notifiche
+// restano in coda — mentre il link di disiscrizione di un'email già spedita deve
+// funzionare comunque. Un servizio che non sa più mandare email di marketing e
+// nemmeno lasciare che ci si disiscriva sarebbe il peggiore dei due stati.
+//
+// La chiave di firma esce dallo stesso SESSION_SECRET del resto del servizio, su
+// un dominio HKDF suo: la conseguenza operativa è che **cambiare SESSION_SECRET
+// invalida i link di disiscrizione già spediti**, come invalida sessioni e
+// chiavi API. Il costo è più basso di quello delle chiavi — la comunicazione
+// successiva porta un link nuovo, e le impostazioni dell'account continuano a
+// funzionare — ma va conosciuto. Vedi [marketing.Signer].
+//
+// # Qui manca il corriere, e non è una dimenticanza
+//
+// Questa funzione costruisce il consenso e la pagina, **non**
+// [marketing.Courier]. Chi viene ad aggiungerlo — perché è il posto naturale in
+// cui cercarlo — legga prima la sua documentazione: il canale è costruito e
+// tenuto spento di proposito, finché Mailronix non separa la categoria del
+// marketing da quella del transazionale. Agganciarlo prima significa che un
+// reclamo per spam su una promozione può spegnere in silenzio anche gli avvisi
+// di job fallito dello stesso utente, e per R20.1 non lo vedremmo accadere.
+func newMarketing(
+	pool *pgxpool.Pool,
+	workdir string,
+	logger *slog.Logger,
+) (*marketing.Service, *marketing.Page, error) {
+	signer, err := marketing.NewSigner(os.Getenv(auth.SecretEnvVar))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	service, err := marketingpg.NewService(pool, signer, os.Getenv(marketing.EnvAPIBaseURL), logger)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// La pagina attinge al catalogo dei template delle email: le frasi che deve
+	// dire sono le stesse del piè di pagina che ha portato l'utente fin lì.
+	site := mailronix.SiteFromEnv(os.Getenv)
+	dir, err := emailrender.FindDir(workdir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("template delle email: %w", err)
+	}
+	renderer, err := emailrender.NewFromDir(dir, site)
+	if err != nil {
+		return nil, nil, fmt.Errorf("template delle email: %w", err)
+	}
+
+	page, err := marketing.NewPage(renderer, site)
+	if err != nil {
+		return nil, nil, err
+	}
+	return service, page, nil
 }
 
 // newAPIKeysService costruisce le chiavi API (R9).

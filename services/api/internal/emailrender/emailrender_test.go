@@ -59,8 +59,26 @@ func sampleData() map[emailrender.Event]any {
 			ResourceName: "CI deploy",
 			SourceIP:     "203.0.113.7",
 		},
+		emailrender.EventProductUpdate: emailrender.ProductUpdateData{
+			Headline:          "Overlapping runs, now your choice",
+			Paragraphs:        []string{"Skip, queue or let them overlap.", "Per job, with a default we state."},
+			CallToActionLabel: "Read the notes",
+			CallToActionURL:   "https://postqron.com/en/changelog",
+			UnsubscribeURL:    sampleUnsubscribeURL,
+		},
 	}
 }
+
+// sampleUnsubscribeURL è il link di §2.8 nei campioni.
+//
+// Il valore è dichiaratamente finto — parole italiane al posto
+// dell'identificativo e della firma — e non è un vezzo: la forma vera è
+// `<uuid>.<64 cifre esadecimali>`, che il controllo dei segreti della CI
+// riconosce come credenziale e rifiuta di veder comparire in un commit. Aveva
+// ragione a insospettirsi: quello che entra in un test come campione somiglia
+// in tutto a quello che non deve mai entrarci per davvero. Il token vero lo
+// producono i test di internal/marketing, firmandolo.
+const sampleUnsubscribeURL = "https://api.postqron.com/marketing/unsubscribe?token=utente-di-prova.firma-finta"
 
 // Il giro completo: quattro eventi per cinque lingue. Oggi quattro lingue su
 // cinque ricadono interamente sull'inglese, ed è il punto — la struttura regge

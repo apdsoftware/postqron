@@ -213,6 +213,11 @@ tags:
     description: |
       Consent to the legal documents (R46): which version, in which language,
       when. The texts themselves live on the public site, not here.
+  - name: marketing
+    description: |
+      Consent to product email and the way out of it (Privacy Policy §2.8). The
+      consent routes need a session; **the unsubscribe routes need none**, which
+      is the promise the document makes.
   - name: webhooks
     description: |
       Inbound deliveries from GitHub (R11) and Paddle (R16). **These are not
@@ -1889,6 +1894,209 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  # ---------------------------------------------------------------- marketing
+
+  /marketing/consent:
+    get:
+      tags: [marketing]
+      operationId: getMarketingConsent
+      summary: State of consent to product email (Privacy Policy §2.8)
+      description: |
+        Product email is a separate matter from the email the service needs to
+        send you. The legal basis is **consent** (Art. 6(1)(a)), and this is what
+        the account settings read to show it.
+
+        `decided` is distinct from `consented`: someone who has never chosen and
+        someone who said no are both people we do not write to, but a settings
+        screen shows them differently. **Neither sends any email**: the absence
+        of a decision is a refusal, never a default.
+
+        **Session only.** An API key forgotten in a config file must not be able
+        to give, on its owner's behalf, a consent that stands as a legal basis.
+      responses:
+        "200":
+          description: The state of consent.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketingConsent" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [marketing]
+      operationId: grantMarketingConsent
+      summary: Consent to product email (Privacy Policy §2.8)
+      description: |
+        **Takes no body, and that is the point.** The document says consent is
+        "asked for on its own and never bundled with accepting the terms or
+        creating an account": a body would be the place where, one day, someone
+        adds a second field. The request *is* the consent.
+
+        Refusing costs nothing — there is no route, field or behaviour anywhere
+        in this API that reads this consent to decide something which is not a
+        product email.
+
+        Repeating it is not an error and does not lengthen the record: the answer
+        is the state, which was already what you asked for.
+      responses:
+        "200":
+          description: Consent recorded. The body is the resulting state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketingConsent" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [marketing]
+      operationId: withdrawMarketingConsent
+      summary: Withdraw consent to product email (Privacy Policy §2.8)
+      description: |
+        The signed-in way out. The other one — the link in every product email,
+        which needs no session — is `POST /marketing/unsubscribe`, and the
+        document promises both.
+
+        **This stops product email only.** Failed-job alerts, security events and
+        plan changes keep coming: they are how the service tells you things, and
+        they are not marketing (§2.7).
+      responses:
+        "200":
+          description: Consent withdrawn. The body is the resulting state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketingConsent" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /marketing/unsubscribe:
+    get:
+      tags: [marketing]
+      operationId: unsubscribePage
+      summary: The unsubscribe confirmation page (Privacy Policy §2.8)
+      description: |
+        **This route changes nothing.** It checks the token and returns a page
+        with a single button, which submits the `POST` below.
+
+        That is not pedantry about HTTP verbs. This address travels inside an
+        email, and email is opened by more than its recipient: corporate mail
+        scanners visit every link of every incoming message, browsers prefetch,
+        crawlers collect. If the `GET` unsubscribed, those people would stop
+        receiving product email **without ever having clicked**, and would not
+        know — and R20.1 removes even our means of measuring it.
+
+        The cost is **one extra click** against the letter of §2.8, and it is
+        declared: read that sentence as "one click to open it, one to confirm".
+        In exchange this page is the only place where we can say, *before*
+        acting, that the transactional email keeps arriving — which is another
+        promise of the same section.
+
+        **No credential.** The signature in the token is the whole
+        authorisation, and it authorises one thing: stopping product email for
+        one account. It is answered as `text/html` and not JSON because what
+        opens it is a mail client, not our frontend: served from here it works
+        with no JavaScript, no cookie, no CORS and no static frontend up.
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: |
+            The signed value carried by the link in the footer of every product
+            email. It is `<user>.<signature>`; the signature is an HMAC under a
+            key of its own, so it cannot be exchanged for a session token, a
+            password-reset token or an API key.
+          schema: { type: string }
+      responses:
+        "200":
+          description: |
+            The confirmation page, in the language of the account's profile
+            (R33) — not the language of whoever opened the link. If consent is
+            already withdrawn, the same status carries a page that says there is
+            nothing to do.
+          content:
+            text/html:
+              schema: { type: string }
+        "404":
+          description: |
+            The token does not verify, or the account no longer exists. The two
+            are answered identically on purpose: distinguishing them would tell
+            whoever holds a link whether it belonged to a real account.
+          content:
+            text/html:
+              schema: { type: string }
+        "500":
+          description: The page could not be built.
+          content:
+            text/html:
+              schema: { type: string }
+    post:
+      tags: [marketing]
+      operationId: unsubscribe
+      summary: Stop product email (Privacy Policy §2.8)
+      description: |
+        The one that acts. **No session**, per the document: the signature in the
+        token is the credential.
+
+        The body is `application/x-www-form-urlencoded` — the only route in this
+        API that is — because it is submitted by the form of the page above,
+        which has to work without JavaScript. The token travels in the body and
+        not in the query so that the request which changes state carries its own
+        credential where intermediaries do not log it.
+
+        Idempotent: a second click, a resubmitted form and a repeated `POST` are
+        one decision, not three. The record of consent lengthens only when
+        something actually changes.
+
+        **It stops product email only.** The transactional email the service
+        needs to send you keeps arriving (§2.7), and the resulting page says so.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: The same signed value the confirmation page carried.
+      responses:
+        "200":
+          description: |
+            Product email stopped, or already stopped. The page says which, in
+            the language of the account's profile (R33).
+          content:
+            text/html:
+              schema: { type: string }
+        "400":
+          description: The form could not be read.
+          content:
+            text/html:
+              schema: { type: string }
+        "404":
+          description: |
+            The token does not verify, or the account no longer exists — answered
+            identically, for the reason given on the `GET`.
+          content:
+            text/html:
+              schema: { type: string }
+        "500":
+          description: The unsubscribe could not be recorded.
+          content:
+            text/html:
+              schema: { type: string }
+
   # ----------------------------------------------------------------- webhooks
 
   /webhooks/github:
@@ -3481,6 +3689,36 @@ components:
       additionalProperties: false
 
     # ---------------------------------------------------------------- webhooks
+
+    MarketingConsent:
+      type: object
+      description: |
+        Where an account stands on product email (Privacy Policy §2.8).
+
+        It carries no email address and no history. The address the user already
+        knows; the history is the record we keep to show we had the right to
+        write to them, and it is not something to hand out on every load of a
+        settings screen.
+      properties:
+        consented:
+          type: boolean
+          description: True only if the most recent decision was a consent.
+        decided:
+          type: boolean
+          description: |
+            False for someone who has never chosen. Distinct from `consented`
+            being false, and the distinction is for the settings screen: "you
+            have not chosen yet" and "you said no" are shown differently, and
+            **neither one sends any email**. The absence of a decision is a
+            refusal, never a default.
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            When that decision was taken. Absent for someone who has never
+            chosen. This is the date the privacy policy promises to keep.
+      required: [consented, decided]
+
 
     GithubDelivery:
       type: object

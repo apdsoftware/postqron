@@ -74,6 +74,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/health"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/legal"
+	"github.com/apdsoftware/postqron/services/api/internal/marketing"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 	"github.com/apdsoftware/postqron/services/api/openapi"
@@ -126,6 +127,8 @@ func rotteDelRouter(t *testing.T) []string {
 		Secrets:          &secrets.Service{},
 		Account:          &account.Service{},
 		Legal:            &legal.Service{},
+		Marketing:        &marketing.Service{},
+		MarketingPage:    &marketing.Page{},
 		AIKeys:           &aicreds.Service{},
 		ExecutionStreams: hub,
 		Readiness:        prontezzaFinta{},
@@ -598,6 +601,8 @@ var legami = []legameDiSchema{
 	{schema: "LegalChange", valore: LegalChangeResponse{}, obbligatori: true},
 	{schema: "LegalAcceptInput", valore: acceptConsentsRequest{}},
 	{schema: "LegalAcceptDocument", valore: acceptConsentDocument{}},
+	// Consenso al marketing (Privacy Policy §2.8).
+	{schema: "MarketingConsent", valore: MarketingConsentResponse{}, obbligatori: true},
 
 	// Webhook.
 	{schema: "GithubDelivery", valore: GitHubWebhookResponse{}, obbligatori: true},

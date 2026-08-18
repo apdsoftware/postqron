@@ -1,0 +1,11 @@
+{{define "subject"}}{{.Data.Headline}}{{end}}
+
+{{define "content" -}}
+{{.Data.Headline}}
+{{range .Data.Paragraphs}}
+{{.}}
+{{end}}
+{{- if .Data.HasCallToAction}}
+{{.Data.CallToActionLabel}}: {{.Data.CallToActionURL}}
+{{end}}
+{{- end}}

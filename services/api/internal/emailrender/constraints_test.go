@@ -179,6 +179,12 @@ func TestDataTypesCarryNoSecrets(t *testing.T) {
 		reflect.TypeOf(emailrender.JobFailedData{}),
 		reflect.TypeOf(emailrender.PlanChangedData{}),
 		reflect.TypeOf(emailrender.SecurityAlertData{}),
+		// L'`UnsubscribeURL` di questa struttura porta un valore firmato, e passa
+		// il controllo perché il nome non lo nasconde: è la promessa di §2.8
+		// scritta dove serve, non una credenziale trapelata nel corpo. Ciò che
+		// resta vietato è un campo che autorizzi qualcosa **oltre** la
+		// disiscrizione.
+		reflect.TypeOf(emailrender.ProductUpdateData{}),
 	}
 	suspicious := []string{
 		"secret", "token", "password", "credential",

@@ -20,11 +20,15 @@ const DefaultLanguage = "en"
 // Event identifica il template da compilare. I valori coincidono con i nomi dei
 // file in emails/templates/.
 //
-// Sono gli eventi di R21. La corrispondenza con il tipo `notification_event`
-// del database (migrazione 0008) è quasi uno a uno: `welcome`, `job_failed` e
-// `plan_changed` hanno lo stesso nome, mentre l'enum chiama `security` ciò che
-// qui è `security_alert`. L'enum ha anche `job_recovered`, che R21 non copre e
-// per cui non esiste template.
+// I primi quattro sono gli eventi di R21. La corrispondenza con il tipo
+// `notification_event` del database (migrazione 0008) è quasi uno a uno:
+// `welcome`, `job_failed` e `plan_changed` hanno lo stesso nome, mentre l'enum
+// chiama `security` ciò che qui è `security_alert`. L'enum ha anche
+// `job_recovered`, che R21 non copre e per cui non esiste template.
+//
+// Il quinto, [EventProductUpdate], **non** è di R21 e non ha una riga in quel
+// tipo enumerato: le email di marketing non passano dalla coda delle notifiche.
+// Vedi [Kind].
 type Event string
 
 const (
@@ -32,11 +36,84 @@ const (
 	EventJobFailed     Event = "job_failed"
 	EventPlanChanged   Event = "plan_changed"
 	EventSecurityAlert Event = "security_alert"
+	EventProductUpdate Event = "product_update"
 )
 
 // Events restituisce gli eventi coperti, in ordine stabile.
 func Events() []Event {
-	return []Event{EventWelcome, EventJobFailed, EventPlanChanged, EventSecurityAlert}
+	return []Event{
+		EventWelcome, EventJobFailed, EventPlanChanged, EventSecurityAlert,
+		EventProductUpdate,
+	}
+}
+
+// ------------------------------------------------------------------- natura
+
+// Kind è la natura di un'email, e la distinzione più importante di questo
+// package.
+//
+// # Perché è un tipo e non un commento
+//
+// La privacy policy separa le due famiglie in ogni aspetto. Le transazionali
+// (§2.7) «are not marketing and you cannot unsubscribe from them without closing
+// your account, because they are how the service tells you things». Le altre
+// (§2.8) hanno consenso separato e «every marketing message carries an
+// unsubscribe link».
+//
+// Sbagliare in un senso o nell'altro sono due difetti, e nessuno dei due è
+// piccolo: un link di disiscrizione su un avviso di job fallito è un link che
+// l'utente userà, smettendo di ricevere gli avvisi che lo tengono informato su
+// un servizio che paga; una promozione senza è un illecito.
+//
+// La difesa non può essere una convenzione, perché una convenzione si dimentica
+// alla sesta email. È [KindOf]: **nessun evento si compila senza aver dichiarato
+// la propria natura**, e chi aggiunge un template nuovo non trova un valore
+// predefinito su cui appoggiarsi — trova un errore, e deve rispondere alla
+// domanda «è marketing?» prima che il codice funzioni.
+type Kind string
+
+const (
+	// KindTransactional è l'email che il servizio manda perché l'utente ha un
+	// account e riguarda il servizio che ha chiesto (§2.7). Non ha
+	// disiscrizione, non consulta nessun consenso.
+	KindTransactional Kind = "transactional"
+	// KindMarketing è l'email che si manda solo con il consenso dell'Art.
+	// 6(1)(a) e che porta sempre un link di disiscrizione (§2.8).
+	KindMarketing Kind = "marketing"
+)
+
+// kinds dichiara la natura di ogni evento.
+//
+// **Non ha un valore predefinito ed è deliberato.** Un `default:` in [KindOf]
+// avrebbe reso l'omissione silenziosa, e la direzione in cui sarebbe caduta —
+// qualunque delle due si scegliesse — sarebbe stata sbagliata la metà delle
+// volte. Un evento assente da questa mappa non si compila affatto: è il modo
+// più economico per rendere la domanda obbligatoria invece che facoltativa.
+var kinds = map[Event]Kind{
+	EventWelcome:       KindTransactional,
+	EventJobFailed:     KindTransactional,
+	EventPlanChanged:   KindTransactional,
+	EventSecurityAlert: KindTransactional,
+	EventProductUpdate: KindMarketing,
+}
+
+// KindOf dice se un evento è transazionale o di marketing.
+//
+// Il secondo valore è falso per un evento che non ha dichiarato la propria
+// natura. Chi chiama **deve** trattarlo come un errore e non come «probabilmente
+// transazionale»: vedi [Kind].
+func KindOf(event Event) (Kind, bool) {
+	kind, ok := kinds[event]
+	return kind, ok
+}
+
+// IsMarketing è la forma breve di [KindOf] per chi deve solo decidere.
+//
+// Un evento senza natura dichiarata risponde `false, false`: non è marketing
+// perché non è niente, e il secondo valore lo dice.
+func IsMarketing(event Event) (marketing bool, declared bool) {
+	kind, ok := KindOf(event)
+	return ok && kind == KindMarketing, ok
 }
 
 // accents associa a ogni evento il colore della sua fascia. Il blu è quello del
@@ -48,6 +125,7 @@ var accents = map[Event]string{
 	EventJobFailed:     "#d93b3b",
 	EventPlanChanged:   "#4278e5",
 	EventSecurityAlert: "#b4690e",
+	EventProductUpdate: "#4278e5",
 }
 
 // Site raccoglie i valori del prodotto che compaiono in ogni email.
@@ -300,6 +378,121 @@ func (d SecurityAlertData) validate() error {
 	}
 	if d.OccurredAt.IsZero() {
 		return errors.New("OccurredAt è obbligatorio")
+	}
+	return nil
+}
+
+// ------------------------------------------------------------- aggiornamento
+
+// maxParagraphs limita quante parti può avere il corpo di un aggiornamento.
+//
+// Non è una regola editoriale: è il tetto che impedisce a un errore di
+// composizione — un ciclo che accoda invece di sostituire — di produrre un
+// messaggio da megabyte e farlo rifiutare da Mailronix con un `400`, che non è
+// ritentabile.
+const maxParagraphs = 20
+
+// ProductUpdateData è il contesto dell'unica email di marketing (§2.8).
+//
+// # Perché il testo arriva da qui e non dai locales
+//
+// Ogni altro evento ha i propri testi in emails/templates/locales/, perché sono
+// gli stessi a ogni invio: un avviso di job fallito dice sempre la stessa cosa,
+// con dentro dei valori diversi. Una comunicazione di prodotto no — il suo testo
+// **è** il messaggio, cambia a ogni invio, e metterlo nei locales significherebbe
+// una modifica al repository per ogni comunicazione.
+//
+// Struttura e piè di pagina restano invece nei locales, dove sono uguali per
+// tutti: è quella parte a portare la frase che dice perché si sta ricevendo il
+// messaggio e il link per non riceverne più.
+//
+// # UnsubscribeURL non è una comodità
+//
+// È obbligatorio, e la sua assenza è un errore di compilazione, non un piè di
+// pagina più corto. §2.8 dice «every marketing message carries an unsubscribe
+// link»: la parola è *every*, e l'unico modo di renderla vera senza contare
+// sull'attenzione di chi scrive il prossimo invio è che un messaggio senza quel
+// link non esista.
+//
+// L'indirizzo contiene un valore firmato che autorizza la disiscrizione, ed è
+// deliberato che sia in chiaro dentro l'email: §2.8 promette che il link
+// funzioni «with one click and without signing in», cioè senza che chi lo apre
+// debba dimostrare altro. Non è quindi un segreto trapelato nel corpo — è la
+// promessa, scritta dove serve. Ciò che non deve fare è autorizzare qualcosa
+// **oltre** la disiscrizione, e la firma è di dominio distinto perché non possa.
+type ProductUpdateData struct {
+	// Headline è il titolo del messaggio, già nella lingua del destinatario.
+	Headline string
+	// Paragraphs è il corpo, una voce per capoverso. I capoversi sono separati
+	// qui e non da righe vuote dentro una stringa perché la variante HTML e
+	// quella testuale li impaginano in modo diverso, e una sola stringa
+	// costringerebbe uno dei due template a interpretare l'altro.
+	Paragraphs []string
+
+	// CallToActionLabel e CallToActionURL sono il pulsante, facoltativo. O
+	// entrambi o nessuno: un pulsante senza etichetta non si legge, uno senza
+	// indirizzo non porta da nessuna parte.
+	CallToActionLabel string
+	CallToActionURL   string
+
+	// UnsubscribeURL è il link di disiscrizione di §2.8. Obbligatorio: vedi
+	// sopra.
+	UnsubscribeURL string
+}
+
+func (d ProductUpdateData) validate() error {
+	if strings.TrimSpace(d.Headline) == "" {
+		return errors.New("Headline è obbligatorio")
+	}
+	if len(d.Paragraphs) == 0 {
+		return errors.New("Paragraphs è obbligatorio: un messaggio senza corpo non è un messaggio")
+	}
+	if len(d.Paragraphs) > maxParagraphs {
+		return fmt.Errorf("Paragraphs ha %d voci, il massimo è %d", len(d.Paragraphs), maxParagraphs)
+	}
+	for i, paragraph := range d.Paragraphs {
+		if strings.TrimSpace(paragraph) == "" {
+			return fmt.Errorf("Paragraphs[%d] è vuoto", i)
+		}
+	}
+	if (strings.TrimSpace(d.CallToActionLabel) == "") != (strings.TrimSpace(d.CallToActionURL) == "") {
+		return fmt.Errorf("il pulsante vuole etichetta e indirizzo insieme (etichetta %q, indirizzo %q)",
+			d.CallToActionLabel, d.CallToActionURL)
+	}
+	if d.CallToActionURL != "" {
+		if err := validateLinkURL("CallToActionURL", d.CallToActionURL); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(d.UnsubscribeURL) == "" {
+		return errors.New(
+			"UnsubscribeURL è obbligatorio: la privacy policy §2.8 promette un link di disiscrizione " +
+				"in ogni messaggio di marketing, e un messaggio senza non deve poter esistere")
+	}
+	return validateLinkURL("UnsubscribeURL", d.UnsubscribeURL)
+}
+
+// HasCallToAction dice se questo messaggio ha un pulsante.
+func (d ProductUpdateData) HasCallToAction() bool {
+	return strings.TrimSpace(d.CallToActionURL) != ""
+}
+
+// validateLinkURL rifiuta un indirizzo che in un client di posta non porterebbe
+// da nessuna parte.
+//
+// `https` soltanto, e assoluto: un percorso relativo dentro un'email non ha una
+// radice a cui riferirsi, e `http` in chiaro viene già rifiutato dal controllo
+// sui vincoli dei client di posta — meglio dirlo qui, dove il valore entra.
+func validateLinkURL(field, raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s non è un URL valido: %w", field, err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("%s deve usare https, non %q", field, parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("%s non ha un host: in un'email un indirizzo relativo non porta da nessuna parte", field)
 	}
 	return nil
 }

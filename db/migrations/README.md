@@ -62,6 +62,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0016 | `ai_credentials`: revoca che svuota il materiale, unicità fra le sole chiavi vive, via `last_four` (R18) |
 | 0017 | `users.deletion_requested_at` e `users.purge_after`: la finestra di ripensamento prima della purga (R45) |
 | 0018 | `legal_consents`: quale versione di quale documento, in che lingua e quando — append-only (R46) |
+| 0019 | `marketing_consents`: consenso e revoca del marketing, una riga per decisione — append-only (Privacy Policy §2.8) |
 
 ## Scelte di schema
 
