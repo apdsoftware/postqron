@@ -4,9 +4,16 @@
  *
  * Sta in `utils/` perché è logica pura: nessuna dipendenza da Vue, da Nuxt o dal
  * browser, quindi verificabile senza montare niente (`test/auth.test.ts`). È
- * anche il motivo per cui la guardia in `middleware/auth.global.ts` resta di
+ * anche il motivo per cui la guardia in `middleware/02.auth.global.ts` resta di
  * poche righe: quello che c'è da decidere è deciso qui.
+ *
+ * Il prefisso di lingua di §8-bis non è un caso in più da trattare: le due
+ * funzioni che guardano un percorso lo tolgono prima di ragionarci (vedi
+ * `stripLocale()`), così l'autenticazione continua a conoscere due rotte e non
+ * dieci.
  */
+import type { LocaleCode } from '~/utils/locale'
+import { localePath, stripLocale } from '~/utils/locale'
 
 /**
  * Lunghezza minima della password, copiata da `auth.MinPasswordLength` del
@@ -25,10 +32,18 @@
  */
 export const MIN_PASSWORD_LENGTH = 12
 
-/** Dove si accede. */
+/**
+ * Dove si accede, **senza lingua**.
+ *
+ * Le rotte della dashboard sono prefissate (SPEC §8-bis): l'indirizzo vero è
+ * `/it/login`. Qui e nel registro della navigazione i percorsi restano nella
+ * forma neutra, perché la stessa schermata vale per tutte e cinque le lingue e
+ * il prefisso si aggiunge al momento dell'uso con `localePath()` — o, nei
+ * componenti, con l'`href()` di `useLocale()`.
+ */
 export const LOGIN_PATH = '/login'
 
-/** Dove ci si registra. */
+/** Dove ci si registra, sempre senza lingua. Vedi [LOGIN_PATH]. */
 export const REGISTER_PATH = '/register'
 
 /**
@@ -43,9 +58,18 @@ export const REGISTER_PATH = '/register'
  */
 export const PUBLIC_PATHS: readonly string[] = [LOGIN_PATH, REGISTER_PATH]
 
-/** Dice se un percorso è raggiungibile senza sessione. */
+/**
+ * Dice se un percorso è raggiungibile senza sessione.
+ *
+ * Il prefisso di lingua viene tolto prima del confronto: `/it/login` e
+ * `/de/login` sono la stessa schermata, e un elenco che li enumerasse tutti e
+ * cinque per due rotte sarebbe dieci righe che si dimenticano a undici. La
+ * forma senza prefisso continua a valere perché arriva ancora — da un vecchio
+ * segnalibro, o da un `?next=` scritto a mano — e in entrambi i casi la
+ * risposta giusta è la stessa.
+ */
 export function isPublicPath(path: string): boolean {
-  return PUBLIC_PATHS.includes(normalizePath(path))
+  return PUBLIC_PATHS.includes(normalizePath(stripLocale(path)))
 }
 
 /** Uno slash finale non cambia la schermata: `/login` e `/login/` sono la stessa. */
@@ -75,8 +99,8 @@ function normalizePath(path: string): string {
  * - `/\altro.example/x` — la stessa cosa scritta con una barra rovescia, che i
  *   browser normalizzano in `//`.
  * - qualunque cosa non cominci con `/` — indirizzo assoluto o percorso relativo.
- * - `/login` e `/register` — non sono un pericolo, sono un anello: si tornerebbe
- *   all'accesso subito dopo esserne usciti.
+ * - `/login` e `/register`, in qualunque lingua — non sono un pericolo, sono un
+ *   anello: si tornerebbe all'accesso subito dopo esserne usciti.
  *
  * @returns il percorso se è utilizzabile, altrimenti `null`: chi chiama ricade
  *   sulla panoramica, che è sempre un posto sensato dove finire.
@@ -102,11 +126,48 @@ export function safeNextPath(value: unknown): string | null {
    * `?next=/` un parametro che non cambia niente, in ogni indirizzo di chiunque
    * apra la dashboard. La stessa rotta *con* una query invece si conserva: i
    * filtri di un elenco stanno lì, e tornare all'elenco senza i suoi filtri è
-   * comunque aver perso il posto.
+   * comunque aver perso il posto — ed è per questo che «nuda» significa
+   * `value === path`, cioè che lo split di sopra non ha tolto niente.
+   *
+   * Con le rotte prefissate la panoramica si presenta come `/it`, non più solo
+   * come `/`: si guarda quindi la forma senza lingua. Il ripiego di chi chiama
+   * è la panoramica **nella lingua in cui si trova**, che con `?next=/de` non
+   * si potrebbe comunque onorare senza portare l'utente in una terza lingua.
    */
-  if (value.replace(/\/+$/, '') === '') return null
+  if (stripLocale(path).replace(/\/+$/, '') === '' && value === path) return null
 
   return value
+}
+
+/**
+ * Porta un indirizzo di ritorno nella lingua in cui lo si sta per aprire.
+ *
+ * ## La domanda a cui risponde
+ *
+ * `?next=` viaggia nella barra degli indirizzi e porta il prefisso di quando è
+ * stato scritto. Fra allora e adesso c'è il modulo di accesso, dove il
+ * selettore è presente apposta (R32): chi arriva rimbalzato da `/en/jobs/42`,
+ * non riconosce la lingua e passa all'italiano per capire cosa gli si chiede,
+ * dopo aver scritto la password si vedrebbe restituire la schermata **in
+ * inglese**. Sarebbe un cambio di lingua a metà di un'operazione, deciso da un
+ * parametro che l'utente non ha scritto lui.
+ *
+ * Vince quindi la lingua della pagina su cui si è: è l'ultima cosa che l'utente
+ * ha detto, ed è l'unica delle due che sia una scelta. Non contraddice la
+ * precedenza dell'indirizzo argomentata in `utils/locale.ts` — la rispetta:
+ * l'indirizzo che comanda è quello che si sta guardando, `/it/login`, e non un
+ * pezzo di query composto da noi un rimbalzo fa.
+ *
+ * Il *dove* invece resta intatto: `next` dice quale schermata, e quella non si
+ * tocca. Query e ancora viaggiano in coda senza essere interpretate — sono i
+ * filtri e la posizione di ciò che si stava guardando.
+ */
+export function localizeNextPath(next: string, locale: LocaleCode): string {
+  const index = next.search(/[?#]/)
+  const path = index === -1 ? next : next.slice(0, index)
+  const tail = index === -1 ? '' : next.slice(index)
+
+  return localePath(path, locale) + tail
 }
 
 /**

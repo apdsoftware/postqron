@@ -4,6 +4,7 @@ import { ApiError } from '../utils/api'
 import {
   authErrorKey,
   isPublicPath,
+  localizeNextPath,
   LOGIN_PATH,
   MIN_PASSWORD_LENGTH,
   REGISTER_PATH,
@@ -28,6 +29,17 @@ describe('isPublicPath', () => {
     // prefisso è il modo in cui una regola sui prefissi concede per sbaglio.
     expect(isPublicPath('/login-help')).toBe(false)
   })
+
+  it('vale in tutte e cinque le lingue', () => {
+    // Le rotte sono prefissate (SPEC §8-bis): l'indirizzo vero dell'accesso è
+    // `/it/login`. Senza togliere il prefisso, la guardia lo tratterebbe da
+    // schermata protetta e rimanderebbe all'accesso — cioè lì.
+    expect(isPublicPath('/it/login')).toBe(true)
+    expect(isPublicPath('/de/register/')).toBe(true)
+    expect(isPublicPath('/fr/jobs/42')).toBe(false)
+    // La radice di una lingua è la panoramica, non una schermata pubblica.
+    expect(isPublicPath('/es')).toBe(false)
+  })
 })
 
 describe('safeNextPath', () => {
@@ -43,6 +55,22 @@ describe('safeNextPath', () => {
     // Con una query invece sì: i filtri di un elenco stanno lì, e tornare senza
     // di essi è comunque aver perso il posto.
     expect(safeNextPath('/?scheda=salute')).toBe('/?scheda=salute')
+  })
+
+  it('la panoramica nuda è tale anche col prefisso di lingua', () => {
+    // `/it` *è* la panoramica: dichiararla come ritorno è lo stesso parametro
+    // che non cambia niente, scritto in italiano.
+    expect(safeNextPath('/it')).toBeNull()
+    expect(safeNextPath('/de/')).toBeNull()
+    // E con una query si conserva, come la sua gemella senza prefisso.
+    expect(safeNextPath('/it?scheda=salute')).toBe('/it?scheda=salute')
+  })
+
+  it('accetta una rotta profonda prefissata, che è ciò che compone un\'email', () => {
+    // È il valore che la guardia ci mette venendo da `/it/jobs/42`, ed è anche
+    // la forma in cui il backend compone i link (`AppURL()`, R21+R33).
+    expect(safeNextPath('/it/jobs/42')).toBe('/it/jobs/42')
+    expect(safeNextPath('/de/jobs?stato=fallito')).toBe('/de/jobs?stato=fallito')
   })
 
   it('rifiuta un indirizzo assoluto', () => {
@@ -66,6 +94,9 @@ describe('safeNextPath', () => {
     expect(safeNextPath(LOGIN_PATH)).toBeNull()
     expect(safeNextPath(REGISTER_PATH)).toBeNull()
     expect(safeNextPath('/login?next=/login')).toBeNull()
+    // L'anello non si scioglie cambiando lingua.
+    expect(safeNextPath('/it/login')).toBeNull()
+    expect(safeNextPath('/de/register')).toBeNull()
   })
 
   it('rifiuta ciò che non è nemmeno una stringa', () => {
@@ -75,6 +106,32 @@ describe('safeNextPath', () => {
     expect(safeNextPath(null)).toBeNull()
     expect(safeNextPath(['/jobs', '/altro'])).toBeNull()
     expect(safeNextPath('')).toBeNull()
+  })
+})
+
+describe('localizeNextPath', () => {
+  it('porta il ritorno nella lingua della pagina su cui si è', () => {
+    // Chi è stato rimbalzato da `/en/jobs/42` e ha cambiato il selettore per
+    // capire cosa gli si chiedeva non deve ritrovarsi la schermata in inglese
+    // dopo aver scritto la password.
+    expect(localizeNextPath('/en/jobs/42', 'it')).toBe('/it/jobs/42')
+    expect(localizeNextPath('/it/jobs/42', 'it')).toBe('/it/jobs/42')
+  })
+
+  it('prefissa un ritorno che non dichiara una lingua', () => {
+    // Non capita dalla guardia, che scrive sempre percorsi prefissati, ma
+    // `?next=` si scrive anche a mano.
+    expect(localizeNextPath('/jobs/42', 'de')).toBe('/de/jobs/42')
+    expect(localizeNextPath('/', 'de')).toBe('/de')
+  })
+
+  it('non tocca il dove: query e ancora restano in coda', () => {
+    // `next` dice quale schermata; i filtri e la posizione stanno lì dentro e
+    // non vanno interpretati.
+    expect(localizeNextPath('/en/jobs?stato=fallito&pagina=2', 'fr'))
+      .toBe('/fr/jobs?stato=fallito&pagina=2')
+    expect(localizeNextPath('/en/jobs/42#storico', 'es')).toBe('/es/jobs/42#storico')
+    expect(localizeNextPath('/en?scheda=salute', 'it')).toBe('/it?scheda=salute')
   })
 })
 
