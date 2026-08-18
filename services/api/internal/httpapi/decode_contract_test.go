@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -23,13 +22,20 @@ import (
 // Provare il comportamento di ogni rotta una per una lo coprirebbe, ma solo per
 // le rotte che esistono oggi. Questo test copre anche la settima.
 func TestOgniRottaCheLeggeUnCorpoTraduceGliErroriAlloStessoModo(t *testing.T) {
-	// Le due eccezioni sono dichiarate, non tollerate: `POST /secrets` e le rotte
-	// delle chiavi AI redigono il messaggio invece di rimandarlo, perché
-	// `json.Decoder` cita il testo che non è riuscito a leggere e nel corpo di
-	// quelle richieste quel testo può essere il segreto (R43). Riusano lo stesso
-	// stato e lo stesso codice, non `err.Error()`.
-	eccezioni := []string{"secrets.go", "aicreds.go"}
-
+	// L'invariante non è «usa l'helper»: è **nessuno può lasciar cadere in
+	// silenzio `errBodyTooLarge`**. Sono due cose diverse, e la prima stesura di
+	// questo test confondeva la seconda con la prima tenendo un elenco di nomi di
+	// file da aggiornare a mano — cioè la stessa fragilità che il test esiste per
+	// impedire. Se n'è accorta la issue #460 al primo rebase: `account.go` era
+	// un'eccezione legittima che l'elenco non conosceva.
+	//
+	// Le eccezioni sono quelle rotte il cui corpo porta materiale che non si può
+	// citare — un segreto, una chiave AI, una password — e che quindi traducono
+	// da sé riusando stato e codice ma **non** `err.Error()`, perché
+	// `json.Decoder` cita il testo che non è riuscito a leggere (R43). Si
+	// dichiarano nel codice, nominando `errBodyTooLarge`: chi lo nomina ha
+	// deciso, chi non lo nomina ha dimenticato. È la distinzione che separava le
+	// cinque copie giuste dal checkout.
 	sorgenti, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -55,20 +61,14 @@ func TestOgniRottaCheLeggeUnCorpoTraduceGliErroriAlloStessoModo(t *testing.T) {
 		visti++
 
 		nome := filepath.Base(f)
-		if slices.Contains(eccezioni, nome) {
-			// L'eccezione deve restare tale: se smettesse di redigere, sarebbe da
-			// ricondurre all'helper invece che lasciata a metà.
-			if !strings.Contains(testo, "errBodyTooLarge") {
-				t.Errorf("%s è dichiarato eccezione ma non riconosce errBodyTooLarge: "+
-					"o traduce da sé, o usa writeDecodeError", nome)
-			}
+		if strings.Contains(testo, "writeDecodeError") || strings.Contains(testo, "errBodyTooLarge") {
 			continue
 		}
-		if !strings.Contains(testo, "writeDecodeError") {
-			t.Errorf("%s legge un corpo JSON ma non usa writeDecodeError: "+
-				"è il difetto del checkout, dove ogni errore di decodifica finiva in un solo "+
-				"400 e un corpo troppo grande non diventava mai 413", nome)
-		}
+		t.Errorf("%s legge un corpo JSON e non nomina né writeDecodeError né errBodyTooLarge: "+
+			"è il difetto del checkout, dove ogni errore di decodifica finiva in un solo 400 e "+
+			"un corpo troppo grande non diventava mai 413. Usa writeDecodeError; se il corpo di "+
+			"questa rotta porta materiale che non si può citare, traduci da te riusando stato e "+
+			"codice ma non err.Error(), come fanno secrets.go, aicreds.go e account.go", nome)
 	}
 
 	// Se il nome della funzione cambiasse, il ciclo non troverebbe niente e il

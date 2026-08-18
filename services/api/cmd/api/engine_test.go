@@ -336,6 +336,20 @@ func (b *banco) attendiEsecuzione(jobID, trigger string, entro time.Duration) ht
 	scadenza := time.Now().Add(entro)
 	for {
 		for _, e := range b.esecuzioni(jobID, trigger) {
+			// `skipped` è terminale per la riga ma **non è un esito**: dice che
+			// quell'occorrenza non ha mai girato, perché la precedente era ancora in
+			// corso e la politica del job è `skip` (R41, predefinito dalla #457).
+			//
+			// Restituirlo qui faceva fallire i test a macchina carica, e la
+			// diagnosi era fuorviante — «stato = skipped, atteso succeeded» sembra
+			// un difetto del motore mentre è il motore che si comporta come deve.
+			// Un job a `every: 1s` la cui esecuzione dura più di un secondo produce
+			// occorrenze saltate per costruzione: su una macchina scarica non
+			// succede, su una carica sì, e non è una proprietà del codice sotto
+			// prova. Chi aspetta un'esecuzione vuole quella che ha girato.
+			if e.Status == "skipped" {
+				continue
+			}
 			if slices.Contains(statiTerminali, e.Status) {
 				return e
 			}
