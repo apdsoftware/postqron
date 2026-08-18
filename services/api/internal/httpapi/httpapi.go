@@ -33,6 +33,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/legal"
+	"github.com/apdsoftware/postqron/services/api/internal/marketing"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
@@ -112,6 +113,24 @@ type Deps struct {
 	// configurazione dei test dell'health check, e la mancanza si nota nel log
 	// all'avvio.
 	Legal *legal.Service
+	// Marketing e MarketingPage possono essere nil: in quel caso le rotte
+	// `/marketing` non vengono registrate (Privacy Policy §2.8). Vanno insieme
+	// perché servono le due metà della stessa promessa — il servizio decide, la
+	// pagina è ciò che l'utente vede — e registrarne una sola darebbe un link di
+	// disiscrizione che risponde 404.
+	//
+	// La conseguenza va detta per intero, perché tocca un documento legale.
+	// Senza queste rotte l'utente non può prestare né ritirare il consenso, e
+	// **il link di disiscrizione delle email già spedite smette di funzionare**:
+	// §2.8 promette che funzioni con un clic e senza accedere. Nil è la
+	// configurazione dei test dell'health check, non una degradazione
+	// accettabile in esercizio, e la mancanza si nota nel log all'avvio.
+	//
+	// Non è però una degradazione pericolosa nell'altra direzione: senza il
+	// servizio non parte nemmeno un'email di marketing, perché è lo stesso
+	// servizio a verificare il consenso.
+	Marketing     *marketing.Service
+	MarketingPage *marketing.Page
 
 	// AIKeys può essere nil: in quel caso le rotte `/ai/keys` non vengono
 	// registrate (R18). Senza, l'utente non può configurare il BYOK e il
@@ -285,6 +304,18 @@ func register(mux router, cfg config.Config, version string, logger *slog.Logger
 		} else {
 			logger.Warn("rotte del consenso ai documenti legali non registrate: nessun servizio legal configurato",
 				slog.String("conseguenza", "un documento che cambia non si può accettare dall'applicazione (R46, Termini §9)"))
+		}
+
+		// Il consenso al marketing sta dietro lo stesso guard e solo dietro la
+		// *sessione*; le due rotte di disiscrizione, invece, stanno fuori da
+		// qualunque credenziale — §2.8 promette che funzionino senza accedere.
+		// Vedi marketingAPI.routes.
+		if deps.Marketing != nil && deps.MarketingPage != nil {
+			newMarketingAPI(guard, logger, deps.Marketing, deps.MarketingPage).routes(mux)
+		} else {
+			logger.Warn("rotte del marketing non registrate: nessun servizio marketing configurato",
+				slog.String("conseguenza", "il link di disiscrizione delle email già spedite risponde 404, "+
+					"e la privacy policy §2.8 promette che funzioni con un clic e senza accedere"))
 		}
 
 		// Le chiavi AI stanno dietro lo stesso guard, e come i segreti solo dietro
