@@ -36,10 +36,12 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/githubapp"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhookpg"
+	"github.com/apdsoftware/postqron/services/api/internal/health"
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
+	"github.com/apdsoftware/postqron/services/api/internal/metrics"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
 	"github.com/apdsoftware/postqron/services/api/internal/notify"
 	"github.com/apdsoftware/postqron/services/api/internal/notifypg"
@@ -48,6 +50,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/reposync"
 	"github.com/apdsoftware/postqron/services/api/internal/reposyncpg"
 	"github.com/apdsoftware/postqron/services/api/internal/retention"
+	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
 	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 	"github.com/apdsoftware/postqron/services/api/internal/secretspg"
@@ -137,6 +140,16 @@ func run() error {
 		return err
 	}
 
+	// L'osservabilità (R7) si costruisce **prima** del motore, perché è il motore
+	// a essere osservato: un registro innestato dopo perderebbe le passate e i
+	// fallimenti dei primi istanti di vita del processo, che sono quelli in cui
+	// un deploy andato male si vede.
+	registry := metrics.New(metrics.Options{
+		Version:   version,
+		Env:       cfg.Env,
+		Tolerance: scheduler.DefaultTolerance,
+	})
+
 	eng, err := newEngine(engineOptions{
 		Pool:    pool,
 		Logger:  logger,
@@ -144,10 +157,25 @@ func run() error {
 		Targets: guard,
 		Secrets: secretsService,
 		Alerter: sinks.failures,
+		Metrics: registry,
 	})
 	if err != nil {
 		return err
 	}
+	registry.UsePool(eng.Workers())
+
+	// Le sonde di prontezza. `Engine` è il registro perché il battito dello
+	// scheduler — l'istante dell'ultima passata **riuscita** — lo conosce chi
+	// osserva le passate, non lo scheduler, che le espone e va avanti.
+	healthSvc, err := health.New(health.Options{
+		Pool:   pool,
+		Engine: registry,
+		Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	registry.UseHealth(healthSvc)
 
 	jobsService, err := newJobsService(pool, logger, guard, eng.Manual(), eng.Concurrency())
 	if err != nil {
@@ -228,6 +256,13 @@ func run() error {
 			PaddleWebhook:  paddleWebhook,
 			Billing:        billingService,
 			TrustedProxies: trustedProxies,
+
+			// R7. Il token è la credenziale di chi gestisce il servizio, non di un
+			// utente del prodotto: senza, `/metrics` non viene registrata affatto e
+			// `/readyz` dice il solo stato complessivo. Vedi httpapi/observability.go.
+			Readiness:    healthSvc,
+			Metrics:      registry,
+			MetricsToken: os.Getenv(httpapi.MetricsTokenEnvVar),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
@@ -248,16 +283,32 @@ func run() error {
 	// percorsi di altri: le funzioni della 0006 esistevano dalla prima
 	// migrazione e non le invocava nessuno, che è esattamente il modo in cui una
 	// promessa scritta nella privacy policy resta non mantenuta.
-	retentionSvc, err := retention.New(retention.Options{Pool: pool, Logger: logger})
+	retentionSvc, err := retention.New(retention.Options{
+		Pool:     pool,
+		Logger:   logger,
+		Observer: registry,
+	})
 	if err != nil {
 		return err
 	}
 	retentionStopped := make(chan struct{})
 	go func() {
 		defer close(retentionStopped)
-		if err := retentionSvc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("retention: ciclo interrotto", slog.Any("error", err))
-		}
+		runLoop(ctx, logger, "retention", retentionSvc.Run)
+	}()
+
+	// Le sonde di prontezza (R7). Girano accanto al motore e non dentro di esso:
+	// sono un ticker che interroga il database, e non deve poter occupare un
+	// worker.
+	//
+	// Partono **prima** del motore per una ragione precisa: `/readyz`
+	// risponde «non pronto» finché non hanno guardato, e farle partire dopo
+	// significherebbe tenere il servizio dichiarato non pronto per tutto il tempo
+	// dell'avvio del motore.
+	observabilityStopped := make(chan struct{})
+	go func() {
+		defer close(observabilityStopped)
+		runLoop(ctx, logger, "prontezza", healthSvc.Run)
 	}()
 
 	// Il corriere delle email (R20, R21). Il costruttore va chiamato **prima**
@@ -359,9 +410,27 @@ func run() error {
 	case <-shutdownCtx.Done():
 		logger.Warn("notifiche: passata non conclusa entro il tempo dell'arresto")
 	}
+	// Le sonde di prontezza usano lo stesso pool, e vale lo stesso discorso.
+	select {
+	case <-observabilityStopped:
+	case <-shutdownCtx.Done():
+		logger.Warn("prontezza: sonde non concluse entro il tempo dell'arresto")
+	}
 
 	logger.Info("servizio arrestato")
 	return listenErr
+}
+
+// runLoop fa girare un ciclo di servizio e ne registra l'uscita anomala.
+//
+// La chiusura del contesto non è anomala: è l'arresto del processo, ed è così
+// che ogni ciclo esce. Scriverla nei log come un errore renderebbe illeggibile
+// l'arresto pulito, che è il momento in cui si guardano i log per capire se
+// qualcosa non ha fatto in tempo.
+func runLoop(ctx context.Context, logger *slog.Logger, name string, run func(context.Context) error) {
+	if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		logger.Error(name+": ciclo interrotto", slog.Any("error", err))
+	}
 }
 
 // newAuthService costruisce l'autenticazione (R14).

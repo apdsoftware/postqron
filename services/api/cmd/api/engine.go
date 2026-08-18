@@ -71,6 +71,26 @@ type engineOptions struct {
 	// mancante è un servizio che esegue i job senza raccontarlo. Il secondo è
 	// una configurazione, il primo no.
 	Alerter dispatch.Alerter
+
+	// Metrics raccoglie ciò che il motore osserva (R7). Può essere nil: il
+	// motore gira lo stesso e nessuno guarda, che è la configurazione dei test.
+	//
+	// È l'altro destinatario dei fallimenti definitivi, accanto ad `Alerter`, e
+	// i due restano due: uno decide se scrivere a una persona, l'altro conta. Il
+	// primo ha una politica anti-spam, il secondo deve vedere anche ciò che
+	// quella politica sopprime — vedi [dispatch.Observer].
+	Metrics engineObserver
+}
+
+// engineObserver è ciò che il motore chiede a chi raccoglie le metriche.
+//
+// Le interfacce sono quelle dei pezzi che si osservano — scheduler e dispatch —
+// e stanno insieme qui perché a implementarle è un oggetto solo. Dichiararle
+// come un tipo invece che accettare `*metrics.Registry` è ciò che tiene questo
+// file capace di girare senza: nei test l'osservatore è nil.
+type engineObserver interface {
+	scheduler.Observer
+	dispatch.Observer
 }
 
 // engine tiene insieme scheduler e worker pool per il ciclo di vita del
@@ -113,20 +133,34 @@ func newEngine(opts engineOptions) (*engine, error) {
 		return nil, err
 	}
 
+	// Chi conta i fallimenti è uno solo, e i due destinatari del fatto sono
+	// separati per costruzione: `Alerter` sopra, `Observer` qui. Vedi
+	// [engineOptions.Metrics].
+	var failures dispatch.Observer
+	if opts.Metrics != nil {
+		failures = opts.Metrics
+	}
+
 	workers, err := dispatch.New(dispatch.Options{
 		Store:    dispatch.NewPostgresStore(opts.Pool),
 		Executor: executor,
 		Guard:    targetGuard{check: opts.Targets},
 		Alerter:  opts.Alerter,
+		Observer: failures,
 		Logger:   log,
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	var watcher scheduler.Observer
+	if opts.Metrics != nil {
+		watcher = opts.Metrics
+	}
 	sched, err := scheduler.New(scheduler.Options{
 		Pool:       opts.Pool,
 		Dispatcher: workers,
+		Observer:   watcher,
 		Logger:     log,
 	})
 	if err != nil {
@@ -144,6 +178,11 @@ func newEngine(opts engineOptions) (*engine, error) {
 
 // Manual è l'adattatore da passare a [jobs.Options.Dispatcher].
 func (e *engine) Manual() jobs.Dispatcher { return e.manual }
+
+// Workers è il worker pool, da cui si leggono le grandezze istantanee della
+// coda (R7). Esce di qui perché il pool nasce dentro [newEngine] e chi raccoglie
+// le metriche nasce prima: vedi `metrics.Registry.UsePool`.
+func (e *engine) Workers() *dispatch.Pool { return e.workers }
 
 // Concurrency è il tetto tecnico sulle esecuzioni contemporanee di un workspace
 // (R10), da passare a [jobs.Options.Concurrency].
