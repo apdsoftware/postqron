@@ -13,6 +13,11 @@ export const de: DashboardContent = {
     },
     toLightTheme: 'Zum hellen Design wechseln',
     toDarkTheme: 'Zum dunklen Design wechseln',
+    account: {
+      open: 'Kontomenü',
+      signedInAs: 'Angemeldet als',
+      signOut: 'Abmelden',
+    },
   },
 
   status: {
@@ -44,5 +49,42 @@ export const de: DashboardContent = {
     title: 'Seite nicht gefunden',
     intro: 'Diese Adresse gehört zu keiner Ansicht des Dashboards. Sie hat sich vielleicht geändert, oder der Link ist falsch.',
     back: 'Zurück zur Übersicht',
+  },
+
+  auth: {
+    signIn: {
+      title: 'Anmelden',
+      submit: 'Anmelden',
+      submitting: 'Anmeldung läuft…',
+      noAccount: 'Noch kein Konto?',
+      noAccountLink: 'Jetzt erstellen',
+      interrupted: 'Deine Sitzung ist beendet. Melde dich erneut an, um dort weiterzumachen, wo du warst.',
+      returningTo: 'Du kommst zurück auf die Seite, die du aufgerufen hattest.',
+    },
+    signUp: {
+      title: 'Konto erstellen',
+      submit: 'Konto erstellen',
+      submitting: 'Wird erstellt…',
+      haveAccount: 'Du hast schon ein Konto?',
+      haveAccountLink: 'Anmelden',
+      acceptedTitle: 'Sieh in deinem Postfach nach',
+      acceptedBody: 'Falls die Adresse verwendbar ist, haben wir eine E-Mail mit den nächsten Schritten geschickt.',
+      acceptedSignIn: 'Zur Anmeldung',
+    },
+    fields: {
+      email: 'E-Mail',
+      password: 'Passwort',
+      fullName: 'Vor- und Nachname',
+      passwordHint: 'Mindestens 12 Zeichen.',
+    },
+    errors: {
+      credentials: 'E-Mail oder Passwort sind nicht korrekt.',
+      tooManyAttempts: 'Zu viele Versuche. Warte ein paar Minuten und versuche es erneut.',
+      suspended: 'Dieses Konto ist gesperrt. Wende dich an den Support.',
+      invalidEmail: 'Diese E-Mail-Adresse ist ungültig.',
+      weakPassword: 'Dieses Passwort erfüllt die Anforderung oben nicht.',
+      unexpected: 'Die Anfrage konnte nicht abgeschlossen werden. Versuche es gleich noch einmal.',
+      required: 'Fülle dieses Feld aus.',
+    },
   },
 }

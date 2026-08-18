@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ApiError, apiErrorKind, apiUrl, buildQuery } from '../utils/api'
+import { ApiError, apiErrorKind, apiUrl, buildQuery, parseErrorCode } from '../utils/api'
 
 describe('apiUrl', () => {
   it('unisce base URL e percorso', () => {
@@ -53,6 +53,23 @@ describe('apiErrorKind', () => {
   })
 })
 
+describe('parseErrorCode', () => {
+  it('legge il codice dichiarato dal backend', () => {
+    expect(parseErrorCode('{"error":{"code":"weak_password","message":"…"}}')).toBe('weak_password')
+  })
+
+  it('un corpo che non è la forma attesa non ha codice', () => {
+    // Sono i casi veri: il 502 di un proxy davanti al backend è HTML, un 401
+    // può non avere corpo affatto, e nessuno dei due deve far lanciare niente.
+    expect(parseErrorCode('')).toBeNull()
+    expect(parseErrorCode('<html>502 Bad Gateway</html>')).toBeNull()
+    expect(parseErrorCode('null')).toBeNull()
+    expect(parseErrorCode('{"error":"non_un_oggetto"}')).toBeNull()
+    expect(parseErrorCode('{"error":{"code":42}}')).toBeNull()
+    expect(parseErrorCode('{"error":{"code":""}}')).toBeNull()
+  })
+})
+
 describe('ApiError', () => {
   it('un guasto di rete non ha codice', () => {
     const error = ApiError.network('https://api.postqron.com/v1/jobs', new Error('Failed to fetch'))
@@ -66,6 +83,18 @@ describe('ApiError', () => {
 
     expect(error.kind).toBe('unauthorized')
     expect(error.status).toBe(401)
+    // Nessun codice dichiarato: la categoria HTTP c'è sempre, il codice no.
+    expect(error.code).toBeNull()
+  })
+
+  it('conserva il codice del backend accanto alla categoria', () => {
+    // I due campi rispondono a domande diverse: `kind` dice cosa può fare
+    // l'utente, `code` quale regola è scattata. Un modulo ha bisogno del
+    // secondo per indicare *quale* campo rifare.
+    const error = ApiError.fromStatus('https://api.postqron.com/auth/register', 400, '', 'weak_password')
+
+    expect(error.kind).toBe('invalid')
+    expect(error.code).toBe('weak_password')
   })
 
   it('resta un Error, così un catch senza filtri continua a funzionare', () => {

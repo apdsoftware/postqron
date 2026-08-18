@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DashboardContent } from '~/types/content'
 import { dashboardContent } from '~/content'
+import { MIN_PASSWORD_LENGTH } from '~/utils/auth'
 import { DEFAULT_LOCALE, LOCALE_CODES } from '~/utils/locale'
 
 const entries = LOCALE_CODES.map(code => [code, dashboardContent[code]] as const)
@@ -53,6 +54,13 @@ describe('testi', () => {
     // Un file creato per copia e mai tradotto compila, supera il confronto
     // delle chiavi e si nota solo aprendo la pagina. Qui si nota prima.
     expect(content).not.toEqual(source)
+  })
+
+  it.each(entries)('%s dichiara la lunghezza minima della password davvero richiesta', (_code, content) => {
+    // Il requisito è scritto a mano in cinque frasi, e il numero dentro deve
+    // restare quello del backend: cambiarlo senza toccare le traduzioni
+    // prometterebbe una password che il backend rifiuta, in cinque lingue.
+    expect(content.auth.fields.passwordHint).toContain(String(MIN_PASSWORD_LENGTH))
   })
 
   it.each(translations)('%s traduce il nome del selettore di lingua', (_code, content) => {

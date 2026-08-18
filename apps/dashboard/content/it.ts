@@ -13,6 +13,11 @@ export const it: DashboardContent = {
     },
     toLightTheme: 'Passa al tema chiaro',
     toDarkTheme: 'Passa al tema scuro',
+    account: {
+      open: 'Menu dell\'account',
+      signedInAs: 'Collegato come',
+      signOut: 'Esci',
+    },
   },
 
   status: {
@@ -44,5 +49,42 @@ export const it: DashboardContent = {
     title: 'Pagina non trovata',
     intro: 'Questo indirizzo non corrisponde a nessuna schermata della dashboard. Potrebbe essere cambiato, o il collegamento potrebbe essere sbagliato.',
     back: 'Torna alla panoramica',
+  },
+
+  auth: {
+    signIn: {
+      title: 'Accedi',
+      submit: 'Accedi',
+      submitting: 'Accesso in corso…',
+      noAccount: 'Non hai ancora un account?',
+      noAccountLink: 'Creane uno',
+      interrupted: 'La sessione è terminata. Accedi di nuovo per riprendere da dove eri.',
+      returningTo: 'Tornerai alla pagina che avevi chiesto.',
+    },
+    signUp: {
+      title: 'Crea un account',
+      submit: 'Crea account',
+      submitting: 'Creazione in corso…',
+      haveAccount: 'Hai già un account?',
+      haveAccountLink: 'Accedi',
+      acceptedTitle: 'Controlla la posta',
+      acceptedBody: 'Se l\'indirizzo è utilizzabile, abbiamo inviato un\'email con le istruzioni.',
+      acceptedSignIn: 'Vai all\'accesso',
+    },
+    fields: {
+      email: 'Email',
+      password: 'Password',
+      fullName: 'Nome e cognome',
+      passwordHint: 'Almeno 12 caratteri.',
+    },
+    errors: {
+      credentials: 'Email o password non corretti.',
+      tooManyAttempts: 'Troppi tentativi. Aspetta qualche minuto e riprova.',
+      suspended: 'Questo account è sospeso. Contatta l\'assistenza.',
+      invalidEmail: 'Questo indirizzo email non è valido.',
+      weakPassword: 'Questa password non rispetta il requisito qui sopra.',
+      unexpected: 'Non è stato possibile completare la richiesta. Riprova fra un momento.',
+      required: 'Compila questo campo.',
+    },
   },
 }
