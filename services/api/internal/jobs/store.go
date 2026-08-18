@@ -94,6 +94,19 @@ type Store interface {
 	// ListJobs, restituisce fino a `Limit + 1` righe.
 	ListExecutions(ctx context.Context, filter ExecutionFilter) ([]Execution, error)
 
+	// ListExecutionsForward elenca le esecuzioni di un job **in avanti**: dalla
+	// più antica alla più recente, a partire da `Since` incluso e da `Cursor`
+	// escluso. Restituisce al massimo `Limit` righe, senza la riga in più di
+	// ListExecutions: un flusso non ha una pagina successiva da annunciare, torna
+	// a chiedere al giro dopo.
+	//
+	// È la lettura dello streaming (SPEC §4.2, R6) e cammina sullo stesso indice
+	// di ListExecutions letto nell'altro verso — vedi internal/jobs/stream.go per
+	// il motivo per cui i due versi sono due metodi e non un parametro: un
+	// cursore che significasse «prima» o «dopo» a seconda di un booleano è
+	// esattamente il tipo di ambiguità che produce righe saltate.
+	ListExecutionsForward(ctx context.Context, filter ExecutionFilter) ([]Execution, error)
+
 	// CreateExecution registra un tentativo. Restituisce [ErrExecutionExists] se
 	// la chiave naturale è già occupata — che è il lock di idempotenza di R4 — e
 	// [ErrPartitionMissing] se manca la partizione giornaliera.
