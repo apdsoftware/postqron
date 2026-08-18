@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apdsoftware/postqron/services/api/internal/account"
 	"github.com/apdsoftware/postqron/services/api/internal/aicreds"
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
@@ -90,6 +91,15 @@ type Deps struct {
 	// `${VAR}` falliscono la risoluzione — e nessuno può creare il segreto che
 	// manca. La mancanza si nota nel log all'avvio.
 	Secrets *secrets.Service
+
+	// Account può essere nil: in quel caso le rotte `/account/deletion` non
+	// vengono registrate (R45). La conseguenza va detta per intero, perché
+	// tocca un documento legale: la privacy policy §6 promette che «export and
+	// deletion are available in the application without asking us», e senza
+	// queste rotte quella frase è falsa. Nil è la configurazione dei test
+	// dell'health check, non una degradazione accettabile in esercizio, e la
+	// mancanza si nota nel log all'avvio.
+	Account *account.Service
 
 	// AIKeys può essere nil: in quel caso le rotte `/ai/keys` non vengono
 	// registrate (R18). Senza, l'utente non può configurare il BYOK e il
@@ -231,6 +241,16 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 			newSecretsAPI(guard, logger, deps.Secrets).routes(mux)
 		} else {
 			logger.Warn("rotte dei segreti del workspace non registrate: nessun servizio secrets configurato")
+		}
+
+		// La cancellazione dell'account sta dietro lo stesso guard e, come le due
+		// sopra, solo dietro la *sessione* — con in più la password sulla
+		// richiesta: vedi accountAPI.routes.
+		if deps.Account != nil {
+			newAccountAPI(guard, logger, deps.Account).routes(mux)
+		} else {
+			logger.Warn("rotte di cancellazione dell'account non registrate: nessun servizio account configurato",
+				slog.String("conseguenza", "la privacy policy §6 promette la cancellazione dall'applicazione (R45)"))
 		}
 
 		// Le chiavi AI stanno dietro lo stesso guard, e come i segreti solo dietro
