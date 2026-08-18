@@ -428,6 +428,18 @@ type Stats struct {
 	// Errors sono gli errori del database durante una transizione di stato.
 	Errors int64
 
+	// FailedFinal sono le occorrenze fallite **in via definitiva**: nessun
+	// tentativo successivo le seguirà.
+	//
+	// Non è [Stats.Failed] con un altro nome, ed è la distinzione che serve a
+	// distinguere un problema del cliente da un intoppo. Failed conta i
+	// *tentativi* andati male, compresi quelli a cui è seguito un retry riuscito;
+	// questa conta le *occorrenze* che nessuno eseguirà più. Un job con
+	// `max_retries: 3` che riesce al secondo colpo aggiunge uno a Failed e zero a
+	// questa — ed è esattamente la differenza fra «il motore ha rimediato» e
+	// «l'utente ha un job rotto». Vedi [Observer].
+	FailedFinal int64
+
 	// I quattro esiti di una decisione di retry che vale la pena contare (R5).
 	// Un fallimento che non si ritenta perché non è ritentabile — un `4xx`, una
 	// destinazione rifiutata — non compare qui: è già [Stats.Failed], e il motivo
