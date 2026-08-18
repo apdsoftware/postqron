@@ -11,7 +11,7 @@ status: pending-review
 Questa informativa spiega quali dati personali Postqron tratta, perché, e che cosa puoi
 farci. È scritta per essere letta, non per essere sopportata.
 
-## 1. Chi è il responsabile
+## 1. Chi è il titolare
 
 Il titolare del trattamento dei tuoi dati personali è
 Apdsoftware di Carlo Zuffetti, Via C. Colombo 15, 24047 Treviglio (BG), Italy — VAT 03835250162, REA BG 431224.
