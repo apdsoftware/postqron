@@ -21,6 +21,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/apdsoftware/postqron/services/api/internal/account"
+	"github.com/apdsoftware/postqron/services/api/internal/accountpg"
 	"github.com/apdsoftware/postqron/services/api/internal/aicreds"
 	"github.com/apdsoftware/postqron/services/api/internal/aicredspg"
 	"github.com/apdsoftware/postqron/services/api/internal/apikeypg"
@@ -272,6 +274,42 @@ func run() error {
 		return err
 	}
 
+	// La cancellazione dell'account (R45). Si costruisce sempre: la privacy
+	// policy §6 promette che «export and deletion are available in the
+	// application without asking us», e un servizio assente renderebbe quella
+	// frase falsa senza che nessuno se ne accorga.
+	//
+	// La conferma della password passa da `authService`, che è lo stesso servizio
+	// del login: il tentativo di indovinarla da una sessione rubata incontra
+	// quindi lo stesso tetto del login, non un secondo secchio con le proprie
+	// soglie.
+	accountStore, err := accountpg.New(pool)
+	if err != nil {
+		return err
+	}
+	grace, err := account.GraceFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	accountService, err := account.New(account.Options{
+		Store:   accountStore,
+		Confirm: authService,
+		Logger:  logger,
+		Grace:   grace,
+	})
+	if err != nil {
+		return err
+	}
+	if grace != account.DefaultGrace {
+		// Il periodo che l'utente ha letto nella privacy policy è un altro: va
+		// detto, perché è la configurazione che rende inesatto un documento
+		// pubblicato, non il codice.
+		logger.Warn("periodo di ripensamento diverso da quello della privacy policy",
+			slog.Duration("configurato", grace),
+			slog.Duration("dichiarato", account.DefaultGrace),
+			slog.String("env", account.GraceEnvVar))
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
@@ -285,7 +323,10 @@ func run() error {
 			// Le rotte `/ai/keys` (R18) sono lo stesso servizio da cui il debugging
 			// dei log rilegge la chiave: una chiave che l'utente non può incollare è
 			// una chiave con cui non chiameremo mai il fornitore.
-			AIKeys:         aiKeysService,
+			AIKeys: aiKeysService,
+			// Le rotte `/account/deletion` (R45). Vedi accountAPI.routes: stanno
+			// dietro la sessione e, sulla richiesta, dietro la password.
+			Account:        accountService,
 			GitHubWebhook:  gitHubWebhook,
 			PaddleWebhook:  paddleWebhook,
 			Billing:        billingService,
@@ -329,6 +370,30 @@ func run() error {
 	go func() {
 		defer close(retentionStopped)
 		runLoop(ctx, logger, "retention", retentionSvc.Run)
+	}()
+
+	// La purga degli account scaduti (R45). È l'altra metà della cancellazione:
+	// la richiesta ferma e revoca subito, questa passata rimuove quando la grazia
+	// è finita.
+	//
+	// Senza di lei la funzionalità sarebbe una promessa a metà, e in una
+	// direzione precisa — l'utente vedrebbe fermarsi tutto e i suoi dati
+	// resterebbero in tabella per sempre, cioè esattamente ciò che la privacy
+	// policy §5 dichiara di non fare. È lo stesso motivo per cui esiste
+	// internal/retention, e vale la pena ripeterlo: una funzione mai invocata è
+	// il modo in cui una promessa scritta in un documento legale resta non
+	// mantenuta.
+	accountPurger, err := account.NewPurger(account.PurgeOptions{
+		Store:  accountStore,
+		Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	purgeStopped := make(chan struct{})
+	go func() {
+		defer close(purgeStopped)
+		runLoop(ctx, logger, "purga degli account", accountPurger.Run)
 	}()
 
 	// Le sonde di prontezza (R7). Girano accanto al motore e non dentro di esso:
@@ -433,6 +498,17 @@ func run() error {
 	case <-retentionStopped:
 	case <-shutdownCtx.Done():
 		logger.Warn("retention: passata non conclusa entro il tempo dell'arresto")
+	}
+	// La purga degli account si aspetta per la stessa ragione — lo stesso pool —
+	// e con una differenza che vale la pena scrivere: qui l'interruzione a metà
+	// non lascia nulla di ambiguo. La cancellazione delle esecuzioni è a lotti e
+	// ogni lotto è la sua transazione, quindi ciò che è stato cancellato resta
+	// cancellato e l'account è ancora lì, con la scadenza scaduta, pronto per la
+	// prima passata dopo il riavvio.
+	select {
+	case <-purgeStopped:
+	case <-shutdownCtx.Done():
+		logger.Warn("purga degli account: passata non conclusa entro il tempo dell'arresto")
 	}
 	// Il corriere si aspetta per la stessa ragione, con una in più: una notifica
 	// consegnata a Mailronix e non ancora chiusa in coda tornerebbe disponibile
