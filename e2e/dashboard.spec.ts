@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
+import { HEALTHY, mockBackend } from './support/dashboard-api'
 import { collectPageErrors } from './support/page-errors'
 
 // Dashboard — output di `nuxt generate` con ssr: false, quindi una SPA statica.
@@ -12,21 +13,26 @@ import { collectPageErrors } from './support/page-errors'
 // che resta vuoto è indistinguibile da una build riuscita se si guarda solo il
 // codice HTTP.
 
-/** Risposta che il backend Go dà a `/healthz` quando sta bene. */
-const HEALTHY = { status: 'ok', env: 'test', version: '0.0.0-test' }
-
 /**
- * Fa rispondere l'health check senza un backend acceso.
+ * Fa rispondere il backend senza un backend acceso.
  *
- * La panoramica interroga il servizio appena si apre — è ciò che deve fare, e
- * `useApiResource()` parte al montaggio — ma qui non gira nessun backend Go: la
- * richiesta fallirebbe, e ogni test finirebbe per misurare quel fallimento
- * invece di ciò che vuole misurare. Vale per tutti i test del file, quindi sta
- * in un `beforeEach`; chi vuole provare proprio il guasto lo sovrascrive con un
- * `page.route()` suo, che ha la precedenza sull'ultimo registrato.
+ * Sono due le richieste che partono comunque, e nessuna delle due appartiene al
+ * test che le subisce: la panoramica interroga l'health check appena si apre — è
+ * ciò che deve fare, e `useApiResource()` parte al montaggio — e la guardia di
+ * rotta chiede `/auth/session` prima ancora che l'applicazione si monti. Qui non
+ * gira nessun backend Go: senza queste risposte ogni test finirebbe per misurare
+ * il loro fallimento invece di ciò che vuole misurare.
+ *
+ * La sessione è valida perché è la condizione normale della dashboard: tutto
+ * quello che c'è in questo file — il guscio, la navigazione, gli stati, il
+ * tema — si guarda da collegati. Il caso opposto, e tutto ciò che discende
+ * dall'autenticazione, sta in `dashboard-auth.spec.ts`.
+ *
+ * Chi vuole provare proprio il guasto sovrascrive la rotta con un `page.route()`
+ * suo, che ha la precedenza sull'ultimo registrato.
  */
 test.beforeEach(async ({ page }) => {
-  await page.route('**/healthz', route => route.fulfill({ json: HEALTHY }))
+  await mockBackend(page, true)
 })
 
 test.describe('dashboard', () => {
@@ -193,6 +199,7 @@ test.describe('lingua', () => {
       await expect(page.locator('h1')).toHaveText(TITLES.it)
 
       const later = await context.newPage()
+      await mockBackend(later, true)
       await later.goto('/')
       await expect(later.locator('h1')).toHaveText(TITLES.it)
       await expect(later.locator(SWITCHER)).toHaveValue('it')
@@ -449,7 +456,7 @@ test.describe('tema', () => {
     await expect(html).toHaveClass(/\bdark\b/)
 
     const later = await context.newPage()
-    await later.route('**/healthz', route => route.fulfill({ json: HEALTHY }))
+    await mockBackend(later, true)
     await later.goto('/')
     await expect(later.locator('html')).toHaveClass(/\bdark\b/)
     await later.close()

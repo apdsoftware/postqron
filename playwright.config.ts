@@ -61,7 +61,15 @@ export default defineConfig({
     },
     {
       name: 'dashboard',
-      testMatch: /dashboard\.spec\.ts/,
+      // Tutti i file `dashboard*.spec.ts`: l'autenticazione ne ha uno suo,
+      // perché ha bisogno del caso «senza sessione» che negli altri sarebbe
+      // rumore in ogni `beforeEach`.
+      //
+      // `[a-z-]*` e non `.*`: il confronto avviene sul percorso assoluto, e un
+      // `.` che attraversa gli slash farebbe corrispondere anche `web.spec.ts`
+      // non appena una cartella dell'albero si chiama «dashboard» — cosa che
+      // succede, perché i worktree hanno il nome della issue.
+      testMatch: /dashboard[a-z-]*\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${DASHBOARD_PORT}` },
     },
   ],
