@@ -73,7 +73,7 @@ func newAIKeysAPI(guard *guard, logger *slog.Logger, svc *aicreds.Service) *aiKe
 // un bersaglio scelto da chi ha la chiave le richieste che noi facciamo per suo
 // conto, e gliele farebbe pagare sul conto del fornitore. Per toccare le chiavi
 // AI serve la credenziale che dimostra di *essere* l'utente.
-func (a *aiKeysAPI) routes(mux *http.ServeMux) {
+func (a *aiKeysAPI) routes(mux router) {
 	mux.HandleFunc("GET /ai/keys", a.authenticated(a.list))
 	mux.HandleFunc("POST /ai/keys", a.authenticated(a.save))
 	mux.HandleFunc("DELETE /ai/keys/{id}", a.authenticated(a.revoke))

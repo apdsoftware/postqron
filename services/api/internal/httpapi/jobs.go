@@ -95,37 +95,52 @@ func newJobsAPI(guard *guard, logger *slog.Logger, svc *jobs.Service, streams *e
 }
 
 // routes registra le rotte con lo scope che ciascuna richiede (R9).
+func (a *jobsAPI) routes(mux router) {
+	a.register(mux, a.scopedRoutes())
+}
+
+// scopedRoutes è la tabella dei permessi delle rotte dei job (R9).
 //
 // Lo scope sta qui, accanto al metodo e al percorso, e non dentro l'handler:
-// così l'elenco dei permessi dell'API si legge in dodici righe, e una rotta
-// registrata senza scope si vede a occhio. L'applicazione è in guard.scoped
-// (identity.go), che è l'unico punto da cui passano tutte queste rotte.
+// così l'elenco dei permessi dell'API si legge in dieci righe, e una rotta
+// registrata senza scope non si può scrivere — la tabella un campo `Scope` ce
+// l'ha per forza. L'applicazione è in guard.scoped (identity.go), che è l'unico
+// punto da cui passano tutte queste rotte.
 //
 // Le sessioni passano da tutte: gli scope limitano le deleghe, non il titolare.
-func (a *jobsAPI) routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /jobs", a.scoped(apikeys.ScopeJobsRead, a.list))
-	mux.HandleFunc("POST /jobs", a.scoped(apikeys.ScopeJobsWrite, a.create))
-	mux.HandleFunc("GET /jobs/{id}", a.scoped(apikeys.ScopeJobsRead, a.get))
-	mux.HandleFunc("PATCH /jobs/{id}", a.scoped(apikeys.ScopeJobsWrite, a.update))
-	mux.HandleFunc("DELETE /jobs/{id}", a.scoped(apikeys.ScopeJobsWrite, a.delete))
+//
+// È una tabella e non una sequenza di `HandleFunc` perché è anche **ciò che il
+// contratto OpenAPI dichiara** in `x-api-key-scope`, e il controllo di
+// allineamento confronta le due cose (vedi contract_test.go): una rotta che nel
+// documento promette uno scope diverso da quello che il codice pretende è una
+// bugia che si scopre in produzione, con una chiave che non funziona.
+func (a *jobsAPI) scopedRoutes() []scopedRoute {
+	return []scopedRoute{
+		{"GET /jobs", apikeys.ScopeJobsRead, a.list},
+		{"POST /jobs", apikeys.ScopeJobsWrite, a.create},
+		{"GET /jobs/{id}", apikeys.ScopeJobsRead, a.get},
+		{"PATCH /jobs/{id}", apikeys.ScopeJobsWrite, a.update},
+		{"DELETE /jobs/{id}", apikeys.ScopeJobsWrite, a.delete},
 
-	// Le esecuzioni sono una sottorisorsa del job, e il trigger manuale ne crea
-	// una: `POST` sulla stessa collezione che `GET` elenca. Una rotta
-	// `/jobs/{id}/trigger` sarebbe un verbo travestito da risorsa, e nasconderebbe
-	// che ciò che si ottiene è esattamente una riga del registro — con la stessa
-	// forma, lo stesso identificativo naturale e lo stesso tetto.
-	//
-	// Il trigger ha uno scope proprio, distinto da `jobs:write`: cambiare la
-	// definizione di un job e far partire adesso una chiamata verso l'esterno sono
-	// due poteri diversi, e una chiave da cruscotto vuole il secondo senza il primo.
-	mux.HandleFunc("GET /jobs/{id}/executions", a.scoped(apikeys.ScopeExecutionsRead, a.listExecutions))
-	mux.HandleFunc("POST /jobs/{id}/executions", a.scoped(apikeys.ScopeExecutionsTrigger, a.trigger))
+		// Le esecuzioni sono una sottorisorsa del job, e il trigger manuale ne crea
+		// una: `POST` sulla stessa collezione che `GET` elenca. Una rotta
+		// `/jobs/{id}/trigger` sarebbe un verbo travestito da risorsa, e
+		// nasconderebbe che ciò che si ottiene è esattamente una riga del registro —
+		// con la stessa forma, lo stesso identificativo naturale e lo stesso tetto.
+		//
+		// Il trigger ha uno scope proprio, distinto da `jobs:write`: cambiare la
+		// definizione di un job e far partire adesso una chiamata verso l'esterno
+		// sono due poteri diversi, e una chiave da cruscotto vuole il secondo senza
+		// il primo.
+		{"GET /jobs/{id}/executions", apikeys.ScopeExecutionsRead, a.listExecutions},
+		{"POST /jobs/{id}/executions", apikeys.ScopeExecutionsTrigger, a.trigger},
 
-	// Il flusso in tempo reale è la stessa lettura del registro consegnata in un
-	// altro modo (SPEC §4.2), quindi lo stesso scope: chiederne uno diverso
-	// costringerebbe a creare una seconda chiave per vedere le stesse righe. Vedi
-	// executions_stream.go.
-	mux.HandleFunc("GET /jobs/{id}/executions/stream", a.scoped(apikeys.ScopeExecutionsRead, a.streamExecutions))
+		// Il flusso in tempo reale è la stessa lettura del registro consegnata in un
+		// altro modo (SPEC §4.2), quindi lo stesso scope: chiederne uno diverso
+		// costringerebbe a creare una seconda chiave per vedere le stesse righe.
+		// Vedi executions_stream.go.
+		{"GET /jobs/{id}/executions/stream", apikeys.ScopeExecutionsRead, a.streamExecutions},
+	}
 }
 
 // ------------------------------------------------------------------ handler

@@ -71,7 +71,7 @@ func newBillingAPI(guard *guard, logger *slog.Logger, svc *billing.Service) *bil
 // un'attività (R63). Una dichiarazione resa da una chiave API non è una
 // dichiarazione dell'utente — è una dichiarazione di chi ha la chiave, che può
 // essere un'integrazione scritta mesi prima da qualcun altro.
-func (a *billingAPI) routes(mux *http.ServeMux) {
+func (a *billingAPI) routes(mux router) {
 	mux.HandleFunc("GET /billing/subscription", a.authenticated(a.subscription))
 	mux.HandleFunc("POST /billing/checkout", a.authenticated(a.checkout))
 }

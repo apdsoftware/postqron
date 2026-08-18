@@ -11,6 +11,7 @@ SaaS developer-first per gestione, sincronizzazione e monitoraggio di cronjob.
 apps/web/          Sito pubblico — Nuxt 3 statico (template Hexagon)
 apps/dashboard/    Dashboard cliente + admin — Nuxt 3 statico (template Flowbite)
 services/api/      Backend Go: API REST + motore cron
+services/api/openapi/  Contratto OpenAPI dell'API pubblica (R51)
 db/migrations/     Migrazioni PostgreSQL versionate
 emails/templates/  Template HTML transazionali (compilati da Go, recapitati da Mailronix)
 infra/             Provisioning Hetzner + Cloudflare
@@ -228,7 +229,7 @@ preflight                      strumenti e layout del monorepo
 ├─ ci-go          services/api  go vet · gofmt · go build · go test -race
 ├─ ci-web         apps/web      eslint · nuxt typecheck · vitest · nuxt generate
 ├─ ci-dashboard   apps/dashboard  idem                                   in parallelo
-├─ ci-root        radice        prettier · tsc (e2e) · gitleaks · test degli script
+├─ ci-root        radice        prettier · tsc (e2e) · contratto OpenAPI · gitleaks · test degli script
 └─ ci-vuln        services/api  govulncheck
 e2e                            Playwright sull'output statico delle due app
 ```
@@ -383,6 +384,35 @@ Il formato è quello di esposizione testuale di Prometheus, scritto a mano: il
 binario non prende dipendenze per produrlo, la registrazione è un'atomica per
 occorrenza e la raccolta non tocca il database. Su una macchina sola (SPEC §2)
 l'osservabilità non deve pesare più del servizio che osserva.
+
+## Contratto dell'API pubblica (R51)
+
+Il contratto OpenAPI 3.1 dell'API sta in
+[`services/api/openapi/openapi.yaml`](services/api/openapi/openapi.yaml),
+versionato insieme al codice che descrive.
+
+**È scritto in inglese**, ed è l'unica eccezione alla regola di AGENTS.md §8: la
+riga di confine è chi legge. Il contratto lo legge chi integra l'API — è
+contenuto di prodotto, e SPEC §8-bis dice che la lingua sorgente dei contenuti di
+prodotto è l'inglese. Commenti, commit e documentazione interna restano in
+italiano. I `message` che l'API restituisce sono oggi in italiano e il documento
+li descrive per come sono: tradurli è la issue #445.
+
+**Cosa gli impedisce di mentire.** Un documento scritto a mano diverge dal codice
+entro un mese, e da quel momento è peggio di non averlo: chi lo legge costruisce
+un client su una promessa falsa, e il difetto si manifesta a casa sua. Due
+controlli in `make ci`, che rispondono a due domande diverse:
+
+| | | |
+|---|---|---|
+| `make openapi` | `ci-root` | il documento è **leggibile dagli strumenti**: schema del formato, `$ref` risolvibili |
+| `go test ./internal/httpapi` | `ci-go` | il documento è **vero**: rotte, scope, codici di errore, campi delle risposte ed enumerazioni, confrontati con il codice |
+
+Il secondo sta in
+[`services/api/internal/httpapi/contract_test.go`](services/api/internal/httpapi/contract_test.go),
+che spiega perché il confronto e non la generazione, e cosa il confronto **non**
+copre. Le rotte non portano un prefisso di versione: la versione è
+`info.version`, e la politica di deprecazione è R52 (issue #466).
 
 ## Documentazione
 

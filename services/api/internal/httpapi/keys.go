@@ -58,7 +58,7 @@ func newKeysAPI(guard *guard, logger *slog.Logger, svc *apikeys.Service) *keysAP
 //
 // La conseguenza pratica è che l'automazione non può ruotarsi le chiavi da sola.
 // È voluta: la rotazione è un'operazione che una persona decide.
-func (a *keysAPI) routes(mux *http.ServeMux) {
+func (a *keysAPI) routes(mux router) {
 	mux.HandleFunc("GET /keys", a.authenticated(a.list))
 	mux.HandleFunc("POST /keys", a.authenticated(a.create))
 	mux.HandleFunc("DELETE /keys/{id}", a.authenticated(a.revoke))

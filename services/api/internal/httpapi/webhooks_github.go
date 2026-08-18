@@ -65,7 +65,7 @@ func newGitHubWebhookAPI(logger *slog.Logger, svc *githubhook.Service) *githubWe
 	return &githubWebhookAPI{svc: svc, log: logger}
 }
 
-func (a *githubWebhookAPI) routes(mux *http.ServeMux) {
+func (a *githubWebhookAPI) routes(mux router) {
 	mux.HandleFunc("POST /webhooks/github", a.receive)
 }
 

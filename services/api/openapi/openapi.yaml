@@ -1,0 +1,3224 @@
+openapi: 3.1.0
+
+info:
+  title: Postqron API
+  version: 1.0.0
+  summary: Manage, sync and monitor cron jobs (R8, R9, R51).
+  description: |
+    The contract of the Postqron public API. It describes **what the service
+    actually does**: paths, bodies, error codes and limits are compared against
+    the code on every `make ci` run — see "What keeps this document honest".
+
+    ## What keeps this document honest
+
+    A hand-written contract drifts from the code within a month, and from that
+    moment it is worse than having none: whoever reads it builds a client on a
+    false promise, and the defect shows up at their end. Here drift is prevented
+    by an automated check
+    (`services/api/internal/httpapi/contract_test.go`) that compares the
+    document against the code and fails CI when they disagree:
+
+    - **routes** — the `(method, path)` list comes from the real router, not
+      from a second hand-written copy;
+    - **permissions** — `x-api-key-scope` is compared against the scope the code
+      enforces, and no operation may list `apiKey` among its authentication
+      methods unless the code registers it behind a scope;
+    - **error codes** — the `ErrorCode` enumeration is compared against the
+      codes the service actually writes into responses;
+    - **response fields** — the names, requiredness and nullability of every
+      schema are compared against the serialised structures. This is also what
+      defends R43: **a field added to a response does not pass CI until it is
+      declared here**, and declaring it is the moment you notice you are
+      exposing something;
+    - **enumerations** — environments, statuses, methods, scopes, providers and
+      plans come from the same constants the service enforces.
+
+    The document is also validated against the OpenAPI 3.1 schema (`make
+    openapi`), locally and without network access: this repository's CI runs
+    locally only (AGENTS.md §2).
+
+    ## Contract version
+
+    `info.version` is the version of **the contract**, not of the service: the
+    build of the API is in `GET /healthz`. It changes when what this document
+    promises changes:
+
+    | | |
+    |---|---|
+    | major | a promise is withdrawn or narrowed: a route or field disappears, an error code changes meaning, a constraint tightens |
+    | minor | a promise is added: routes, optional fields, new values in an enumeration |
+    | patch | the wording changes, the behaviour does not |
+
+    **Routes carry no version prefix** (`/jobs`, not `/v1/jobs`): the version
+    lives here. How much notice is given before a feature is retired, and how a
+    new version coexists with the previous one, is the versioning and
+    deprecation **policy** (R52), which belongs to issue #466: this document
+    declares the version, not the policy.
+
+    ## Authentication
+
+    Two credentials, and the difference matters:
+
+    - **session** (R14) — the `pq_session` cookie, or `Authorization: Bearer
+      <token>` for clients without a cookie jar. It covers everything the user
+      can do: whoever holds the password does not need permission from
+      themselves.
+    - **API key** (R9) — `Authorization: Bearer pq_live_...`, with **scopes**. It
+      works only where declared, and only for the scope named in
+      `x-api-key-scope`.
+
+    When a request carries both, **the key wins**: running the operation with
+    the full powers of the session while ignoring the limits of the key the
+    caller explicitly chose to present would be a silent escalation.
+
+    Routes that **issue or replace credentials** — `/keys`, `/secrets`,
+    `/ai/keys` — that **commit to a payment** — `/billing` — and that **destroy
+    the account** — `/account/deletion` — accept the session only. This is not an
+    oversight: a read-only key one request away from issuing a write key would
+    make scopes a formality; a key able to replace a secret would redirect the
+    user's credentials to a target chosen by whoever holds the key; and a key
+    able to request account deletion would make a service credential forgotten
+    in a config file enough to destroy someone's work.
+
+    ## Errors
+
+    Every error uses the same envelope and the same stable field:
+
+    ```json
+    { "error": { "code": "plan_limit_jobs", "message": "…", "limit": "jobs", "plan": "free" } }
+    ```
+
+    `code` is **stable and untranslated**, and it is what you branch on (R53).
+    `message` is prose for a human and may change without notice: do not match
+    on it. **`message` is currently written in Italian** — the API is not
+    localised yet, and localisation of user-facing strings is SPEC §8-bis, issue
+    #445. This document describes the messages as they are today.
+
+    ### The two `429` responses are not the same error (R10)
+
+    Confusing them produces a hostile product, and this contract keeps them
+    apart down to the schema level:
+
+    - **plan quota** — `plan_limit_write_rate`, `plan_limit_manual_trigger`.
+      Schema [PlanLimitError](#/components/schemas/PlanLimitError): it names the
+      `plan` and the `limit`, because there upgrading really is the answer.
+    - **technical ceiling** — `rate_limited`, `execution_ceiling`,
+      `stream_ceiling`. Schema
+      [ServiceLimitError](#/components/schemas/ServiceLimitError): it **has no
+      `plan` and no `limit`, and the schema forbids them from appearing**. It is
+      a defence of the service, identical on every plan: no plan grants more of
+      it, and suggesting an upgrade to whoever hits it would be a commercial lie.
+
+    A client decides whether to show an upgrade prompt by looking at those two
+    fields, not at the text of the message.
+
+    ### Retention applies to reads too (R10-bis)
+
+    The plan limits (3, 15, 30, 90 days) apply to the execution log. A request
+    that **explicitly** asks beyond the plan's retention is rejected with `403
+    plan_limit_retention`, which says which plan keeps how much and from which
+    instant: it is not silently narrowed. A request that asks for no window at
+    all gets the plan's retention as the default, which is not a disguised
+    rejection — there is nothing the caller asked for and is not getting.
+
+    ## Pagination (R53)
+
+    Paginated lists are **cursor-based**, with the same `page` envelope
+    everywhere. On a one-second job the log grows by 86,400 rows a day, and an
+    `offset` would force the database to discard thousands of rows to serve
+    fifty.
+
+    `page.next_cursor` set to `null` is **the only** end-of-list condition: it
+    must not be inferred from the number of rows returned, because a full page
+    may well be the last one. The cursor is opaque: send it back exactly as it
+    arrived.
+
+    A `limit` above the maximum is not an error, it is a resized request: the
+    size actually served is always in `page.limit`.
+
+    ## Write idempotency (R53)
+
+    - There is no `PUT`: modifications are `PATCH` with "what you do not send
+      does not change" semantics, so they are repeatable. An explicit `null` is a
+      value — it clears the field — and is distinct from an absent field.
+    - `POST /jobs` is idempotent on the **name**, which is the stable identity of
+      a job: a second attempt with the same name gets `409 job_name_taken`, not a
+      duplicate.
+    - `POST /ai/keys` **replaces** the provider's live key instead of rejecting
+      it: pasting a provider's key a second time is not creating a duplicate, it
+      is updating one.
+    - `POST /jobs/{id}/executions` is idempotent on the occurrence (R4): the
+      quadruple `(job, instant, environment, attempt)` is the key, and an already
+      recorded occurrence gets `409 execution_already_exists`.
+    - `POST /account/deletion` is idempotent on the pending request: a second
+      call gets `409 deletion_already_requested`, not a second grace window.
+    - Inbound webhooks recognise repeated deliveries and answer `duplicate`
+      without producing a second effect.
+
+    ## Secrets (R9, R18, R42, R43)
+
+    **No response schema contains a secret**, and not because of a filter applied
+    when responding: they are fields the structures do not have, because what is
+    never serialised cannot escape by accident. In particular:
+
+    - the plaintext value of an API key appears **exactly once**, in
+      `ApiKeyCreated.secret`, at creation time. There is no `GET /keys/{id}`, no
+      parameter to reveal it, and after that response the value is not
+      recoverable by anyone, not even an administrator;
+    - workspace secrets are **never** returned, not even on creation: the user
+      already has them;
+    - AI keys are never returned, not even a fragment of them;
+    - `Job.request.headers` returns what was written, i.e. the `${VAR}`
+      **references**, not the resolved values: resolution happens at execution
+      time, inside the engine;
+    - `Execution.response_excerpt` is a truncated excerpt of the target's
+      response, with secrets redacted (R43).
+
+  contact:
+    name: APDSoftware
+    url: https://postqron.com
+  license:
+    name: UNLICENSED
+
+servers:
+  - url: http://localhost:8080
+    description: |
+      Local development (`POSTQRON_HTTP_ADDR`, README § Sviluppo). The production
+      base URL is not declared here because it is not yet decided anywhere in the
+      repository: inventing one would be the first false statement in this
+      contract.
+
+tags:
+  - name: system
+    description: Liveness, readiness and metrics (R7). These are not product routes.
+  - name: authentication
+    description: Registration, sign-in, sessions and passwords (R14).
+  - name: jobs
+    description: Cron jobs and executions (R8).
+  - name: api keys
+    description: Issuing and revoking scoped keys (R9).
+  - name: secrets
+    description: Workspace secrets resolved at execution time (R42, R43).
+  - name: ai keys
+    description: The user's own AI provider key, BYOK (R18).
+  - name: billing
+    description: Plan in force and checkout hand-off (R16).
+  - name: account
+    description: Account and workspace deletion with a grace period (R45).
+  - name: webhooks
+    description: |
+      Inbound deliveries from GitHub (R11) and Paddle (R16). **These are not
+      client routes**: the credential is the signature of the body, not an
+      identity we issued.
+
+# The default is the session. Routes that also accept an API key declare it
+# operation by operation, together with the scope required: that shape is what
+# makes "which routes a key can use" verifiable, and the alignment check rejects
+# an `apiKey` declared here but not registered in the code.
+security:
+  - sessionCookie: []
+  - sessionBearer: []
+
+paths:
+  # ------------------------------------------------------------------- system
+
+  /healthz:
+    get:
+      tags: [system]
+      operationId: liveness
+      summary: The process is up
+      description: |
+        States **that this process is serving requests**, and nothing else: it
+        does not touch the database and does not look at the engine. It answers
+        `200` by definition — if it could not answer, it would not answer.
+
+        Put that way it sounds useless, and it is precisely what a supervisor
+        restarting a wedged process needs: a liveness probe that can fail because
+        of the database would restart the service in a loop that fixes nothing,
+        because the problem is elsewhere. The different question — "is the engine
+        doing its job?" — is `GET /readyz`.
+      security: []
+      responses:
+        "200":
+          description: The process answers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /readyz:
+    get:
+      tags: [system]
+      operationId: readiness
+      summary: The engine is working right now (R7)
+      description: |
+        The HTTP status is the real answer and the body repeats it in readable
+        form: a load balancer looks at the code, a person at the body. `503`
+        means "send me no traffic"; `200` with `status: degraded` means "it
+        works, and somebody must act before it stops".
+
+        `status` is public. The **detail** of the checks is not, and that is not
+        excessive caution: "two days of partition headroom left" tells anyone how
+        the service is built and when it is weak. It appears only for callers
+        presenting the operator token, which is the same credential as the
+        metrics.
+
+        The route exists only if the process has an engine to observe: without
+        one it answers `404`.
+      security:
+        - {}
+        - operatorToken: []
+      responses:
+        "200":
+          description: Ready, possibly degraded.
+          headers:
+            Cache-Control:
+              description: Always `no-store`. A readiness answer served from a cache is one that always says yes.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+        "503":
+          description: "Not ready: send no traffic."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+
+  /metrics:
+    get:
+      tags: [system]
+      operationId: metrics
+      summary: Service metrics (R7)
+      description: |
+        Text exposition format, version 0.0.4.
+
+        The route **exists only if there is a token to protect it**
+        (`POSTQRON_METRICS_TOKEN`): without one it answers `404`. Registering it
+        open because "they are only metrics" would publish the load of the
+        service, the number of active customers and the response times of their
+        targets.
+      security:
+        - operatorToken: []
+      responses:
+        "200":
+          description: The metrics page.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401":
+          description: |
+            Operator token missing or wrong — `unauthenticated`. The response
+            does not distinguish the two: to someone guessing, they are the same.
+          headers:
+            WWW-Authenticate:
+              description: '`Bearer realm="postqron-metrics"`.'
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # ----------------------------------------------------------- authentication
+
+  /auth/register:
+    post:
+      tags: [authentication]
+      operationId: register
+      summary: Register an account (R14)
+      description: |
+        Answers `202` whenever the request was well formed, whether the address
+        was free or already taken, and the body is **identical** in both cases:
+        saying "we have written to you" without saying *whether* an account
+        existed is the whole point.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterInput" }
+      responses:
+        "202":
+          description: Accepted. It does not say whether the account existed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/login:
+    post:
+      tags: [authentication]
+      operationId: login
+      summary: Open a session (R14)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginInput" }
+      responses:
+        "200":
+          description: Session opened.
+          headers:
+            Set-Cookie:
+              description: |
+                `pq_session`, `HttpOnly`, `SameSite=Lax`, and `Secure` outside
+                development. `HttpOnly` puts the token out of reach of
+                JavaScript: an XSS on the dashboard cannot carry it away.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionEnvelope" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          description: |
+            `invalid_credentials`. One code for both "unknown address" and "wrong
+            password": distinguishing them would turn the API into an oracle for
+            who has an account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "403":
+          description: "`account_suspended`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/logout:
+    post:
+      tags: [authentication]
+      operationId: logout
+      summary: Close the current session
+      description: |
+        Answers `204` even when there was no session: the intended result is
+        already true, and an error would confirm to whoever holds an expired
+        token that it was expired. The cookie is cleared either way.
+
+        **It is the only route without a `429`**, and that is deliberate: closing
+        a session costs neither a hash nor a repeatable write, and rate-limiting
+        sign-out would mean keeping signed in someone who wants to leave.
+      security: []
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/session:
+    get:
+      tags: [authentication]
+      operationId: currentSession
+      summary: The signed-in user
+      responses:
+        "200":
+          description: The user and the session in progress.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/sessions:
+    get:
+      tags: [authentication]
+      operationId: listSessions
+      summary: The signed-in devices
+      responses:
+        "200":
+          description: The user's live sessions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionList" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [authentication]
+      operationId: revokeOtherSessions
+      summary: Close every session except the current one
+      responses:
+        "200":
+          description: How many were closed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevokedSessions" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/sessions/{id}:
+    delete:
+      tags: [authentication]
+      operationId: revokeSession
+      summary: Close one session
+      description: |
+        Closing **your own** session is equivalent to signing out: the cookie is
+        cleared, because leaving it in place would surface the revocation as an
+        unexplained `401` on the next request.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`session_not_found` — nonexistent, or belonging to another user."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password/forgot:
+    post:
+      tags: [authentication]
+      operationId: forgotPassword
+      summary: Start a password reset
+      description: Identical response whether or not the address exists, like registration.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPasswordInput" }
+      responses:
+        "202":
+          description: Accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password/reset:
+    post:
+      tags: [authentication]
+      operationId: resetPassword
+      summary: Consume the reset token and set the new password
+      description: Every session is revoked, including the one in progress in this browser.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordInput" }
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          description: |
+            `invalid_token` (link invalid or expired), `weak_password`,
+            `invalid_request`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password/change:
+    post:
+      tags: [authentication]
+      operationId: changePassword
+      summary: Change the signed-in user's password
+      description: |
+        The current session gets a new token — the old one is revoked along with
+        all the others — and the cookie is rewritten.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordInput" }
+      responses:
+        "200":
+          description: Password changed, session renewed.
+          headers:
+            Set-Cookie:
+              description: "`pq_session` carrying the new token."
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionEnvelope" }
+        "400":
+          description: "`weak_password`, `invalid_request`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: "`unauthenticated`, or `invalid_credentials` when the current password does not match."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/email/verify:
+    post:
+      tags: [authentication]
+      operationId: verifyEmail
+      summary: Confirm the email address
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerifyEmailInput" }
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          description: "`invalid_token` — link invalid or expired."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/email/verify/resend:
+    post:
+      tags: [authentication]
+      operationId: resendEmailVerification
+      summary: Send the confirmation email again
+      responses:
+        "202":
+          description: Accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # --------------------------------------------------------------------- jobs
+
+  /jobs:
+    get:
+      tags: [jobs]
+      operationId: listJobs
+      summary: List jobs (R8)
+      x-api-key-scope: "jobs:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: enabled
+          in: query
+          description: Only enabled (`true`) or paused (`false`) jobs. Absent returns both.
+          schema: { type: boolean }
+        - name: environment
+          in: query
+          description: Only jobs living in this environment.
+          schema: { $ref: "#/components/schemas/Environment" }
+        - name: include_archived
+          in: query
+          description: |
+            Include archived jobs, i.e. those no longer present in the
+            `cron.yaml` they came from (R13). Defaults to `false`.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: One page of the list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobList" }
+        "400":
+          description: |
+            `validation_failed` with `details` per parameter, or
+            `invalid_cursor`. A `limit=abc` is not silently ignored: a page of a
+            different size than the one asked for is only discovered by counting
+            rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientScope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [jobs]
+      operationId: createJob
+      summary: Create a job (R1, R8)
+      description: |
+        The body mirrors the `cron.yaml` schema (SPEC §9) — `schedule` and
+        `every`, `request`, `timeout`, `retries`, `alerts` — because a job created
+        through the API and one synced from a repository are the same row of the
+        same table: two vocabularies for the same thing would force a mental
+        translation every time, and translation is where defects are born.
+
+        Absent fields take their default values, which the response returns
+        already resolved.
+      x-api-key-scope: "jobs:write"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobInput" }
+      responses:
+        "201":
+          description: Job created.
+          headers:
+            Location:
+              description: "`/jobs/{id}` of the created job."
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: |
+            `insufficient_scope`, or a **capacity** plan limit (R15):
+            `plan_limit_jobs`, `plan_limit_resolution`,
+            `plan_limit_environments`. `403` and not `429` because retrying
+            would change nothing: the plan or the request has to change.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/PlanLimitEnvelope"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: |
+            `job_name_taken` — the name is the stable identity of a job, and the
+            key on which reconciliation of a `cron.yaml` decides whether to
+            create or update (R13).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/WriteRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Read one job
+      x-api-key-scope: "jobs:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientScope"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [jobs]
+      operationId: updateJob
+      summary: Partially update a job
+      description: |
+        **What you do not send does not change**, so the request is repeatable.
+        An explicit `null` is a value and not an absent field: it clears the
+        description or the body, and on `schedule` or `every` it retires a
+        scheduling mode.
+
+        A request with no fields at all gets `400 empty_patch`: it is almost
+        always a client that built the body wrong, and accepting it silently
+        would answer `200` to someone who believes they changed something.
+      x-api-key-scope: "jobs:write"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobInput" }
+      responses:
+        "200":
+          description: The updated job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: "`validation_failed`, `invalid_request`, `empty_patch`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: |
+            `insufficient_scope`, `plan_limit_resolution`,
+            `plan_limit_environments`.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/PlanLimitEnvelope"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          description: |
+            `job_name_taken`; `job_managed_by_repository` — the job is defined in
+            a `cron.yaml` and syncing would revert anything changed from here, so
+            it can only be paused; `job_archived`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/WriteRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [jobs]
+      operationId: deleteJob
+      summary: Delete a job
+      x-api-key-scope: "jobs:write"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientScope"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          description: "`job_managed_by_repository` — remove it from the `cron.yaml` that defines it."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/WriteRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}/executions:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: listExecutions
+      summary: Execution log (R6)
+      description: |
+        One page of the log, most recent first. **The plan's retention applies
+        here too** (R10-bis): without `since`, the default window is the plan's
+        retention; with a `since` or an `until` that predates it, the request is
+        rejected with `403 plan_limit_retention` instead of being silently
+        narrowed.
+      x-api-key-scope: "executions:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          description: |
+            Filter by outcome. Repeatable (`?status=failed&status=timed_out`) or
+            comma-separated (`?status=failed,timed_out`): the first is what HTTP
+            clients generate on their own, the second is what people type.
+          explode: true
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/ExecutionStatus" }
+        - name: trigger
+          in: query
+          description: Filter by attempt origin. Repeatable or comma-separated.
+          explode: true
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/ExecutionTrigger" }
+        - name: environment
+          in: query
+          schema: { $ref: "#/components/schemas/Environment" }
+        - name: since
+          in: query
+          description: RFC 3339 instant. Subject to the plan's retention (R10-bis).
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          description: RFC 3339 instant, later than `since`.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: One page of the log.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutionList" }
+        "400":
+          description: "`validation_failed` with `details` per parameter, `invalid_cursor`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/RetentionExceeded"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: |
+            `executions_unavailable` — the periodic maintenance of the log
+            partitions has not run. It is not the caller's fault and retrying
+            makes sense: the response carries `Retry-After`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      tags: [jobs]
+      operationId: triggerExecution
+      summary: Run now (R8)
+      description: |
+        Records a manual execution. It answers **`202` and not `201`**: the row
+        has been created, but the execution has not happened — the engine will
+        run it. A `201` would promise the target has already been called, and a
+        client reading its outcome straight away would find nothing.
+
+        The body is optional: it only matters for jobs living in more than one
+        environment.
+
+        The scope is **`executions:trigger`**, distinct from `jobs:write`:
+        changing a job's definition and firing an outbound call right now are two
+        different powers, and a dashboard key wants the second without the first.
+      x-api-key-scope: "executions:trigger"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TriggerInput" }
+      responses:
+        "202":
+          description: Execution recorded. The engine will run it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Execution" }
+        "400":
+          description: "`validation_failed`, `invalid_request`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: "`insufficient_scope`, `plan_limit_environments`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          description: |
+            `job_disabled` — the job is paused and must be re-enabled before it
+            can run; `job_archived`; `execution_already_exists` — that occurrence
+            is already recorded (R4).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          description: |
+            **Two different errors under the same status** (R10), and the
+            difference reaches the body:
+
+            - `plan_limit_manual_trigger` — plan quota: it names `plan` and
+              `limit`, because there upgrading is the answer;
+            - `execution_ceiling` — technical ceiling on the workspace's
+              concurrent executions: **no `plan`, no `limit`**, because no plan
+              grants more of it;
+            - `rate_limited` — technical ceiling on requests.
+
+            Both carry `Retry-After`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PlanLimitEnvelope"
+                  - $ref: "#/components/schemas/ServiceLimitEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}/executions/stream:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: streamExecutions
+      summary: Execution log in real time (SPEC §4.2)
+      description: |
+        A `text/event-stream` (SSE) feed of a job's executions. It is the same
+        read of the log delivered another way, hence **the same scope**: asking
+        for a different one would force a second key to see the same rows.
+
+        ### What OpenAPI cannot express
+
+        The format describes bodies, not streams: the `content` below can only
+        state that the response is text. The wire grammar is this, and it is part
+        of the contract:
+
+        ```
+        retry: 3000                  suggested reconnection delay, in ms
+        : ping                       heartbeat every 20s (SSE comment, no event)
+
+        event: execution             one execution
+        id: <position>               present only on terminal states
+        data: {…}                    the Execution schema, byte for byte the same
+                                     as GET /jobs/{id}/executions
+
+        event: overflow              the client was not reading: reconnect
+        data: {…}                    the StreamNotice schema, code=stream_overflow
+
+        event: reopen                end of the connection's lifetime (30 min)
+        data: {…}                    the StreamNotice schema, code=stream_reopen
+        ```
+
+        The `Execution` and `StreamNotice` schemas describe the **`data:`
+        payloads**: that binding is what the format gives no way to declare, and
+        declaring it in prose beats leaving it unsaid.
+
+        **`id:` is not on every event, and that is deliberate.** A log row is
+        updated in place, so only a **terminal** state can be a position to
+        resume from; SSE says an event without `id:` does not move the client's
+        `Last-Event-ID`, so intermediate states are seen without entering the
+        history.
+
+        **Reconnection:** the browser resends `Last-Event-ID` by itself. The
+        `last_event_id` parameter exists because `EventSource` cannot set
+        headers, so a client resuming *after an application error* — rather than
+        after a network drop — would have no other way to say where to restart.
+
+        **A connection lives at most 30 minutes**, then closes with `event:
+        reopen`. This is not a resource defence: the stream authorises the job
+        and reads the plan exactly once, and a connection living a whole day
+        would keep delivering rows to an expired session with yesterday's plan
+        retention.
+
+        **Errors arrive before the stream**, as JSON and with the right status:
+        after the first byte of `text/event-stream` there is no way to change the
+        status, which is why everything that can fail happens before anything is
+        written.
+      x-api-key-scope: "executions:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          description: The position to resume from. Browsers resend it on their own.
+          schema: { type: string }
+        - name: last_event_id
+          in: query
+          description: |
+            The same position, for `EventSource` clients that cannot set headers.
+            The header takes precedence.
+          schema: { type: string }
+        - name: since
+          in: query
+          description: |
+            RFC 3339 instant to start from. Subject to the plan's retention
+            (R10-bis). Absent, the stream starts just before now — which is what
+            "real time" means.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: The stream is open. See the grammar in the description.
+          headers:
+            Cache-Control:
+              description: "Always `no-store`: a stream has no version to revalidate."
+              schema: { type: string }
+            X-Accel-Buffering:
+              description: |
+                Always `no`. It is for reverse proxies that buffer the response
+                before forwarding it: without it events would arrive in batches,
+                and "real time" would be a lie.
+              schema: { type: string }
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE event stream. The `data:` payloads are described by
+                  `Execution` and `StreamNotice`; OpenAPI has no way to bind them
+                  to this media type.
+        "400":
+          description: "`invalid_cursor` — unreadable `Last-Event-ID`; `validation_failed` — `since` is not an RFC 3339 instant."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/RetentionExceeded"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "429":
+          description: |
+            `stream_ceiling` — a **technical ceiling** on concurrently open
+            streaming connections. Like every technical ceiling it has no `plan`
+            and no `limit`: no plan grants more of it, and no upgrade raises it.
+            Or `rate_limited`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceLimitEnvelope" }
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: |
+            `stream_unavailable` — streaming is not available on this instance.
+            The log stays readable through `GET /jobs/{id}/executions`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # ----------------------------------------------------------------- api keys
+
+  /keys:
+    get:
+      tags: [api keys]
+      operationId: listApiKeys
+      summary: List API keys (R9)
+      description: |
+        **Session only.** An API key cannot list, create or revoke keys: if it
+        could, a read-only key would be one request away from issuing a write
+        key, and the whole scope system would become a formality. The practical
+        consequence — automation cannot rotate its own keys — is intended:
+        rotation is something a person decides.
+      parameters:
+        - name: include_revoked
+          in: query
+          description: |
+            Include revoked keys, which stay in the table as a historical trace:
+            whoever investigates an incident wants to see them.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: The user's keys. **None of them carries its own value.**
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyList" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [api keys]
+      operationId: createApiKey
+      summary: Issue an API key (R9)
+      description: |
+        **This is the only response in the whole API that contains a secret**, and
+        the only moment that value exists: afterwards it is not recoverable
+        anywhere, by anyone, not even by an administrator. There is no `GET
+        /keys/{id}` and no way to read it back — if it is lost, revoke it and
+        create another.
+
+        The response carries `Cache-Control: no-store`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApiKeyInput" }
+      responses:
+        "201":
+          description: Key created. `secret` is visible **here and now only**.
+          headers:
+            Cache-Control:
+              description: Always `no-store`, because the body carries a secret.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyCreated" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: "`too_many_api_keys` — revoke one before creating another."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/scopes:
+    get:
+      tags: [api keys]
+      operationId: listApiKeyScopes
+      summary: The scopes assignable to a key
+      description: |
+        It serves the key-creation form: duplicating the list in the frontend
+        would mean two lists that diverge on the first scope added.
+      responses:
+        "200":
+          description: The assignable scopes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyScopes" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/{id}:
+    delete:
+      tags: [api keys]
+      operationId: revokeApiKey
+      summary: Revoke an API key
+      description: "The effect is immediate: the key stops working on the very next attempt, with no expiry or cache to wait for."
+      parameters:
+        - $ref: "#/components/parameters/ApiKeyId"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`api_key_not_found` — nonexistent, another user's, or already revoked."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ------------------------------------------------------------------ secrets
+
+  /secrets:
+    get:
+      tags: [secrets]
+      operationId: listSecrets
+      summary: List workspace secrets (R42)
+      description: |
+        **No route in this API returns the value of a secret**, and it is not a
+        forgotten route: there is no `GET /secrets/{id}`, no `reveal` parameter,
+        no administrative variant. There is not even a `last_four` preview: that
+        makes sense for a known provider's key, recognisable by its tail, not for
+        an arbitrary customer value that might *be* four meaningful characters.
+
+        **Session only.** An API key able to replace a secret's value would
+        redirect the credentials with which the user's jobs authenticate to their
+        own services, and no log of theirs would show a changed value.
+      parameters:
+        - name: include_revoked
+          in: query
+          description: Include revoked secrets, kept as a trace for whoever investigates a failed execution.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: The workspace secrets, **without their values**.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretList" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [secrets]
+      operationId: createSecret
+      summary: Store a secret (R42)
+      description: |
+        The value **does not come back even on creation**: unlike an API key,
+        which we generate, this one the user already has — they just pasted it.
+
+        The response carries `Cache-Control: no-store` even though it contains no
+        value: the *request* does, and an intermediary caching the exchange would
+        keep a copy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretInput" }
+      responses:
+        "201":
+          description: Secret stored. **The response does not contain the value.**
+          headers:
+            Cache-Control:
+              description: Always `no-store`, because of the request body.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        "400":
+          description: |
+            `validation_failed` or `invalid_request`. On this route the message
+            **does not quote** the text that could not be read: on a request
+            carrying a secret, that text may be the secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: |
+            `secret_name_taken` — a live secret with that name already exists:
+            update its value instead of creating another. `too_many_secrets`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /secrets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    patch:
+      tags: [secrets]
+      operationId: updateSecret
+      summary: Replace a secret's value
+      description: |
+        **There is no way to change the name**: renaming would silently break
+        every `cron.yaml` referencing it, and the breakage would surface at the
+        next execution instead of at sync time — the exact opposite of what R43
+        asks for.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretUpdateInput" }
+      responses:
+        "200":
+          description: Secret updated. **The response does not contain the value.**
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        "400":
+          description: "`validation_failed`, `invalid_request`, with the message redacted as on creation."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/SecretNotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [secrets]
+      operationId: revokeSecret
+      summary: Revoke a secret
+      description: |
+        The effect is immediate and final: revocation deletes the ciphertext, so
+        the value stops existing. Jobs referencing it start failing, **and they
+        must**: the execution log will name the missing reference.
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/SecretNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ------------------------------------------------------------------ ai keys
+
+  /ai/keys:
+    get:
+      tags: [ai keys]
+      operationId: listAiKeys
+      summary: List AI keys (R18, BYOK)
+      description: |
+        **No route returns an AI key, nor a fragment of one.** The only place in
+        the product where such a key comes back in plaintext is the internal read
+        the backend performs to talk to the provider, and it is not reachable
+        from here.
+
+        `providers` lists the accepted providers: without it the dashboard would
+        keep its own copy, and the two lists would diverge the day the set
+        changes.
+
+        **Session only**, like secrets: a Postqron API key able to replace the
+        user's AI key would redirect the requests we make on their behalf to a
+        target chosen by whoever holds the key, and bill them to the user's
+        provider account.
+      parameters:
+        - name: include_revoked
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: The AI keys, **without their value**, and the accepted providers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiKeyList" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [ai keys]
+      operationId: saveAiKey
+      summary: Store or replace a provider's key
+      description: |
+        It **replaces** the provider's live key rather than rejecting it: one live
+        key per provider is what the database allows, and the second time a user
+        pastes their key they are not creating a duplicate, they are updating one.
+        Answering `409` would force them to revoke before pasting, i.e. to pass
+        through a state where AI debugging does not work in order to do something
+        that was only meant to update it. Hence there is no `PATCH`: there is
+        nothing it could do that this does not already do.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiKeyInput" }
+      responses:
+        "201":
+          description: Key stored. **The response does not contain the key.**
+          headers:
+            Cache-Control:
+              description: Always `no-store`, because of the request body.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiKey" }
+        "400":
+          description: |
+            `validation_failed` or `invalid_request`. As with secrets, the message
+            does not quote the unreadable text: it may be the key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /ai/keys/{id}:
+    delete:
+      tags: [ai keys]
+      operationId: revokeAiKey
+      summary: Revoke an AI key
+      description: |
+        The effect is immediate and final: revocation deletes the encrypted
+        material. The provider slot becomes free and the user can paste another
+        key straight away.
+      parameters:
+        - $ref: "#/components/parameters/AiKeyId"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`ai_key_not_found` — nonexistent, another user's, or already revoked."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ------------------------------------------------------------------ billing
+
+  /billing/subscription:
+    get:
+      tags: [billing]
+      operationId: getSubscription
+      summary: The plan in force (R16)
+      description: |
+        **It returns no amounts.** Paddle is the Merchant of Record: prices are in
+        euro, excluding tax, and their source of truth is the Paddle catalogue
+        (R61, R61-bis). A figure returned from here would be a second copy free to
+        diverge from what the customer actually pays — and ours would be the wrong
+        one, because tax is computed by Paddle on the customer's country, which we
+        do not even know.
+
+        It does return the **limits in force** — `max_jobs`, `min_interval`,
+        `log_retention_days` — because R15 asks for two things: that limits be
+        enforced in the backend, and that the interface state them. Without these
+        fields a client had two options, both defective: keep a copy of the plan
+        table, free to diverge from the database, or let the user fill in a form
+        that would be rejected.
+
+        Jobs **suspended by a plan change** are counted here, split by reason
+        (R58): those suspended for the job cap need the user to pick which ones to
+        resume, those suspended for resolution need the schedule changed. Two
+        different remedies, and a single total would force the client to tell
+        everyone the same one.
+      responses:
+        "200":
+          description: The plan in force, its limits, and the stopped jobs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /billing/checkout:
+    post:
+      tags: [billing]
+      operationId: createCheckout
+      summary: Open a checkout (R16, R63)
+      description: |
+        Returns what Paddle.js needs to open the checkout in the browser: a
+        catalogue reference and a public token. It **does not call Paddle**, so it
+        cannot fail because an external service is slow, and it **returns no
+        amounts**.
+
+        `business_use` is the R63 confirmation and must be sent explicitly as
+        `true`: paid plans are offered to professionals and organisations, and
+        that is the premise that makes displaying prices excluding tax legitimate.
+        The VAT number is optional: several European small-business regimes have
+        none, and requiring it would exclude legitimate buyers.
+
+        **Session only**: a declaration made by an API key is not the user's
+        declaration — it is the declaration of whoever holds the key, which may be
+        an integration written months ago by somebody else.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckoutInput" }
+      responses:
+        "200":
+          description: The references needed to open the checkout.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Checkout" }
+        "400":
+          description: |
+            `invalid_request` — unreadable body, unknown field, or a
+            `Content-Type` other than `application/json`; `validation_failed` —
+            invalid VAT number.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: |
+            `business_use_required` — the professional-use confirmation is
+            missing; `plan_not_purchasable` — the Free plan is the entry point and
+            is not for sale; `period_not_available` — yearly billing exists on the
+            Pro plan only (R62), and it is not a gap to work around by retrying.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: "`billing_unavailable` — no Paddle catalogue on this instance."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # ------------------------------------------------------------------ account
+
+  /account/deletion:
+    get:
+      tags: [account]
+      operationId: getAccountDeletion
+      summary: State of the deletion request (R45)
+      description: |
+        **The resource is the deletion request, not the account**: it is what gets
+        created, inspected and withdrawn, and it has a state that lasts for the
+        grace period. A `DELETE /account` would have suggested an instantaneous
+        operation, which is exactly what this is not.
+
+        It also answers before the user asks: `grace_hours` says how long they
+        will have to change their mind, and `subscription` says whether a paid
+        subscription would stay alive — so the confirmation screen can state it
+        instead of discovering it from a rejection.
+
+        **Session only**, the strictest choice available and the one with the most
+        at stake: an API key able to request deletion would make a service
+        credential forgotten in a config file enough to destroy someone's work.
+      responses:
+        "200":
+          description: The state of the deletion request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionStatus" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [account]
+      operationId: requestAccountDeletion
+      summary: Request account deletion (R45)
+      description: |
+        Opens the grace window, stops executions and revokes credentials. It
+        answers **`202` and not `200`**: the request is accepted and what it
+        promises — removal of the data — happens after the grace period. A `200`
+        would say it is done.
+
+        The response counts what was stopped, because the privacy policy promises
+        executions stop and credentials are revoked *immediately*: an answer that
+        only said "fine" would leave the user to verify it elsewhere.
+
+        The **password is required** as confirmation (R45). If a paid subscription
+        is alive, `subscription_acknowledged` is required too: closing the account
+        does not cancel the Paddle subscription, and the already-paid period is
+        not refunded — a fact the user must be shown before, not after.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeletionRequestInput" }
+      responses:
+        "202":
+          description: Deletion requested. Executions stopped, credentials revoked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionReceipt" }
+        "400":
+          description: |
+            `validation_failed` — the password field is missing, with `details`
+            pointing at it; `invalid_request` — unreadable body or unknown field.
+            The message does not quote the unreadable text: this body carries a
+            password.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: "`unauthenticated`, or `invalid_credentials` when the confirmation password is wrong."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: |
+            `deletion_already_requested` — a deletion is already in progress and
+            can be withdrawn until the grace period expires;
+            `subscription_active` — a paid subscription is alive and
+            `subscription_acknowledged` was not sent. The latter carries `plan` in
+            the body, so the client can say *what* stays alive without a second
+            request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [account]
+      operationId: cancelAccountDeletion
+      summary: Withdraw the deletion request (R45)
+      description: |
+        Available until the grace period expires. Jobs come back; **credentials do
+        not**, and their absence is the fact: revocation emptied the encrypted
+        material, so there is nothing to restore. Whoever comes back finds their
+        jobs and their data, and issues new keys.
+      responses:
+        "200":
+          description: Request withdrawn, jobs resumed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionRestored" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: "`deletion_not_requested` — there is nothing to withdraw."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ----------------------------------------------------------------- webhooks
+
+  /webhooks/github:
+    post:
+      tags: [webhooks]
+      operationId: githubWebhook
+      summary: GitHub event delivery (R11)
+      description: |
+        **This is not a client route.** GitHub calls it, and GitHub has neither a
+        session nor an API key: provenance is proven by the HMAC signature of the
+        body, verified **before anything else** — no decoding, no writing, no
+        logging of the content before that check.
+
+        The difference between `200` and `202` is not cosmetic: `202` means the
+        event was handed to the consumer, `200` that there was nothing to do.
+        Those are the two things you want to tell apart when looking at the App's
+        delivery log after redelivering by hand.
+
+        The route exists only if the GitHub App secret is configured: without it
+        it answers `404`. A webhook without a secret is not a less secure webhook,
+        it is a public endpoint that accepts anything.
+      security: []
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: true
+          description: HMAC SHA-256 of the body, using the GitHub App secret.
+          schema: { type: string }
+        - name: X-GitHub-Event
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-GitHub-Delivery
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        description: GitHub's payload, verified **on the exact bytes** that arrived.
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: |
+            Verified, no effect: `duplicate` (delivery already received),
+            `ignored` (not a `push` event), `pong` (the `ping` GitHub sends to
+            test the webhook).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GithubDelivery" }
+        "202":
+          description: "`accepted` — push verified and taken over."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GithubDelivery" }
+        "400":
+          description: "`invalid_request` — signed but malformed."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: |
+            `invalid_signature` — signature missing, wrong, or body tampered with.
+            One code for all three: the response must not tell whoever is probing
+            which of them happened.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          description: "`payload_too_large` — the rejection precedes signature verification, and produces no effect."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "500":
+          description: "`internal_error` — processing failed. The `500` is deliberate: it is the answer that makes GitHub retry."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /webhooks/paddle:
+    post:
+      tags: [webhooks]
+      operationId: paddleWebhook
+      summary: Paddle event delivery (R16)
+      description: |
+        **This is not a client route.** Everything said about the GitHub webhook
+        applies, with more at stake: an event wrongly accepted here **gives away a
+        paid plan**. That is why the secret is mandatory and, without it, the
+        route is not registered at all.
+
+        `duplicate` and `stale` are two distinct outcomes, and the distinction is
+        not cosmetic: the first says the same delivery arrived twice, the second
+        that a **different and older** delivery arrived after a more recent one.
+        Those are the two ways a billing webhook breaks.
+      security: []
+      parameters:
+        - name: Paddle-Signature
+          in: header
+          required: true
+          description: Signature of the body, with a timestamp.
+          schema: { type: string }
+      requestBody:
+        required: true
+        description: Paddle's payload, verified **on the exact bytes** that arrived.
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: "Verified, no effect: `duplicate`, `stale`, `ignored`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaddleDelivery" }
+        "202":
+          description: "`applied` — subscription verified and applied to the entitlements."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaddleDelivery" }
+        "400":
+          description: "`invalid_request` — signed but malformed."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: "`invalid_signature` — signature missing, wrong, body tampered with, or outside the time tolerance."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          description: "`payload_too_large`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "500":
+          description: |
+            `internal_error` — processing failed. The `500` is deliberate: it makes
+            Paddle retry, and a user who paid and did not get their plan deserves a
+            second chance rather than silence.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: pq_session
+      description: |
+        Browser session (R14). `HttpOnly`: the token is out of reach of
+        JavaScript, so an XSS on the dashboard cannot carry it away.
+
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: |
+        The same session token, for clients without a cookie jar. When both
+        arrive, the cookie wins — it is the session the user expects to be using.
+
+    apiKey:
+      type: http
+      scheme: bearer
+      description: |
+        Scoped API key (R9): `Authorization: Bearer pq_live_...`. The prefix is
+        what tells it apart from a session token without having to try both.
+
+        The scope each operation requires is declared in `x-api-key-scope`, and it
+        is compared against the code on every CI run. Write scopes do **not**
+        imply read scopes: otherwise someone looking at a key's scopes would see
+        `jobs:write` and have to remember that it covers reading too.
+
+        Operations that do not declare this scheme **do not accept a key**, ever:
+        they are the ones that issue credentials, commit to a payment, or destroy
+        the account.
+
+    operatorToken:
+      type: http
+      scheme: bearer
+      description: |
+        Operator token (`POSTQRON_METRICS_TOKEN`), for the metrics and for the
+        detail of the readiness answer. **It is not a user credential**: this is
+        information about the *service*, and tying it to an API key would mean
+        that watching the engine requires some customer's account, and that
+        revoking that key turns monitoring off.
+
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Job identifier.
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ApiKeyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SecretId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AiKeyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      description: |
+        Rows per page. Defaults to 50, maximum 200. A higher value **is not an
+        error**: the request is resized, and the size actually served is in
+        `page.limit`.
+      schema: { type: integer, minimum: 1, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        Cursor of the next page, taken from `page.next_cursor`. It is opaque by
+        contract: send it back exactly as it arrived.
+      schema: { type: string }
+
+  headers:
+    RetryAfter:
+      description: |
+        Whole seconds after which retrying makes sense. **This is the source to
+        read**: it is present on every rejection that clears by itself, whereas
+        the body's `retry_after` field — which repeats it in machine-readable form
+        — is absent on authentication rejections (see
+        `ServiceLimitError.retry_after`).
+
+        On plan limits and on ceilings applied at the routing layer it is never
+        zero: "retry in 0 seconds" would be an invitation to hit the same limit
+        again. On authentication attempts it is the remaining wait truncated to
+        seconds, which within a second of the window's end is `0`.
+      schema: { type: integer, minimum: 0 }
+
+  responses:
+    NoContent:
+      description: Done. No body.
+
+    Unauthenticated:
+      description: |
+        `unauthenticated` — session missing or expired; or `invalid_api_key` —
+        key missing, revoked or expired (R9). Two distinct codes because the
+        remedy differs: whoever gets the second does not need to sign in again,
+        they need to check the key. The message does not distinguish
+        "nonexistent" from "revoked" from "expired": that difference would turn
+        the API into an oracle about a key found lying around.
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer error="invalid_token"` when the credential was an API key.'
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    InsufficientScope:
+      description: |
+        `insufficient_scope` — the credential is valid but does not carry the
+        required permission. `403` and not `401`: retrying it changes nothing, a
+        different key is needed. The `scope` field and the `WWW-Authenticate`
+        header say **which** permission was missing, instead of leaving it to be
+        guessed.
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer error="insufficient_scope", scope="..."` (RFC 6750 §3.1).'
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    ValidationFailed:
+      description: |
+        `validation_failed` with `details` per field, or `invalid_request` if the
+        body is unreadable or carries an unknown field. A misspelled `passwrod`
+        would otherwise be an empty password, with no way for the client to
+        notice.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    InvalidRequest:
+      description: "`invalid_request` — unreadable body, unknown field, or a `Content-Type` other than `application/json`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    BodyTooLarge:
+      description: "`body_too_large` — the body exceeds the route's cap (8 KiB, 64 KiB on the job routes)."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    JobNotFound:
+      description: |
+        `job_not_found`. "Does not exist" and "is not yours" answer the same way:
+        telling them apart would tell anyone whether somebody else's identifier is
+        alive.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    SecretNotFound:
+      description: "`secret_not_found` — nonexistent, another workspace's, or revoked."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    RetentionExceeded:
+      description: |
+        `plan_limit_retention` — the requested window predates the plan's
+        retention (R10-bis, SPEC §8: 3, 15, 30, 90 days). The rejection **says
+        why**: it names the plan, how long it keeps logs, and the instant before
+        which there are no rows. It is not silently narrowed, because a user who
+        cannot see their own rows without knowing why opens a ticket.
+
+        It may also be `insufficient_scope`.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: "#/components/schemas/PlanLimitEnvelope"
+              - $ref: "#/components/schemas/ErrorEnvelope"
+
+    RateLimited:
+      description: |
+        `rate_limited` — a **technical ceiling** on requests (R10). It is a defence
+        of the service, identical on every plan: the body has **no `plan` and no
+        `limit`**, because no plan grants more of it and suggesting an upgrade
+        would be a commercial lie.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ServiceLimitEnvelope" }
+
+    WriteRateLimited:
+      description: |
+        Two different errors under the same status, and the difference is the
+        whole point of R10:
+
+        - `plan_limit_write_rate` — the **plan's quota** on writes: it names
+          `plan` and `limit`, because there upgrading really is the answer;
+        - `rate_limited` — a **technical ceiling**: no plan grants more of it.
+
+        Reads do not consume the plan quota: making them would render the
+        dashboard unusable on the Free plan, i.e. punish normal use in order to
+        defend against abuse.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/PlanLimitEnvelope"
+              - $ref: "#/components/schemas/ServiceLimitEnvelope"
+
+    InternalError:
+      description: |
+        `internal_error`. The message is generic by construction: the detail might
+        contain information about the database, and it belongs in the service log.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  schemas:
+    # ------------------------------------------------------------ enumerations
+    #
+    # Every enumeration in this section is compared against the constants in the
+    # code on each CI run: a value added to the domain and not here fails the
+    # alignment check.
+
+    Environment:
+      type: string
+      enum: [staging, production]
+      description: A job's environment (R23). The Free plan has one only.
+
+    HttpMethod:
+      type: string
+      enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      description: |
+        Method of the call the job performs. Postqron performs **HTTP calls
+        only** against the user's endpoints: no shell commands, no containers
+        (SPEC §10).
+
+    RetryBackoff:
+      type: string
+      enum: [exponential, linear, fixed]
+
+    OverlapPolicy:
+      type: string
+      enum: [skip, queue, allow]
+      description: |
+        What to do when an occurrence fires while the previous one is still
+        running (R41). At one-second resolution this is not a rare case, it is the
+        norm.
+
+        The default is `skip`, the only one of the three that does no harm to a
+        job you know nothing about: `allow` calls a target twice at once when it
+        might issue an invoice per call, and `queue` builds an unbounded backlog
+        whenever the job is steadily slower than its own interval.
+
+    AlertChannel:
+      type: string
+      enum: [email, slack, discord, webhook]
+
+    ExecutionStatus:
+      type: string
+      enum: [pending, running, succeeded, failed, timed_out, skipped]
+
+    ExecutionTrigger:
+      type: string
+      enum: [schedule, manual, retry]
+
+    SuspensionReason:
+      type: string
+      enum: [plan_job_limit, plan_resolution]
+      description: |
+        Why a plan change switched the job off (R58), i.e. what it takes to switch
+        it back on:
+
+        - `plan_job_limit` — active jobs exceeded the plan's cap. As many as the
+          plan allows can be resumed, and the choice is the user's: two jobs
+          identical in schedule and destination may be worth one the monthly
+          invoicing run and the other a reminder, and no automatic criterion can
+          know which;
+        - `plan_resolution` — the schedule is denser than the plan allows. It has
+          to change: this is not about room, and resuming another job frees none.
+
+    ApiKeyScope:
+      type: string
+      enum: ["jobs:read", "jobs:write", "executions:read", "executions:trigger"]
+
+    AiProvider:
+      type: string
+      enum: [anthropic, openai, google]
+
+    PlanCode:
+      type: string
+      enum: [free, pro, team, agency]
+
+    BillingPeriod:
+      type: string
+      enum: [monthly, yearly]
+      description: Yearly billing exists on the Pro plan only (R62).
+
+    SubscriptionStatus:
+      type: string
+      enum: [active, trialing, past_due, paused, canceled]
+      description: |
+        The status according to Paddle, which is the source of truth for the plan
+        (R16). `trialing` appears because it is a value Paddle can send, not
+        because a free trial exists: the price list has none (R59).
+
+    ErrorCode:
+      type: string
+      description: |
+        Every code an error response can carry. It is **stable and untranslated**,
+        and it is what a client branches on (R53): `message` is prose for a person
+        and may change.
+
+        The enumeration is compared on every CI run against the codes the service
+        actually writes: a new code in the code and not here fails the check, and
+        so does the reverse.
+      enum:
+        - account_suspended
+        - ai_key_not_found
+        - api_key_not_found
+        - billing_unavailable
+        - body_too_large
+        - business_use_required
+        - deletion_already_requested
+        - deletion_not_requested
+        - empty_patch
+        - execution_already_exists
+        - execution_ceiling
+        - executions_unavailable
+        - insufficient_scope
+        - internal_error
+        - invalid_api_key
+        - invalid_credentials
+        - invalid_cursor
+        - invalid_email
+        - invalid_request
+        - invalid_signature
+        - invalid_token
+        - job_archived
+        - job_disabled
+        - job_managed_by_repository
+        - job_name_taken
+        - job_not_found
+        - payload_too_large
+        - period_not_available
+        - plan_limit_environments
+        - plan_limit_jobs
+        - plan_limit_manual_trigger
+        - plan_limit_resolution
+        - plan_limit_retention
+        - plan_limit_write_rate
+        - plan_not_purchasable
+        - rate_limited
+        - secret_name_taken
+        - secret_not_found
+        - session_not_found
+        - stream_ceiling
+        - stream_unavailable
+        - subscription_active
+        - too_many_api_keys
+        - too_many_secrets
+        - unauthenticated
+        - validation_failed
+        - weak_password
+
+    StreamNoticeCode:
+      type: string
+      enum: [stream_overflow, stream_reopen]
+      description: |
+        The two notices that can close an SSE stream. They are not HTTP errors:
+        the stream is already open, and the status can no longer change.
+
+    # ------------------------------------------------------------------ errors
+
+    ErrorEnvelope:
+      type: object
+      description: The envelope of every error response.
+      properties:
+        error: { $ref: "#/components/schemas/Error" }
+      required: [error]
+
+    Error:
+      type: object
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message:
+          type: string
+          description: |
+            Prose for a person, currently in Italian (localisation is issue #445).
+            **Do not match on it**: it may change without notice.
+        details:
+          type: array
+          description: |
+            The reasons for rejection anchored to the fields that caused them, so
+            a form can highlight them without interpreting the message.
+          items: { $ref: "#/components/schemas/FieldError" }
+        limit:
+          type: string
+          description: Which **plan** limit was hit. Absent on technical ceilings.
+        plan:
+          $ref: "#/components/schemas/PlanCode"
+          description: On which plan. Absent on technical ceilings.
+        retry_after:
+          type: integer
+          minimum: 0
+          description: Repeats the `Retry-After` header in machine-readable form.
+        scope:
+          $ref: "#/components/schemas/ApiKeyScope"
+          description: The permission the key was missing (R9).
+      required: [code, message]
+
+    FieldError:
+      type: object
+      description: |
+        A rejection reason anchored to the field that caused it. `field` uses the
+        dotted notation of the submitted body (`request.url`,
+        `alerts.on_failure`): it is the path inside the JSON, not a column name.
+      properties:
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+      required: [field, code, message]
+
+    PlanLimitEnvelope:
+      type: object
+      description: A rejection caused by a **plan quota** (R10, R15).
+      properties:
+        error: { $ref: "#/components/schemas/PlanLimitError" }
+      required: [error]
+
+    PlanLimitError:
+      type: object
+      description: |
+        The rejection **names the plan**, because there upgrading really is the
+        answer. It is the commercial half of R10: the other is
+        [ServiceLimitError](#/components/schemas/ServiceLimitError), and the
+        difference between the two is what a client uses to decide whether to show
+        an upgrade prompt.
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string }
+        limit:
+          type: string
+          enum: [jobs, resolution, environments, manual_trigger, write_rate, retention]
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        retry_after:
+          type: integer
+          minimum: 1
+          description: Only on **rate** limits (`429`). On capacity limits (`403`) retrying would change nothing.
+        details:
+          type: array
+          items: { $ref: "#/components/schemas/FieldError" }
+      required: [code, message, limit, plan]
+
+    ServiceLimitEnvelope:
+      type: object
+      description: A rejection caused by a **technical ceiling of the service** (R10).
+      properties:
+        error: { $ref: "#/components/schemas/ServiceLimitError" }
+      required: [error]
+
+    ServiceLimitError:
+      type: object
+      description: |
+        The rejection **names no plan and promises none**: the ceiling is the same
+        for everybody, nobody gets more of it, and retrying after `retry_after`
+        seconds is the only useful thing to do.
+
+        The `not` constraint below is not decorative: it states, in a form a
+        machine can verify, that `plan` and `limit` **never appear** in this
+        response. A client using them to decide whether to offer an upgrade will
+        never find them on a technical ceiling — which is exactly what R10
+        demands.
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string }
+        retry_after:
+          type: integer
+          minimum: 0
+          description: |
+            **Not always present, and the reason is a divergence in the code, not
+            a choice.** Ceilings applied at the routing layer and by the domain
+            limits repeat it in the body; the ceiling on authentication attempts
+            (`POST /auth/login`, `/auth/register`, `/auth/password/*`) writes it
+            **only in the `Retry-After` header**, and there the value is the
+            remaining wait truncated to seconds rather than rounded up to a
+            minimum of one.
+
+            The header is always there in both cases: **that is the source to
+            read.** The divergence is reported in the pull request for issue #465;
+            this document describes what the service does, not what it should do.
+      required: [code, message]
+      not:
+        anyOf:
+          - required: [plan]
+          - required: [limit]
+
+    StreamNotice:
+      type: object
+      description: The `data:` payload of the `overflow` and `reopen` events of an SSE stream.
+      properties:
+        code: { $ref: "#/components/schemas/StreamNoticeCode" }
+        message: { type: string }
+      required: [code, message]
+
+    # ------------------------------------------------------------------ system
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, examples: [ok] }
+        env: { type: string, examples: [production] }
+        version:
+          type: string
+          description: The version of **the service**. The version of the contract is `info.version`.
+      required: [status, env, version]
+
+    Readiness:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        ready: { type: boolean }
+        checks:
+          type: array
+          description: Only for callers presenting the operator token.
+          items: { $ref: "#/components/schemas/ReadinessCheck" }
+        partition_horizon_days:
+          type: integer
+          description: Only for callers presenting the operator token.
+        scheduler_age_seconds:
+          type: number
+          description: Only for callers presenting the operator token.
+      required: [status, ready]
+
+    ReadinessCheck:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        detail: { type: string }
+      required: [name, status, detail]
+
+    Accepted:
+      type: object
+      description: |
+        Deliberately vague acknowledgement: saying "we have written to you"
+        without saying *whether* an account existed is the whole point.
+      properties:
+        status: { type: string, examples: [accepted] }
+        message: { type: string }
+      required: [status, message]
+
+    # ---------------------------------------------------------- authentication
+
+    User:
+      type: object
+      description: The user. **It carries no password hash, and not even the field.**
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        full_name: { type: string }
+        role: { type: string }
+        timezone: { type: string }
+        email_verified: { type: boolean }
+        email_verified_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        last_login_at: { type: string, format: date-time }
+      required: [id, email, full_name, role, timezone, email_verified, created_at]
+
+    Session:
+      type: object
+      description: |
+        A session as it appears in the device list. **It carries neither the token
+        nor its digest**: the first is a secret, the second is of no use to any
+        client.
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        ip_address: { type: string }
+        user_agent: { type: string }
+        current: { type: boolean }
+      required: [id, created_at, last_used_at, expires_at, current]
+
+    SessionEnvelope:
+      type: object
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        session: { $ref: "#/components/schemas/Session" }
+      required: [user, session]
+
+    SessionList:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/Session" }
+      required: [sessions]
+
+    RevokedSessions:
+      type: object
+      properties:
+        revoked: { type: integer }
+      required: [revoked]
+
+    RegisterInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        full_name: { type: string }
+      required: [email, password]
+
+    LoginInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+      required: [email, password]
+
+    ForgotPasswordInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+      required: [email]
+
+    ResetPasswordInput:
+      type: object
+      properties:
+        token: { type: string }
+        password: { type: string, format: password }
+      required: [token, password]
+
+    ChangePasswordInput:
+      type: object
+      properties:
+        current_password: { type: string, format: password }
+        new_password: { type: string, format: password }
+      required: [current_password, new_password]
+
+    VerifyEmailInput:
+      type: object
+      properties:
+        token: { type: string }
+      required: [token]
+
+    # -------------------------------------------------------------------- jobs
+
+    Job:
+      type: object
+      description: |
+        A cron job (R1). **Exactly one of `schedule` and `every` is set**, and the
+        other is explicitly `null` rather than absent: a client should not have to
+        tell "missing field" from "mode not in use".
+
+        Durations are strings (`"30s"`, `"5m"`, `"1h"`) and not numbers, for the
+        same reason the vocabulary is that of `cron.yaml`: what you read you can
+        send back without converting.
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          description: |
+            **The stable identity of the job**, unique per user: it is the key on
+            which reconciliation of a `cron.yaml` decides whether to create,
+            update or disable (R13). Renaming a job is equivalent to deleting it
+            and creating another.
+        description: { type: string }
+        schedule:
+          type: [string, "null"]
+          description: Cron expression with 5 fields, minimum granularity 1 minute.
+          examples: ["0 9 * * *"]
+        every:
+          type: [string, "null"]
+          description: |
+            Interval, for sub-minute resolution (R22). The minimum resolution
+            depends on the plan (SPEC §8): 1 minute on Free, 10 seconds on Pro, 1
+            second on Team and Agency.
+          examples: [10s]
+        timezone: { type: string, examples: [Europe/Rome] }
+        environments:
+          type: array
+          items: { $ref: "#/components/schemas/Environment" }
+        request: { $ref: "#/components/schemas/JobTarget" }
+        timeout: { type: string, examples: [30s] }
+        retries: { $ref: "#/components/schemas/JobRetries" }
+        on_overlap:
+          allOf:
+            - $ref: "#/components/schemas/OverlapPolicy"
+          description: |
+            **Always present**, even when it holds the default: a field that
+            appeared only when chosen would force the client to know the default
+            in order to know what actually happens.
+        alerts: { $ref: "#/components/schemas/JobAlerts" }
+        enabled: { type: boolean }
+        repository_id:
+          type: string
+          format: uuid
+          description: |
+            Set for jobs that come from a `cron.yaml` (R13). It lets a client know
+            in advance that changes must be made in the file, instead of finding
+            out from a `409` after filling in a form.
+        suspended:
+          allOf:
+            - $ref: "#/components/schemas/JobSuspension"
+          description: |
+            Set when it was **a plan change** that switched the job off (R58), not
+            the user. Without it, `enabled: false` would be indistinguishable from
+            a pause the user remembers setting.
+        next_run_at:
+          type: [string, "null"]
+          format: date-time
+          description: "Computed by the scheduler. `null` on a freshly created job, until the engine picks it up."
+        archived_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required:
+        [
+          id,
+          name,
+          schedule,
+          every,
+          timezone,
+          environments,
+          request,
+          timeout,
+          retries,
+          on_overlap,
+          alerts,
+          enabled,
+          next_run_at,
+          created_at,
+          updated_at,
+        ]
+
+    JobTarget:
+      type: object
+      description: |
+        The job's HTTP target (SPEC §10). Internal addresses are refused —
+        loopback, private ranges, link-local, the cloud metadata endpoint — on the
+        **resolved address** and on every redirect (R38).
+
+        `headers` returns what was written, i.e. the `${VAR}` **references** to
+        workspace secrets, not the resolved values: resolution happens at
+        execution time, inside the engine (R43).
+      properties:
+        url: { type: string, format: uri }
+        method: { $ref: "#/components/schemas/HttpMethod" }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        body: { type: [string, "null"] }
+      required: [url, method, headers, body]
+
+    JobRetries:
+      type: object
+      properties:
+        max: { type: integer, minimum: 0 }
+        backoff: { $ref: "#/components/schemas/RetryBackoff" }
+      required: [max, backoff]
+
+    JobAlerts:
+      type: object
+      properties:
+        on_failure:
+          type: array
+          items: { $ref: "#/components/schemas/AlertChannel" }
+      required: [on_failure]
+
+    JobSuspension:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        reason: { $ref: "#/components/schemas/SuspensionReason" }
+      required: [at, reason]
+
+    JobList:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/Job" }
+        page: { $ref: "#/components/schemas/Page" }
+      required: [jobs, page]
+
+    Page:
+      type: object
+      description: |
+        The page served. `next_cursor` set to `null` is **the only** end-of-list
+        condition: it must not be inferred from the row count, because a full page
+        may be the last one.
+      properties:
+        limit: { type: integer }
+        next_cursor: { type: [string, "null"] }
+      required: [limit, next_cursor]
+
+    JobInput:
+      type: object
+      description: |
+        Body for creation and modification. **What you do not send does not
+        change**: on creation absent fields take their defaults, on modification
+        they leave the existing value alone. An explicit `null` is a value — it
+        clears the field, or retires a scheduling mode — and is distinct from an
+        absent field.
+
+        `schedule` and `every` are **mutually exclusive**: declaring both, or
+        neither, is a validation error (SPEC §9).
+      properties:
+        name: { type: string }
+        description: { type: [string, "null"] }
+        schedule: { type: [string, "null"] }
+        every: { type: [string, "null"] }
+        timezone: { type: string }
+        environments:
+          type: array
+          items: { $ref: "#/components/schemas/Environment" }
+        request: { $ref: "#/components/schemas/JobTargetInput" }
+        timeout: { type: string }
+        retries: { $ref: "#/components/schemas/JobRetriesInput" }
+        on_overlap: { type: [string, "null"] }
+        alerts: { $ref: "#/components/schemas/JobAlertsInput" }
+        enabled: { type: boolean }
+      additionalProperties: false
+
+    JobTargetInput:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        method: { $ref: "#/components/schemas/HttpMethod" }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        body: { type: [string, "null"] }
+      additionalProperties: false
+
+    JobRetriesInput:
+      type: object
+      properties:
+        max: { type: integer, minimum: 0 }
+        backoff: { $ref: "#/components/schemas/RetryBackoff" }
+      additionalProperties: false
+
+    JobAlertsInput:
+      type: object
+      properties:
+        on_failure:
+          type: array
+          items: { $ref: "#/components/schemas/AlertChannel" }
+      additionalProperties: false
+
+    TriggerInput:
+      type: object
+      description: "Body of a manual trigger. Optional: it only matters for jobs living in more than one environment."
+      properties:
+        environment: { $ref: "#/components/schemas/Environment" }
+      additionalProperties: false
+
+    Execution:
+      type: object
+      description: |
+        One attempt (R6). **It has no synthetic identifier** because the row has
+        none: the key is the natural quadruple `(job, instant, environment,
+        attempt)`, and inventing one here would produce a value that cannot be
+        used to read anything back.
+      properties:
+        job_id: { type: string, format: uuid }
+        scheduled_for: { type: string, format: date-time }
+        environment: { $ref: "#/components/schemas/Environment" }
+        attempt: { type: integer, minimum: 1 }
+        status: { $ref: "#/components/schemas/ExecutionStatus" }
+        triggered_by: { $ref: "#/components/schemas/ExecutionTrigger" }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        duration_ms: { type: [integer, "null"] }
+        response_status: { type: [integer, "null"] }
+        response_excerpt:
+          type: string
+          description: |
+            A **truncated** excerpt of the target's response, with secrets
+            redacted (R43): this log is visible to the user, and a value landing
+            in it would be a secret that got out.
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+      required:
+        [
+          job_id,
+          scheduled_for,
+          environment,
+          attempt,
+          status,
+          triggered_by,
+          started_at,
+          finished_at,
+          duration_ms,
+          response_status,
+          created_at,
+        ]
+
+    ExecutionList:
+      type: object
+      properties:
+        executions:
+          type: array
+          items: { $ref: "#/components/schemas/Execution" }
+        page: { $ref: "#/components/schemas/Page" }
+      required: [executions, page]
+
+    # ---------------------------------------------------------------- api keys
+
+    ApiKey:
+      type: object
+      description: |
+        An API key. **It carries neither the plaintext value nor its digest**:
+        that is not a filter applied when responding, they are fields the
+        structure does not have.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        prefix:
+          type: string
+          description: "The leading part of the key, in plaintext: enough to recognise it in a list, not enough to rebuild it."
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+      required: [id, name, prefix, scopes, created_at, revoked]
+
+    ApiKeyList:
+      type: object
+      properties:
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKey" }
+      required: [keys]
+
+    ApiKeyCreated:
+      type: object
+      description: |
+        **The only response in the API that contains a secret.** `secret` exists
+        here and now only: afterwards it is not recoverable anywhere, by anyone.
+      properties:
+        key: { $ref: "#/components/schemas/ApiKey" }
+        secret:
+          type: string
+          description: The plaintext value, shown **exactly once** (R9).
+          examples: [pq_live_xxxxxxxxxxxxxxxxxxxxxxxx]
+        warning:
+          type: string
+          description: |
+            The fact that the value cannot be read back, told to the caller at the
+            moment they need to know it: a client unaware of it shows the key in a
+            toast that disappears.
+      required: [key, secret, warning]
+
+    ApiKeyScopes:
+      type: object
+      properties:
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+      required: [scopes]
+
+    ApiKeyInput:
+      type: object
+      properties:
+        name: { type: string }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: Absent means "never expires".
+      additionalProperties: false
+
+    # ----------------------------------------------------------------- secrets
+
+    Secret:
+      type: object
+      description: |
+        A workspace secret. **It carries neither the value nor a piece of it.** The
+        name the user gave it is enough to recognise it, and it is also what they
+        write in their `cron.yaml`.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        reference:
+          type: string
+          description: |
+            The text to paste into `cron.yaml`. It is redundant with `name` and it
+            is there on purpose: it is what gets copied with one click, and
+            without it the user has to remember that the syntax is `${...}`.
+          examples: ["${DIGEST_TOKEN}"]
+        description: { type: string }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, name, reference, revoked, created_at, updated_at]
+
+    SecretList:
+      type: object
+      properties:
+        secrets:
+          type: array
+          items: { $ref: "#/components/schemas/Secret" }
+      required: [secrets]
+
+    SecretInput:
+      type: object
+      properties:
+        name: { type: string }
+        value:
+          type: string
+          description: The value, encrypted at rest and **never returned** by any route.
+        description: { type: string }
+      additionalProperties: false
+
+    SecretUpdateInput:
+      type: object
+      description: "The **name cannot be changed**: renaming would silently break every `cron.yaml` referencing it."
+      properties:
+        value: { type: string }
+        description:
+          type: [string, "null"]
+          description: Absent leaves the note as it was; present and empty clears it.
+      additionalProperties: false
+
+    # ----------------------------------------------------------------- ai keys
+
+    AiKey:
+      type: object
+      description: |
+        An AI key (BYOK, R18). **It carries neither the key nor a fragment of
+        it**: "which key is this" is answered by the provider, "is this the one I
+        just rotated" by `updated_at`.
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: "#/components/schemas/AiProvider" }
+        label: { type: string }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, provider, revoked, created_at, updated_at]
+
+    AiKeyList:
+      type: object
+      properties:
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/AiKey" }
+        providers:
+          type: array
+          description: The accepted providers, served by the backend so the dashboard need not keep a copy that diverges.
+          items: { $ref: "#/components/schemas/AiProvider" }
+      required: [keys, providers]
+
+    AiKeyInput:
+      type: object
+      properties:
+        provider: { $ref: "#/components/schemas/AiProvider" }
+        key:
+          type: string
+          description: The provider's key, encrypted at rest and **never returned**.
+        label: { type: string }
+      additionalProperties: false
+
+    # ----------------------------------------------------------------- billing
+
+    Subscription:
+      type: object
+      description: "The plan in force. **No amounts**: prices belong to the Paddle catalogue (R61)."
+      properties:
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        plan_name: { type: string }
+        status: { $ref: "#/components/schemas/SubscriptionStatus" }
+        period: { $ref: "#/components/schemas/BillingPeriod" }
+        current_period_end: { type: string, format: date-time }
+        cancel_at:
+          type: string
+          format: date-time
+          description: |
+            A scheduled cancellation takes effect **at the end of the paid
+            period**: until then the plan stays this one, and the client must be
+            able to say so instead of implying it has already ended.
+        max_jobs:
+          type: integer
+          description: The plan's job cap. Absent means no hard cap.
+        active_jobs: { type: integer }
+        min_interval:
+          type: string
+          description: |
+            The finest resolution the plan allows, as a duration in the same form
+            the rest of the API uses (`1s`, `10s`, `1m`) — the form `every`
+            accepts, so a client can compare without converting.
+          examples: [10s]
+        log_retention_days:
+          type: integer
+          description: |
+            How long the execution log is kept, in **days** — the unit of the
+            price list, not a duration. "3 days" is the line the user read before
+            subscribing, and `72h` would make them convert it back.
+        suspended_jobs: { $ref: "#/components/schemas/SuspendedJobs" }
+      required:
+        [
+          plan,
+          plan_name,
+          status,
+          active_jobs,
+          min_interval,
+          log_retention_days,
+          suspended_jobs,
+        ]
+
+    SuspendedJobs:
+      type: object
+      description: |
+        Jobs switched off by a plan change, counted **by reason** (R58): the two
+        remedies differ, and a single total would force the client to tell
+        everyone the same one.
+      properties:
+        by_job_limit: { type: integer }
+        by_resolution: { type: integer }
+        total: { type: integer }
+      required: [by_job_limit, by_resolution, total]
+
+    CheckoutInput:
+      type: object
+      properties:
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        period: { $ref: "#/components/schemas/BillingPeriod" }
+        business_use:
+          type: boolean
+          description: |
+            The R63 confirmation, **explicit by requirement**: a field whose
+            default value accepts would be the pre-ticked box R63 forbids.
+        vat_number:
+          type: string
+          description: |
+            Optional: the status is always confirmed, the number is collected when
+            there is one. Several European small-business regimes have none, and
+            requiring it would exclude legitimate buyers.
+      additionalProperties: false
+
+    Checkout:
+      type: object
+      description: What the browser needs to open the checkout. **No amounts.**
+      properties:
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        plan_name: { type: string }
+        period: { $ref: "#/components/schemas/BillingPeriod" }
+        price_id:
+          type: string
+          description: The Paddle catalogue row to open. It is a **reference**, not a price.
+        environment: { type: string }
+        client_token:
+          type: string
+          description: |
+            Paddle.js token, **public by construction** — it lives in the page's
+            code. Not to be confused with the server-side API key, which never
+            leaves the backend.
+        custom_data: { $ref: "#/components/schemas/CheckoutCustomData" }
+      required: [plan, plan_name, period, price_id, environment, client_token, custom_data]
+
+    CheckoutCustomData:
+      type: object
+      description: "What Paddle sends back in webhooks: the link between the payment and the account. Pass it to Paddle.js unchanged."
+      properties:
+        user_id: { type: string, format: uuid }
+      required: [user_id]
+
+    # ----------------------------------------------------------------- account
+
+    DeletionStatus:
+      type: object
+      description: |
+        The state of the deletion request. `requested_at` and `purge_after` are
+        present only while a request is pending.
+      properties:
+        requested: { type: boolean }
+        requested_at: { type: string, format: date-time }
+        purge_after:
+          type: string
+          format: date-time
+          description: When the data is removed for good, if the request is not withdrawn first.
+        grace_hours:
+          type: number
+          description: |
+            The grace period in force, in **hours**. The confirmation screen needs
+            it *before* the user asks, and it is in hours rather than days because
+            configuration allows any duration: a test environment set to one hour
+            must not round down to zero days.
+        subscription:
+          allOf:
+            - $ref: "#/components/schemas/DeletionSubscription"
+          description: |
+            Present only when a paid subscription is alive. Closing the account
+            does **not** cancel it — see `subscription_active`.
+      required: [requested, grace_hours]
+
+    DeletionSubscription:
+      type: object
+      description: |
+        The subscription that deletion does **not** cancel. It is managed by
+        Paddle and must be cancelled there; the already-paid period runs to its
+        end and is not refunded.
+      properties:
+        plan_code: { type: string }
+        paddle_subscription_id: { type: string }
+      required: [plan_code, paddle_subscription_id]
+
+    DeletionReceipt:
+      type: object
+      description: |
+        What the request stopped. The counts are here because the privacy policy
+        promises executions stop and credentials are revoked *immediately*: an
+        answer that only said "fine" would leave the user to check elsewhere.
+      properties:
+        requested_at: { type: string, format: date-time }
+        purge_after: { type: string, format: date-time }
+        jobs_stopped: { type: integer }
+        api_keys_revoked: { type: integer }
+        secrets_revoked: { type: integer }
+        ai_keys_revoked: { type: integer }
+        sessions_revoked: { type: integer }
+      required:
+        [
+          requested_at,
+          purge_after,
+          jobs_stopped,
+          api_keys_revoked,
+          secrets_revoked,
+          ai_keys_revoked,
+          sessions_revoked,
+        ]
+
+    DeletionRestored:
+      type: object
+      description: |
+        What withdrawing put back. **It does not mention credentials**, and their
+        absence is the fact: revocation emptied the encrypted material, so there
+        is nothing to give back. Jobs come back; keys and secrets have to be
+        issued again.
+      properties:
+        jobs_resumed: { type: integer }
+      required: [jobs_resumed]
+
+    DeletionRequestInput:
+      type: object
+      properties:
+        password:
+          type: string
+          format: password
+          description: Confirmation of the deletion (R45). Required.
+        subscription_acknowledged:
+          type: boolean
+          description: |
+            Acknowledgement that closing the account does not cancel the Paddle
+            subscription. Required **only** when one is alive: the client learns
+            that from `GET /account/deletion`, or from the `subscription_active`
+            rejection.
+      additionalProperties: false
+
+    # ---------------------------------------------------------------- webhooks
+
+    GithubDelivery:
+      type: object
+      description: |
+        It repeats the delivery identifier and the event because that is what
+        makes the App's log readable: finding your own `X-GitHub-Delivery` with
+        the outcome next to it allows testing without access to our logs. **It
+        contains nothing taken from the request body.**
+      properties:
+        delivery: { type: string }
+        event: { type: string }
+        outcome:
+          type: string
+          enum: [accepted, duplicate, ignored, pong]
+      required: [delivery, event, outcome]
+
+    PaddleDelivery:
+      type: object
+      description: As above, and in particular **no billing data**.
+      properties:
+        event_id: { type: string }
+        type: { type: string }
+        outcome:
+          type: string
+          enum: [applied, duplicate, stale, ignored]
+      required: [event_id, type, outcome]
