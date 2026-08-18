@@ -18,13 +18,21 @@ useHead({
 <template>
   <div>
     <SitePreloader />
+    <!--
+      Il banner apre il documento pur restando in basso sullo schermo: è
+      `position: fixed`, quindi l'ordine nel markup non ne cambia la resa ma
+      decide chi lo incontra per primo. Chi naviga da tastiera o con uno
+      screen reader trova la scelta sui cookie al primo Tab invece che dopo
+      l'intera pagina e il piè di pagina — senza che il banner debba rubare il
+      fuoco a chi sta già leggendo.
+    -->
+    <ClientOnly>
+      <CookieBanner />
+    </ClientOnly>
     <SiteHeader />
     <main>
       <slot />
     </main>
     <SiteFooter />
-    <ClientOnly>
-      <CookieBanner />
-    </ClientOnly>
   </div>
 </template>
