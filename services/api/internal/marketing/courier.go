@@ -125,23 +125,47 @@ type CourierOptions struct {
 // differenza che lì difendiamo con il raggruppamento, e qui non c'è niente da
 // raggruppare: basta un reclamo.
 //
-// # Che cosa deve cambiare perché si possa agganciare
+// # Che cosa deve cambiare: niente, e la risposta è arrivata
 //
-// **In Mailronix, non qui.** Serve che l'invio di marketing finisca su una
-// categoria e su una reputazione separate da quelle del transazionale. Le
-// strade note sono tre, e nessuna è codice di questo repository:
+// Avevamo chiesto a Mailronix un campo `category` sulla richiesta e una
+// suppression per categoria (docs/reference/mailronix-change-request.md). La
+// risposta del 2026-08-18 è **no su entrambi**, e il motivo rende obsoleta la
+// domanda invece di rimandarla.
 //
-//  1. un campo nella richiesta che permetta di scegliere la categoria, che oggi
-//     il contratto non ha (docs/reference/mailronix-openapi.json);
-//  2. una chiave API e un dominio mittente distinti per il marketing — il campo
-//     `from` è nostro, quindi la parte di dominio sarebbe fattibile, ma **non
-//     basta**: separa la reputazione verso Gmail e Outlook e lascia comune la
-//     suppression list, che in Mailronix è per account;
-//  3. le campagne dalla console Mailronix, che vivono fuori dalla superficie
-//     raggiungibile con una API key.
+// **Mailronix consegna via AWS SES, con la suppression list a livello di
+// account AWS, `BOUNCE` e `COMPLAINT` fra le ragioni.** Quella lista sta
+// **sotto** la loro API: vale per tutti i clienti e per tutte le categorie,
+// presenti e future. Il campo che avevamo chiesto non avrebbe protetto niente —
+// dopo un reclamo il transazionale sarebbe stato fermato comunque, un livello
+// più in basso. Sarebbe stato esattamente il campo che illude, cioè la cosa che
+// avevamo chiesto di evitarci.
 //
-// Finché nessuna delle tre è vera, questo tipo resta senza chiamante. Il costo
-// di aspettare è zero: le email di marketing non servono al lancio.
+// Loro possono escludere il transazionale da quella lista, e hanno deciso di
+// non farlo. La ragione che conta non è la loro policy: **non funzionerebbe
+// comunque.** Chi ha premuto «segnala spam» ha addestrato il proprio provider,
+// e Gmail, Outlook e Apple scarteranno il messaggio successivo qualunque cosa
+// faccia SES. Ne uscirebbe un `202` e un evento di consegna verso un utente che
+// non ha ricevuto niente — di nuovo R20.1, un livello più in là.
+//
+// Due conseguenze che questo codice non può cambiare e con cui va convissuto:
+//
+//  1. **un reclamo costa l'indirizzo per tutte le categorie**, in modo
+//     silenzioso e non recuperabile da noi;
+//  2. **la soppressione attraversa i confini fra clienti**: un reclamo generato
+//     da un altro cliente della piattaforma sullo stesso indirizzo può bloccarci
+//     quel destinatario senza che nulla ce lo segnali.
+//
+// # Perché questo tipo resta senza chiamante, adesso definitivamente
+//
+// Non «finché Mailronix non cambia». **Il marketing non deve passare da qui**, ed
+// è anche il consiglio esplicito di chi opera la piattaforma: ogni comunicazione
+// promozionale è un'occasione di reclamo, e un reclamo costa il canale
+// transazionale a livello di account, non di categoria.
+//
+// Il giorno in cui il marketing partirà davvero, partirà da un'altra parte. Il
+// consenso e la disiscrizione restano nostri — sono legati al rapporto con
+// l'utente, non al vettore — ed è per questo che tutto il resto di questo
+// package è vivo e collegato.
 //
 // # Che cosa funziona nel frattempo
 //

@@ -58,6 +58,25 @@
 // è identica per un destinatario recapitabile e per uno in suppression list, e
 // non sapremmo dire quali messaggi siano davvero arrivati. Ciò che questo
 // package garantisce è verificabile da noi: dopo una revoca, nessun invio parte.
+//
+// # Revoca e soppressione sono due cose diverse, ed è la distinzione che regge
+//
+// Confonderle è l'errore facile, e Mailronix l'ha chiarito rispondendo alla
+// nostra richiesta di modifica (2026-08-18):
+//
+//   - la **revoca del consenso** — ciò che questo package registra, e che il
+//     link di disiscrizione produce — vive in una memoria per cliente che
+//     **`POST /email/send` non consulta**. Chi si disiscrive dalle comunicazioni
+//     di prodotto continua quindi a ricevere le transazionali, che è esattamente
+//     ciò che la privacy policy §2.7 e §2.8 promettono. Vale già oggi, senza che
+//     Mailronix cambi niente;
+//   - la **soppressione** — reclamo per spam o hard bounce — blocca **tutto**,
+//     sta nella suppression list a livello di account AWS SES, e nessuna
+//     categoria che potessimo dichiarare la aggirerebbe.
+//
+// Il confine reale non è quindi «marketing contro transazionale»: è «revoca»,
+// che è nostra e granulare, contro «reclamo», che è assoluto e in parte fuori
+// dal controllo di chiunque mandi email. Vedi [Courier] per cosa ne discende.
 package marketing
 
 import (
