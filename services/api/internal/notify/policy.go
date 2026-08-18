@@ -57,6 +57,40 @@ import (
 // conta. Due email di troppo al giorno per job, nel caso peggiore, contro un
 // tetto che non regge sotto carico: lo scambio è dichiarato ed è questo.
 //
+// # Perché non c'è una soglia di fallimenti consecutivi
+//
+// La lettura ovvia di «un'email al primo fallimento definitivo» è che sia
+// rumorosa, e il rimedio ovvio è un contatore: non avvisare finché non ne sono
+// falliti tre di fila, che un fallimento solo può essere una coincidenza e tre
+// sono un sintomo. È stato scritto davvero, durante la #394, ed è stato tolto.
+// Il motivo va lasciato qui, perché è il posto in cui qualcuno tornerà a
+// pensarci.
+//
+// **Una soglia a conteggio non si combina con la frequenza del job.** È una
+// costante che significa cose diverse a seconda di dove capita, e la differenza
+// non è di sfumatura:
+//
+//   - su un job a `every: 1m`, tre occorrenze consecutive sono **tre minuti**;
+//   - sullo stesso identico codice, su un `0 3 * * *`, sono **tre giorni** di
+//     silenzio su qualcosa che è rotto dal primo.
+//
+// La regola sembra ragionevole finché non la si vede applicata al caso lento, e
+// il caso lento è quello in cui l'utente ha più bisogno di saperlo: un job
+// giornaliero è quasi sempre qualcosa che nessuno guarda, ed è per questo che
+// esiste un avviso.
+//
+// La finestra di grazia non ha quel difetto, perché misura il **tempo** e non le
+// occorrenze: cinque minuti sono cinque minuti per tutti. Ciò che cambia con la
+// frequenza è quanti fallimenti ci finiscono dentro — trecento per un job al
+// secondo, uno per un job giornaliero — che è esattamente il comportamento che
+// si vuole. E copre già il caso che la soglia doveva risolvere: un job fitto che
+// sbatte non produce una raffica di email, ne produce una che dice quante volte
+// è successo.
+//
+// Resta vero che un singolo fallimento può essere una coincidenza. La risposta
+// non è tacere finché non se ne accumulano altri — quello è tempo tolto a chi
+// deve rimediare — ma dirlo una volta e non ripeterlo prima di [FailureWindow].
+//
 // # La sicurezza ha una finestra sua, e più corta
 //
 // Anche gli eventi di sicurezza si raggruppano ([SecurityWindow], cinque
