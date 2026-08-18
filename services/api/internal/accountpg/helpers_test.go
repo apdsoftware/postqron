@@ -199,6 +199,10 @@ type tenant struct {
 	PaddleEventID        string
 	GitHubDeliveryID     string
 
+	// ConsentChecksum è l'impronta del testo legale accettato (0018): l'unica
+	// colonna di `legal_consents` che possa portare un marcatore.
+	ConsentChecksum string
+
 	InstallationID int64
 	ExternalID     int64
 
@@ -286,6 +290,21 @@ func seedTenant(t *testing.T, pool *pgxpool.Pool, slug string, offset int) tenan
 		 VALUES ($1::uuid, 'password_reset', $2, now() + interval '1 hour')`,
 		te.UserID, hex64("b", slug))
 
+	// La prova del consenso ai documenti legali (R46, 0018). Il marcatore è
+	// l'impronta del testo, che è l'unica colonna della riga in cui possa
+	// entrare un valore riconoscibile: le altre sono nomi di documenti e numeri
+	// di versione, uguali per tutti.
+	//
+	// Due righe e non una, con due versioni dello stesso documento: è la forma
+	// che la tabella avrà per chiunque abbia visto cambiare i Termini, ed è
+	// quella su cui una cancellazione a metà si vedrebbe.
+	te.ConsentChecksum = hex64("c", slug)
+	exec(t, pool,
+		`INSERT INTO legal_consents (user_id, document, version, language, document_checksum, source)
+		 VALUES ($1::uuid, 'terms-of-service', '1.2.0', 'en', $2, 'registration'),
+		        ($1::uuid, 'privacy-policy',   '1.1.0', 'it', $2, 'reacceptance')`,
+		te.UserID, te.ConsentChecksum)
+
 	exec(t, pool,
 		`INSERT INTO notifications (user_id, event, channel, job_id, dedupe_key, payload)
 		 VALUES ($1::uuid, 'job_failed', 'email', $2::uuid, $3, $4::jsonb)`,
@@ -340,6 +359,7 @@ func seedTenant(t *testing.T, pool *pgxpool.Pool, slug string, offset int) tenan
 		te.PaddleCustomerID,
 		te.PaddleEventID,
 		te.GitHubDeliveryID,
+		te.ConsentChecksum,
 		"pri_" + slug,
 	}
 	return te
