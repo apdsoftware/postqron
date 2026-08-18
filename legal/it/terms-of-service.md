@@ -50,10 +50,10 @@ un account.
 **I piani a pagamento sono offerti per l'uso professionale.** Quando ne acquisti uno,
 confermi di agire nell'esercizio di un'attività imprenditoriale, commerciale, artigianale
 o professionale. È per questo che i nostri prezzi sono esposti al netto delle imposte:
-per chi ha un'attività, la cifra netta è quella che conta, perché è quella che deduce. Te
-lo chiediamo di confermare in fase di acquisto, e raccogliamo la tua partita IVA quando
-ne hai una — alcuni regimi per le piccole imprese perfettamente legittimi, in Europa, non
-ne prevedono una, quindi la chiediamo, non la pretendiamo.
+per chi ha un'attività, la cifra netta è quella che conta, perché è quella che deduce. Ti
+chiediamo di confermarlo in fase di acquisto, e raccogliamo la tua partita IVA quando ne
+hai una — alcuni regimi per le piccole imprese perfettamente legittimi, in Europa, non ne
+prevedono una, quindi la chiediamo, non la pretendiamo.
 
 Dove la legge ti riconosce tutele da consumatore nonostante quella conferma, vince la
 legge — compreso il diritto di recesso di cui al §4.3.
