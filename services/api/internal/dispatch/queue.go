@@ -95,6 +95,22 @@ type queue struct {
 	inFlight int
 	closed   bool
 
+	// workspaceStalls conta le scelte in cui il tetto tecnico per workspace (R10)
+	// ha tolto di mezzo almeno un job con lavoro pronto.
+	//
+	// Si conta **una volta per scelta**, non una per job saltato: quante volte
+	// l'anello incrocia lo stesso workspace pieno dipende da quanti job ha, e
+	// sarebbe un numero che parla della forma della coda invece che del tetto. Il
+	// fatto da rendere visibile è un altro — «c'è del lavoro pronto che non parte
+	// perché un workspace è al proprio tetto» — ed è vero una volta per scelta.
+	//
+	// Il tetto è stato introdotto da #457 senza nessuna traccia: si vede saltare
+	// il job in [queue.pick] leggendo il codice, e in nessun altro modo. Un tetto
+	// di cui non si sa se morde è un numero scelto una volta e mai più
+	// riconsiderato — e [DefaultMaxInFlightPerWorkspace] dichiara di sé che il
+	// valore giusto si conosce solo misurandolo.
+	workspaceStalls int64
+
 	maxQueued               int
 	maxQueuedPerJob         int
 	maxInFlightPerJob       int
@@ -266,6 +282,15 @@ func (q *queue) take() (scheduler.Occurrence, bool) {
 // documentati su [queue] — quello per job e quello della corsia — ed è ciò che
 // rende ciascuno una difesa invece di un rallentamento esteso a tutti.
 func (q *queue) pick() (scheduler.Occurrence, bool) {
+	// Il tetto per workspace si conta a fine scelta, una volta sola: vedi
+	// [queue.workspaceStalls].
+	stalled := false
+	defer func() {
+		if stalled {
+			q.workspaceStalls++
+		}
+	}()
+
 	for i := 0; i < len(q.ring); i++ {
 		idx := (q.cursor + i) % len(q.ring)
 		id := q.ring[idx]
@@ -277,6 +302,7 @@ func (q *queue) pick() (scheduler.Occurrence, bool) {
 		// è quel `continue` a fare la differenza fra «un workspace che sbatte
 		// contro il tetto rallenta sé stesso» e «rallenta tutti».
 		if q.workspaces[jq.workspace] >= q.maxInFlightPerWorkspace {
+			stalled = true
 			continue
 		}
 		pos, ok := jq.ready(q.maxInFlightPerJob)
@@ -416,11 +442,16 @@ func (q *queue) close() []scheduler.Occurrence {
 	return abandoned
 }
 
-// depth sono le occorrenze in attesa e quelle in volo.
-func (q *queue) depth() (queued, inFlight int) {
+// depth sono le occorrenze in attesa, quelle in volo e le scelte in cui il
+// tetto per workspace ha tolto di mezzo del lavoro pronto.
+//
+// Le tre grandezze escono insieme perché si leggono sotto lo stesso lock, e
+// perché chi le guarda le guarda insieme: una coda che non si svuota con dei
+// worker liberi si spiega con la terza.
+func (q *queue) depth() (queued, inFlight int, workspaceStalls int64) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.queued, q.inFlight
+	return q.queued, q.inFlight, q.workspaceStalls
 }
 
 // workspaceInFlight è quanto un workspace sta occupando adesso del proprio

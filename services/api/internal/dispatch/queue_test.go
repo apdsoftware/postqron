@@ -209,7 +209,7 @@ func TestLaChiusuraRestituisceLeOccorrenzeInAttesa(t *testing.T) {
 	// La chiusura non tocca ciò che è in volo: quello lo chiude il worker, o lo
 	// rilascia l'arresto.
 	q.done(inFlight)
-	if queued, live := q.depth(); queued != 0 || live != 0 {
+	if queued, live, _ := q.depth(); queued != 0 || live != 0 {
 		t.Fatalf("coda non vuota dopo la chiusura: %d in attesa, %d in volo", queued, live)
 	}
 }

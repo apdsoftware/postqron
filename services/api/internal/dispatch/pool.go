@@ -22,11 +22,21 @@ type Options struct {
 	// Guard è il controllo sugli indirizzi di destinazione (R38, issue #455).
 	// Se manca non blocca niente: vedi [Guard].
 	Guard Guard
-	// Alerter riceve i fallimenti definitivi (R21). Se manca non si avvisa
-	// nessuno, che è la configurazione normale dei test e di una macchina senza
-	// email configurate.
+	// Alerter riceve i fallimenti definitivi per **avvisarne l'utente** (R21).
+	// Se manca non si avvisa nessuno, che è la configurazione normale dei test e
+	// di una macchina senza email configurate.
 	Alerter Alerter
-	Logger  *slog.Logger
+	// Observer riceve gli stessi fallimenti per **contarli** (R7). Nil significa
+	// «nessuno guarda».
+	//
+	// Sono due destinatari dello stesso fatto e non uno solo, perché le due cose
+	// che ne fanno sono diverse fino in fondo: chi avvisa deve decidere se e
+	// quando quel guasto merita un'email di una persona, e ha una politica
+	// anti-spam per farlo; chi conta deve vedere **tutti** i fallimenti, anche
+	// quelli che nessuna email racconterà mai, altrimenti la metrica misurerebbe
+	// gli avvisi invece dei guasti. Vedi [Observer].
+	Observer Observer
+	Logger   *slog.Logger
 
 	// Workers è quanti worker girano insieme.
 	Workers int
@@ -71,6 +81,7 @@ type Pool struct {
 	exec    Executor
 	guard   Guard
 	alerter Alerter
+	obs     Observer
 	log     *slog.Logger
 
 	workers      int
@@ -128,6 +139,7 @@ type counters struct {
 	succeeded, failed, timedOut   atomic.Int64
 	skipped, blocked              atomic.Int64
 	released, errs                atomic.Int64
+	failedFinal                   atomic.Int64
 
 	retried, retryExhausted      atomic.Int64
 	retryOverrun, retryAbandoned atomic.Int64
@@ -150,6 +162,7 @@ func New(opts Options) (*Pool, error) {
 		exec:         opts.Executor,
 		guard:        opts.Guard,
 		alerter:      opts.Alerter,
+		obs:          opts.Observer,
 		log:          opts.Logger,
 		workers:      intOr(opts.Workers, DefaultWorkers),
 		drainTimeout: durationOr(opts.DrainTimeout, DefaultDrainTimeout),
@@ -163,6 +176,9 @@ func New(opts Options) (*Pool, error) {
 	}
 	if p.guard == nil {
 		p.guard = openGuard{}
+	}
+	if p.obs == nil {
+		p.obs = nopObserver{}
 	}
 	if p.log == nil {
 		p.log = slog.Default()
@@ -261,23 +277,26 @@ func (p *Pool) Dispatch(_ context.Context, occ scheduler.Occurrence) error {
 
 // Stats è la fotografia del pool.
 func (p *Pool) Stats() Stats {
-	queued, inFlight := p.q.depth()
+	queued, inFlight, workspaceStalls := p.q.depth()
 	return Stats{
-		Queued:     queued,
-		InFlight:   inFlight,
-		Accepted:   p.counters.accepted.Load(),
-		Duplicated: p.counters.duplicated.Load(),
-		Refused:    p.counters.refused.Load(),
-		Overlapped: p.counters.overlapped.Load(),
-		Claimed:    p.counters.claimed.Load(),
-		Lost:       p.counters.lost.Load(),
-		Succeeded:  p.counters.succeeded.Load(),
-		Failed:     p.counters.failed.Load(),
-		TimedOut:   p.counters.timedOut.Load(),
-		Skipped:    p.counters.skipped.Load(),
-		Blocked:    p.counters.blocked.Load(),
-		Released:   p.counters.released.Load(),
-		Errors:     p.counters.errs.Load(),
+		Queued:          queued,
+		InFlight:        inFlight,
+		WorkspaceStalls: workspaceStalls,
+
+		Accepted:    p.counters.accepted.Load(),
+		Duplicated:  p.counters.duplicated.Load(),
+		Refused:     p.counters.refused.Load(),
+		Overlapped:  p.counters.overlapped.Load(),
+		Claimed:     p.counters.claimed.Load(),
+		Lost:        p.counters.lost.Load(),
+		Succeeded:   p.counters.succeeded.Load(),
+		Failed:      p.counters.failed.Load(),
+		TimedOut:    p.counters.timedOut.Load(),
+		Skipped:     p.counters.skipped.Load(),
+		Blocked:     p.counters.blocked.Load(),
+		Released:    p.counters.released.Load(),
+		Errors:      p.counters.errs.Load(),
+		FailedFinal: p.counters.failedFinal.Load(),
 
 		Retried:        p.counters.retried.Load(),
 		RetryExhausted: p.counters.retryExhausted.Load(),
@@ -395,7 +414,9 @@ func (p *Pool) run(occ scheduler.Occurrence) {
 		if p.finish(occ, rec) {
 			// Una destinazione che il guard rifiuta è rifiutata anche fra dieci
 			// secondi: l'esito è dichiarato permanente e non produce nessun retry.
-			p.planRetry(occ, rec, Result{}, true)
+			// La classe è `unknown` e non una di quelle di rete: il rifiuto è
+			// nostro, la connessione non è mai partita.
+			p.planRetry(occ, rec, Result{}, true, FailureUnknown)
 		}
 		return
 	}
@@ -415,7 +436,7 @@ func (p *Pool) run(occ scheduler.Occurrence) {
 	// risposto — non sappiamo in che stato sia, e un tentativo successivo
 	// costruito su quel dubbio chiamerebbe il bersaglio una volta di troppo.
 	if p.finish(occ, rec) {
-		p.planRetry(occ, rec, res, permanent(execErr))
+		p.planRetry(occ, rec, res, permanent(execErr), failureKind(rec, res, execErr))
 	}
 }
 

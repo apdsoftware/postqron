@@ -2,7 +2,10 @@ package dispatch
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/scheduler"
@@ -26,9 +29,20 @@ type FailureKind string
 
 const (
 	FailureTimeout    FailureKind = "timeout"
+	FailureDNS        FailureKind = "dns"
+	FailureTLS        FailureKind = "tls"
+	FailureConnection FailureKind = "connection"
 	FailureHTTPStatus FailureKind = "http_status"
 	FailureUnknown    FailureKind = "unknown"
 )
+
+// kinds è l'ordine stabile in cui le classi vengono esposte come etichetta di
+// una metrica. Stabile perché un insieme che cambia ordine fra due raccolte è un
+// grafico che salta.
+var kinds = [...]FailureKind{
+	FailureTimeout, FailureDNS, FailureTLS,
+	FailureConnection, FailureHTTPStatus, FailureUnknown,
+}
 
 // Failure è un'esecuzione chiusa male **per cui non ci saranno altri
 // tentativi**.
@@ -54,6 +68,15 @@ type Failure struct {
 	Kind FailureKind
 	// HTTPStatus è lo status della risposta, zero se non ce n'è stata una.
 	HTTPStatus int
+
+	// Outcome è l'esito scritto sulla riga: [Failed] o [TimedOut].
+	//
+	// Non serve a chi avvisa — [Failure.Kind] dice già all'utente cos'è successo,
+	// in una forma che un template può rendere — e serve a chi conta, perché è la
+	// grandezza con cui la metrica degli esiti si riconcilia. Averlo qui invece
+	// che in una seconda struttura è ciò che tiene una descrizione sola del
+	// fatto.
+	Outcome Outcome
 }
 
 // Alerter riceve i fallimenti definitivi.
@@ -74,33 +97,20 @@ type Alerter interface {
 	JobFailed(ctx context.Context, failure Failure) error
 }
 
-// alert avvisa che un'esecuzione è fallita in via definitiva.
+// alert consegna a chi avvisa l'utente il fallimento già descritto da
+// [Pool.failed].
 //
-// Si chiama **dopo** che l'esito è stato scritto e solo quando la catena dei
-// tentativi è chiusa: prima sarebbe un allarme su un fallimento che il retry
-// successivo potrebbe rimediare da solo.
-func (p *Pool) alert(occ scheduler.Occurrence, rec Record, res Result) {
+// La [Failure] arriva costruita perché il **conteggio** e l'**avviso** devono
+// raccontare lo stesso guasto: costruirla due volte significherebbe due istanti
+// e due classificazioni libere di divergere, che si noterebbe come una metrica
+// che non torna con l'email accanto.
+func (p *Pool) alert(occ scheduler.Occurrence, failure Failure) {
 	if p.alerter == nil {
-		return
-	}
-	if rec.Outcome == Succeeded || rec.Outcome == Skipped {
 		return
 	}
 
 	ctx, cancel := p.storeCtx()
 	defer cancel()
-
-	failure := Failure{
-		UserID:       occ.Job.UserID,
-		JobID:        occ.Job.ID,
-		JobName:      occ.Job.Name,
-		Environment:  occ.Environment,
-		ScheduledFor: occ.ScheduledFor,
-		Attempt:      int(occ.Attempt),
-		OccurredAt:   p.now(),
-		Kind:         failureKind(rec, res),
-		HTTPStatus:   res.ResponseStatus,
-	}
 
 	if err := p.alerter.JobFailed(ctx, failure); err != nil {
 		// L'avviso non parte, l'esecuzione resta chiusa com'era: un'email
@@ -111,22 +121,75 @@ func (p *Pool) alert(occ scheduler.Occurrence, rec Record, res Result) {
 	}
 }
 
-// failureKind classifica l'esito con quello che il pool sa, e niente di più.
+// failureKind classifica l'esito **guardando il tipo dell'errore, mai il suo
+// testo**.
 //
-// Le tre classi sono meno di quelle che internal/notify accetta, e la
-// differenza è dichiarata: distinguere un errore di DNS da uno di TLS
-// richiederebbe di leggere il testo dell'errore dell'esecutore, che è
-// esattamente il testo che non deve arrivare fin qui. Meglio `unknown` — che il
-// template racconta come «per un motivo che il motore non ha saputo
-// classificare» — che una classificazione ottenuta frugando in una stringa che
-// può contenere un segreto.
-func failureKind(rec Record, res Result) FailureKind {
+// La distinzione è tutta qui, e vale la pena scriverla perché la versione
+// precedente si fermava a tre classi proprio per non doverla fare. Il timore era
+// giusto: il *messaggio* di un errore di rete o di un redirect può citare
+// l'indirizzo verso cui si stava andando, e da #458 in poi quell'indirizzo
+// contiene i segreti del workspace risolti (R43). Un `strings.Contains` su quel
+// messaggio per riconoscere «DNS» sarebbe stato il modo di far entrare un
+// segreto in un'email.
+//
+// `errors.As` non legge niente: risale la catena degli errori e confronta dei
+// **tipi**. `*net.DNSError` è un nome che non si risolve quale che sia la frase
+// che l'accompagna, e nessun valore transita. L'esecutore conserva la causa con
+// `%w` apposta — è già così che si distingue un timeout da un fallimento — e
+// questa funzione usa lo stesso aggancio.
+//
+// Le sei classi sono quelle che `notify.FailureKind` dichiara e che il template
+// di R21 sa già rendere. Tre di esse — dns, tls, connection — erano dichiarate e
+// irraggiungibili: un guasto di rete arrivava all'utente come «per un motivo che
+// il motore non ha saputo classificare», che è vero solo finché nessuno guarda
+// il tipo dell'errore.
+//
+// L'ordine dei casi è quello della specificità: un timeout durante una
+// risoluzione DNS è un timeout — è il tetto del job ad aver deciso l'esito — e
+// un errore TLS arriva incapsulato in un `*net.OpError`, quindi va riconosciuto
+// prima di lui.
+func failureKind(rec Record, res Result, err error) FailureKind {
 	switch {
 	case rec.Outcome == TimedOut:
 		return FailureTimeout
-	case res.ResponseStatus >= 100 && res.ResponseStatus <= 599:
+	case err == nil && res.ResponseStatus >= 100 && res.ResponseStatus <= 599:
 		return FailureHTTPStatus
-	default:
+	case err == nil:
+		// Un esito non riuscito senza errore e senza status non esiste per
+		// costruzione (vedi [record]): se compare, è un bug, e chiamarlo
+		// sconosciuto è esattamente ciò che è.
 		return FailureUnknown
 	}
+
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return FailureDNS
+	}
+	var cert *tls.CertificateVerificationError
+	if errors.As(err, &cert) {
+		return FailureTLS
+	}
+	var record tls.RecordHeaderError
+	if errors.As(err, &record) {
+		return FailureTLS
+	}
+	var op *net.OpError
+	if errors.As(err, &op) {
+		return FailureConnection
+	}
+	if res.ResponseStatus >= 100 && res.ResponseStatus <= 599 {
+		// La risposta è cominciata e si è interrotta leggendola: lo status è il
+		// fatto più utile dei due.
+		return FailureHTTPStatus
+	}
+	return FailureUnknown
 }
+
+// FailureKinds elenca le classi in ordine stabile.
+//
+// Esiste perché chi espone una metrica per classe deve poterle scrivere tutte,
+// **anche quelle a zero**: una serie che compare solo quando il guasto è già
+// accaduto non permette di vedere che è appena cominciato. Averla qui, accanto
+// alle costanti, è ciò che impedisce a quell'elenco di essere una copia che
+// diverge al primo valore aggiunto.
+func FailureKinds() []FailureKind { return kinds[:] }

@@ -55,7 +55,16 @@ import (
 // limitata due volte — dal tetto dei tentativi e dalla regola qui sopra — e il
 // prezzo dell'alternativa sarebbe rileggere `jobs` a ogni fallimento, cioè una
 // query in più sul percorso che si percorre proprio quando le cose vanno male.
-func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, permanent bool) {
+// # Dove un fallimento diventa definitivo
+//
+// Le due uscite senza tentativo successivo sono anche i due punti in cui si sa
+// che quell'occorrenza non verrà più eseguita, ed è lì che [Observer.Failed]
+// viene chiamato — non alla scrittura dell'esito. La differenza è tutta pratica:
+// un job con `max_retries: 3` che al secondo tentativo riesce ha fallito una
+// volta e non è un job rotto, e avvisare l'utente al primo fallimento
+// significherebbe mandargli un'email per un guasto che il motore stava già
+// rimediando. Vedi [Observer].
+func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, permanent bool, kind FailureKind) {
 	if rec.Outcome == Succeeded || rec.Outcome == Skipped {
 		return
 	}
@@ -75,9 +84,10 @@ func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, perma
 			slog.Int("tentativo", int(occ.Attempt)),
 			slog.String("motivo", decision.Reason.String()))
 		// Qui la catena è chiusa: è il momento in cui il fallimento diventa una
-		// notizia per l'utente (R21). Prima no — un fallimento seguito da un
-		// tentativo è il funzionamento normale di R5, non un guasto.
-		p.alert(occ, rec, res)
+		// notizia per l'utente (R21) e un numero per chi guarda il motore (R7).
+		// Prima no — un fallimento seguito da un tentativo è il funzionamento
+		// normale di R5, non un guasto.
+		p.failed(occ, rec, res, kind)
 		return
 	}
 
@@ -92,8 +102,9 @@ func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, perma
 		// fallimento va raccontato. È il caso dei job a risoluzione di secondo,
 		// dove morde quasi sempre: senza la politica anti-spam di internal/notify
 		// sarebbe un avviso al secondo, ed è esattamente il motivo per cui quella
-		// politica sta lì e non qui.
-		p.alert(occ, rec, res)
+		// politica sta lì e non qui — mentre il **conteggio** li vuole tutti, ed
+		// è il motivo per cui i due destinatari restano due.
+		p.failed(occ, rec, res, kind)
 		return
 	}
 
@@ -101,6 +112,46 @@ func (p *Pool) planRetry(occ scheduler.Occurrence, rec Record, res Result, perma
 	next.Attempt = occ.Attempt + 1
 	next.Recovered = false
 	p.arm(next, decision.Delay)
+}
+
+// failed consegna il fallimento definitivo ai suoi due destinatari.
+//
+// La [Failure] si costruisce **una volta sola** e la ricevono entrambi: sono lo
+// stesso fatto, e due costruzioni separate sarebbero due descrizioni dello
+// stesso guasto libere di divergere — l'istante di una e la classificazione
+// dell'altra, viste da chi legge una metrica accanto a un'email che non
+// combaciano.
+//
+// Il contatore si muove **prima** delle due consegne, e non dopo: conta i
+// fallimenti, non le consegne riuscite, e un osservatore lento o un avviso non
+// accodato non devono poter far sparire un guasto dai numeri.
+//
+// Il contesto dell'osservatore è quello del pool, non quello dell'esecuzione:
+// l'esecuzione è finita, e il suo contesto porta la scadenza del job (R40) — chi
+// osserva si troverebbe un tempo già consumato da una chiamata che non lo
+// riguarda. Chi avvisa ne prende uno suo, con il tetto di una transizione di
+// stato: vedi [Pool.alert].
+func (p *Pool) failed(occ scheduler.Occurrence, rec Record, res Result, kind FailureKind) {
+	if rec.Outcome == Succeeded || rec.Outcome == Skipped {
+		return
+	}
+
+	failure := Failure{
+		UserID:       occ.Job.UserID,
+		JobID:        occ.Job.ID,
+		JobName:      occ.Job.Name,
+		Environment:  occ.Environment,
+		ScheduledFor: occ.ScheduledFor,
+		Attempt:      int(occ.Attempt),
+		OccurredAt:   p.now(),
+		Kind:         kind,
+		HTTPStatus:   res.ResponseStatus,
+		Outcome:      rec.Outcome,
+	}
+
+	p.counters.failedFinal.Add(1)
+	p.obs.Failed(p.ctx, failure)
+	p.alert(occ, failure)
 }
 
 // policyOf legge la politica di retry dichiarata dal job (SPEC §9, `jobs`).

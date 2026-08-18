@@ -397,6 +397,17 @@ type Stats struct {
 	// `skipped`. Vedi [ErrOverlapSkipped].
 	Overlapped int64
 
+	// WorkspaceStalls sono le scelte in cui il tetto tecnico per workspace (R10)
+	// ha tolto di mezzo del lavoro pronto: un job aveva un'occorrenza da servire
+	// e il suo workspace era già al proprio massimo di esecuzioni in volo.
+	//
+	// Non è un rifiuto e non è una perdita — l'occorrenza resta in coda e parte
+	// appena il workspace libera un posto — ma è l'unico modo di sapere se il
+	// tetto morde. Cresce insieme a [Stats.Queued] quando un cliente solo sta
+	// tenendo occupata la propria quota; se cresce mentre la coda è corta, il
+	// tetto è troppo basso per il carico vero.
+	WorkspaceStalls int64
+
 	// Claimed sono le occorrenze di cui questo pool ha vinto l'aggiornamento
 	// condizionato; Lost quelle che al momento della presa erano già di qualcun
 	// altro. Lost > 0 non è un errore: è R4 che funziona.
@@ -416,6 +427,18 @@ type Stats struct {
 	Released int64
 	// Errors sono gli errori del database durante una transizione di stato.
 	Errors int64
+
+	// FailedFinal sono le occorrenze fallite **in via definitiva**: nessun
+	// tentativo successivo le seguirà.
+	//
+	// Non è [Stats.Failed] con un altro nome, ed è la distinzione che serve a
+	// distinguere un problema del cliente da un intoppo. Failed conta i
+	// *tentativi* andati male, compresi quelli a cui è seguito un retry riuscito;
+	// questa conta le *occorrenze* che nessuno eseguirà più. Un job con
+	// `max_retries: 3` che riesce al secondo colpo aggiunge uno a Failed e zero a
+	// questa — ed è esattamente la differenza fra «il motore ha rimediato» e
+	// «l'utente ha un job rotto». Vedi [Observer].
+	FailedFinal int64
 
 	// I quattro esiti di una decisione di retry che vale la pena contare (R5).
 	// Un fallimento che non si ritenta perché non è ritentabile — un `4xx`, una

@@ -332,6 +332,58 @@ essere nel repository non è nemmeno una directory quando si lavora da un worktr
 
 Per saltarlo consapevolmente: `git push --no-verify`.
 
+## Osservabilità (R7)
+
+Tre endpoint che rispondono a tre domande diverse. Tenerle separate è il punto:
+un processo vivo che non riesce a scrivere sul database è malato, e un health
+check che risponde `200` perché il server HTTP funziona è peggio di nessun health
+check — fa credere che vada tutto bene mentre non parte più niente.
+
+| Endpoint | Domanda | Accesso |
+|---|---|---|
+| `GET /healthz` | «questo processo è in piedi?» | pubblico |
+| `GET /readyz` | «il motore sta funzionando adesso?» | stato pubblico, dettaglio autenticato |
+| `GET /metrics` | tutte le grandezze del motore | autenticato, o assente |
+
+**`/healthz` non tocca il database e risponde sempre `200`**, ed è quello che
+deve fare: serve a chi riavvia un processo inchiodato, e una liveness che
+fallisce per colpa del database lo farebbe riavviare in un ciclo che non risolve
+niente.
+
+**`/readyz` risponde `503`** quando il motore non può lavorare: il database non
+accetta scritture, `job_executions` non ha una partizione in cui scrivere, o lo
+scheduler non porta a termine una passata da mezzo minuto. Risponde `200` con
+`status: degraded` quando funziona e qualcuno deve intervenire prima che smetta —
+tipicamente il margine di partizioni sceso sotto i tre giorni. Le sonde girano su
+un ticker e l'endpoint legge l'ultimo esito: interrogarlo non costa una query.
+
+### Le metriche, e come si protegge l'accesso
+
+`POSTQRON_METRICS_TOKEN` (`openssl rand -base64 32`) si presenta come
+`Authorization: Bearer <token>`:
+
+```bash
+curl -fsS -H "Authorization: Bearer $POSTQRON_METRICS_TOKEN" \
+  http://127.0.0.1:8080/metrics
+```
+
+**Senza la variabile la rotta non esiste** — `404`, non `403`. È la stessa regola
+dei segreti dei webhook: un endpoint di metriche aperto racconta al mondo il
+carico del servizio, il numero di clienti attivi e i tempi di risposta dei loro
+bersagli.
+
+La grandezza da guardare per prima è `postqron_dispatch_lag_seconds`, lo scarto
+fra l'orario dovuto di un'occorrenza e la sua partenza: è la misura del prodotto
+(R47), e accanto c'è `postqron_dispatch_tolerance_seconds`, che è l'impegno
+dichiarato. Poi `postqron_partition_horizon_days`, che scende di uno al giorno e
+preannuncia con due settimane di anticipo il momento in cui il motore smetterà di
+poter scrivere.
+
+Il formato è quello di esposizione testuale di Prometheus, scritto a mano: il
+binario non prende dipendenze per produrlo, la registrazione è un'atomica per
+occorrenza e la raccolta non tocca il database. Su una macchina sola (SPEC §2)
+l'osservabilità non deve pesare più del servizio che osserva.
+
 ## Documentazione
 
 - [docs/SPEC.md](docs/SPEC.md) — specifica funzionale, fonte di verità

@@ -245,3 +245,79 @@ func TestIDueTettiSiCompongonoEVinceIlPiuStretto(t *testing.T) {
 	eventually(t, 10*time.Second, func() bool { return pool.Stats().Succeeded == 10 },
 		"l'arretrato non è stato smaltito: %+v", pool.Stats())
 }
+
+// TestIlTettoPerWorkspaceLasciaTraccia.
+//
+// Il tetto di R10 si applica saltando il job in [queue.pick]: senza un
+// contatore, l'unico modo di sapere che ha morso sarebbe leggere il codice. La
+// misura è quella che dice se il numero scelto da #457 è quello giusto — e
+// [dispatch.DefaultMaxInFlightPerWorkspace] dichiara di sé che il valore giusto
+// si conosce solo osservandolo.
+func TestIlTettoPerWorkspaceLasciaTraccia(t *testing.T) {
+	const tetto = 2
+
+	store := newMemStore()
+	sblocca := make(chan struct{})
+	t.Cleanup(func() { close(sblocca) })
+
+	exec := dispatch.ExecutorFunc(func(ctx context.Context, _ scheduler.Occurrence) (dispatch.Result, error) {
+		select {
+		case <-sblocca:
+		case <-ctx.Done():
+			return dispatch.Result{}, ctx.Err()
+		}
+		return dispatch.Result{ResponseStatus: 200}, nil
+	})
+
+	pool := newPool(t, dispatch.Options{
+		Store:                   store,
+		Executor:                exec,
+		Workers:                 8,
+		MaxInFlightPerWorkspace: tetto,
+		DrainTimeout:            time.Second,
+	})
+
+	// Quattro job dello stesso workspace: due partono, due restano in coda con i
+	// worker liberi davanti. È quella l'attesa che va contata.
+	for i := range 4 {
+		if err := hand(t, pool, store, occorrenzaDi("acme", fmt.Sprintf("job-%d", i), 0)); err != nil {
+			t.Fatalf("occorrenza %d rifiutata: %v", i, err)
+		}
+	}
+
+	eventually(t, 5*time.Second, func() bool { return pool.Stats().WorkspaceStalls > 0 },
+		"il tetto per workspace non ha lasciato traccia: %+v", pool.Stats())
+
+	st := pool.Stats()
+	if st.InFlight != tetto {
+		t.Errorf("in volo = %d, atteso il tetto %d", st.InFlight, tetto)
+	}
+	if st.Queued != 4-tetto {
+		t.Errorf("in attesa = %d, attese %d", st.Queued, 4-tetto)
+	}
+}
+
+// TestSenzaTettoNessunoStallo verifica che il contatore non si muova quando il
+// tetto non c'entra: un contatore che sale sempre non distingue niente.
+func TestSenzaTettoNessunoStallo(t *testing.T) {
+	store := newMemStore()
+	exec := dispatch.ExecutorFunc(func(context.Context, scheduler.Occurrence) (dispatch.Result, error) {
+		return dispatch.Result{ResponseStatus: 200}, nil
+	})
+
+	pool := newPool(t, dispatch.Options{
+		Store: store, Executor: exec, Workers: 8, MaxInFlightPerWorkspace: 8,
+	})
+
+	for i := range 4 {
+		if err := hand(t, pool, store, occorrenzaDi("acme", fmt.Sprintf("job-%d", i), 0)); err != nil {
+			t.Fatalf("occorrenza %d rifiutata: %v", i, err)
+		}
+	}
+	eventually(t, 5*time.Second, func() bool { return pool.Stats().Succeeded == 4 },
+		"non sono finite tutte: %+v", pool.Stats())
+
+	if st := pool.Stats(); st.WorkspaceStalls != 0 {
+		t.Errorf("stalli per workspace = %d, attesi 0 con il tetto largo", st.WorkspaceStalls)
+	}
+}
