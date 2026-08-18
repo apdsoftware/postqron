@@ -63,7 +63,7 @@ func newSecretsAPI(guard *guard, logger *slog.Logger, svc *secrets.Service) *sec
 // quelle credenziali verso un bersaglio scelto da chi ha la chiave, senza che
 // nessun log dell'utente mostri un valore cambiato. Per toccare i segreti serve
 // la credenziale che dimostra di *essere* l'utente.
-func (a *secretsAPI) routes(mux *http.ServeMux) {
+func (a *secretsAPI) routes(mux router) {
 	mux.HandleFunc("GET /secrets", a.authenticated(a.list))
 	mux.HandleFunc("POST /secrets", a.authenticated(a.create))
 	mux.HandleFunc("PATCH /secrets/{id}", a.authenticated(a.update))

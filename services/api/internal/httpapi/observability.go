@@ -80,7 +80,7 @@ func newObservabilityAPI(logger *slog.Logger, deps Deps) *observabilityAPI {
 	}
 }
 
-func (a *observabilityAPI) routes(mux *http.ServeMux) {
+func (a *observabilityAPI) routes(mux router) {
 	if a.ready != nil {
 		mux.HandleFunc("GET /readyz", a.readyz)
 	}

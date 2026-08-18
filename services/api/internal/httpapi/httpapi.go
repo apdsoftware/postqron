@@ -176,7 +176,19 @@ type Health struct {
 // NewRouter costruisce il router del servizio.
 func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps) http.Handler {
 	mux := http.NewServeMux()
+	register(mux, cfg, version, logger, deps)
+	return withCORS(cfg, mux)
+}
 
+// register registra le rotte su un [router].
+//
+// È separata da [NewRouter] perché l'elenco delle rotte è ciò che il contratto
+// OpenAPI descrive (R51), e un contratto che non si può confrontare con il
+// codice diverge senza che nessuno se ne accorga. Passando qui un router che
+// registra e basta — invece di un `*http.ServeMux` che serve — si ottiene
+// l'elenco vero, quello prodotto dalle stesse condizioni che governano
+// l'esercizio: vedi contract_test.go.
+func register(mux router, cfg config.Config, version string, logger *slog.Logger, deps Deps) {
 	// Liveness. Vedi [Health] per che cosa dichiara e che cosa no.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, r, logger, http.StatusOK, Health{
@@ -303,8 +315,6 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 	} else {
 		logger.Warn("rotta del webhook Paddle non registrata: nessun servizio paddle configurato")
 	}
-
-	return withCORS(cfg, mux)
 }
 
 // ------------------------------------------------------------------ risposte

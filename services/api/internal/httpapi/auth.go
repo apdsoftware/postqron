@@ -29,7 +29,7 @@ func newAuthAPI(guard *guard, logger *slog.Logger, deps Deps) *authAPI {
 	return &authAPI{guard: guard, svc: deps.Auth, log: logger, deps: deps}
 }
 
-func (a *authAPI) routes(mux *http.ServeMux) {
+func (a *authAPI) routes(mux router) {
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.HandleFunc("POST /auth/logout", a.logout)

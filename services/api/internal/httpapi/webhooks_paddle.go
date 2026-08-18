@@ -68,7 +68,7 @@ func newPaddleWebhookAPI(logger *slog.Logger, svc *paddle.Service) *paddleWebhoo
 	return &paddleWebhookAPI{svc: svc, log: logger}
 }
 
-func (a *paddleWebhookAPI) routes(mux *http.ServeMux) {
+func (a *paddleWebhookAPI) routes(mux router) {
 	mux.HandleFunc("POST /webhooks/paddle", a.receive)
 }
 
