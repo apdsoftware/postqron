@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
+	"github.com/apdsoftware/postqron/services/api/internal/legalpg"
 )
 
 // uniqueViolation è lo SQLSTATE di una violazione di vincolo unico.
@@ -75,37 +76,64 @@ func (s *Store) UserByID(ctx context.Context, id string) (auth.User, error) {
 	return scanUser(row)
 }
 
-// CreateUser crea un account.
+// CreateUser crea un account e la prova di ciò che ha accettato.
 //
 // L'inserimento è tentato e non preceduto da una SELECT di controllo, per due
 // ragioni: la seconda è più veloce, la prima è che una SELECT seguita da un
 // INSERT è una corsa — due registrazioni simultanee sullo stesso indirizzo
 // passerebbero entrambe il controllo. L'unico arbitro è l'indice unico.
-func (s *Store) CreateUser(ctx context.Context, email, passwordHash, fullName string) (auth.User, error) {
+//
+// # Perché una transazione
+//
+// Perché i consensi ai documenti legali (R46) si scrivono **qui dentro**. Un
+// account senza la prova di ciò che aveva davanti quando si è iscritto è uno
+// stato che non deve poter esistere nemmeno per un istante: con due chiamate
+// separate, un errore fra l'una e l'altra lo produrrebbe, e non ci sarebbe modo
+// di ripararlo dopo — la domanda a cui la prova risponde è *cosa vedeva in quel
+// momento*, e quel momento è passato.
+//
+// Il rollback vale anche al contrario: se la registrazione dei consensi
+// fallisce, l'account non nasce. È la direzione giusta — chi riprova si iscrive,
+// mentre un account senza consenso resterebbe lì senza che nessuno se ne accorga.
+func (s *Store) CreateUser(ctx context.Context, in auth.NewUser) (auth.User, error) {
 	var name *string
-	if fullName != "" {
-		name = &fullName
+	if in.FullName != "" {
+		name = &in.FullName
 	}
-	row := s.pool.QueryRow(ctx,
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return auth.User{}, fmt.Errorf("authpg: apertura della transazione di registrazione: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	row := tx.QueryRow(ctx,
 		`INSERT INTO users (email, password_hash, full_name)
 		 VALUES ($1, $2, $3)
-		 RETURNING `+userColumns, email, passwordHash, name)
+		 RETURNING `+userColumns, in.Email, in.PasswordHash, name)
 
 	user, err := scanUser(row)
-	if err == nil {
-		return user, nil
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
+			return auth.User{}, auth.ErrEmailTaken
+		}
+		// scanUser traduce «nessuna riga» in ErrNotFound, che qui non ha senso: un
+		// INSERT ... RETURNING che non restituisce nulla è un errore diverso.
+		if errors.Is(err, auth.ErrNotFound) {
+			return auth.User{}, errors.New("authpg: INSERT su users non ha restituito la riga")
+		}
+		return auth.User{}, err
 	}
 
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
-		return auth.User{}, auth.ErrEmailTaken
+	if err := legalpg.RecordTx(ctx, tx, user.ID, in.Consents); err != nil {
+		return auth.User{}, err
 	}
-	// scanUser traduce «nessuna riga» in ErrNotFound, che qui non ha senso: un
-	// INSERT ... RETURNING che non restituisce nulla è un errore diverso.
-	if errors.Is(err, auth.ErrNotFound) {
-		return auth.User{}, errors.New("authpg: INSERT su users non ha restituito la riga")
+
+	if err := tx.Commit(ctx); err != nil {
+		return auth.User{}, fmt.Errorf("authpg: conferma della registrazione: %w", err)
 	}
-	return auth.User{}, err
+	return user, nil
 }
 
 // UpdatePasswordHash sostituisce l'hash della password.

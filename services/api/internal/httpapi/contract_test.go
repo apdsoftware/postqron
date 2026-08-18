@@ -73,6 +73,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/health"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 	"github.com/apdsoftware/postqron/services/api/openapi"
@@ -124,6 +125,7 @@ func rotteDelRouter(t *testing.T) []string {
 		Billing:          &billing.Service{},
 		Secrets:          &secrets.Service{},
 		Account:          &account.Service{},
+		Legal:            &legal.Service{},
 		AIKeys:           &aicreds.Service{},
 		ExecutionStreams: hub,
 		Readiness:        prontezzaFinta{},
@@ -589,6 +591,14 @@ var legami = []legameDiSchema{
 	{schema: "DeletionRestored", valore: DeletionRestoredResponse{}, obbligatori: true},
 	{schema: "DeletionRequestInput", valore: requestDeletionRequest{}},
 
+	// Consenso ai documenti legali (R46).
+	{schema: "LegalConsents", valore: LegalConsentsResponse{}, obbligatori: true},
+	{schema: "LegalConsent", valore: LegalConsentResponse{}, obbligatori: true},
+	{schema: "LegalRequirement", valore: LegalRequirementResponse{}, obbligatori: true},
+	{schema: "LegalChange", valore: LegalChangeResponse{}, obbligatori: true},
+	{schema: "LegalAcceptInput", valore: acceptConsentsRequest{}},
+	{schema: "LegalAcceptDocument", valore: acceptConsentDocument{}},
+
 	// Webhook.
 	{schema: "GithubDelivery", valore: GitHubWebhookResponse{}, obbligatori: true},
 	{schema: "PaddleDelivery", valore: PaddleWebhookResponse{}, obbligatori: true},
@@ -711,6 +721,9 @@ func TestContrattoEnumerazioni(t *testing.T) {
 		"PlanCode":           {paddle.PlanFree, paddle.PlanPro, paddle.PlanTeam, paddle.PlanAgency},
 		"BillingPeriod":      stringheDi([]paddle.Period{paddle.PeriodMonthly, paddle.PeriodYearly}),
 		"SubscriptionStatus": stringheDi(statiSottoscrizione()),
+		"LegalDocument":      stringheDi(legal.Documents()),
+		"Language":           stringheDi(legal.Languages()),
+		"ConsentSource":      stringheDi(legal.Sources()),
 	}
 
 	for nome, nelCodice := range casi {

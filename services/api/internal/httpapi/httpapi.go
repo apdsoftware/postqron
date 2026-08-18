@@ -32,6 +32,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/execstream"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 	"github.com/apdsoftware/postqron/services/api/internal/secrets"
 )
@@ -100,6 +101,17 @@ type Deps struct {
 	// dell'health check, non una degradazione accettabile in esercizio, e la
 	// mancanza si nota nel log all'avvio.
 	Account *account.Service
+
+	// Legal può essere nil: in quel caso le rotte `/legal/consents` non vengono
+	// registrate (R46). La conseguenza va detta per intero, perché tocca una
+	// promessa scritta: senza quelle rotte l'utente non ha modo di accettare un
+	// documento cambiato, e i Termini §9 — «If you do not accept the change, you
+	// may close your account before it takes effect» — offrirebbero una scelta
+	// che nell'applicazione non esiste. La registrazione continua a scrivere il
+	// consenso, perché quella passa da internal/auth e non da qui. Nil è la
+	// configurazione dei test dell'health check, e la mancanza si nota nel log
+	// all'avvio.
+	Legal *legal.Service
 
 	// AIKeys può essere nil: in quel caso le rotte `/ai/keys` non vengono
 	// registrate (R18). Senza, l'utente non può configurare il BYOK e il
@@ -263,6 +275,16 @@ func register(mux router, cfg config.Config, version string, logger *slog.Logger
 		} else {
 			logger.Warn("rotte di cancellazione dell'account non registrate: nessun servizio account configurato",
 				slog.String("conseguenza", "la privacy policy §6 promette la cancellazione dall'applicazione (R45)"))
+		}
+
+		// Il consenso ai documenti legali sta dietro lo stesso guard e, come la
+		// cancellazione, solo dietro la *sessione*: accettare un contratto è un
+		// atto della persona. Vedi legalAPI.routes.
+		if deps.Legal != nil {
+			newLegalAPI(guard, logger, deps.Legal).routes(mux)
+		} else {
+			logger.Warn("rotte del consenso ai documenti legali non registrate: nessun servizio legal configurato",
+				slog.String("conseguenza", "un documento che cambia non si può accettare dall'applicazione (R46, Termini §9)"))
 		}
 
 		// Le chiavi AI stanno dietro lo stesso guard, e come i segreti solo dietro

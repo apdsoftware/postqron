@@ -15,6 +15,7 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/authtest"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 	"github.com/apdsoftware/postqron/services/api/internal/ratelimit"
 )
 
@@ -303,6 +304,75 @@ func TestRegisterCreaLAccountEChiedeLaConfermaDellIndirizzo(t *testing.T) {
 	}
 	if !msg.ExpiresAt.Equal(f.clock.Now().Add(auth.DefaultEmailVerificationTTL)) {
 		t.Errorf("scadenza = %s", msg.ExpiresAt)
+	}
+}
+
+// TestRegisterRegistraIlConsensoAiQuattroDocumenti verifica che il consenso
+// nasca con l'account (R46).
+//
+// I Termini si aprono con «By creating an account you accept them, together with
+// the Acceptable Use Policy and the Privacy Policy»: se la registrazione non
+// scrivesse la prova, quella frase resterebbe vera in un documento e
+// indimostrabile nel sistema.
+func TestRegisterRegistraIlConsensoAiQuattroDocumenti(t *testing.T) {
+	f := newFixture(t)
+	// L'orologio di prova sta al 17 agosto, e due dei quattro documenti entrano
+	// in vigore il 18: senza questo salto il test verificherebbe il caso in cui
+	// il registro ha ragione a registrarne solo due, che è un'altra proprietà.
+	f.clock.advance(48 * time.Hour)
+
+	if err := f.svc.Register(t.Context(), auth.RegisterInput{
+		Email: testEmail, Password: testPassword, FullName: "Mario Rossi",
+		Client: testClient, Language: legal.Italian,
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	f.svc.Wait()
+
+	user, err := f.store.UserByEmail(t.Context(), testEmail)
+	if err != nil {
+		t.Fatalf("l'account non è stato creato: %v", err)
+	}
+
+	consensi := f.store.ConsentsOf(user.ID)
+	if len(consensi) != len(legal.Documents()) {
+		t.Fatalf("%d consensi registrati, attesi %d (uno per documento)", len(consensi), len(legal.Documents()))
+	}
+
+	registro := legal.Current()
+	versioni := map[legal.Document]string{}
+	for _, c := range consensi {
+		versioni[c.Document] = c.Version
+
+		inVigore, ok := registro.InForce(c.Document, f.clock.Now())
+		if !ok {
+			t.Errorf("%s: consenso registrato su un documento che non è in vigore", c.Document)
+			continue
+		}
+		if c.Version != inVigore.Version {
+			t.Errorf("%s: consenso alla %s, in vigore la %s", c.Document, c.Version, inVigore.Version)
+		}
+		// La lingua è quella del testo **mostrato**: l'utente ha chiesto
+		// l'italiano, ma finché la traduzione non esiste ha letto l'inglese, e
+		// la prova non deve dire il contrario.
+		if c.Language != inVigore.Presented(legal.Italian) {
+			t.Errorf("%s: lingua registrata %q, mostrata %q", c.Document, c.Language, inVigore.Presented(legal.Italian))
+		}
+		if c.Source != legal.SourceRegistration {
+			t.Errorf("%s: origine %q, attesa %q", c.Document, c.Source, legal.SourceRegistration)
+		}
+		if !c.AcceptedAt.Equal(f.clock.Now()) {
+			t.Errorf("%s: data del consenso %s, atteso l'istante della registrazione %s",
+				c.Document, c.AcceptedAt, f.clock.Now())
+		}
+	}
+
+	// E le versioni sono diverse fra loro: è la ragione per cui la prova ha una
+	// riga per documento invece di un numero solo per l'insieme.
+	if versioni[legal.TermsOfService] == versioni[legal.CookiePolicy] {
+		t.Errorf("Termini e cookie policy risultano alla stessa versione (%s): "+
+			"o il registro è sbagliato, o la registrazione sta appiattendo quattro documenti in uno",
+			versioni[legal.TermsOfService])
 	}
 }
 

@@ -44,6 +44,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
+	"github.com/apdsoftware/postqron/services/api/internal/legalpg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/metrics"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
@@ -127,7 +129,23 @@ func run() error {
 		return err
 	}
 
-	authService, err := newAuthService(pool, cfg, logger, sinks.auth)
+	// Il registro dei documenti legali (R46), letto da `legal/`.
+	//
+	// Sta **prima dell'autenticazione** perché è la registrazione a scrivere la
+	// prima prova di consenso: senza il registro, `auth` ripiegherebbe su quello
+	// dichiarato in Go, che non conosce le traduzioni e le darebbe tutte per non
+	// mostrabili.
+	//
+	// Un errore qui ferma l'avvio, come per i template delle email: la
+	// directory è parte di ciò che il servizio distribuisce, e partire senza
+	// significherebbe registrare consensi dichiarando una lingua che nessuno ha
+	// verificato di aver mostrato.
+	documents, err := loadLegalRegistry(workdir, logger)
+	if err != nil {
+		return err
+	}
+
+	authService, err := newAuthService(pool, cfg, logger, sinks.auth, documents)
 	if err != nil {
 		return err
 	}
@@ -310,6 +328,28 @@ func run() error {
 			slog.String("env", account.GraceEnvVar))
 	}
 
+	// Il consenso ai documenti legali (R46). Si costruisce sempre, per la stessa
+	// ragione della cancellazione: senza queste rotte un documento che cambia
+	// non si potrebbe accettare dall'applicazione, e i Termini §9 offrono
+	// all'utente una scelta — accettare, oppure chiudere l'account prima che la
+	// modifica entri in vigore — di cui questa è la prima metà.
+	//
+	// Il registro è **lo stesso oggetto** che usa la registrazione, caricato una
+	// volta sola da `legal/`: un secondo registro qui significherebbe due verità
+	// su quale versione è in vigore e su quali traduzioni si possono mostrare.
+	legalStore, err := legalpg.New(pool)
+	if err != nil {
+		return err
+	}
+	legalService, err := legal.New(legal.Options{
+		Store:    legalStore,
+		Registry: documents,
+		Logger:   logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
@@ -326,7 +366,10 @@ func run() error {
 			AIKeys: aiKeysService,
 			// Le rotte `/account/deletion` (R45). Vedi accountAPI.routes: stanno
 			// dietro la sessione e, sulla richiesta, dietro la password.
-			Account:        accountService,
+			Account: accountService,
+			// Le rotte `/legal/consents` (R46). Vedi legalAPI.routes: stanno dietro la
+			// sessione, perché accettare un contratto è un atto della persona.
+			Legal:          legalService,
 			GitHubWebhook:  gitHubWebhook,
 			PaddleWebhook:  paddleWebhook,
 			Billing:        billingService,
@@ -549,6 +592,7 @@ func newAuthService(
 	cfg config.Config,
 	logger *slog.Logger,
 	mailer auth.Mailer,
+	documents *legal.Registry,
 ) (*auth.Service, error) {
 	store, err := authpg.New(pool)
 	if err != nil {
@@ -563,12 +607,55 @@ func newAuthService(
 		return nil, err
 	}
 	return auth.NewService(auth.Options{
-		Store:   store,
-		Hasher:  hasher,
-		Keyring: keyring,
-		Mailer:  mailer,
-		Logger:  logger,
+		Store:     store,
+		Hasher:    hasher,
+		Keyring:   keyring,
+		Mailer:    mailer,
+		Logger:    logger,
+		Documents: documents,
 	})
+}
+
+// loadLegalRegistry legge `legal/` e ne ricava il registro dei documenti (R46).
+//
+// # Perché fallire invece di ripiegare
+//
+// Perché il ripiego sarebbe silenzioso e sbagliato in un modo che non si vede.
+// Senza i file, il registro dichiarato in Go non sa quali traduzioni sono
+// approvate e le dà tutte per non mostrabili: ogni consenso verrebbe registrato
+// come inglese. Finché tutte le traduzioni sono in revisione quella risposta è
+// anche giusta — ed è esattamente il motivo per cui il giorno in cui una viene
+// approvata nessuno se ne accorgerebbe. Il sito mostrerebbe l'italiano e la
+// prova continuerebbe a dire `en`.
+//
+// È lo stesso trattamento dei template delle email e delle migrazioni: sono
+// directory della radice del repository che il servizio porta con sé, e la loro
+// assenza è un errore di distribuzione, non una modalità di esercizio.
+func loadLegalRegistry(workdir string, logger *slog.Logger) (*legal.Registry, error) {
+	dir, err := legal.FindDir(workdir)
+	if err != nil {
+		return nil, fmt.Errorf("documenti legali: %w", err)
+	}
+	registry, err := legal.Load(dir)
+	if err != nil {
+		return nil, fmt.Errorf("documenti legali: %w", err)
+	}
+
+	// Quali traduzioni sono in revisione è un fatto che cambia da solo — basta
+	// che qualcuno approvi una riga in `legal/` — e da cui dipende in che lingua
+	// nascono le prove. Dirlo all'avvio è l'unico posto in cui si vede senza
+	// interrogare il database.
+	inRevisione := 0
+	for _, tr := range registry.Translations(time.Now()) {
+		if tr.Status != legal.StatusApproved {
+			inRevisione++
+		}
+	}
+	logger.Info("documenti legali caricati (R46)",
+		slog.String("dir", dir),
+		slog.Int("traduzioni_in_revisione", inRevisione),
+		slog.String("conseguenza", "una traduzione non approvata si mostra in inglese, e il consenso registra l'inglese"))
+	return registry, nil
 }
 
 // notifySinks sono i quattro punti in cui i domini si attaccano alla coda (R21).

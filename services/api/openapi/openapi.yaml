@@ -2,7 +2,11 @@ openapi: 3.1.0
 
 info:
   title: Postqron API
-  version: 1.0.0
+  # 1.1.0: two additive routes for consent to the legal documents (R46), and an
+  # optional `language` on registration. Nothing existing changed shape, so a
+  # minor bump. The versioning and deprecation *policy* is R52, issue #466: when
+  # it lands it decides the rule, and this number follows it.
+  version: 1.1.0
   summary: Manage, sync and monitor cron jobs (R8, R9, R51).
   description: |
     The contract of the Postqron public API. It describes **what the service
@@ -205,6 +209,10 @@ tags:
     description: Plan in force and checkout hand-off (R16).
   - name: account
     description: Account and workspace deletion with a grace period (R45).
+  - name: legal
+    description: |
+      Consent to the legal documents (R46): which version, in which language,
+      when. The texts themselves live on the public site, not here.
   - name: webhooks
     description: |
       Inbound deliveries from GitHub (R11) and Paddle (R16). **These are not
@@ -1764,6 +1772,123 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  # -------------------------------------------------------------------- legal
+
+  /legal/consents:
+    get:
+      tags: [legal]
+      operationId: getLegalConsents
+      summary: Consents given to the legal documents (R46)
+      description: |
+        Answers three questions at once: what the user has accepted, what is
+        missing, and what is about to change.
+
+        **`accepted` keeps superseded versions.** They are not history for its
+        own sake: if a clause is ever disputed, the question is what the user had
+        in front of them when they accepted, and the answer must be
+        reconstructible without interpretation — which version, in which
+        language, on which day.
+
+        **The four documents are not on the same version**, and never will be
+        again: today the Terms are at 1.2.0, the Privacy Policy at 1.1.0, the
+        other two at 1.0.0. A single version number for the set would already be
+        false.
+
+        `upcoming` is the half of Terms §9 that can be shown: a version that has
+        been announced and does not bind yet. Whoever does not want to accept it
+        can close the account before it takes effect (`POST /account/deletion`).
+
+        **Session only**: accepting a contract is an act of the person. An API
+        key able to do it would let a service credential forgotten in a config
+        file bind someone to a document they never read.
+      parameters:
+        - name: language
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/Language" }
+          description: |
+            The language the texts to accept will be shown in. It does **not**
+            affect consents already given, which carry the language they had —
+            that is the whole point of recording it. Absent means English.
+      responses:
+        "200":
+          description: The user's consents.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegalConsents" }
+        "400":
+          description: "`validation_failed` — the `language` parameter is not one of the five."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [legal]
+      operationId: acceptLegalDocuments
+      summary: Accept the documents in force (R46)
+      description: |
+        Records the proof and returns the updated state.
+
+        **The client must declare which version it showed.** Between the page
+        loading and the button being pressed a new version can take effect: if
+        the service recorded "whatever is in force now", the proof would say
+        something false precisely in the case that matters — the one where the
+        text changed. Declaring it turns the mismatch into a `409` and the client
+        shows the right text again.
+
+        **`200`, not `201`.** The resource is the user's consent state, which
+        already exists. Re-accepting a version already accepted is not an error,
+        creates nothing, and **does not move the date of the first acceptance** —
+        that date is the instant the user became bound, and a double form
+        submission must not be able to shift it.
+
+        This route is not where consent is born for a new account: creating an
+        account **is** the acceptance (Terms, opening paragraph), and the proof is
+        written in the same transaction as the account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegalAcceptInput" }
+      responses:
+        "200":
+          description: Consents recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegalConsents" }
+        "400":
+          description: |
+            `validation_failed` — empty list, unknown document, missing version,
+            unsupported language, or the same document twice, with `details`
+            pointing at the field; `invalid_request` — unreadable body or unknown
+            field.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: |
+            `legal_version_not_in_force` — the version accepted is not the one in
+            force. The message carries both numbers, because the difference
+            between "you accepted a superseded version" and "you accepted one
+            that is not in force yet" is the difference between reloading and
+            waiting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   # ----------------------------------------------------------------- webhooks
 
   /webhooks/github:
@@ -2265,6 +2390,7 @@ components:
         - job_managed_by_repository
         - job_name_taken
         - job_not_found
+        - legal_version_not_in_force
         - payload_too_large
         - period_not_available
         - plan_limit_environments
@@ -2536,6 +2662,16 @@ components:
         email: { type: string, format: email }
         password: { type: string, format: password }
         full_name: { type: string }
+        language:
+          allOf:
+            - $ref: "#/components/schemas/Language"
+          description: |
+            The language the user is reading in. It feeds the proof of consent
+            (R46): creating an account **is** acceptance of the Terms, and the
+            proof records which language the texts were in. Absent means English,
+            which is the source language of the content (SPEC §8-bis) and what
+            the user sees anyway until a translation exists. The regional form
+            (`it-IT`) is accepted.
       required: [email, password]
 
     LoginInput:
@@ -3193,6 +3329,155 @@ components:
             subscription. Required **only** when one is alive: the client learns
             that from `GET /account/deletion`, or from the `subscription_active`
             rejection.
+      additionalProperties: false
+
+    # ------------------------------------------------------------------ legal
+
+    LegalDocument:
+      type: string
+      description: |
+        One of the four legal documents. The values are the file names in
+        `legal/` without the extension, and the same string appears in the
+        document's own front matter: one name for the file, the API and the
+        database means there is no lookup table to get wrong.
+      enum:
+        - terms-of-service
+        - acceptable-use-policy
+        - privacy-policy
+        - cookie-policy
+
+    Language:
+      type: string
+      description: |
+        One of the five supported languages (SPEC §8-bis). English is the
+        **source** language: documents are written in it and translated from it,
+        and a text that has not been translated yet is shown in English.
+      enum: [en, it, es, de, fr]
+
+    ConsentSource:
+      type: string
+      description: |
+        When the consent was given. The two are legally different acts:
+        `registration` is the acceptance implied by creating an account — the
+        Terms open with "By creating an account you accept them" — while
+        `reacceptance` is a separate act by someone who already has an account
+        and is shown a changed text.
+      enum: [registration, reacceptance]
+
+    LegalConsent:
+      type: object
+      description: |
+        Proof that the user accepted one version of one document (R46). It is
+        **immutable**: the database refuses to update it. Superseded versions
+        stay in the list — they are the proof of what was binding then.
+      properties:
+        document: { $ref: "#/components/schemas/LegalDocument" }
+        version:
+          type: string
+          description: The version accepted, not "the latest".
+        language:
+          allOf:
+            - $ref: "#/components/schemas/Language"
+          description: |
+            The language of the text that was **shown**, which is not always the
+            language of the interface: consent is given on what the user actually
+            read.
+        document_checksum:
+          type: string
+          description: |
+            SHA-256 of the accepted text, front matter included. R46 does not ask
+            for it: version and language identify the text only as long as you
+            trust the repository, and this makes the proof checkable from outside.
+        source: { $ref: "#/components/schemas/ConsentSource" }
+        accepted_at:
+          type: string
+          format: date-time
+          description: When the user became bound. The only field that does not come from the document.
+      required: [document, version, language, document_checksum, source, accepted_at]
+
+    LegalRequirement:
+      type: object
+      description: |
+        A document in force that the user has not accepted yet. It appears when
+        the account is new, or when a version the user accepted has been
+        superseded by one that has now taken effect.
+      properties:
+        document: { $ref: "#/components/schemas/LegalDocument" }
+        version: { type: string }
+        language:
+          allOf:
+            - $ref: "#/components/schemas/Language"
+          description: The language the text will be shown in, falling back to English when a translation does not exist yet.
+        effective_date: { type: string, format: date-time }
+        accepted_version:
+          type: string
+          description: |
+            The version accepted before, absent if there is none. It is what
+            separates "you have not accepted anything yet" from "it changed",
+            which for the user are two different screens.
+      required: [document, version, language, effective_date]
+
+    LegalChange:
+      type: object
+      description: |
+        A version that has been announced and is **not** in force yet. It is the
+        half of Terms §9 a client can show: the change takes effect on that day,
+        until then the accepted version still binds, and whoever does not accept
+        it may close the account before it does.
+      properties:
+        document: { $ref: "#/components/schemas/LegalDocument" }
+        version: { type: string }
+        effective_date: { type: string, format: date-time }
+        announced_at: { type: string, format: date-time }
+        material:
+          type: boolean
+          description: |
+            Whether the change materially affects the user's rights, which is
+            what Terms §9 ties the 30 days' notice to.
+      required: [document, version, effective_date, announced_at, material]
+
+    LegalConsents:
+      type: object
+      description: "The user's consents: what was accepted, what is missing, what is about to change."
+      properties:
+        accepted:
+          type: array
+          items: { $ref: "#/components/schemas/LegalConsent" }
+        outstanding:
+          type: array
+          items: { $ref: "#/components/schemas/LegalRequirement" }
+        upcoming:
+          type: array
+          items: { $ref: "#/components/schemas/LegalChange" }
+      required: [accepted, outstanding, upcoming]
+
+    LegalAcceptInput:
+      type: object
+      properties:
+        language:
+          allOf:
+            - $ref: "#/components/schemas/Language"
+          description: |
+            The language the user read in. Absent means English. The regional
+            form (`it-IT`) is accepted too, because that is what a browser
+            declares.
+        documents:
+          type: array
+          description: What is being accepted, one entry per document. Must not be empty, and must not repeat a document.
+          items: { $ref: "#/components/schemas/LegalAcceptDocument" }
+      additionalProperties: false
+
+    LegalAcceptDocument:
+      type: object
+      properties:
+        document: { $ref: "#/components/schemas/LegalDocument" }
+        version:
+          type: string
+          description: |
+            The version the client **showed**. Required, and checked against the
+            one in force: between the page loading and the button being pressed a
+            new version can take effect, and recording "the latest" would produce
+            a false proof exactly in the case that matters.
       additionalProperties: false
 
     # ---------------------------------------------------------------- webhooks
