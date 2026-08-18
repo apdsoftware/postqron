@@ -1,8 +1,20 @@
 import type { LocaleCode } from '~/utils/locale'
+import { LEGAL_VERSIONS } from '#legal-versions'
 import { isLocaleCode } from '~/utils/locale'
 
-export const COOKIE_POLICY_VERSION = '1.0.0'
+/**
+ * La versione arriva dal front matter di `legal/en/cookie-policy.md`, letto in
+ * fase di build da `modules/legal-versions.ts`. Non è una costante ricopiata a
+ * mano: le quattro versioni dei documenti sono già diverse fra loro e cambiano
+ * una alla volta, e la cookie policy §2.2 promette una versione nuova quando
+ * arriveranno gli analytics. Un consenso raccolto sulla 1.0.0 non è un consenso
+ * alla versione che elenca gli analytics, e `readCookieConsent` lo scarta.
+ */
+export const COOKIE_POLICY_VERSION = LEGAL_VERSIONS['cookie-policy']
+
 export const COOKIE_CONSENT_NAME = 'postqron_cookie_consent'
+
+/** Sei mesi, dopo i quali la policy §4 dice che la scelta si chiede di nuovo. */
 export const COOKIE_CONSENT_MAX_AGE = 60 * 60 * 24 * 183
 
 export interface CookieConsentRecord {
