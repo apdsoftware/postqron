@@ -1,0 +1,2960 @@
+openapi: 3.1.0
+
+info:
+  title: Postqron API
+  version: 1.0.0
+  summary: Gestione, sincronizzazione e monitoraggio di cronjob (R8, R9, R51).
+  description: |
+    Contratto dell'API pubblica di Postqron. Descrive **ciò che il servizio fa
+    davvero**: percorsi, corpi, codici di errore e limiti sono confrontati con il
+    codice a ogni corsa di `make ci` — vedi «Come questo documento resta vero».
+
+    ## Come questo documento resta vero
+
+    Un contratto scritto a mano diverge dal codice entro un mese, e da quel
+    momento è peggio di non averlo: chi lo legge costruisce un client su una
+    promessa falsa, e il difetto si manifesta a casa sua. Qui la divergenza è
+    impedita da un controllo automatico
+    (`services/api/internal/httpapi/contract_test.go`) che confronta con il
+    codice, e fa fallire la CI quando non combaciano:
+
+    - **le rotte** — l'elenco `(metodo, percorso)` viene dal router vero, non da
+      una seconda copia scritta a mano;
+    - **i permessi** — `x-api-key-scope` è confrontato con lo scope che il codice
+      pretende, e nessuna operazione può dichiarare `apiKey` fra i propri metodi
+      di autenticazione se il codice non la registra dietro uno scope;
+    - **i codici di errore** — l'enumerazione `ErrorCode` è confrontata con i
+      codici che il servizio scrive davvero nelle risposte;
+    - **i campi delle risposte** — i nomi, l'obbligatorietà e la nullabilità di
+      ogni schema sono confrontati con le strutture serializzate. È anche il
+      controllo che difende R43: **un campo aggiunto a una risposta non passa la
+      CI finché non è dichiarato qui**, e dichiararlo è il momento in cui ci si
+      accorge di stare esponendo qualcosa;
+    - **le enumerazioni** — ambienti, stati, metodi, scope, provider e piani
+      vengono dalle stesse costanti che il servizio applica.
+
+    Il documento è inoltre validato contro lo schema OpenAPI 3.1 (`make
+    openapi`), sempre in locale e senza rete: la CI di questo repository è
+    esclusivamente locale (AGENTS.md §2).
+
+    ## Versione del contratto
+
+    `info.version` è la versione **del contratto**, non del servizio: il numero
+    di build dell'API sta in `GET /healthz`. Cambia quando cambia ciò che questo
+    documento promette:
+
+    | | |
+    |---|---|
+    | maggiore | una promessa viene ritirata o ristretta: una rotta o un campo che sparisce, un codice di errore che cambia significato, un vincolo che si stringe |
+    | minore | una promessa viene aggiunta: rotte, campi facoltativi, valori nuovi in un'enumerazione |
+    | patch | cambia la descrizione, non il comportamento |
+
+    **Le rotte non portano un prefisso di versione** (`/jobs`, non `/v1/jobs`):
+    la versione sta qui. Con quale preavviso una funzionalità venga ritirata, e
+    come una versione nuova conviva con la precedente, è la **politica** di
+    versionamento e deprecazione (R52), che appartiene alla issue #466: questo
+    documento dichiara la versione, non la politica.
+
+    ## Autenticazione
+
+    Due credenziali, e la differenza è sostanziale:
+
+    - **sessione** (R14) — cookie `pq_session`, oppure `Authorization: Bearer
+      <token>` per i client che non hanno un cookie jar. Vale per tutto ciò che
+      l'utente può fare: chi ha la password non ha bisogno del permesso di sé
+      stesso.
+    - **chiave API** (R9) — `Authorization: Bearer pq_live_...`, con **scope**.
+      Vale solo dove è dichiarata, e solo per lo scope indicato in
+      `x-api-key-scope`.
+
+    Quando una richiesta porta entrambe, **vince la chiave**: eseguire
+    l'operazione con i poteri pieni della sessione ignorando i limiti della
+    chiave che il chiamante ha dichiarato di voler usare sarebbe un'escalation
+    silenziosa.
+
+    Le rotte che **emettono o sostituiscono credenziali** — `/keys`, `/secrets`,
+    `/ai/keys` — e quelle che **impegnano una spesa** — `/billing` — accettano
+    solo la sessione. Non è una dimenticanza: una chiave di sola lettura che
+    potesse emetterne una di scrittura renderebbe gli scope una formalità
+    aggirabile, e una chiave che potesse sostituire un segreto dirotterebbe le
+    credenziali dell'utente verso un bersaglio scelto da chi ha la chiave.
+
+    ## Errori
+
+    Ogni errore ha la stessa busta e lo stesso campo stabile:
+
+    ```json
+    { "error": { "code": "plan_limit_jobs", "message": "…", "limit": "jobs", "plan": "free" } }
+    ```
+
+    `code` è **stabile e non tradotto**, ed è su quello che si fa branching
+    (R53). `message` è testo per una persona, oggi in italiano, e può cambiare
+    senza preavviso: non va confrontato.
+
+    ### I due `429` non sono lo stesso errore (R10)
+
+    Confonderli produce un prodotto ostile, e questo contratto li tiene distinti
+    fin negli schemi:
+
+    - **quota di piano** — `plan_limit_write_rate`, `plan_limit_manual_trigger`.
+      Schema [PlanLimitError](#/components/schemas/PlanLimitError): nomina il
+      `plan` e il `limit`, perché lì l'aggiornamento è davvero la risposta.
+    - **tetto tecnico** — `rate_limited`, `execution_ceiling`, `stream_ceiling`.
+      Schema [ServiceLimitError](#/components/schemas/ServiceLimitError):
+      **non ha `plan` e non ha `limit`, e lo schema vieta che compaiano**. È una
+      difesa del servizio, uguale su tutti i piani: nessun piano ne concede di
+      più, e suggerire un aggiornamento a chi lo incontra sarebbe una bugia
+      commerciale.
+
+    Un client decide se mostrare un invito all'aggiornamento guardando quei due
+    campi, non il testo del messaggio.
+
+    ### La retention si applica anche in lettura (R10-bis)
+
+    I limiti del listino (3, 15, 30, 90 giorni) valgono sul registro delle
+    esecuzioni. Una richiesta che chiede **esplicitamente** oltre la retention
+    del piano viene rifiutata con `403 plan_limit_retention`, che dice quale
+    piano conserva quanto e da quale istante: non viene ristretta in silenzio.
+    Una richiesta che non chiede nessuna finestra riceve la retention del piano
+    come predefinito, il che non è un rifiuto mascherato — non c'è niente che il
+    chiamante abbia chiesto e non stia ottenendo.
+
+    ## Paginazione (R53)
+
+    Elenchi paginati a **cursore**, con la stessa busta `page` ovunque. Su un job
+    a un secondo il registro cresce di 86.400 righe al giorno, e un `offset`
+    costringerebbe il database a scartarne migliaia per servirne cinquanta.
+
+    `page.next_cursor` a `null` è **l'unica** condizione di fine: non va dedotta
+    dal numero di righe ricevute, perché una pagina piena può benissimo essere
+    l'ultima. Il cursore è opaco: si rimanda com'è arrivato.
+
+    `limit` oltre il massimo non è un errore, è una richiesta ridimensionata: la
+    dimensione servita è sempre in `page.limit`.
+
+    ## Idempotenza delle scritture (R53)
+
+    - `PUT` non esiste: le modifiche sono `PATCH` con semantica «ciò che non
+      mandi non cambia», quindi ripetibili senza effetti diversi. Un `null`
+      esplicito è un valore — cancella il campo — ed è distinto da un campo
+      assente.
+    - `POST /jobs` è idempotente sul **nome**, che è l'identità stabile del job:
+      un secondo tentativo con lo stesso nome riceve `409 job_name_taken`, non
+      un duplicato.
+    - `POST /ai/keys` **sostituisce** la chiave viva del provider invece di
+      rifiutarla: la seconda volta che si incolla la chiave di un fornitore non
+      si sta creando un duplicato, la si sta aggiornando.
+    - `POST /jobs/{id}/executions` è idempotente sull'occorrenza (R4): la
+      quaterna `(job, istante, ambiente, tentativo)` è la chiave, e una
+      registrazione già presente riceve `409 execution_already_exists`.
+    - I webhook in ingresso riconoscono le consegne ripetute e rispondono
+      `duplicate` senza produrre un secondo effetto.
+
+    ## Segreti (R9, R18, R42, R43)
+
+    **Nessuno schema di risposta contiene un segreto**, e non per un filtro
+    applicato al momento di rispondere: sono campi che le strutture non hanno,
+    perché quello che non si serializza non può sfuggire per errore. In
+    particolare:
+
+    - il valore in chiaro di una chiave API compare **una volta sola**, in
+      `ApiKeyCreated.secret`, alla creazione. Non esiste `GET /keys/{id}`, non
+      esiste un parametro per rileggerlo, e dopo quella risposta il valore non è
+      più recuperabile da nessuno, nemmeno da un amministratore;
+    - i segreti del workspace non tornano **mai**, nemmeno alla creazione:
+      l'utente ce li ha già;
+    - le chiavi AI non tornano mai, e nemmeno un frammento;
+    - `Job.request.headers` restituisce ciò che è stato scritto, cioè i
+      **riferimenti** `${VAR}`, non i valori risolti: la risoluzione avviene al
+      momento dell'esecuzione, dentro il motore;
+    - `Execution.response_excerpt` è un estratto troncato della risposta del
+      bersaglio, con i segreti redatti (R43).
+
+  contact:
+    name: APDSoftware
+    url: https://postqron.com
+  license:
+    name: UNLICENSED
+
+servers:
+  - url: http://localhost:8080
+    description: |
+      Sviluppo locale (`POSTQRON_HTTP_ADDR`, README § Sviluppo). L'indirizzo di
+      esercizio non è dichiarato qui perché non è ancora deciso in nessun punto
+      del repository: inventarlo in un contratto sarebbe la prima cosa falsa del
+      documento.
+
+tags:
+  - name: sistema
+    description: Liveness, prontezza e metriche (R7). Non sono rotte del prodotto.
+  - name: autenticazione
+    description: Registrazione, accesso, sessioni e password (R14).
+  - name: job
+    description: Cronjob ed esecuzioni (R8).
+  - name: chiavi API
+    description: Emissione e revoca delle chiavi con scope (R9).
+  - name: segreti
+    description: Segreti del workspace risolti in esecuzione (R42, R43).
+  - name: chiavi AI
+    description: Chiave del provider AI dell'utente, BYOK (R18).
+  - name: fatturazione
+    description: Piano in forza e apertura del checkout (R16).
+  - name: webhook
+    description: |
+      Consegne in ingresso da GitHub (R11) e Paddle (R16). **Non sono rotte per i
+      client**: la credenziale è la firma del corpo, non una nostra identità.
+
+# Il predefinito è la sessione. Le rotte che ammettono anche una chiave API lo
+# dichiarano operazione per operazione, insieme allo scope che serve: è la forma
+# che rende verificabile «quali rotte una chiave può usare», e il controllo di
+# allineamento rifiuta un `apiKey` dichiarato qui e non registrato nel codice.
+security:
+  - sessionCookie: []
+  - sessionBearer: []
+
+paths:
+  # ------------------------------------------------------------------ sistema
+
+  /healthz:
+    get:
+      tags: [sistema]
+      operationId: liveness
+      summary: Il processo è in piedi
+      description: |
+        Dichiara **che questo processo sta servendo richieste**, e nient'altro:
+        non tocca il database e non guarda il motore. Risponde `200` per
+        definizione — se non fosse in grado di rispondere, non risponderebbe.
+
+        Detta così sembra inutile, ed è precisamente ciò che serve a chi riavvia
+        un processo inchiodato: una liveness che può fallire per colpa del
+        database farebbe riavviare il servizio in un ciclo che non risolve
+        niente, perché il problema è altrove. La domanda diversa — «il motore sta
+        facendo il suo mestiere?» — è `GET /readyz`.
+      security: []
+      responses:
+        "200":
+          description: Il processo risponde.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /readyz:
+    get:
+      tags: [sistema]
+      operationId: readiness
+      summary: Il motore sta funzionando adesso (R7)
+      description: |
+        Lo stato HTTP è la risposta vera, il corpo la ripete in forma leggibile:
+        un bilanciatore guarda il codice, una persona il corpo. `503` significa
+        «non mandarmi traffico»; `200` con `status: degraded` significa
+        «funziona, e qualcuno deve intervenire prima che smetta».
+
+        `status` è pubblico. Il **dettaglio** dei controlli no, e non è prudenza
+        esagerata: «restano due giorni di margine di partizioni» racconta a
+        chiunque com'è fatto il servizio e quando è debole. Compare solo per chi
+        presenta il token dell'operatore, che è la stessa credenziale delle
+        metriche.
+
+        La rotta esiste solo se il processo ha un motore da osservare: senza,
+        risponde `404`.
+      security:
+        - {}
+        - operatorToken: []
+      responses:
+        "200":
+          description: Pronto, eventualmente degradato.
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`. Una prontezza servita da una cache è una prontezza che dice sempre di sì.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+        "503":
+          description: "Non pronto: non mandare traffico."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+
+  /metrics:
+    get:
+      tags: [sistema]
+      operationId: metrics
+      summary: Metriche del servizio (R7)
+      description: |
+        Formato di esposizione testuale, versione 0.0.4.
+
+        La rotta **esiste solo se c'è un token con cui proteggerla**
+        (`POSTQRON_METRICS_TOKEN`): senza, risponde `404`. Registrarla aperta
+        «tanto sono solo metriche» significherebbe pubblicare il carico del
+        servizio, il numero di clienti attivi e i tempi di risposta dei loro
+        bersagli.
+      security:
+        - operatorToken: []
+      responses:
+        "200":
+          description: La pagina delle metriche.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401":
+          description: |
+            Token dell'operatore assente o sbagliato — `unauthenticated`. La
+            risposta non distingue i due casi: per chi prova a indovinare sono la
+            stessa cosa.
+          headers:
+            WWW-Authenticate:
+              description: '`Bearer realm="postqron-metrics"`.'
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # ----------------------------------------------------------- autenticazione
+
+  /auth/register:
+    post:
+      tags: [autenticazione]
+      operationId: register
+      summary: Registra un account (R14)
+      description: |
+        Risponde `202` in ogni caso in cui la richiesta era ben formata, che
+        l'indirizzo fosse libero o già preso, e il corpo è **identico** nei due
+        casi: dire «ti abbiamo scritto» senza dire *se* c'era un account è tutto
+        il punto.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterInput" }
+      responses:
+        "202":
+          description: Presa in carico. Non dice se l'account esisteva.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/login:
+    post:
+      tags: [autenticazione]
+      operationId: login
+      summary: Apre una sessione (R14)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginInput" }
+      responses:
+        "200":
+          description: Sessione aperta.
+          headers:
+            Set-Cookie:
+              description: |
+                `pq_session`, `HttpOnly`, `SameSite=Lax`, e `Secure` fuori
+                dallo sviluppo. `HttpOnly` mette il token fuori dalla portata di
+                JavaScript: una XSS sulla dashboard non se lo porta via.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionEnvelope" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          description: |
+            `invalid_credentials`. Un solo codice per «indirizzo sconosciuto» e
+            «password sbagliata»: distinguerli farebbe dell'API un oracolo su chi
+            ha un account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "403":
+          description: "`account_suspended`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/logout:
+    post:
+      tags: [autenticazione]
+      operationId: logout
+      summary: Chiude la sessione corrente
+      description: |
+        Risponde `204` anche se non c'era nessuna sessione: il risultato voluto è
+        già vero, e un errore darebbe a chi ha in mano un token scaduto la
+        conferma che lo era. Il cookie viene comunque cancellato.
+      security: []
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/session:
+    get:
+      tags: [autenticazione]
+      operationId: currentSession
+      summary: L'utente collegato
+      responses:
+        "200":
+          description: Utente e sessione in corso.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/sessions:
+    get:
+      tags: [autenticazione]
+      operationId: listSessions
+      summary: I dispositivi collegati
+      responses:
+        "200":
+          description: Le sessioni vive dell'utente.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionList" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [autenticazione]
+      operationId: revokeOtherSessions
+      summary: Chiude tutte le sessioni tranne quella in uso
+      responses:
+        "200":
+          description: Quante ne sono state chiuse.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevokedSessions" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/sessions/{id}:
+    delete:
+      tags: [autenticazione]
+      operationId: revokeSession
+      summary: Chiude una sessione
+      description: |
+        Chiudere la **propria** sessione equivale a un logout: il cookie viene
+        cancellato, perché lasciarlo lì farebbe scoprire la revoca alla richiesta
+        successiva con un `401` inspiegabile.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`session_not_found` — inesistente, o di un altro utente."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password/forgot:
+    post:
+      tags: [autenticazione]
+      operationId: forgotPassword
+      summary: Avvia il recupero della password
+      description: Risposta identica che l'indirizzo esista o no, come la registrazione.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPasswordInput" }
+      responses:
+        "202":
+          description: Presa in carico.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password/reset:
+    post:
+      tags: [autenticazione]
+      operationId: resetPassword
+      summary: Consuma il token di recupero e imposta la password nuova
+      description: Tutte le sessioni vengono revocate, compresa quella in corso su questo browser.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordInput" }
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          description: |
+            `invalid_token` (link non valido o scaduto), `weak_password`,
+            `invalid_request`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password/change:
+    post:
+      tags: [autenticazione]
+      operationId: changePassword
+      summary: Cambia la password dell'utente collegato
+      description: |
+        La sessione corrente riceve un token nuovo — quello vecchio è revocato
+        con tutti gli altri — e il cookie viene riscritto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordInput" }
+      responses:
+        "200":
+          description: Password cambiata, sessione rinnovata.
+          headers:
+            Set-Cookie:
+              description: "`pq_session` con il token nuovo."
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionEnvelope" }
+        "400":
+          description: "`weak_password`, `invalid_request`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: "`unauthenticated`, oppure `invalid_credentials` se la password attuale non corrisponde."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/email/verify:
+    post:
+      tags: [autenticazione]
+      operationId: verifyEmail
+      summary: Conferma l'indirizzo email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerifyEmailInput" }
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          description: "`invalid_token` — link non valido o scaduto."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/email/verify/resend:
+    post:
+      tags: [autenticazione]
+      operationId: resendEmailVerification
+      summary: Rimanda l'email di conferma
+      responses:
+        "202":
+          description: Presa in carico.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------------------------------------------------------------------- job
+
+  /jobs:
+    get:
+      tags: [job]
+      operationId: listJobs
+      summary: Elenco dei job (R8)
+      x-api-key-scope: "jobs:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: enabled
+          in: query
+          description: Solo i job accesi (`true`) o spenti (`false`). Assente li prende tutti.
+          schema: { type: boolean }
+        - name: environment
+          in: query
+          description: Solo i job che vivono in questo ambiente.
+          schema: { $ref: "#/components/schemas/Environment" }
+        - name: include_archived
+          in: query
+          description: |
+            Include i job archiviati, cioè quelli non più presenti nel
+            `cron.yaml` da cui provenivano (R13). Predefinito `false`.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Una pagina dell'elenco.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobList" }
+        "400":
+          description: |
+            `validation_failed` con `details` per parametro, oppure
+            `invalid_cursor`. Un `limit=abc` non viene ignorato in silenzio: una
+            pagina di dimensione diversa da quella chiesta si scopre solo
+            contando le righe.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientScope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [job]
+      operationId: createJob
+      summary: Crea un job (R1, R8)
+      description: |
+        Il corpo ricalca lo schema di `cron.yaml` (SPEC §9) — `schedule` ed
+        `every`, `request`, `timeout`, `retries`, `alerts` — perché un job creato
+        dall'API e uno sincronizzato da un repository sono la stessa riga della
+        stessa tabella: due vocabolari per la stessa cosa costringerebbero a
+        tradurre mentalmente ogni volta, e la traduzione è il posto in cui
+        nascono i difetti.
+
+        I campi assenti prendono i valori predefiniti, che la risposta contiene
+        già risolti.
+      x-api-key-scope: "jobs:write"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobInput" }
+      responses:
+        "201":
+          description: Job creato.
+          headers:
+            Location:
+              description: "`/jobs/{id}` del job creato."
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: |
+            `insufficient_scope`, oppure un limite di piano di **capienza**
+            (R15): `plan_limit_jobs`, `plan_limit_resolution`,
+            `plan_limit_environments`. `403` e non `429` perché riprovare non
+            cambierebbe niente: va cambiato il piano o la richiesta.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanLimitEnvelope" }
+        "409":
+          description: |
+            `job_name_taken` — il nome è l'identità stabile del job, ed è la
+            chiave su cui la riconciliazione di un `cron.yaml` decide se creare o
+            aggiornare (R13).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/WriteRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [job]
+      operationId: getJob
+      summary: Legge un job
+      x-api-key-scope: "jobs:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      responses:
+        "200":
+          description: Il job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientScope"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [job]
+      operationId: updateJob
+      summary: Modifica parziale di un job
+      description: |
+        **Ciò che non mandi non cambia**, quindi la richiesta è ripetibile. Un
+        `null` esplicito è un valore e non un campo assente: azzera la
+        descrizione o il corpo, e su `schedule` o `every` dismette una modalità
+        di schedulazione.
+
+        Una richiesta senza nessun campo riceve `400 empty_patch`: è quasi sempre
+        un client che ha costruito male il corpo, e accettarla in silenzio
+        significherebbe rispondere `200` a chi crede di aver modificato qualcosa.
+      x-api-key-scope: "jobs:write"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobInput" }
+      responses:
+        "200":
+          description: Il job aggiornato.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: "`validation_failed`, `invalid_request`, `empty_patch`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: |
+            `insufficient_scope`, `plan_limit_resolution`,
+            `plan_limit_environments`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanLimitEnvelope" }
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          description: |
+            `job_name_taken`; `job_managed_by_repository` — il job è definito in
+            un `cron.yaml` e la sincronizzazione riporterebbe indietro qualunque
+            modifica fatta da qui, quindi si può solo metterlo in pausa;
+            `job_archived`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/WriteRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [job]
+      operationId: deleteJob
+      summary: Elimina un job
+      x-api-key-scope: "jobs:write"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientScope"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          description: "`job_managed_by_repository` — va tolto dal `cron.yaml` che lo definisce."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/WriteRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}/executions:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [job]
+      operationId: listExecutions
+      summary: Registro delle esecuzioni (R6)
+      description: |
+        Pagina del registro, dalla più recente. **La retention del piano si
+        applica anche qui** (R10-bis): senza `since`, la finestra predefinita è
+        la retention del piano; con un `since` o un `until` che la precedono, la
+        richiesta è rifiutata con `403 plan_limit_retention` invece di essere
+        ristretta in silenzio.
+      x-api-key-scope: "executions:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          description: |
+            Filtra per esito. Ripetibile (`?status=failed&status=timed_out`) o
+            separato da virgole (`?status=failed,timed_out`): la prima è la forma
+            che i client HTTP generano da soli, la seconda quella che si scrive a
+            mano.
+          explode: true
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/ExecutionStatus" }
+        - name: trigger
+          in: query
+          description: Filtra per origine del tentativo. Ripetibile o separato da virgole.
+          explode: true
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/ExecutionTrigger" }
+        - name: environment
+          in: query
+          schema: { $ref: "#/components/schemas/Environment" }
+        - name: since
+          in: query
+          description: Istante RFC 3339. Soggetto alla retention del piano (R10-bis).
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          description: Istante RFC 3339, successivo a `since`.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Una pagina del registro.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutionList" }
+        "400":
+          description: "`validation_failed` con `details` per parametro, `invalid_cursor`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/RetentionExceeded"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: |
+            `executions_unavailable` — la manutenzione periodica delle partizioni
+            del registro non ha girato. Non è colpa del chiamante e riprovare ha
+            senso: la risposta porta `Retry-After`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      tags: [job]
+      operationId: triggerExecution
+      summary: Esegue adesso (R8)
+      description: |
+        Registra un'esecuzione manuale. Risponde **`202` e non `201`**: la riga è
+        stata creata, ma l'esecuzione non è avvenuta — la farà il motore. Un
+        `201` prometterebbe che il bersaglio è già stato chiamato, e il client
+        che ne leggesse subito l'esito non troverebbe niente.
+
+        Il corpo è facoltativo: serve solo ai job che vivono in più ambienti.
+
+        Lo scope è **`executions:trigger`**, distinto da `jobs:write`: cambiare
+        la definizione di un job e far partire adesso una chiamata verso
+        l'esterno sono due poteri diversi, e una chiave da cruscotto vuole il
+        secondo senza il primo.
+      x-api-key-scope: "executions:trigger"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TriggerInput" }
+      responses:
+        "202":
+          description: Esecuzione registrata. La farà il motore.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Execution" }
+        "400":
+          description: "`validation_failed`, `invalid_request`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: "`insufficient_scope`, `plan_limit_environments`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "409":
+          description: |
+            `job_disabled` — il job è in pausa, va riattivato prima di eseguirlo;
+            `job_archived`; `execution_already_exists` — quell'occorrenza è già
+            registrata (R4).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          description: |
+            **Due errori diversi con lo stesso status** (R10), e la differenza
+            arriva fino al corpo:
+
+            - `plan_limit_manual_trigger` — quota del piano: nomina `plan` e
+              `limit`, perché lì l'aggiornamento è la risposta;
+            - `execution_ceiling` — tetto tecnico alle esecuzioni contemporanee
+              del workspace: **niente `plan`, niente `limit`**, perché nessun
+              piano ne concede di più;
+            - `rate_limited` — tetto tecnico sulle richieste.
+
+            Entrambi portano `Retry-After`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PlanLimitEnvelope"
+                  - $ref: "#/components/schemas/ServiceLimitEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}/executions/stream:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [job]
+      operationId: streamExecutions
+      summary: Registro delle esecuzioni in tempo reale (SPEC §4.2)
+      description: |
+        Flusso `text/event-stream` (SSE) delle esecuzioni di un job. È la stessa
+        lettura del registro consegnata in un altro modo, quindi **lo stesso
+        scope**: chiederne uno diverso costringerebbe a creare una seconda chiave
+        per vedere le stesse righe.
+
+        ### Ciò che OpenAPI non sa dire
+
+        Il formato descrive corpi, non flussi: il `content` qui sotto può solo
+        dichiarare che la risposta è testo. La grammatica del filo è questa, e va
+        letta come parte del contratto:
+
+        ```
+        retry: 3000                  ritardo di riconnessione suggerito, in ms
+        : ping                       battito ogni 20s (commento SSE, nessun evento)
+
+        event: execution             un'esecuzione
+        id: <posizione>              presente solo sugli stati definitivi
+        data: {…}                    lo schema Execution, byte per byte lo stesso
+                                     di GET /jobs/{id}/executions
+
+        event: overflow              il client non leggeva: si riconnetta
+        data: {…}                    lo schema StreamNotice, code=stream_overflow
+
+        event: reopen                fine della vita della connessione (30 min)
+        data: {…}                    lo schema StreamNotice, code=stream_reopen
+        ```
+
+        Gli schemi `Execution` e `StreamNotice` descrivono i **payload `data:`**:
+        è il legame che il formato non permette di dichiarare, e dichiararlo a
+        parole è meglio che tacerlo.
+
+        **`id:` non c'è su tutti gli eventi, ed è deliberato.** Una riga del
+        registro viene aggiornata sul posto, quindi solo uno stato **definitivo**
+        può essere una posizione da cui riprendere; SSE dice che un evento senza
+        `id:` non sposta il `Last-Event-ID` del client, quindi lo stato
+        intermedio si vede e non entra nella storia.
+
+        **Riconnessione:** il browser rimanda da solo `Last-Event-ID`. Il
+        parametro `last_event_id` esiste perché `EventSource` non permette di
+        impostare testate, quindi un client che riprende *dopo un errore
+        applicativo* — invece che dopo una caduta della rete — non avrebbe altro
+        modo di dire da dove ripartire.
+
+        **La connessione ha una vita massima di 30 minuti**, poi si chiude con
+        `event: reopen`. Non è una difesa dalle risorse: il flusso autorizza il
+        job e legge il piano una volta sola, e una connessione che vivesse un
+        giorno continuerebbe a consegnare righe a una sessione scaduta e con la
+        retention del piano di ieri.
+
+        **Gli errori arrivano prima del flusso**, come JSON e con lo status
+        giusto: dopo il primo byte di `text/event-stream` non c'è più modo di
+        cambiare status, ed è per questo che tutto ciò che può fallire viene
+        fatto prima di scrivere qualunque cosa.
+      x-api-key-scope: "executions:read"
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+        - apiKey: []
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          description: Posizione da cui riprendere. La rimanda il browser da sola.
+          schema: { type: string }
+        - name: last_event_id
+          in: query
+          description: |
+            La stessa posizione, per i client `EventSource` che non possono
+            impostare testate. La testata ha la precedenza.
+          schema: { type: string }
+        - name: since
+          in: query
+          description: |
+            Istante RFC 3339 da cui partire. Soggetto alla retention del piano
+            (R10-bis). Assente, si parte da poco prima di adesso — che è ciò che
+            «in tempo reale» significa.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Il flusso è aperto. Vedi la grammatica nella descrizione.
+          headers:
+            Cache-Control:
+              description: "Sempre `no-store`: un flusso non ha una versione da rivalidare."
+              schema: { type: string }
+            X-Accel-Buffering:
+              description: |
+                Sempre `no`. Serve ai reverse proxy che accumulano la risposta
+                prima di inoltrarla: senza, gli eventi arriverebbero a blocchi e
+                «in tempo reale» sarebbe una bugia.
+              schema: { type: string }
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Flusso di eventi SSE. I payload `data:` sono descritti da
+                  `Execution` e `StreamNotice`; OpenAPI non ha modo di legarli a
+                  questo media type.
+        "400":
+          description: "`invalid_cursor` — `Last-Event-ID` illeggibile; `validation_failed` — `since` non è un istante RFC 3339."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/RetentionExceeded"
+        "404":
+          $ref: "#/components/responses/JobNotFound"
+        "429":
+          description: |
+            `stream_ceiling` — **tetto tecnico** alle connessioni di streaming
+            aperte contemporaneamente. Come ogni tetto tecnico non ha `plan` e
+            non ha `limit`: nessun piano ne concede di più, e nessun
+            aggiornamento lo alza. Oppure `rate_limited`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceLimitEnvelope" }
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: |
+            `stream_unavailable` — lo streaming non è disponibile su questa
+            istanza. Il registro resta leggibile da `GET /jobs/{id}/executions`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # -------------------------------------------------------------- chiavi API
+
+  /keys:
+    get:
+      tags: [chiavi API]
+      operationId: listApiKeys
+      summary: Elenco delle chiavi API (R9)
+      description: |
+        **Solo con la sessione.** Una chiave API non può elencare, creare né
+        revocare chiavi: se potesse, una chiave di sola lettura sarebbe a una
+        richiesta di distanza dall'emetterne una di scrittura, e l'intero sistema
+        di scope diventerebbe una formalità aggirabile. La conseguenza pratica —
+        l'automazione non può ruotarsi le chiavi da sola — è voluta: la rotazione
+        è un'operazione che una persona decide.
+      parameters:
+        - name: include_revoked
+          in: query
+          description: |
+            Include le chiavi revocate, che restano in tabella come traccia
+            storica: chi indaga su un incidente vuole vederle.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Le chiavi dell'utente. **Nessuna porta il proprio valore.**
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyList" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [chiavi API]
+      operationId: createApiKey
+      summary: Emette una chiave API (R9)
+      description: |
+        **È l'unica risposta dell'intera API che contiene un segreto**, e l'unica
+        volta in cui quel valore esiste: dopo, non è più recuperabile da nessuna
+        parte, per nessuno, nemmeno da un amministratore. Non esiste `GET
+        /keys/{id}` e non esiste un modo di rileggerlo — se si perde, si revoca e
+        se ne crea un'altra.
+
+        La risposta porta `Cache-Control: no-store`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApiKeyInput" }
+      responses:
+        "201":
+          description: Chiave creata. `secret` è visibile **solo qui e solo adesso**.
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`, perché il corpo contiene un segreto.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyCreated" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: "`too_many_api_keys` — revocane una prima di crearne un'altra."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/scopes:
+    get:
+      tags: [chiavi API]
+      operationId: listApiKeyScopes
+      summary: Gli scope assegnabili a una chiave
+      description: |
+        Serve al form che crea una chiave: duplicare l'elenco nel frontend
+        significherebbe due elenchi che divergono al primo scope aggiunto.
+      responses:
+        "200":
+          description: Gli scope assegnabili.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyScopes" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /keys/{id}:
+    delete:
+      tags: [chiavi API]
+      operationId: revokeApiKey
+      summary: Revoca una chiave API
+      description: "L'effetto è immediato: la chiave non funziona già al tentativo successivo, senza attese di scadenza o di cache."
+      parameters:
+        - $ref: "#/components/parameters/ApiKeyId"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`api_key_not_found` — inesistente, di un altro utente, o già revocata."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ----------------------------------------------------------------- segreti
+
+  /secrets:
+    get:
+      tags: [segreti]
+      operationId: listSecrets
+      summary: Elenco dei segreti del workspace (R42)
+      description: |
+        **Nessuna rotta di questa API restituisce il valore di un segreto**, e
+        non è una rotta dimenticata: non c'è `GET /secrets/{id}`, non c'è un
+        parametro `reveal`, non c'è una variante amministrativa. Non c'è nemmeno
+        un'anteprima tipo `last_four`: quella ha senso per la chiave di un
+        fornitore noto, che si riconosce dalla coda, non per un valore arbitrario
+        che potrebbe *essere* quattro caratteri significativi.
+
+        **Solo con la sessione.** Una chiave API che potesse sostituire il valore
+        di un segreto dirotterebbe le credenziali con cui i job dell'utente si
+        autenticano verso i suoi servizi, e nessun log dell'utente mostrerebbe un
+        valore cambiato.
+      parameters:
+        - name: include_revoked
+          in: query
+          description: Include i segreti revocati, che restano come traccia per chi indaga su un'esecuzione fallita.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: I segreti del workspace, **senza i loro valori**.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretList" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [segreti]
+      operationId: createSecret
+      summary: Registra un segreto (R42)
+      description: |
+        Il valore **non torna nemmeno alla creazione**: a differenza di una
+        chiave API, che generiamo noi, questo ce l'ha già l'utente — l'ha appena
+        incollato.
+
+        La risposta porta `Cache-Control: no-store` benché non contenga il
+        valore: la *richiesta* sì, e un intermediario che memorizzasse lo scambio
+        ne conserverebbe una copia.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretInput" }
+      responses:
+        "201":
+          description: Segreto registrato. **La risposta non contiene il valore.**
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`, per via del corpo della richiesta.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        "400":
+          description: |
+            `validation_failed` o `invalid_request`. Il messaggio **non** cita il
+            testo che non è stato possibile leggere: su una richiesta che porta
+            un segreto, quel testo può essere il segreto.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: |
+            `secret_name_taken` — esiste già un segreto vivo con quel nome:
+            aggiornane il valore invece di crearne un altro. `too_many_secrets`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /secrets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SecretId"
+    patch:
+      tags: [segreti]
+      operationId: updateSecret
+      summary: Sostituisce il valore di un segreto
+      description: |
+        **Non esiste un modo di cambiare il nome**: rinominare romperebbe in
+        silenzio ogni `cron.yaml` che lo riferisce, e la rottura si vedrebbe alla
+        prima esecuzione invece che al sync — il contrario esatto di ciò che R43
+        chiede.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretUpdateInput" }
+      responses:
+        "200":
+          description: Segreto aggiornato. **La risposta non contiene il valore.**
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        "400":
+          description: "`validation_failed`, `invalid_request`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/SecretNotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [segreti]
+      operationId: revokeSecret
+      summary: Revoca un segreto
+      description: |
+        L'effetto è immediato e definitivo: la revoca cancella il testo cifrato,
+        quindi il valore smette di esistere. I job che lo riferiscono cominciano
+        a fallire, **e devono**: il registro delle esecuzioni dirà quale nome
+        manca.
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/SecretNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # --------------------------------------------------------------- chiavi AI
+
+  /ai/keys:
+    get:
+      tags: [chiavi AI]
+      operationId: listAiKeys
+      summary: Elenco delle chiavi AI (R18, BYOK)
+      description: |
+        **Nessuna rotta restituisce una chiave AI, né un suo frammento.** L'unico
+        punto del prodotto in cui una chiave torna in chiaro è la lettura interna
+        con cui il backend parla al fornitore, e da qui non è raggiungibile.
+
+        `providers` elenca i fornitori ammessi: senza, la dashboard dovrebbe
+        tenerne una copia, e le due liste divergerebbero il giorno in cui
+        l'elenco cambia.
+
+        **Solo con la sessione**, come i segreti: una chiave API di Postqron che
+        potesse sostituire la chiave AI dell'utente dirotterebbe verso un
+        bersaglio scelto da chi ha la chiave le richieste che facciamo per suo
+        conto, e gliele farebbe pagare sul conto del fornitore.
+      parameters:
+        - name: include_revoked
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Le chiavi AI, **senza il loro valore**, e i provider ammessi.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiKeyList" }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [chiavi AI]
+      operationId: saveAiKey
+      summary: Inserisce o sostituisce la chiave di un provider
+      description: |
+        **Sostituisce** la chiave viva del provider invece di rifiutarla: una
+        chiave per provider è ciò che il database ammette, e la seconda volta che
+        un utente incolla la sua chiave non sta creando un duplicato, la sta
+        aggiornando. Rispondere `409` lo costringerebbe a revocare prima di
+        incollare, cioè a passare da uno stato in cui il debugging AI non
+        funziona per fare una cosa che voleva solo aggiornarlo. Non c'è quindi un
+        `PATCH`: non ci sarebbe niente che possa fare e che questa non faccia già.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiKeyInput" }
+      responses:
+        "201":
+          description: Chiave registrata. **La risposta non contiene la chiave.**
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`, per via del corpo della richiesta.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiKey" }
+        "400":
+          description: |
+            `validation_failed` o `invalid_request`. Come per i segreti, il
+            messaggio non cita il testo illeggibile: potrebbe essere la chiave.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /ai/keys/{id}:
+    delete:
+      tags: [chiavi AI]
+      operationId: revokeAiKey
+      summary: Revoca una chiave AI
+      description: |
+        L'effetto è immediato e definitivo: la revoca cancella il materiale
+        cifrato. Il provider torna libero e l'utente può incollarne subito
+        un'altra.
+      parameters:
+        - $ref: "#/components/parameters/AiKeyId"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`ai_key_not_found` — inesistente, di un altro utente, o già revocata."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ------------------------------------------------------------ fatturazione
+
+  /billing/subscription:
+    get:
+      tags: [fatturazione]
+      operationId: getSubscription
+      summary: Il piano in forza (R16)
+      description: |
+        **Non restituisce importi.** Paddle è Merchant of Record: i prezzi sono
+        in euro, al netto delle imposte, e la loro fonte di verità è il catalogo
+        Paddle (R61, R61-bis). Una cifra restituita da qui sarebbe una seconda
+        copia libera di divergere da quella che il cliente paga davvero — e la
+        nostra sarebbe quella sbagliata, perché l'imposta la calcola Paddle sul
+        paese del cliente, che noi non conosciamo.
+
+        I job **sospesi da un cambio di piano** sono contati qui, e per motivo
+        separato (R58): a chi ne ha per il tetto si chiede di sceglierne alcuni
+        da riaccendere, a chi ne ha per la risoluzione si chiede di cambiare la
+        schedulazione. Sono due rimedi diversi, e un totale unico costringerebbe
+        il client a dire una delle due cose a tutti.
+      responses:
+        "200":
+          description: Il piano in forza e i job fermi.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /billing/checkout:
+    post:
+      tags: [fatturazione]
+      operationId: createCheckout
+      summary: Apre un checkout (R16, R63)
+      description: |
+        Restituisce ciò che serve a Paddle.js per aprire il checkout nel browser:
+        un riferimento di catalogo e un token pubblico. **Non chiama Paddle**,
+        quindi non può fallire perché un servizio esterno è lento, e **non
+        restituisce importi**.
+
+        `business_use` è la conferma di R63 e va mandata esplicitamente a `true`:
+        i piani a pagamento sono offerti a professionisti e organizzazioni, ed è
+        questo il presupposto che rende legittima l'esposizione dei prezzi al
+        netto. La partita IVA è facoltativa: diversi regimi minimi europei ne
+        sono privi, e pretenderla escluderebbe acquirenti legittimi.
+
+        **Solo con la sessione**: una dichiarazione resa da una chiave API non è
+        una dichiarazione dell'utente — è una dichiarazione di chi ha la chiave,
+        che può essere un'integrazione scritta mesi prima da qualcun altro.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckoutInput" }
+      responses:
+        "200":
+          description: I riferimenti con cui aprire il checkout.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Checkout" }
+        "400":
+          description: |
+            `validation_failed` — corpo illeggibile, campo sconosciuto, o partita
+            IVA non valida.
+
+            Nota di coerenza: su questa rotta un corpo illeggibile riceve
+            `validation_failed` **senza** `details`, mentre ovunque altrove
+            riceve `invalid_request` e un corpo oltre il limite riceve `413
+            body_too_large`. È una divergenza del codice, descritta qui com'è e
+            segnalata nella PR della issue #465: questo documento dice ciò che il
+            servizio fa, non ciò che dovrebbe fare.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: |
+            `business_use_required` — manca la conferma di uso professionale;
+            `plan_not_purchasable` — il piano Free è l'ingresso e non si compra;
+            `period_not_available` — la fatturazione annuale esiste solo sul
+            piano Pro (R62), e non è una lacuna da aggirare riprovando.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: "`billing_unavailable` — nessun catalogo Paddle su questa istanza."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # ----------------------------------------------------------------- webhook
+
+  /webhooks/github:
+    post:
+      tags: [webhook]
+      operationId: githubWebhook
+      summary: Consegna di un evento GitHub (R11)
+      description: |
+        **Non è una rotta per i client.** La chiama GitHub, che non ha né
+        sessione né chiave API: a dimostrare la provenienza è la firma HMAC del
+        corpo, verificata **prima di qualunque altra cosa** — nessuna decodifica,
+        nessuna scrittura, nessun log del contenuto prima di quel controllo.
+
+        La distinzione fra `200` e `202` non è cosmetica: `202` significa che
+        l'evento è stato passato al consumatore, `200` che non c'era niente da
+        fare. Sono le due cose che si vogliono distinguere guardando il registro
+        delle consegne dell'App dopo aver ripetuto una consegna a mano.
+
+        La rotta esiste solo se il segreto della GitHub App è configurato: senza,
+        risponde `404`. Un webhook senza segreto non è un webhook meno sicuro, è
+        un endpoint pubblico che accetta qualunque cosa.
+      security: []
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: true
+          description: HMAC SHA-256 del corpo, con il segreto della GitHub App.
+          schema: { type: string }
+        - name: X-GitHub-Event
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-GitHub-Delivery
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        description: Il payload di GitHub, verificato **sui byte esatti** che sono arrivati.
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: |
+            Verificata, nessun effetto: `duplicate` (consegna già ricevuta),
+            `ignored` (evento non `push`), `pong` (il `ping` con cui GitHub prova
+            il webhook).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GithubDelivery" }
+        "202":
+          description: "`accepted` — push verificata e presa in carico."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GithubDelivery" }
+        "400":
+          description: "`invalid_request` — firmata ma malformata."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: |
+            `invalid_signature` — firma assente, sbagliata, o corpo alterato. Un
+            solo codice per i tre casi: la risposta non deve dire a chi prova
+            quale dei tre ha prodotto.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          description: "`payload_too_large` — il rifiuto precede la verifica della firma, e non produce nessun effetto."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "500":
+          description: "`internal_error` — lavorazione fallita. Il `500` è deliberato: è la risposta che fa ripetere GitHub."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /webhooks/paddle:
+    post:
+      tags: [webhook]
+      operationId: paddleWebhook
+      summary: Consegna di un evento Paddle (R16)
+      description: |
+        **Non è una rotta per i client.** Vale tutto ciò che vale per il webhook
+        GitHub, con la posta in gioco più alta: un evento accettato a torto qui
+        **regala un piano a pagamento**. Per questo il segreto è obbligatorio e
+        senza di esso la rotta non viene registrata affatto.
+
+        `duplicate` e `stale` sono due esiti distinti, e la distinzione non è
+        cosmetica: il primo dice che la stessa consegna è arrivata due volte, il
+        secondo che una consegna **diversa e più vecchia** è arrivata dopo una
+        più recente. Sono i due modi in cui un webhook di fatturazione si rompe.
+      security: []
+      parameters:
+        - name: Paddle-Signature
+          in: header
+          required: true
+          description: Firma del corpo con marca temporale.
+          schema: { type: string }
+      requestBody:
+        required: true
+        description: Il payload di Paddle, verificato **sui byte esatti** che sono arrivati.
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: "Verificato, nessun effetto: `duplicate`, `stale`, `ignored`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaddleDelivery" }
+        "202":
+          description: "`applied` — sottoscrizione verificata e applicata agli entitlement."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaddleDelivery" }
+        "400":
+          description: "`invalid_request` — firmato ma malformato."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: "`invalid_signature` — firma assente, sbagliata, corpo alterato o fuori tempo."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          description: "`payload_too_large`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "500":
+          description: |
+            `internal_error` — lavorazione fallita. Il `500` è deliberato: fa
+            ripetere Paddle, e un utente che ha pagato e non ha ricevuto il piano
+            deve ottenere una seconda occasione, non un silenzio.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: pq_session
+      description: |
+        Sessione di browser (R14). `HttpOnly`: il token è fuori dalla portata di
+        JavaScript, quindi una XSS sulla dashboard non se lo porta via.
+
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: |
+        Lo stesso token di sessione, per i client che non hanno un cookie jar.
+        Quando arrivano entrambi, il cookie ha la precedenza — ed è la sessione
+        che l'utente si aspetta di usare.
+
+    apiKey:
+      type: http
+      scheme: bearer
+      description: |
+        Chiave API con scope (R9): `Authorization: Bearer pq_live_...`. Il
+        prefisso è ciò che la distingue da un token di sessione senza doverli
+        provare entrambi.
+
+        Lo scope richiesto da ciascuna operazione è dichiarato in
+        `x-api-key-scope`, ed è confrontato con il codice a ogni corsa della CI.
+        I permessi di scrittura **non** implicano quelli di lettura: chi guarda
+        gli scope di una chiave vedrebbe `jobs:write` e dovrebbe sapere a memoria
+        che comprende anche la lettura.
+
+        Le operazioni che non dichiarano questo schema **non accettano una
+        chiave**, mai: sono quelle che emettono credenziali o impegnano una
+        spesa.
+
+    operatorToken:
+      type: http
+      scheme: bearer
+      description: |
+        Token dell'operatore (`POSTQRON_METRICS_TOKEN`), per le metriche e per il
+        dettaglio della prontezza. **Non è una credenziale di un utente**: quelle
+        sono informazioni sul servizio, e legarle a una chiave API significherebbe
+        che per guardare il motore serve l'account di qualche cliente, e che
+        revocare quella chiave spegne il monitoraggio.
+
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Identificativo del job.
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ApiKeyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SecretId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AiKeyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      description: |
+        Righe per pagina. Predefinito 50, massimo 200. Un valore più alto **non è
+        un errore**: la richiesta viene ridimensionata, e la dimensione servita è
+        in `page.limit`.
+      schema: { type: integer, minimum: 1, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        Cursore della pagina successiva, preso da `page.next_cursor`. È opaco per
+        contratto: si rimanda com'è arrivato.
+      schema: { type: string }
+
+  headers:
+    RetryAfter:
+      description: |
+        Secondi interi dopo i quali ha senso riprovare. Mai zero: «riprova fra 0
+        secondi» è un invito a sbattere di nuovo contro lo stesso limite. Il
+        campo `retry_after` del corpo ripete lo stesso valore in forma leggibile
+        dal codice.
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    NoContent:
+      description: Fatto. Nessun corpo.
+
+    Unauthenticated:
+      description: |
+        `unauthenticated` — sessione assente o scaduta; oppure `invalid_api_key`
+        — chiave assente, revocata o scaduta (R9). Sono due codici distinti
+        perché il rimedio è diverso: chi riceve il secondo non deve rifare il
+        login, deve controllare la chiave. Il messaggio non distingue
+        «inesistente» da «revocata» da «scaduta»: quella differenza trasformerebbe
+        l'API in un oracolo su una chiave trovata in giro.
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer error="invalid_token"` quando la credenziale era una chiave API.'
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    InsufficientScope:
+      description: |
+        `insufficient_scope` — la credenziale è valida ma non porta il permesso
+        richiesto. `403` e non `401`: riprovarla non cambierà niente, serve una
+        chiave diversa. Il campo `scope` e la testata `WWW-Authenticate` dicono
+        **quale** permesso mancava, invece di lasciarlo indovinare.
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer error="insufficient_scope", scope="..."` (RFC 6750 §3.1).'
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    ValidationFailed:
+      description: |
+        `validation_failed` con `details` per campo, oppure `invalid_request` se
+        il corpo è illeggibile o contiene un campo sconosciuto. Un `passwrod`
+        scritto male sarebbe altrimenti una password vuota, e il client non
+        avrebbe modo di accorgersene.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    InvalidRequest:
+      description: "`invalid_request` — corpo illeggibile, campo sconosciuto, o `Content-Type` diverso da `application/json`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    BodyTooLarge:
+      description: "`body_too_large` — il corpo supera il tetto della rotta (8 KiB, 64 KiB sulle rotte dei job)."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    JobNotFound:
+      description: |
+        `job_not_found`. «Non esiste» e «non è tuo» rispondono allo stesso modo:
+        distinguerli direbbe a chiunque se un identificativo altrui è vivo.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    SecretNotFound:
+      description: "`secret_not_found` — inesistente, di un altro workspace, o revocato."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+    RetentionExceeded:
+      description: |
+        `plan_limit_retention` — la finestra chiesta precede la retention del
+        piano (R10-bis, SPEC §8: 3, 15, 30, 90 giorni). Il rifiuto **dice
+        perché**: nomina il piano, la durata conservata e l'istante prima del
+        quale non ci sono più righe. Non viene ristretta in silenzio, perché un
+        utente che non vede le proprie righe senza sapere il motivo apre un
+        ticket.
+
+        Può anche essere `insufficient_scope`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/PlanLimitEnvelope" }
+
+    RateLimited:
+      description: |
+        `rate_limited` — **tetto tecnico** sulle richieste (R10). È una difesa del
+        servizio, uguale su tutti i piani: il corpo **non ha `plan` e non ha
+        `limit`**, perché nessun piano ne concede di più e suggerire un
+        aggiornamento sarebbe una bugia commerciale.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ServiceLimitEnvelope" }
+
+    WriteRateLimited:
+      description: |
+        Due errori diversi con lo stesso status, e la differenza è tutto il punto
+        di R10:
+
+        - `plan_limit_write_rate` — **quota del piano** sulle scritture: nomina
+          `plan` e `limit`, perché lì l'aggiornamento è davvero la risposta;
+        - `rate_limited` — **tetto tecnico**: nessun piano ne concede di più.
+
+        Le letture non consumano la quota di piano: farlo renderebbe la dashboard
+        inutilizzabile sul piano Free, cioè punirebbe l'uso normale per
+        difendersi dall'abuso.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/PlanLimitEnvelope"
+              - $ref: "#/components/schemas/ServiceLimitEnvelope"
+
+    InternalError:
+      description: |
+        `internal_error`. Il messaggio è generico per costruzione: il dettaglio
+        potrebbe contenere informazioni sul database, e sta nel log del servizio.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  schemas:
+    # ------------------------------------------------------------- enumerazioni
+    #
+    # Ogni enumerazione di questa sezione è confrontata con le costanti del
+    # codice a ogni corsa della CI: un valore aggiunto al dominio e non qui fa
+    # fallire il controllo di allineamento.
+
+    Environment:
+      type: string
+      enum: [staging, production]
+      description: Ambiente di un job (R23). Il piano Free ne ha uno solo.
+
+    HttpMethod:
+      type: string
+      enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      description: |
+        Metodo della chiamata che il job esegue. Postqron esegue **solo chiamate
+        HTTP** verso endpoint dell'utente: nessun comando shell, nessun container
+        (SPEC §10).
+
+    RetryBackoff:
+      type: string
+      enum: [exponential, linear, fixed]
+
+    OverlapPolicy:
+      type: string
+      enum: [skip, queue, allow]
+      description: |
+        Cosa fare quando un'occorrenza scatta mentre la precedente è ancora in
+        corso (R41). Con la risoluzione al secondo non è un caso raro, è la
+        norma.
+
+        Il predefinito è `skip`, ed è l'unico dei tre che non fa danni a un job
+        di cui non si sa niente: `allow` chiama due volte insieme un bersaglio
+        che potrebbe emettere una fattura per chiamata, `queue` accumula un
+        arretrato illimitato quando il job è stabilmente più lento del proprio
+        intervallo.
+
+    AlertChannel:
+      type: string
+      enum: [email, slack, discord, webhook]
+
+    ExecutionStatus:
+      type: string
+      enum: [pending, running, succeeded, failed, timed_out, skipped]
+
+    ExecutionTrigger:
+      type: string
+      enum: [schedule, manual, retry]
+
+    SuspensionReason:
+      type: string
+      enum: [plan_job_limit, plan_resolution]
+      description: |
+        Perché un cambio di piano ha spento il job (R58), cioè cosa serve per
+        riaccenderlo:
+
+        - `plan_job_limit` — i job attivi superavano il tetto del piano. Se ne
+          riaccendono quanti il piano ne consente, e la scelta è dell'utente:
+          due job identici per schedulazione e destinazione possono valere uno la
+          fatturazione mensile e l'altro un promemoria, e nessun criterio
+          automatico può saperlo;
+        - `plan_resolution` — la schedulazione è più fitta di quanto il piano
+          consenta. Va cambiata: non è una questione di posto, e riaccenderne un
+          altro non ne libera.
+
+    ApiKeyScope:
+      type: string
+      enum: ["jobs:read", "jobs:write", "executions:read", "executions:trigger"]
+
+    AiProvider:
+      type: string
+      enum: [anthropic, openai, google]
+
+    PlanCode:
+      type: string
+      enum: [free, pro, team, agency]
+
+    BillingPeriod:
+      type: string
+      enum: [monthly, yearly]
+      description: L'annuale esiste solo sul piano Pro (R62).
+
+    SubscriptionStatus:
+      type: string
+      enum: [active, trialing, past_due, paused, canceled]
+      description: |
+        Lo stato secondo Paddle, che è la fonte di verità del piano (R16).
+        `trialing` compare perché è un valore che Paddle può mandare, non perché
+        esista una prova gratuita: il listino non ne prevede (R59).
+
+    ErrorCode:
+      type: string
+      description: |
+        Ogni codice che le risposte di errore possono portare. È **stabile e non
+        tradotto**, ed è su questo che il client fa branching (R53): `message` è
+        testo per una persona e può cambiare.
+
+        L'enumerazione è confrontata a ogni corsa della CI con i codici che il
+        servizio scrive davvero: un codice nuovo nel codice e non qui fa fallire
+        il controllo, e viceversa.
+      enum:
+        - account_suspended
+        - ai_key_not_found
+        - api_key_not_found
+        - billing_unavailable
+        - body_too_large
+        - business_use_required
+        - empty_patch
+        - execution_already_exists
+        - execution_ceiling
+        - executions_unavailable
+        - insufficient_scope
+        - internal_error
+        - invalid_api_key
+        - invalid_credentials
+        - invalid_cursor
+        - invalid_email
+        - invalid_request
+        - invalid_signature
+        - invalid_token
+        - job_archived
+        - job_disabled
+        - job_managed_by_repository
+        - job_name_taken
+        - job_not_found
+        - payload_too_large
+        - period_not_available
+        - plan_limit_environments
+        - plan_limit_jobs
+        - plan_limit_manual_trigger
+        - plan_limit_resolution
+        - plan_limit_retention
+        - plan_limit_write_rate
+        - plan_not_purchasable
+        - rate_limited
+        - secret_name_taken
+        - secret_not_found
+        - session_not_found
+        - stream_ceiling
+        - stream_unavailable
+        - too_many_api_keys
+        - too_many_secrets
+        - unauthenticated
+        - validation_failed
+        - weak_password
+
+    StreamNoticeCode:
+      type: string
+      enum: [stream_overflow, stream_reopen]
+      description: |
+        I due avvisi che possono chiudere un flusso SSE. Non sono errori HTTP: il
+        flusso è già aperto, e lo status non si può più cambiare.
+
+    # ---------------------------------------------------------------- errori
+
+    ErrorEnvelope:
+      type: object
+      description: La busta di ogni risposta di errore.
+      properties:
+        error: { $ref: "#/components/schemas/Error" }
+      required: [error]
+
+    Error:
+      type: object
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message:
+          type: string
+          description: "Testo per una persona, oggi in italiano. **Non va confrontato**: può cambiare senza preavviso."
+        details:
+          type: array
+          description: |
+            I motivi di rifiuto ancorati ai campi che li causano, così che un
+            form possa evidenziarli senza interpretare il messaggio.
+          items: { $ref: "#/components/schemas/FieldError" }
+        limit:
+          type: string
+          description: Quale limite di **piano** è scattato. Assente sui tetti tecnici.
+        plan:
+          $ref: "#/components/schemas/PlanCode"
+          description: Su quale piano. Assente sui tetti tecnici.
+        retry_after:
+          type: integer
+          minimum: 1
+          description: Ripete la testata `Retry-After` in forma leggibile dal codice.
+        scope:
+          $ref: "#/components/schemas/ApiKeyScope"
+          description: Il permesso che mancava alla chiave (R9).
+      required: [code, message]
+
+    FieldError:
+      type: object
+      description: |
+        Un motivo di rifiuto ancorato al campo che lo causa. `field` usa la
+        notazione a punti del corpo mandato (`request.url`, `alerts.on_failure`):
+        è il percorso dentro il JSON, non un nome di colonna.
+      properties:
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+      required: [field, code, message]
+
+    PlanLimitEnvelope:
+      type: object
+      description: Un rifiuto dovuto a una **quota di piano** (R10, R15).
+      properties:
+        error: { $ref: "#/components/schemas/PlanLimitError" }
+      required: [error]
+
+    PlanLimitError:
+      type: object
+      description: |
+        Il rifiuto **nomina il piano**, perché lì l'aggiornamento è davvero la
+        risposta. È la metà commerciale di R10: l'altra è
+        [ServiceLimitError](#/components/schemas/ServiceLimitError), e la
+        differenza fra le due è ciò su cui un client decide se mostrare un invito
+        ad aggiornare.
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string }
+        limit:
+          type: string
+          enum: [jobs, resolution, environments, manual_trigger, write_rate, retention]
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        retry_after:
+          type: integer
+          minimum: 1
+          description: Solo sui limiti di **frequenza** (`429`). Sui limiti di capienza (`403`) riprovare non cambierebbe niente.
+        details:
+          type: array
+          items: { $ref: "#/components/schemas/FieldError" }
+      required: [code, message, limit, plan]
+
+    ServiceLimitEnvelope:
+      type: object
+      description: Un rifiuto dovuto a un **tetto tecnico del servizio** (R10).
+      properties:
+        error: { $ref: "#/components/schemas/ServiceLimitError" }
+      required: [error]
+
+    ServiceLimitError:
+      type: object
+      description: |
+        Il rifiuto **non nomina nessun piano e non ne promette nessuno**: il
+        tetto è uguale su tutti, nessuno ne concede di più, e riprovare fra
+        `retry_after` secondi è l'unica cosa utile da fare.
+
+        Il vincolo `not` qui sotto non è decorativo: dice, in forma verificabile
+        da una macchina, che `plan` e `limit` **non compaiono** in questa
+        risposta. Un client che li usa per decidere se proporre un aggiornamento
+        non li troverà mai su un tetto tecnico — che è esattamente ciò che R10
+        pretende.
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string }
+        retry_after: { type: integer, minimum: 1 }
+      required: [code, message, retry_after]
+      not:
+        anyOf:
+          - required: [plan]
+          - required: [limit]
+
+    StreamNotice:
+      type: object
+      description: Il payload `data:` degli eventi `overflow` e `reopen` di un flusso SSE.
+      properties:
+        code: { $ref: "#/components/schemas/StreamNoticeCode" }
+        message: { type: string }
+      required: [code, message]
+
+    # ---------------------------------------------------------------- sistema
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, examples: [ok] }
+        env: { type: string, examples: [production] }
+        version:
+          type: string
+          description: La versione **del servizio**. La versione del contratto è `info.version`.
+      required: [status, env, version]
+
+    Readiness:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        ready: { type: boolean }
+        checks:
+          type: array
+          description: Solo per chi presenta il token dell'operatore.
+          items: { $ref: "#/components/schemas/ReadinessCheck" }
+        partition_horizon_days:
+          type: integer
+          description: Solo per chi presenta il token dell'operatore.
+        scheduler_age_seconds:
+          type: number
+          description: Solo per chi presenta il token dell'operatore.
+      required: [status, ready]
+
+    ReadinessCheck:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        detail: { type: string }
+      required: [name, status, detail]
+
+    Accepted:
+      type: object
+      description: |
+        Presa in carico deliberatamente vaga: dire «ti abbiamo scritto» senza
+        dire *se* c'era un account è tutto il punto.
+      properties:
+        status: { type: string, examples: [accepted] }
+        message: { type: string }
+      required: [status, message]
+
+    # ---------------------------------------------------------- autenticazione
+
+    User:
+      type: object
+      description: L'utente. **Non contiene l'hash della password, e nemmeno il campo.**
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        full_name: { type: string }
+        role: { type: string }
+        timezone: { type: string }
+        email_verified: { type: boolean }
+        email_verified_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        last_login_at: { type: string, format: date-time }
+      required: [id, email, full_name, role, timezone, email_verified, created_at]
+
+    Session:
+      type: object
+      description: |
+        Una sessione come compare nell'elenco dei dispositivi. **Non contiene né
+        il token né la sua impronta**: il primo è un segreto, la seconda non
+        serve a nessun client.
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        ip_address: { type: string }
+        user_agent: { type: string }
+        current: { type: boolean }
+      required: [id, created_at, last_used_at, expires_at, current]
+
+    SessionEnvelope:
+      type: object
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        session: { $ref: "#/components/schemas/Session" }
+      required: [user, session]
+
+    SessionList:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/Session" }
+      required: [sessions]
+
+    RevokedSessions:
+      type: object
+      properties:
+        revoked: { type: integer }
+      required: [revoked]
+
+    RegisterInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        full_name: { type: string }
+      required: [email, password]
+
+    LoginInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+      required: [email, password]
+
+    ForgotPasswordInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+      required: [email]
+
+    ResetPasswordInput:
+      type: object
+      properties:
+        token: { type: string }
+        password: { type: string, format: password }
+      required: [token, password]
+
+    ChangePasswordInput:
+      type: object
+      properties:
+        current_password: { type: string, format: password }
+        new_password: { type: string, format: password }
+      required: [current_password, new_password]
+
+    VerifyEmailInput:
+      type: object
+      properties:
+        token: { type: string }
+      required: [token]
+
+    # -------------------------------------------------------------------- job
+
+    Job:
+      type: object
+      description: |
+        Un cronjob (R1). **Esattamente uno fra `schedule` ed `every` è
+        valorizzato**, e l'altro è esplicitamente `null` invece che assente: il
+        client non deve distinguere «campo mancante» da «modalità non in uso».
+
+        Le durate sono stringhe (`"30s"`, `"5m"`, `"1h"`) e non numeri, per la
+        stessa ragione per cui il vocabolario è quello di `cron.yaml`: ciò che si
+        legge lo si può rimandare indietro senza conversioni.
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          description: |
+            **L'identità stabile del job**, unica per utente: è la chiave su cui
+            la riconciliazione di un `cron.yaml` decide se creare, aggiornare o
+            disattivare (R13). Rinominare un job equivale a cancellarlo e crearne
+            un altro.
+        description: { type: string }
+        schedule:
+          type: [string, "null"]
+          description: Espressione cron a 5 campi, granularità minima 1 minuto.
+          examples: ["0 9 * * *"]
+        every:
+          type: [string, "null"]
+          description: |
+            Intervallo, per la risoluzione sotto il minuto (R22). La risoluzione
+            minima dipende dal piano (SPEC §8): 1 minuto su Free, 10 secondi su
+            Pro, 1 secondo su Team e Agency.
+          examples: [10s]
+        timezone: { type: string, examples: [Europe/Rome] }
+        environments:
+          type: array
+          items: { $ref: "#/components/schemas/Environment" }
+        request: { $ref: "#/components/schemas/JobTarget" }
+        timeout: { type: string, examples: [30s] }
+        retries: { $ref: "#/components/schemas/JobRetries" }
+        on_overlap:
+          allOf:
+            - $ref: "#/components/schemas/OverlapPolicy"
+          description: |
+            **Sempre presente**, anche quando vale il predefinito: un campo che
+            comparisse solo se scelto costringerebbe il client a conoscere il
+            predefinito per sapere cosa succede davvero.
+        alerts: { $ref: "#/components/schemas/JobAlerts" }
+        enabled: { type: boolean }
+        repository_id:
+          type: string
+          format: uuid
+          description: |
+            Valorizzato per i job che vengono da un `cron.yaml` (R13). Serve a
+            sapere in anticipo che le modifiche vanno fatte nel file, invece di
+            scoprirlo da un `409` dopo aver compilato un form.
+        suspended:
+          allOf:
+            - $ref: "#/components/schemas/JobSuspension"
+          description: |
+            Valorizzato quando è stato **un cambio di piano** a spegnere il job
+            (R58), non l'utente. Senza, `enabled: false` sarebbe indistinguibile
+            da una pausa che l'utente ricorda di aver messo.
+        next_run_at:
+          type: [string, "null"]
+          format: date-time
+          description: Lo calcola lo scheduler. `null` su un job appena creato, finché il motore non lo raccoglie.
+        archived_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required:
+        [
+          id,
+          name,
+          schedule,
+          every,
+          timezone,
+          environments,
+          request,
+          timeout,
+          retries,
+          on_overlap,
+          alerts,
+          enabled,
+          next_run_at,
+          created_at,
+          updated_at,
+        ]
+
+    JobTarget:
+      type: object
+      description: |
+        Il bersaglio HTTP del job (SPEC §10). Gli indirizzi interni sono rifiutati
+        — loopback, reti private, link-local, l'endpoint di metadata delle
+        piattaforme cloud — sull'**indirizzo risolto** e a ogni redirect (R38).
+
+        `headers` restituisce ciò che è stato scritto, cioè i **riferimenti**
+        `${VAR}` ai segreti del workspace, non i valori risolti: la risoluzione
+        avviene al momento dell'esecuzione, dentro il motore (R43).
+      properties:
+        url: { type: string, format: uri }
+        method: { $ref: "#/components/schemas/HttpMethod" }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        body: { type: [string, "null"] }
+      required: [url, method, headers, body]
+
+    JobRetries:
+      type: object
+      properties:
+        max: { type: integer, minimum: 0 }
+        backoff: { $ref: "#/components/schemas/RetryBackoff" }
+      required: [max, backoff]
+
+    JobAlerts:
+      type: object
+      properties:
+        on_failure:
+          type: array
+          items: { $ref: "#/components/schemas/AlertChannel" }
+      required: [on_failure]
+
+    JobSuspension:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        reason: { $ref: "#/components/schemas/SuspensionReason" }
+      required: [at, reason]
+
+    JobList:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/Job" }
+        page: { $ref: "#/components/schemas/Page" }
+      required: [jobs, page]
+
+    Page:
+      type: object
+      description: |
+        La pagina servita. `next_cursor` a `null` è **l'unica** condizione di
+        fine: non va dedotta dal numero di righe, perché una pagina piena può
+        essere l'ultima.
+      properties:
+        limit: { type: integer }
+        next_cursor: { type: [string, "null"] }
+      required: [limit, next_cursor]
+
+    JobInput:
+      type: object
+      description: |
+        Corpo di creazione e modifica. **Ciò che non mandi non cambia**: alla
+        creazione i campi assenti prendono i predefiniti, alla modifica lasciano
+        intatto il valore esistente. Un `null` esplicito è un valore — azzera il
+        campo, o dismette una modalità di schedulazione — ed è distinto da un
+        campo assente.
+
+        `schedule` ed `every` sono **mutuamente esclusivi**: dichiararli entrambi,
+        o nessuno dei due, è un errore di validazione (SPEC §9).
+      properties:
+        name: { type: string }
+        description: { type: [string, "null"] }
+        schedule: { type: [string, "null"] }
+        every: { type: [string, "null"] }
+        timezone: { type: string }
+        environments:
+          type: array
+          items: { $ref: "#/components/schemas/Environment" }
+        request: { $ref: "#/components/schemas/JobTargetInput" }
+        timeout: { type: string }
+        retries: { $ref: "#/components/schemas/JobRetriesInput" }
+        on_overlap: { type: [string, "null"] }
+        alerts: { $ref: "#/components/schemas/JobAlertsInput" }
+        enabled: { type: boolean }
+      additionalProperties: false
+
+    JobTargetInput:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        method: { $ref: "#/components/schemas/HttpMethod" }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        body: { type: [string, "null"] }
+      additionalProperties: false
+
+    JobRetriesInput:
+      type: object
+      properties:
+        max: { type: integer, minimum: 0 }
+        backoff: { $ref: "#/components/schemas/RetryBackoff" }
+      additionalProperties: false
+
+    JobAlertsInput:
+      type: object
+      properties:
+        on_failure:
+          type: array
+          items: { $ref: "#/components/schemas/AlertChannel" }
+      additionalProperties: false
+
+    TriggerInput:
+      type: object
+      description: "Corpo del trigger manuale. Facoltativo: serve solo ai job che vivono in più ambienti."
+      properties:
+        environment: { $ref: "#/components/schemas/Environment" }
+      additionalProperties: false
+
+    Execution:
+      type: object
+      description: |
+        Un tentativo (R6). **Non ha un identificativo sintetico** perché la riga
+        non ne ha uno: la chiave è la quaterna naturale `(job, istante, ambiente,
+        tentativo)`, e inventarne uno qui produrrebbe un valore che non si può
+        usare per rileggere niente.
+      properties:
+        job_id: { type: string, format: uuid }
+        scheduled_for: { type: string, format: date-time }
+        environment: { $ref: "#/components/schemas/Environment" }
+        attempt: { type: integer, minimum: 1 }
+        status: { $ref: "#/components/schemas/ExecutionStatus" }
+        triggered_by: { $ref: "#/components/schemas/ExecutionTrigger" }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        duration_ms: { type: [integer, "null"] }
+        response_status: { type: [integer, "null"] }
+        response_excerpt:
+          type: string
+          description: |
+            Estratto **troncato** della risposta del bersaglio, con i segreti
+            redatti (R43): questo registro è visibile all'utente, e un valore che
+            ci finisse dentro sarebbe un segreto uscito.
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+      required:
+        [
+          job_id,
+          scheduled_for,
+          environment,
+          attempt,
+          status,
+          triggered_by,
+          started_at,
+          finished_at,
+          duration_ms,
+          response_status,
+          created_at,
+        ]
+
+    ExecutionList:
+      type: object
+      properties:
+        executions:
+          type: array
+          items: { $ref: "#/components/schemas/Execution" }
+        page: { $ref: "#/components/schemas/Page" }
+      required: [executions, page]
+
+    # ------------------------------------------------------------- chiavi API
+
+    ApiKey:
+      type: object
+      description: |
+        Una chiave API. **Non contiene il valore in chiaro, e nemmeno la sua
+        impronta**: non è un filtro applicato al momento di rispondere, sono
+        campi che la struttura non ha.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        prefix:
+          type: string
+          description: "La parte iniziale della chiave, in chiaro: serve a riconoscerla in elenco e non basta a ricostruirla."
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+      required: [id, name, prefix, scopes, created_at, revoked]
+
+    ApiKeyList:
+      type: object
+      properties:
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKey" }
+      required: [keys]
+
+    ApiKeyCreated:
+      type: object
+      description: |
+        **L'unica risposta dell'API che contiene un segreto.** `secret` esiste
+        solo qui e solo adesso: dopo non è recuperabile da nessuna parte, per
+        nessuno.
+      properties:
+        key: { $ref: "#/components/schemas/ApiKey" }
+        secret:
+          type: string
+          description: Il valore in chiaro, mostrato **una volta sola** (R9).
+          examples: [pq_live_xxxxxxxxxxxxxxxxxxxxxxxx]
+        warning:
+          type: string
+          description: |
+            Il fatto che il valore non si rilegge, detto al chiamante nel momento
+            in cui gli serve saperlo: un client che non lo sa mostra la chiave in
+            un avviso che scompare.
+      required: [key, secret, warning]
+
+    ApiKeyScopes:
+      type: object
+      properties:
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+      required: [scopes]
+
+    ApiKeyInput:
+      type: object
+      properties:
+        name: { type: string }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/ApiKeyScope" }
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: Assente significa «non scade».
+      additionalProperties: false
+
+    # ---------------------------------------------------------------- segreti
+
+    Secret:
+      type: object
+      description: |
+        Un segreto del workspace. **Non contiene il valore, e nemmeno un suo
+        pezzo.** A riconoscerlo basta il nome che gli ha dato l'utente, che è
+        anche ciò che scrive nel proprio `cron.yaml`.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        reference:
+          type: string
+          description: |
+            Il testo da incollare in `cron.yaml`. È ridondante rispetto a `name`
+            ed è lì apposta: è ciò che si copia con un click, e senza di esso
+            l'utente deve sapere a memoria che la sintassi è `${...}`.
+          examples: ["${DIGEST_TOKEN}"]
+        description: { type: string }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, name, reference, revoked, created_at, updated_at]
+
+    SecretList:
+      type: object
+      properties:
+        secrets:
+          type: array
+          items: { $ref: "#/components/schemas/Secret" }
+      required: [secrets]
+
+    SecretInput:
+      type: object
+      properties:
+        name: { type: string }
+        value:
+          type: string
+          description: Il valore, cifrato a riposo e **mai restituito** da nessuna rotta.
+        description: { type: string }
+      additionalProperties: false
+
+    SecretUpdateInput:
+      type: object
+      description: "Il **nome non si cambia**: rinominare romperebbe in silenzio ogni `cron.yaml` che lo riferisce."
+      properties:
+        value: { type: string }
+        description:
+          type: [string, "null"]
+          description: Assente lascia la nota com'era; presente e vuota la cancella.
+      additionalProperties: false
+
+    # -------------------------------------------------------------- chiavi AI
+
+    AiKey:
+      type: object
+      description: |
+        Una chiave AI (BYOK, R18). **Non contiene la chiave, e nemmeno un
+        frammento**: «quale chiave è questa» lo dice il provider, «è quella che ho
+        appena ruotato» lo dice `updated_at`.
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: "#/components/schemas/AiProvider" }
+        label: { type: string }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, provider, revoked, created_at, updated_at]
+
+    AiKeyList:
+      type: object
+      properties:
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/AiKey" }
+        providers:
+          type: array
+          description: I fornitori ammessi, serviti dal backend perché la dashboard non ne tenga una copia che diverge.
+          items: { $ref: "#/components/schemas/AiProvider" }
+      required: [keys, providers]
+
+    AiKeyInput:
+      type: object
+      properties:
+        provider: { $ref: "#/components/schemas/AiProvider" }
+        key:
+          type: string
+          description: La chiave del fornitore, cifrata a riposo e **mai restituita**.
+        label: { type: string }
+      additionalProperties: false
+
+    # ----------------------------------------------------------- fatturazione
+
+    Subscription:
+      type: object
+      description: "Il piano in forza. **Nessun importo**: i prezzi sono del catalogo Paddle (R61)."
+      properties:
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        plan_name: { type: string }
+        status: { $ref: "#/components/schemas/SubscriptionStatus" }
+        period: { $ref: "#/components/schemas/BillingPeriod" }
+        current_period_end: { type: string, format: date-time }
+        cancel_at:
+          type: string
+          format: date-time
+          description: |
+            La disdetta programmata ha effetto **alla fine del periodo pagato**:
+            fino ad allora il piano resta questo, e il client deve poterlo dire
+            invece di far credere che sia già finito.
+        max_jobs:
+          type: integer
+          description: Il tetto del piano. Assente significa nessun tetto rigido.
+        active_jobs: { type: integer }
+        suspended_jobs: { $ref: "#/components/schemas/SuspendedJobs" }
+      required: [plan, plan_name, status, active_jobs, suspended_jobs]
+
+    SuspendedJobs:
+      type: object
+      description: |
+        I job spenti da un cambio di piano, contati **per motivo** (R58): i due
+        rimedi sono diversi, e un totale unico costringerebbe il client a dire
+        una delle due cose a tutti.
+      properties:
+        by_job_limit: { type: integer }
+        by_resolution: { type: integer }
+        total: { type: integer }
+      required: [by_job_limit, by_resolution, total]
+
+    CheckoutInput:
+      type: object
+      properties:
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        period: { $ref: "#/components/schemas/BillingPeriod" }
+        business_use:
+          type: boolean
+          description: |
+            La conferma di R63, **obbligatoriamente esplicita**: un campo il cui
+            valore predefinito accetta sarebbe la casella preselezionata che R63
+            vieta.
+        vat_number:
+          type: string
+          description: |
+            Facoltativa: si conferma sempre lo status, si raccoglie il numero
+            quando c'è. Diversi regimi minimi europei ne sono privi, e pretenderla
+            escluderebbe acquirenti legittimi.
+      additionalProperties: false
+
+    Checkout:
+      type: object
+      description: Ciò che serve al browser per aprire il checkout. **Nessun importo.**
+      properties:
+        plan: { $ref: "#/components/schemas/PlanCode" }
+        plan_name: { type: string }
+        period: { $ref: "#/components/schemas/BillingPeriod" }
+        price_id:
+          type: string
+          description: La riga del catalogo Paddle da aprire. È un **riferimento**, non un prezzo.
+        environment: { type: string }
+        client_token:
+          type: string
+          description: |
+            Token **pubblico per costruzione** di Paddle.js — vive nel codice
+            della pagina. Non va confuso con la chiave API server-side, che non
+            esce mai dal backend.
+        custom_data: { $ref: "#/components/schemas/CheckoutCustomData" }
+      required: [plan, plan_name, period, price_id, environment, client_token, custom_data]
+
+    CheckoutCustomData:
+      type: object
+      description: "Ciò che Paddle rimanda indietro nei webhook: è il legame fra il pagamento e l'account. Va passato a Paddle.js così com'è."
+      properties:
+        user_id: { type: string, format: uuid }
+      required: [user_id]
+
+    # ---------------------------------------------------------------- webhook
+
+    GithubDelivery:
+      type: object
+      description: |
+        Ripete l'identificativo della consegna e l'evento perché è ciò che rende
+        leggibile il registro dell'App: ritrovare il proprio `X-GitHub-Delivery`
+        con l'esito accanto permette di collaudare senza accedere ai nostri log.
+        **Non contiene niente che venga dal corpo della richiesta.**
+      properties:
+        delivery: { type: string }
+        event: { type: string }
+        outcome:
+          type: string
+          enum: [accepted, duplicate, ignored, pong]
+      required: [delivery, event, outcome]
+
+    PaddleDelivery:
+      type: object
+      description: Come sopra, e in particolare **nessun dato di fatturazione**.
+      properties:
+        event_id: { type: string }
+        type: { type: string }
+        outcome:
+          type: string
+          enum: [applied, duplicate, stale, ignored]
+      required: [event_id, type, outcome]
