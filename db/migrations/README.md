@@ -60,6 +60,7 @@ sostituiscono la ricerca automatica di questa directory.
 | 0014 | `jobs.overlap_policy`: cosa fare quando un'occorrenza scavalca la precedente (R41) |
 | 0015 | `users.language` e l'esito di consegna su `notifications` (R21, R33) |
 | 0016 | `ai_credentials`: revoca che svuota il materiale, unicità fra le sole chiavi vive, via `last_four` (R18) |
+| 0017 | `users.deletion_requested_at` e `users.purge_after`: la finestra di ripensamento prima della purga (R45) |
 
 ## Scelte di schema
 
