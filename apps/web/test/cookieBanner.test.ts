@@ -5,7 +5,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import CookieBanner from '~/components/layout/CookieBanner.vue'
 import { siteContent } from '~/content'
-import { COOKIE_CONSENT_NAME, readCookieConsent, resetCookieConsentGate } from '~/utils/cookieConsent'
+import {
+  COOKIE_CONSENT_NAME,
+  createCookieConsent,
+  persistCookieConsent,
+  readCookieConsent,
+  resetCookieConsentGate,
+} from '~/utils/cookieConsent'
 import { LOCALE_CODES } from '~/utils/locale'
 
 /**
@@ -120,5 +126,99 @@ describe('banner cookie: rifiutare è facile quanto accettare', { timeout: 30_00
     expect(accept.trim()).toBeTruthy()
     expect(reject.trim()).toBeTruthy()
     expect(accept).not.toBe(reject)
+  })
+})
+
+/**
+ * Il banner è la prima cosa che incontra chi arriva sul sito: se intrappola il
+ * fuoco o non si chiude da tastiera, il difetto non è un dettaglio di stile ma
+ * una porta chiusa. L'accessibilità è a 93 ed è l'unica categoria di R53-bis
+ * ancora sotto la soglia — questo componente non può essere la ragione.
+ */
+describe('banner cookie: da tastiera', { timeout: 30_000 }, () => {
+  beforeEach(() => {
+    resetCookieConsentGate()
+    document.cookie = `${COOKIE_CONSENT_NAME}=; Path=/; Max-Age=0`
+    document.body.innerHTML = ''
+  })
+
+  function escape() {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  }
+
+  it('si chiude con Escape, e chiudere senza aver scelto è rifiutare', async () => {
+    const banner = await mountSuspended(CookieBanner, { attachTo: document.body })
+    expect(banner.find('.cookie-banner').exists()).toBe(true)
+
+    escape()
+    await nextTick()
+
+    // L'esito che non attiva nulla. Nessun tasto, in nessuna combinazione,
+    // porta invece al consenso: la §3 chiede che rifiutare sia facile almeno
+    // quanto accettare, non il contrario.
+    expect(readCookieConsent(document.cookie)?.nonEssential).toBe(false)
+    expect(banner.find('.cookie-banner').exists()).toBe(false)
+  })
+
+  it('non tocca una scelta già registrata quando lo si richiude', async () => {
+    persistCookieConsent(createCookieConsent(true, 'en'))
+    const banner = await mountSuspended(CookieBanner, { attachTo: document.body })
+
+    // Chiuso all'avvio, perché la scelta c'è già: si riapre dal piè di pagina.
+    expect(banner.find('.cookie-banner').exists()).toBe(false)
+    window.dispatchEvent(new Event('postqron:cookie-preferences'))
+    await nextTick()
+
+    escape()
+    await nextTick()
+
+    expect(readCookieConsent(document.cookie)?.nonEssential).toBe(true)
+  })
+
+  it('porta il fuoco dentro quando lo si riapre, e lo riporta indietro', async () => {
+    persistCookieConsent(createCookieConsent(false, 'en'))
+    const banner = await mountSuspended(CookieBanner, { attachTo: document.body })
+
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+
+    window.dispatchEvent(new Event('postqron:cookie-preferences'))
+    await nextTick()
+    await nextTick()
+    expect(document.activeElement).toBe(banner.find('.cookie-banner').element)
+
+    escape()
+    await nextTick()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('non chiude fuori il resto della pagina né forza un ordine di tabulazione', async () => {
+    const banner = await mountSuspended(CookieBanner, { attachTo: document.body })
+    const section = banner.find('.cookie-banner')
+
+    expect(section.attributes('aria-modal')).toBe('false')
+    expect(section.attributes('aria-labelledby')).toBeTruthy()
+    expect(document.querySelector('[inert]')).toBeNull()
+
+    // Un `tabindex` positivo riordina l'intera pagina, non solo il banner.
+    const forced = [...section.element.querySelectorAll('[tabindex]')]
+      .filter(element => Number(element.getAttribute('tabindex')) > 0)
+    expect(forced).toEqual([])
+  })
+
+  /*
+   * Il primo Tab deve arrivare qui, e ciò dipende dall'ordine nel markup del
+   * layout: il banner è `position: fixed`, quindi metterlo in cima non ne
+   * cambia la resa. È l'alternativa a rubare il fuoco a chi sta già leggendo,
+   * e si perde con uno spostamento di tre righe — quindi si sorveglia.
+   */
+  it('apre il documento, così il primo Tab lo raggiunge', () => {
+    const layout = readFileSync(resolve(process.cwd(), 'layouts/default.vue'), 'utf8')
+    const template = layout.slice(layout.indexOf('<template>'))
+
+    expect(template.indexOf('<CookieBanner')).toBeGreaterThan(-1)
+    expect(template.indexOf('<CookieBanner')).toBeLessThan(template.indexOf('<SiteHeader'))
+    expect(template.indexOf('<CookieBanner')).toBeLessThan(template.indexOf('<main'))
   })
 })
