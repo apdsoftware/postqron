@@ -35,9 +35,18 @@ verifica l'assenza prima del deploy (#473).
 
 ### Stato attuale
 
-**Nessun segnaposto aperto.** Nessuno dei quattro è ancora stato rivisto da una
-persona: sono tutti in attesa della revisione, e finché non arriva vanno letti come
-una proposta completa, non come un testo approvato.
+**Nessun segnaposto aperto, e i quattro documenti sono approvati.** La revisione
+umana è arrivata il **2026-08-18** e non ha chiesto modifiche: i testi restano alle
+versioni qui sotto, con le loro date di entrata in vigore.
+
+L'approvazione non fa avanzare le versioni, ed è voluto: la versione descrive **il
+contenuto**, e il contenuto non è cambiato. Farla avanzare avrebbe reso indistinguibile
+«rivisto» da «riscritto» proprio nel registro che serve a distinguerli (R46).
+
+**Da qui in avanti le regole cambiano di peso.** Un documento approvato non si
+modifica per comodità: ogni cambiamento è una versione nuova, con una data nuova, e
+torna in revisione. Vale anche per una virgola, perché la prova del consenso registra
+la versione e non il testo.
 
 | Documento | Versione | In vigore dal | Cosa ha mosso la versione |
 |---|---|---|---|
