@@ -30,9 +30,14 @@ useLocalizedHead({
 
 <template>
   <PageSection white>
+    <!--
+      `lang` segue la lingua del testo, non quella della rotta: finché la
+      traduzione non è approvata la pagina italiana mostra l'originale inglese, e
+      dichiararlo `it` mentirebbe alla sintesi vocale e al motore di ricerca.
+    -->
     <article
       class="legal-document"
-      lang="en"
+      :lang="document.language"
     >
       <p
         v-if="locale !== document.language"
