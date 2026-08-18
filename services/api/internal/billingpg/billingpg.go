@@ -441,8 +441,10 @@ func (s *Store) RecordCheckoutIntent(ctx context.Context, intent billing.Checkou
 // dice di poter fare.
 func (s *Store) Entitlement(ctx context.Context, userID string) (billing.Entitlement, error) {
 	var (
-		ent    billing.Entitlement
-		period *string
+		ent          billing.Entitlement
+		period       *string
+		minInterval  int
+		retentionDay int
 	)
 	err := s.pool.QueryRow(ctx,
 		`WITH viva AS (
@@ -456,7 +458,7 @@ func (s *Store) Entitlement(ctx context.Context, userID string) (billing.Entitle
 		        (SELECT billing_period::text FROM viva),
 		        (SELECT current_period_end FROM viva),
 		        (SELECT cancel_at FROM viva),
-		        p.max_jobs,
+		        p.max_jobs, p.min_interval_seconds, p.log_retention_days,
 		        (SELECT count(*) FROM jobs
 		          WHERE user_id = $1::uuid AND enabled AND archived_at IS NULL),
 		        (SELECT count(*) FROM jobs
@@ -470,6 +472,7 @@ func (s *Store) Entitlement(ctx context.Context, userID string) (billing.Entitle
 		userID).Scan(
 		&ent.PlanCode, &ent.PlanName, &ent.Status, &period,
 		&ent.CurrentPeriodEnd, &ent.CancelAt, &ent.MaxJobs,
+		&minInterval, &retentionDay,
 		&ent.ActiveJobs, &ent.Suspended.ByJobLimit, &ent.Suspended.ByResolution)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return billing.Entitlement{}, errors.New("billingpg: nessun piano trovato: la migrazione 0003 non è stata applicata")
@@ -480,6 +483,12 @@ func (s *Store) Entitlement(ctx context.Context, userID string) (billing.Entitle
 	if period != nil {
 		ent.Period = paddle.Period(*period)
 	}
+	// Le stesse due colonne, e la stessa conversione, di [jobspg.Store.PlanForUser]:
+	// lì diventano i limiti che *decidono*, qui i numeri che l'interfaccia *dice*
+	// (R15). Leggerle nella stessa riga del piano è ciò che impedisce alle due
+	// letture di raccontare tetti diversi.
+	ent.MinInterval = time.Duration(minInterval) * time.Second
+	ent.LogRetention = time.Duration(retentionDay) * 24 * time.Hour
 	return ent, nil
 }
 

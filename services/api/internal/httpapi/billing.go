@@ -8,13 +8,20 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/billing"
+	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 )
 
 // Il contratto delle rotte di fatturazione (R16), in breve.
 //
-//	GET  /billing/subscription   piano in forza e job fermi   200
+//	GET  /billing/subscription   piano, tetti e job fermi     200
 //	POST /billing/checkout       apertura del checkout        200
+//
+// La prima è anche **la sola rotta da cui un client apprende i tetti di R15**
+// prima di sbatterci: numero di job, risoluzione minima e retention dei log. Non
+// li applica — lo fanno internal/jobs e il database — ma senza di essa
+// l'interfaccia potrebbe soltanto rifiutare a posteriori, che è ciò che R15 e
+// R58 dicono di non fare.
 //
 // # Cosa queste rotte non fanno
 //
@@ -136,6 +143,36 @@ type SubscriptionResponse struct {
 	MaxJobs    *int `json:"max_jobs,omitempty"`
 	ActiveJobs int  `json:"active_jobs"`
 
+	// MinInterval è la risoluzione minima concessa dal piano, nella forma di
+	// durata del resto dell'API (`1s`, `10s`, `1m`): la stessa che `every`
+	// accetta, così il client può confrontare senza convertire.
+	//
+	// # Perché c'è
+	//
+	// R15 chiede **due cose**: che i limiti siano applicati lato backend, e che
+	// l'interfaccia li dica. Prima di questo campo la seconda metà non era
+	// realizzabile per la frequenza — il numero viveva in `plans` e non risaliva
+	// mai a una risposta — e un client aveva due sole strade, entrambe difettose:
+	// scriversi una copia della tabella di SPEC §8, libera di divergere da
+	// `plans` senza che nulla se ne accorga, oppure lasciar compilare un modulo
+	// che sarebbe stato rifiutato. È quest'ultimo il caso che R15 nomina, e che
+	// R58 ripete per la riattivazione: «l'interfaccia deve dirlo, non limitarsi a
+	// rifiutare».
+	//
+	// **Non sposta il giudizio.** Chi scrive un `every` più fitto riceve lo
+	// stesso 403 `plan_limit_resolution` di prima, con lo stesso messaggio: questo
+	// campo migliora il caso normale, non sostituisce il rifiuto.
+	MinInterval string `json:"min_interval"`
+
+	// LogRetentionDays è la conservazione del registro delle esecuzioni, in
+	// giorni — l'unità di SPEC §8 e della colonna `plans.log_retention_days`.
+	//
+	// In giorni e non come durata, a differenza di `min_interval`, perché è la
+	// lingua in cui il limite è venduto: «3 giorni» è la riga di listino che
+	// l'utente ha letto prima di iscriversi, e `72h` gliela farebbe ricalcolare.
+	// È lo stesso argomento di `formatRetention` in internal/jobs.
+	LogRetentionDays int `json:"log_retention_days"`
+
 	Suspended SuspendedJobsResponse `json:"suspended_jobs"`
 }
 
@@ -170,12 +207,29 @@ func (a *billingAPI) subscription(w http.ResponseWriter, r *http.Request, user a
 		CancelAt:         ent.CancelAt,
 		MaxJobs:          ent.MaxJobs,
 		ActiveJobs:       ent.ActiveJobs,
+		MinInterval:      jobs.FormatDuration(ent.MinInterval),
+		LogRetentionDays: retentionDays(ent.LogRetention),
 		Suspended: SuspendedJobsResponse{
 			ByJobLimit:   ent.Suspended.ByJobLimit,
 			ByResolution: ent.Suspended.ByResolution,
 			Total:        ent.Suspended.Total(),
 		},
 	})
+}
+
+// retentionDays riporta la retention all'unità in cui è dichiarata e venduta.
+//
+// La divisione è esatta per costruzione — `plans.log_retention_days` è un numero
+// di giorni e [billingpg.Store.Entitlement] lo moltiplica per ventiquattro ore —
+// ma l'arrotondamento verso l'alto esiste lo stesso: un piano con una retention
+// non multipla del giorno diventerebbe altrimenti «0 giorni», che è l'unica
+// risposta che l'utente leggerebbe come «non conservate niente».
+func retentionDays(d time.Duration) int {
+	const day = 24 * time.Hour
+	if d <= 0 {
+		return 0
+	}
+	return int((d + day - 1) / day)
 }
 
 // checkout valida la richiesta e restituisce ciò che serve ad aprire il

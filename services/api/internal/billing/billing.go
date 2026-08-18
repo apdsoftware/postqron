@@ -269,6 +269,21 @@ type Entitlement struct {
 	// quando decide quali riaccendere.
 	ActiveJobs int
 
+	// MinInterval e LogRetention sono gli altri due tetti che R15 nomina —
+	// frequenza minima e conservazione dei log — accanto al numero di job.
+	//
+	// Stanno qui perché **R15 chiede due cose, non una**: che i limiti siano
+	// applicati lato backend, e che l'interfaccia li dica. La seconda metà non si
+	// può fare senza i numeri: un client che non li riceve o inventa una tabella
+	// di listino — una seconda copia di `plans`, libera di divergere in silenzio
+	// — oppure lascia compilare un modulo che verrà rifiutato, che è il difetto
+	// che R15 esiste per evitare. Sono gli stessi valori che [jobs.Plan] usa per
+	// *decidere* (`min_interval_seconds`, `log_retention_days` della 0003), letti
+	// dalla stessa riga: il server resta l'unico giudice, questi servono a dirlo
+	// prima.
+	MinInterval  time.Duration
+	LogRetention time.Duration
+
 	// Suspended conta i job che un cambio di piano ha spento, per motivo. È ciò
 	// che rende visibile la promessa di R58: i job ci sono ancora, e vanno
 	// riaccesi.

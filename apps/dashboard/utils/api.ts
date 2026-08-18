@@ -83,6 +83,42 @@ export function apiErrorKind(status: number): ApiErrorKind {
 }
 
 /**
+ * Un motivo di rifiuto ancorato al campo che lo causa — il `details[]` di
+ * `ErrorDetail` in `internal/httpapi`.
+ *
+ * `field` usa la notazione a punti del corpo mandato (`request.url`,
+ * `retries.max`), non un nome di colonna: è il percorso dentro il JSON, ed è
+ * quello che permette a un modulo di evidenziare il campo giusto senza
+ * interpretare una frase.
+ *
+ * Il `message` che il backend manda accanto **non arriva fin qui**, ed è
+ * deliberato: è in italiano, e mostrarlo sarebbe una frase non tradotta in mezzo
+ * a cinque lingue (SPEC §8-bis). Ciò che si mostra è il testo di `content/`
+ * scelto in base a `code`.
+ */
+export interface ApiFieldError {
+  field: string
+  code: string
+}
+
+/**
+ * Ciò che si può leggere dal corpo di un errore. Tutto facoltativo, perché il
+ * corpo di un errore è la cosa che meno si può dare per buona.
+ */
+export interface ApiErrorPayload {
+  code: string | null
+  details: ApiFieldError[]
+  /**
+   * Il limite di piano che è scattato (`jobs`, `resolution`, `retention`…) e il
+   * piano su cui è scattato. Sono i due campi su cui un client decide se
+   * mostrare un invito ad aggiornare: un `429` tecnico non li ha, apposta,
+   * perché lì l'aggiornamento non servirebbe (R10, `quota.go`).
+   */
+  limit: string | null
+  plan: string | null
+}
+
+/**
  * Estrae il codice stabile dell'errore dal corpo di una risposta.
  *
  * Il backend risponde `{"error": {"code": "...", "message": "..."}}` e dichiara
@@ -98,21 +134,51 @@ export function apiErrorKind(status: number): ApiErrorKind {
  * errore»: chi chiama ricade sulla categoria HTTP, che c'è sempre.
  */
 export function parseErrorCode(body: string): string | null {
+  return parseErrorPayload(body).code
+}
+
+/**
+ * Come `parseErrorCode`, ma legge anche i campi che servono a un modulo:
+ * l'elenco dei rifiuti per campo e il limite di piano.
+ *
+ * Vale la stessa regola di prudenza: qualunque cosa non abbia la forma attesa
+ * vale «non detto» — `null` per i codici, lista vuota per i dettagli — e chi
+ * chiama ricade sulla categoria HTTP, che c'è sempre. Un 502 del proxy davanti
+ * al backend è HTML, e non deve produrre un `undefined` che attraversa
+ * l'interfaccia.
+ */
+export function parseErrorPayload(body: string): ApiErrorPayload {
+  const empty: ApiErrorPayload = { code: null, details: [], limit: null, plan: null }
+
   let payload: unknown
   try {
     payload = JSON.parse(body)
   }
   catch {
-    return null
+    return empty
   }
 
-  if (typeof payload !== 'object' || payload === null) return null
+  if (typeof payload !== 'object' || payload === null) return empty
 
   const error = (payload as { error?: unknown }).error
-  if (typeof error !== 'object' || error === null) return null
+  if (typeof error !== 'object' || error === null) return empty
 
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' && code !== '' ? code : null
+  const text = (key: string): string | null => {
+    const value = (error as Record<string, unknown>)[key]
+    return typeof value === 'string' && value !== '' ? value : null
+  }
+
+  const raw = (error as { details?: unknown }).details
+  const details: ApiFieldError[] = Array.isArray(raw)
+    ? raw.flatMap((entry) => {
+        if (typeof entry !== 'object' || entry === null) return []
+        const { field, code } = entry as { field?: unknown, code?: unknown }
+        if (typeof field !== 'string' || typeof code !== 'string') return []
+        return [{ field, code }]
+      })
+    : []
+
+  return { code: text('code'), details, limit: text('limit'), plan: text('plan') }
 }
 
 /**
@@ -141,6 +207,19 @@ export class ApiError extends Error {
    * l'unica cosa dicibile su un 400 è «controlla i dati inseriti».
    */
   readonly code: string | null
+  /**
+   * I rifiuti per campo, quando il backend ne ha mandati (`validation_failed`,
+   * e i limiti di piano che nominano un campo).
+   *
+   * Lista vuota è la norma: la maggior parte degli errori non riguarda un campo.
+   * Serve ai moduli, che senza direbbero «controlla i dati inseriti» su una
+   * schermata con quindici caselle.
+   */
+  readonly details: readonly ApiFieldError[]
+  /** Vedi `ApiErrorPayload.limit`. `null` sui tetti tecnici, apposta. */
+  readonly limit: string | null
+  /** Vedi `ApiErrorPayload.plan`. */
+  readonly plan: string | null
   /** Indirizzo chiamato, per il messaggio in console. */
   readonly url: string
 
@@ -149,23 +228,32 @@ export class ApiError extends Error {
     url: string,
     status: number | null,
     message: string,
-    code: string | null = null,
+    payload: Partial<ApiErrorPayload> = {},
   ) {
+    const code = payload.code ?? null
     super(`${message} (${kind}${status === null ? '' : ` ${status}`}${code === null ? '' : ` ${code}`}: ${url})`)
     this.name = 'ApiError'
     this.kind = kind
     this.status = status
     this.code = code
+    this.details = payload.details ?? []
+    this.limit = payload.limit ?? null
+    this.plan = payload.plan ?? null
     this.url = url
   }
 
-  /** Guasto di rete: nessuna risposta, quindi nessun codice. */
+  /** Guasto di rete: nessuna risposta, quindi niente da leggere. */
   static network(url: string, cause: unknown): ApiError {
     return new ApiError('network', url, null, cause instanceof Error ? cause.message : 'fetch failed')
   }
 
   /** Risposta arrivata con un codice fuori dal 2xx. */
-  static fromStatus(url: string, status: number, statusText: string, code: string | null = null): ApiError {
-    return new ApiError(apiErrorKind(status), url, status, statusText || 'HTTP error', code)
+  static fromStatus(
+    url: string,
+    status: number,
+    statusText: string,
+    payload: Partial<ApiErrorPayload> = {},
+  ): ApiError {
+    return new ApiError(apiErrorKind(status), url, status, statusText || 'HTTP error', payload)
   }
 }

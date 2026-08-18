@@ -643,9 +643,21 @@ test.describe('build statica', () => {
   /**
    * Tetto sul JavaScript che la dashboard scarica per aprirsi, non compresso.
    *
-   * Misurato il 2026-08-17 su questa build: 186 KB in un file solo (71 KB in
-   * gzip), quasi tutto runtime di Vue, Nuxt e vue-router. Il margine non serve a
-   * far spazio: serve a lasciar crescere le sezioni che verranno.
+   * Misurato il 2026-08-18 con i cronjob (#408): **239 KB** in un file solo,
+   * contro i 186 KB del 2026-08-17. La differenza sono quasi per intero i testi
+   * della sezione nuova, **moltiplicati per cinque lingue**: `content/index.ts`
+   * importa tutte e cinque le traduzioni in modo statico, quindi finiscono tutte
+   * nel bundle d'ingresso anche se il browser ne userà una sola.
+   *
+   * Va detto chiaro perché è il vincolo che morde per primo: di margine ne
+   * restano 21 KB, e la prossima sezione con altrettanti testi lo esaurirebbe.
+   * Il rimedio non è togliere parole — è caricare le traduzioni per lingua
+   * invece che tutte insieme, che è una modifica a `useLocale()` e non appartiene
+   * alla issue che l'ha fatto emergere.
+   *
+   * Il codice della sezione **non** è qui dentro, ed è la prova che il taglio
+   * per rotta funziona: il porto del motore di schedulazione e il modulo dei job
+   * stanno in un chunk a parte, caricato aprendo `/jobs`.
    *
    * Il numero che questo tetto difende è un altro, e non compare qui perché non
    * è mai stato scaricato: `flowbite/dist/flowbite.min.js` pesa 131 KB non

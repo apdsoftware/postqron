@@ -1,5 +1,5 @@
 import type { QueryValue } from '~/utils/api'
-import { ApiError, apiUrl, buildQuery, parseErrorCode } from '~/utils/api'
+import { ApiError, apiUrl, buildQuery, parseErrorPayload } from '~/utils/api'
 
 /**
  * L'unico punto della dashboard da cui parte una richiesta al backend.
@@ -146,14 +146,16 @@ export function useApi(): DashboardApi {
 
     if (!response.ok) {
       /*
-       * Il corpo si legge anche quando la richiesta è fallita, e solo per
-       * estrarne il `code`: è l'unica cosa che distingue `weak_password` da
-       * `invalid_email` dentro lo stesso 400. Non può fallire — `text()` su una
-       * risposta senza corpo dà stringa vuota, e `parseErrorCode` restituisce
-       * `null` per tutto ciò che non ha la forma attesa.
+       * Il corpo si legge anche quando la richiesta è fallita, e solo per ciò
+       * su cui l'interfaccia decide: il `code`, che distingue `weak_password`
+       * da `invalid_email` dentro lo stesso 400; i `details`, che dicono a un
+       * modulo *quale* campo evidenziare; il limite di piano, che dice se
+       * proporre un aggiornamento o una correzione. Non può fallire — `text()`
+       * su una risposta senza corpo dà stringa vuota, e `parseErrorPayload`
+       * restituisce campi vuoti per tutto ciò che non ha la forma attesa.
        */
-      const code = parseErrorCode(await response.text().catch(() => ''))
-      const error = ApiError.fromStatus(url, response.status, response.statusText, code)
+      const payload = parseErrorPayload(await response.text().catch(() => ''))
+      const error = ApiError.fromStatus(url, response.status, response.statusText, payload)
 
       /*
        * Qui, e in nessun altro posto, la scadenza di una sessione smette di
