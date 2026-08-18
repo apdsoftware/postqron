@@ -48,7 +48,15 @@ var _ billing.Store = (*Store)(nil)
 // servizio: gli eventi Paddle vanno comunque applicati o rifiutati
 // rumorosamente, ed è il checkout a non essere disponibile — vedi
 // [billing.Service.CanSell].
-func NewService(pool *pgxpool.Pool, getenv func(string) string, logger *slog.Logger) (*billing.Service, error) {
+//
+// `notifier` comunica all'utente le variazioni di piano (R21). Può essere nil:
+// su una macchina senza email configurate il piano si applica lo stesso.
+func NewService(
+	pool *pgxpool.Pool,
+	getenv func(string) string,
+	logger *slog.Logger,
+	notifier billing.Notifier,
+) (*billing.Service, error) {
 	catalog, err := paddle.CatalogFromEnv(getenv)
 	if err != nil {
 		return nil, err
@@ -62,6 +70,7 @@ func NewService(pool *pgxpool.Pool, getenv func(string) string, logger *slog.Log
 		Catalog:     catalog,
 		ClientToken: getenv("PADDLE_CLIENT_TOKEN"),
 		Environment: getenv(paddle.EnvironmentEnvVar),
+		Notifier:    notifier,
 		Logger:      logger,
 	})
 }
@@ -138,6 +147,31 @@ func (s *Store) SaveSubscription(ctx context.Context, change billing.Subscriptio
 		return billing.SaveResult{Applied: false, UserID: userID}, nil
 	}
 
+	// Il piano in forza **prima** di questa scrittura. Serve alla notifica di
+	// R21, che deve dire all'utente da dove a dove si è spostato, e va letto
+	// adesso: fra un'istruzione e l'altra la riga viene annullata e riscritta, e
+	// dopo non c'è più niente da cui ricavarlo. La lettura è dentro la
+	// transazione e sotto il lock per utente già preso, quindi non può
+	// raccontare un piano diverso da quello che l'UPDATE sta per sostituire.
+	//
+	// L'indice `subscriptions_one_live_per_user_idx` (0003) garantisce che di
+	// righe non annullate ce ne sia al più una: nessun `ORDER BY` da scegliere,
+	// e nessun ordine da cui il risultato possa dipendere.
+	var previousPlan string
+	err = tx.QueryRow(ctx,
+		`SELECT plan_code FROM subscriptions
+		  WHERE user_id = $1::uuid AND status <> 'canceled'`,
+		userID).Scan(&previousPlan)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Nessuna sottoscrizione viva: l'utente era sul piano d'ingresso, che
+		// non ha una riga finché non compra (R59 — il Free *è* il piano
+		// gratuito, non una prova).
+		previousPlan = paddle.PlanFree
+	case err != nil:
+		return billing.SaveResult{}, fmt.Errorf("billingpg: lettura del piano precedente: %w", err)
+	}
+
 	// `IS DISTINCT FROM` e non `<>`: le sottoscrizioni del piano Free hanno
 	// `paddle_subscription_id` a NULL, e `NULL <> 'sub_01'` è NULL, cioè non
 	// annullerebbe proprio la riga che dev'essere annullata.
@@ -194,7 +228,12 @@ func (s *Store) SaveSubscription(ctx context.Context, change billing.Subscriptio
 	if err := tx.Commit(ctx); err != nil {
 		return billing.SaveResult{}, fmt.Errorf("billingpg: commit della sottoscrizione: %w", err)
 	}
-	return billing.SaveResult{Applied: true, UserID: userID, PlanCode: change.PlanCode}, nil
+	return billing.SaveResult{
+		Applied:          true,
+		UserID:           userID,
+		PlanCode:         change.PlanCode,
+		PreviousPlanCode: previousPlan,
+	}, nil
 }
 
 // resolveUser trova l'account a cui attribuire la sottoscrizione.

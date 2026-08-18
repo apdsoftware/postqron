@@ -95,7 +95,11 @@ type Options struct {
 	Store   Store
 	Users   Users
 	Keyring auth.Keyring
-	Logger  *slog.Logger
+	// Notifier riceve gli eventi di sicurezza (R21). Può essere nil: su una
+	// macchina senza email configurate le chiavi si creano e si revocano lo
+	// stesso, e devono.
+	Notifier SecurityNotifier
+	Logger   *slog.Logger
 
 	// Now sostituisce l'orologio. Serve ai test sulle scadenze.
 	Now func() time.Time
@@ -107,11 +111,12 @@ type Options struct {
 
 // Service è la gestione delle chiavi API. Va costruito con [NewService].
 type Service struct {
-	store Store
-	users Users
-	keys  auth.Keyring
-	log   *slog.Logger
-	now   func() time.Time
+	store    Store
+	users    Users
+	keys     auth.Keyring
+	notifier SecurityNotifier
+	log      *slog.Logger
+	now      func() time.Time
 
 	authIP     *ratelimit.Limiter
 	createUser *ratelimit.Limiter
@@ -130,11 +135,12 @@ func NewService(opts Options) (*Service, error) {
 	}
 
 	s := &Service{
-		store: opts.Store,
-		users: opts.Users,
-		keys:  opts.Keyring,
-		log:   opts.Logger,
-		now:   opts.Now,
+		store:    opts.Store,
+		users:    opts.Users,
+		keys:     opts.Keyring,
+		notifier: opts.Notifier,
+		log:      opts.Logger,
+		now:      opts.Now,
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -213,6 +219,13 @@ func (s *Service) Create(ctx context.Context, userID string, in CreateInput) (Cr
 	// Nel log ci va la chiave secondo [Key.LogValue]: identificativo, prefisso e
 	// quanti scope. Non il segreto, e nemmeno la sua impronta.
 	s.log.InfoContext(ctx, "chiave API creata", slog.Any("api_key", key))
+
+	// Una credenziale nuova sull'account è un evento di sicurezza: se non è
+	// stato il proprietario a crearla, questo avviso è la prima cosa che glielo
+	// dice. Va **dopo** la scrittura, perché è quello il fatto da raccontare, e
+	// non risale come errore: una chiave creata resta creata anche se l'email
+	// non parte.
+	s.announce(ctx, SecurityAPIKeyCreated, userID, key.Name)
 	return Created{Key: key, Secret: secret}, nil
 }
 
@@ -411,6 +424,12 @@ func (s *Service) Revoke(ctx context.Context, userID, keyID string) error {
 	}
 	s.log.InfoContext(ctx, "chiave API revocata",
 		slog.String("user_id", userID), slog.String("api_key_id", keyID))
+
+	// Il nome della chiave non c'è: la revoca lavora sull'identificativo, e
+	// andarlo a leggere costerebbe una query in più per riempire un campo che
+	// l'email tratta come facoltativo. L'avviso dice comunque la cosa che conta,
+	// cioè che una credenziale è stata revocata adesso.
+	s.announce(ctx, SecurityAPIKeyRevoked, userID, "")
 	return nil
 }
 

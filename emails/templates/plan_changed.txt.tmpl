@@ -10,7 +10,20 @@
 {{.T "common.label_effective_from"}}: {{.Time .Data.EffectiveAt}}
 
 {{.T "plan_changed.limits" "next" .Data.NewPlan}}
+{{if .Data.HasSuspension}}
+{{.T "plan_changed.suspended_heading"}}
+{{if gt .Data.SuspendedByJobLimit 0}}
+{{.TN "plan_changed.suspended_job_limit" .Data.SuspendedByJobLimit "next" .Data.NewPlan}}
+{{- end}}
+{{- if gt .Data.SuspendedByResolution 0}}
 
+{{.TN "plan_changed.suspended_resolution" .Data.SuspendedByResolution "next" .Data.NewPlan}}
+{{- end}}
+
+{{.T "plan_changed.suspended_nothing_lost"}}
+
+{{.T "plan_changed.suspended_cta"}}: {{.AppURL "/jobs"}}
+{{end}}
 {{.T "plan_changed.cta"}}: {{.AppURL "/settings/billing"}}
 
 {{.T "plan_changed.unexpected" "support" .Site.SupportEmail}}

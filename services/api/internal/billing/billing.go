@@ -164,6 +164,48 @@ type SaveResult struct {
 
 	// PlanCode è il piano in forza dopo la scrittura.
 	PlanCode string
+
+	// PreviousPlanCode è il piano in forza **prima**. Vale `free` quando
+	// l'utente non aveva una sottoscrizione viva, che è la condizione normale di
+	// chi non ha mai comprato (R59).
+	//
+	// Serve alla notifica di R21 e a una decisione che senza di esso non si
+	// potrebbe prendere: se i due piani coincidono non c'è niente da comunicare,
+	// e un rinnovo mensile — che è un evento Paddle a tutti gli effetti —
+	// manderebbe un'email che annuncia un cambiamento mai avvenuto.
+	PreviousPlanCode string
+}
+
+// PlanChangeNotice è ciò che l'utente deve sapere di una variazione di piano
+// (R21), compreso quello che deve **fare** se R58 ha fermato dei job.
+//
+// I nomi sono quelli di listino e non i codici: l'email è per una persona, e
+// «Pro» è come il piano si chiama nella pagina dei prezzi che ha visto.
+type PlanChangeNotice struct {
+	UserID       string
+	PreviousPlan string
+	NewPlan      string
+	EffectiveAt  time.Time
+
+	// SuspendedByJobLimit e SuspendedByResolution restano due numeri distinti
+	// perché sono due rimedi distinti: vedi [Suspension].
+	SuspendedByJobLimit   int
+	SuspendedByResolution int
+}
+
+// Notifier riceve le variazioni di piano da comunicare.
+//
+// L'implementazione è internal/notify, che decide quando la comunicazione
+// diventa un'email e in che lingua. La direzione della dipendenza è quella di
+// [paddle.EntitlementSink]: chi produce il fatto dichiara l'interfaccia, chi lo
+// consuma la implementa, e questo package resta provabile senza template né
+// client SMTP.
+//
+// Un errore **non deve** far fallire l'applicazione della sottoscrizione: il
+// pagamento è avvenuto e il piano va scritto comunque. Vedi
+// [Service.ApplySubscription].
+type Notifier interface {
+	PlanChanged(ctx context.Context, notice PlanChangeNotice) error
 }
 
 // Suspension è l'esito dell'applicazione di R58.

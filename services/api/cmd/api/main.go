@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -29,7 +30,9 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/config"
 	"github.com/apdsoftware/postqron/services/api/internal/cronyaml"
 	"github.com/apdsoftware/postqron/services/api/internal/database"
+	"github.com/apdsoftware/postqron/services/api/internal/dispatch"
 	"github.com/apdsoftware/postqron/services/api/internal/dotenv"
+	"github.com/apdsoftware/postqron/services/api/internal/emailrender"
 	"github.com/apdsoftware/postqron/services/api/internal/githubapp"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhookpg"
@@ -38,6 +41,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
+	"github.com/apdsoftware/postqron/services/api/internal/notify"
+	"github.com/apdsoftware/postqron/services/api/internal/notifypg"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
 	"github.com/apdsoftware/postqron/services/api/internal/paddlepg"
 	"github.com/apdsoftware/postqron/services/api/internal/reposync"
@@ -99,7 +104,23 @@ func run() error {
 	}
 	defer pool.Close()
 
-	authService, err := newAuthService(pool, workdir, cfg, logger)
+	// La coda delle notifiche (R21) si costruisce **prima di tutto ciò che la
+	// usa**: autenticazione, chiavi API, motore e fatturazione ci si agganciano
+	// tutti, e sono quattro punti che devono vedere la stessa coda.
+	//
+	// Accodare non richiede Mailronix: serve solo il database. È il motivo per
+	// cui questa riga non ha un ramo per la macchina di sviluppo — la coda c'è
+	// sempre, ed è il corriere a poter mancare.
+	notifyService, err := notifypg.NewService(pool, logger)
+	if err != nil {
+		return err
+	}
+	sinks, err := newNotifySinks(notifyService)
+	if err != nil {
+		return err
+	}
+
+	authService, err := newAuthService(pool, cfg, logger, sinks.auth)
 	if err != nil {
 		return err
 	}
@@ -122,6 +143,7 @@ func run() error {
 		Clients: guard,
 		Targets: guard,
 		Secrets: secretsService,
+		Alerter: sinks.failures,
 	})
 	if err != nil {
 		return err
@@ -132,7 +154,7 @@ func run() error {
 		return err
 	}
 
-	apiKeysService, err := newAPIKeysService(pool, logger)
+	apiKeysService, err := newAPIKeysService(pool, logger, sinks.keys)
 	if err != nil {
 		return err
 	}
@@ -172,7 +194,7 @@ func run() error {
 	// catalogo Paddle non si vende — e `CanSell` lo dice — ma il piano in forza
 	// va comunque letto, e un evento che arrivasse su una macchina senza catalogo
 	// deve fallire rumorosamente invece di essere ignorato.
-	billingService, err := billingpg.NewService(pool, os.Getenv, logger)
+	billingService, err := billingpg.NewService(pool, os.Getenv, logger, sinks.plans)
 	if err != nil {
 		return err
 	}
@@ -237,6 +259,26 @@ func run() error {
 			logger.Error("retention: ciclo interrotto", slog.Any("error", err))
 		}
 	}()
+
+	// Il corriere delle email (R20, R21). Il costruttore va chiamato **prima**
+	// che il server parta anche quando non c'è niente da avviare: senza
+	// MAILRONIX_API_KEY in produzione è un errore d'avvio, e scoprirlo mentre il
+	// servizio già accetta registrazioni è troppo tardi.
+	courier, err := newCourier(pool, workdir, cfg, logger)
+	if err != nil {
+		return err
+	}
+	courierStopped := make(chan struct{})
+	if courier == nil {
+		close(courierStopped)
+	} else {
+		go func() {
+			defer close(courierStopped)
+			if err := courier.Run(ctx, notify.DefaultInterval); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("notifiche: ciclo del corriere interrotto", slog.Any("error", err))
+			}
+		}()
+	}
 
 	// Il motore parte prima del server: le occorrenze rimaste in sospeso da una
 	// vita precedente del processo vengono riprese subito (scheduler.Engine.Recover),
@@ -307,13 +349,28 @@ func run() error {
 	case <-shutdownCtx.Done():
 		logger.Warn("retention: passata non conclusa entro il tempo dell'arresto")
 	}
+	// Il corriere si aspetta per la stessa ragione, con una in più: una notifica
+	// consegnata a Mailronix e non ancora chiusa in coda tornerebbe disponibile
+	// alla scadenza del contratto e partirebbe una seconda volta. Aspettare la
+	// passata in corso è ciò che rende quel doppione raro invece che sistematico
+	// a ogni riavvio.
+	select {
+	case <-courierStopped:
+	case <-shutdownCtx.Done():
+		logger.Warn("notifiche: passata non conclusa entro il tempo dell'arresto")
+	}
 
 	logger.Info("servizio arrestato")
 	return listenErr
 }
 
 // newAuthService costruisce l'autenticazione (R14).
-func newAuthService(pool *pgxpool.Pool, workdir string, cfg config.Config, logger *slog.Logger) (*auth.Service, error) {
+func newAuthService(
+	pool *pgxpool.Pool,
+	cfg config.Config,
+	logger *slog.Logger,
+	mailer auth.Mailer,
+) (*auth.Service, error) {
 	store, err := authpg.New(pool)
 	if err != nil {
 		return nil, err
@@ -326,10 +383,6 @@ func newAuthService(pool *pgxpool.Pool, workdir string, cfg config.Config, logge
 	if err != nil {
 		return nil, err
 	}
-	mailer, err := newMailer(workdir, cfg, logger)
-	if err != nil {
-		return nil, err
-	}
 	return auth.NewService(auth.Options{
 		Store:   store,
 		Hasher:  hasher,
@@ -339,26 +392,89 @@ func newAuthService(pool *pgxpool.Pool, workdir string, cfg config.Config, logge
 	})
 }
 
-// newMailer costruisce il recapito delle email (R20, issue #419).
+// notifySinks sono i quattro punti in cui i domini si attaccano alla coda (R21).
 //
-// Senza MAILRONIX_API_KEY si ripiega su [auth.LogMailer], che registra e non
-// recapita: in sviluppo nessuno vuole che `go run ./cmd/api` pretenda la chiave
-// di un servizio esterno, e chi ha bisogno di un token di reset lo legge dal
-// database. In produzione, invece, la stessa mancanza è un errore d'avvio: un
-// servizio che accetta registrazioni senza poter mandare l'email di verifica è
-// rotto in un modo che nessuno si accorge di aver causato.
-func newMailer(workdir string, cfg config.Config, logger *slog.Logger) (auth.Mailer, error) {
-	mailer, err := mailronix.NewMailerFromEnv(os.Getenv, workdir, logger)
+// Stanno insieme perché sono la stessa decisione presa quattro volte: chi
+// produce il fatto dichiara l'interfaccia, internal/notify la implementa, e
+// `cmd/api` è l'unico posto in cui i due si incontrano. Nessun package di
+// dominio importa internal/notify.
+type notifySinks struct {
+	auth     auth.Mailer
+	keys     apikeys.SecurityNotifier
+	plans    billing.Notifier
+	failures dispatch.Alerter
+}
+
+func newNotifySinks(service *notify.Service) (notifySinks, error) {
+	var sinks notifySinks
+	var err error
+	if sinks.auth, err = notify.NewAuthMailer(service); err != nil {
+		return notifySinks{}, err
+	}
+	if sinks.keys, err = notify.NewKeySink(service); err != nil {
+		return notifySinks{}, err
+	}
+	if sinks.plans, err = notify.NewPlanSink(service); err != nil {
+		return notifySinks{}, err
+	}
+	if sinks.failures, err = notify.NewFailureSink(service); err != nil {
+		return notifySinks{}, err
+	}
+	return sinks, nil
+}
+
+// newCourier costruisce chi svuota la coda e recapita (R20, R21).
+//
+// **Restituisce (nil, nil) senza MAILRONIX_API_KEY fuori dalla produzione.** È
+// la stessa scelta che c'era prima con [auth.LogMailer], spostata di un livello
+// e migliorata: in sviluppo nessuno vuole che `go run ./cmd/api` pretenda la
+// chiave di un servizio esterno, e adesso ciò che *sarebbe* stato mandato non si
+// perde in una riga di log — resta in `notifications`, leggibile con una SELECT.
+//
+// In produzione la stessa mancanza resta un errore d'avvio: un servizio che
+// accetta registrazioni senza poter mandare l'email di verifica è rotto in un
+// modo che nessuno si accorge di aver causato.
+func newCourier(
+	pool *pgxpool.Pool,
+	workdir string,
+	cfg config.Config,
+	logger *slog.Logger,
+) (*notify.Courier, error) {
+	cfgMailronix, err := mailronix.LoadConfig(os.Getenv)
 	switch {
-	case err == nil:
-		return mailer, nil
 	case errors.Is(err, mailronix.ErrNotConfigured) && !cfg.IsProduction():
-		logger.Warn("email non recapitate: "+mailronix.EnvAPIKey+" non impostata",
+		logger.Warn("email non recapitate: "+mailronix.EnvAPIKey+" non impostata. "+
+			"Le notifiche restano in coda nella tabella `notifications`",
 			slog.String("env", cfg.Env))
-		return auth.LogMailer{Logger: logger}, nil
-	default:
+		return nil, nil
+	case err != nil:
 		return nil, err
 	}
+
+	client, err := mailronix.New(cfgMailronix, mailronix.WithLogger(logger))
+	if err != nil {
+		return nil, err
+	}
+
+	dir, err := emailrender.FindDir(workdir)
+	if err != nil {
+		return nil, fmt.Errorf("template delle email: %w", err)
+	}
+	renderer, err := emailrender.NewFromDir(dir, mailronix.SiteFromEnv(os.Getenv))
+	if err != nil {
+		return nil, fmt.Errorf("template delle email: %w", err)
+	}
+
+	store, err := notifypg.New(pool)
+	if err != nil {
+		return nil, err
+	}
+	return notify.NewCourier(notify.CourierOptions{
+		Queue:    store,
+		Renderer: renderer,
+		Sender:   client,
+		Logger:   logger,
+	})
 }
 
 // newAPIKeysService costruisce le chiavi API (R9).
@@ -374,7 +490,11 @@ func newMailer(workdir string, cfg config.Config, logger *slog.Logger) (auth.Mai
 // `Users` è lo store dell'autenticazione: risolvere il proprietario di una
 // chiave è leggere una riga di `users`, e duplicare quella query qui farebbe
 // divergere le due letture al primo cambio di `deleted_at`.
-func newAPIKeysService(pool *pgxpool.Pool, logger *slog.Logger) (*apikeys.Service, error) {
+func newAPIKeysService(
+	pool *pgxpool.Pool,
+	logger *slog.Logger,
+	notifier apikeys.SecurityNotifier,
+) (*apikeys.Service, error) {
 	store, err := apikeypg.New(pool)
 	if err != nil {
 		return nil, err
@@ -388,10 +508,11 @@ func newAPIKeysService(pool *pgxpool.Pool, logger *slog.Logger) (*apikeys.Servic
 		return nil, err
 	}
 	return apikeys.NewService(apikeys.Options{
-		Store:   store,
-		Users:   users,
-		Keyring: keyring,
-		Logger:  logger,
+		Store:    store,
+		Users:    users,
+		Keyring:  keyring,
+		Notifier: notifier,
+		Logger:   logger,
 	})
 }
 

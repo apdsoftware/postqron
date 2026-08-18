@@ -64,6 +64,13 @@ type engineOptions struct {
 	// riferimento scritto tale e quale al posto della credenziale. In esercizio è
 	// `*secrets.Service`, lo stesso che serve le rotte `/secrets`.
 	Secrets httpexec.Secrets
+
+	// Alerter riceve i fallimenti definitivi e li trasforma in avvisi (R21). A
+	// differenza dei tre campi sopra **può essere nil**, e la differenza è
+	// deliberata: un guard mancante è un buco di sicurezza, un avvisatore
+	// mancante è un servizio che esegue i job senza raccontarlo. Il secondo è
+	// una configurazione, il primo no.
+	Alerter dispatch.Alerter
 }
 
 // engine tiene insieme scheduler e worker pool per il ciclo di vita del
@@ -110,6 +117,7 @@ func newEngine(opts engineOptions) (*engine, error) {
 		Store:    dispatch.NewPostgresStore(opts.Pool),
 		Executor: executor,
 		Guard:    targetGuard{check: opts.Targets},
+		Alerter:  opts.Alerter,
 		Logger:   log,
 	})
 	if err != nil {

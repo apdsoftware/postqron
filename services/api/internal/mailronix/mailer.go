@@ -164,6 +164,15 @@ func (m *Mailer) Send(ctx context.Context, msg auth.Message) error {
 // resolve traduce un messaggio dell'autenticazione nell'evento e nel contesto
 // che emailrender sa compilare.
 func (m *Mailer) resolve(msg auth.Message) (emailrender.Event, any, error) {
+	if msg.Kind == auth.KindWelcome {
+		// Il benvenuto ha un template, ma non passa di qui: [auth.Message] lo
+		// manda senza indirizzo perché la coda delle notifiche (#420) rilegge
+		// destinatario e lingua dal profilo al momento dell'invio, che è l'unico
+		// modo di rispettare R33. Questo aggancio non sa leggere `users`, e un
+		// benvenuto in inglese a un utente che ha scelto il tedesco sarebbe un
+		// mezzo servizio spacciato per uno intero.
+		return "", nil, fmt.Errorf("%w: il benvenuto passa dalla coda delle notifiche, non da questo aggancio", ErrNoTemplate)
+	}
 	if strings.TrimSpace(msg.To) == "" {
 		return "", nil, fmt.Errorf("%w: destinatario mancante", ErrInvalidEmail)
 	}
