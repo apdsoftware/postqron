@@ -358,6 +358,43 @@ func writeErrorDetail(w http.ResponseWriter, r *http.Request, logger *slog.Logge
 
 var errBodyTooLarge = errors.New("corpo della richiesta troppo grande")
 
+// writeDecodeError traduce l'errore di [decodeJSON] nella risposta HTTP, e sta
+// **qui** — accanto alla funzione che il segnale lo produce — per una ragione
+// che abbiamo pagato.
+//
+// La traduzione era ricopiata in sei punti, identica cinque volte. Il sesto,
+// `POST /billing/checkout`, non riconosceva `errBodyTooLarge` affatto e
+// schiacciava ogni errore di decodifica — JSON illeggibile, campo sconosciuto,
+// Content-Type errato **e corpo troppo grande** — in un solo `400
+// validation_failed`. Nessun controllo poteva accorgersene: cinque copie giuste
+// e una mancante non sono un difetto che un test di quel gestore vede, perché
+// quel gestore faceva esattamente ciò che c'era scritto.
+//
+// Le due conseguenze erano concrete. Un client con un corpo troppo grande
+// leggeva «i tuoi campi sono sbagliati» e avrebbe riprovato all'infinito con lo
+// stesso corpo, perché `400` invita a correggere i campi e `413` a mandarne di
+// meno. E `validation_failed` altrove significa «campi non validi, con
+// `details` per campo»: senza `details` lo stesso codice diceva due cose.
+//
+// **Due rotte non usano questo helper, ed è voluto.** `POST /secrets` e le rotte
+// delle chiavi AI redigono il messaggio invece di rimandarlo: `json.Decoder` cita
+// il testo che non è riuscito a leggere, e nel corpo di quelle richieste quel
+// testo può essere il segreto. Passano quindi dal proprio `decode`, che riusa lo
+// stesso stato e lo stesso codice ma non `err.Error()`. Chi aggiunge una rotta
+// che porta materiale sensibile deve fare altrettanto: questo helper è per i
+// corpi che si possono citare.
+//
+// Restituisce `false` sempre, così i chiamanti possono scrivere
+// `return writeDecodeError(...)` invece di ripetere la coppia.
+func writeDecodeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) bool {
+	status, code := http.StatusBadRequest, "invalid_request"
+	if errors.Is(err, errBodyTooLarge) {
+		status, code = http.StatusRequestEntityTooLarge, "body_too_large"
+	}
+	writeError(w, r, logger, status, code, err.Error())
+	return false
+}
+
 // decodeJSON legge il corpo JSON di una richiesta.
 //
 // Rifiuta i campi che non conosce: `passwrod` scritto male sarebbe altrimenti

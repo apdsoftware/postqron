@@ -36,7 +36,8 @@ import (
 //
 // Codici di errore, stabili e pensati per il branching applicativo (R53):
 //
-//	400 validation_failed        corpo illeggibile o campo sconosciuto
+//	400 invalid_request          corpo illeggibile o campo sconosciuto
+//	413 body_too_large           corpo oltre il tetto
 //	401 unauthenticated          sessione assente o scaduta
 //	409 business_use_required    manca la conferma di uso professionale (R63)
 //	409 plan_not_purchasable     il piano non è in vendita (Free, o ritirato)
@@ -182,7 +183,7 @@ func (a *billingAPI) subscription(w http.ResponseWriter, r *http.Request, user a
 func (a *billingAPI) checkout(w http.ResponseWriter, r *http.Request, user auth.User, _ auth.Session) {
 	var body checkoutRequest
 	if err := decodeJSON(w, r, &body); err != nil {
-		writeError(w, r, a.log, http.StatusBadRequest, "validation_failed", err.Error())
+		writeDecodeError(w, r, a.log, err)
 		return
 	}
 

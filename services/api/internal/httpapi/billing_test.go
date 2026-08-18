@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +104,14 @@ func newBillingFixture(t *testing.T, vendibile bool) *billingFixture {
 func intPtr(v int) *int { return &v }
 
 func (f *billingFixture) checkout(corpo map[string]any, prepare ...func(*http.Request)) *httptest.ResponseRecorder {
+	f.t.Helper()
+	return f.do(http.MethodPost, "/billing/checkout", corpo, prepare...)
+}
+
+// checkout2 è checkout per i corpi che una mappa non sa esprimere: JSON
+// troncato, o più grande del tetto. `do` codifica ciò che riceve, e una
+// json.RawMessage codifica se stessa.
+func (f *billingFixture) checkout2(corpo any, prepare ...func(*http.Request)) *httptest.ResponseRecorder {
 	f.t.Helper()
 	return f.do(http.MethodPost, "/billing/checkout", corpo, prepare...)
 }
@@ -354,5 +363,47 @@ func TestSenzaServizioLeRotteDiFatturazioneNonEsistono(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/billing/subscription", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, atteso 404", rec.Code)
+	}
+}
+
+// TestIlCheckoutDistingueUnCorpoTroppoGrandeDaUnCampoSbagliato è la prova del
+// difetto trovato descrivendo l'API per il contratto OpenAPI (#465).
+//
+// `POST /billing/checkout` era l'unica delle sei rotte che leggono un corpo a
+// non riconoscere `errBodyTooLarge`: schiacciava ogni errore di decodifica in un
+// solo `400 validation_failed`. Le due conseguenze erano concrete — un client
+// con un corpo troppo grande leggeva «i tuoi campi sono sbagliati» e avrebbe
+// riprovato all'infinito con lo stesso corpo, e `validation_failed` arrivava
+// senza il `details` per campo che quel codice promette altrove.
+func TestIlCheckoutDistingueUnCorpoTroppoGrandeDaUnCampoSbagliato(t *testing.T) {
+	f := newBillingFixture(t, true)
+
+	casi := map[string]struct {
+		corpo  any
+		status int
+		codice string
+	}{
+		"corpo oltre il tetto": {
+			// 9 KiB: il tetto condiviso è 8 KiB (`maxRequestBody`, non esportato).
+			// È lo stesso numero e la stessa ragione del caso in auth_test.go.
+			json.RawMessage(`{"plan":"` + strings.Repeat("a", 9000) + `"}`),
+			http.StatusRequestEntityTooLarge, "body_too_large",
+		},
+		"campo sconosciuto": {
+			map[string]any{"plan": "pro", "period": "monthly", "business_use": true, "sconosciuto": 1},
+			http.StatusBadRequest, "invalid_request",
+		},
+	}
+
+	for nome, caso := range casi {
+		t.Run(nome, func(t *testing.T) {
+			rec := f.checkout2(caso.corpo, withCookie(f.token))
+			if rec.Code != caso.status {
+				t.Fatalf("status = %d, atteso %d: %s", rec.Code, caso.status, rec.Body.String())
+			}
+			if got := errorCode(t, rec); got != caso.codice {
+				t.Errorf("codice = %q, atteso %q", got, caso.codice)
+			}
+		})
 	}
 }

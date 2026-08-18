@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -223,12 +222,7 @@ func (a *keysAPI) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err == nil {
 		return true
 	}
-	status, code := http.StatusBadRequest, "invalid_request"
-	if errors.Is(err, errBodyTooLarge) {
-		status, code = http.StatusRequestEntityTooLarge, "body_too_large"
-	}
-	writeError(w, r, a.log, status, code, err.Error())
-	return false
+	return writeDecodeError(w, r, a.log, err)
 }
 
 func apiKeyResponse(key apikeys.Key) APIKeyResponse {

@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -344,13 +343,7 @@ func (a *authAPI) client(r *http.Request) auth.Client {
 // decode legge il corpo e risponde 400 se non è valido.
 func (a *authAPI) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err := decodeJSON(w, r, dst); err != nil {
-		status := http.StatusBadRequest
-		code := "invalid_request"
-		if errors.Is(err, errBodyTooLarge) {
-			status, code = http.StatusRequestEntityTooLarge, "body_too_large"
-		}
-		writeError(w, r, a.log, status, code, err.Error())
-		return false
+		return writeDecodeError(w, r, a.log, err)
 	}
 	return true
 }

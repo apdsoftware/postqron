@@ -385,12 +385,7 @@ func (a *jobsAPI) handleDecode(w http.ResponseWriter, r *http.Request, err error
 	if err == nil {
 		return true
 	}
-	status, code := http.StatusBadRequest, "invalid_request"
-	if errors.Is(err, errBodyTooLarge) {
-		status, code = http.StatusRequestEntityTooLarge, "body_too_large"
-	}
-	writeError(w, r, a.log, status, code, err.Error())
-	return false
+	return writeDecodeError(w, r, a.log, err)
 }
 
 // queryErrors raccoglie i parametri di query malformati.
