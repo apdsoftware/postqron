@@ -398,12 +398,14 @@ paths:
         Risponde `204` anche se non c'era nessuna sessione: il risultato voluto è
         già vero, e un errore darebbe a chi ha in mano un token scaduto la
         conferma che lo era. Il cookie viene comunque cancellato.
+
+        **È l'unica rotta senza un `429`**, ed è deliberato: chiudere una sessione
+        non costa un hash né una scrittura ripetibile, e limitare chi si scollega
+        vorrebbe dire tenere collegato chi vuole andarsene.
       security: []
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
-        "429":
-          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
