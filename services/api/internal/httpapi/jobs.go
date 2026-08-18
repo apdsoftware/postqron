@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
+	"github.com/apdsoftware/postqron/services/api/internal/execstream"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 )
 
@@ -79,10 +80,18 @@ type jobsAPI struct {
 	*guard
 	svc *jobs.Service
 	log *slog.Logger
+
+	// streams è l'hub dello streaming (SPEC §4.2). Nil toglie la rotta del
+	// flusso: vedi [jobsAPI.streamExecutions].
+	streams *execstream.Hub
+	timings StreamTimings
 }
 
-func newJobsAPI(guard *guard, logger *slog.Logger, svc *jobs.Service) *jobsAPI {
-	return &jobsAPI{guard: guard, svc: svc, log: logger}
+func newJobsAPI(guard *guard, logger *slog.Logger, svc *jobs.Service, streams *execstream.Hub, timings StreamTimings) *jobsAPI {
+	return &jobsAPI{
+		guard: guard, svc: svc, log: logger,
+		streams: streams, timings: timings.orDefaults(),
+	}
 }
 
 // routes registra le rotte con lo scope che ciascuna richiede (R9).
@@ -111,6 +120,12 @@ func (a *jobsAPI) routes(mux *http.ServeMux) {
 	// due poteri diversi, e una chiave da cruscotto vuole il secondo senza il primo.
 	mux.HandleFunc("GET /jobs/{id}/executions", a.scoped(apikeys.ScopeExecutionsRead, a.listExecutions))
 	mux.HandleFunc("POST /jobs/{id}/executions", a.scoped(apikeys.ScopeExecutionsTrigger, a.trigger))
+
+	// Il flusso in tempo reale è la stessa lettura del registro consegnata in un
+	// altro modo (SPEC §4.2), quindi lo stesso scope: chiederne uno diverso
+	// costringerebbe a creare una seconda chiave per vedere le stesse righe. Vedi
+	// executions_stream.go.
+	mux.HandleFunc("GET /jobs/{id}/executions/stream", a.scoped(apikeys.ScopeExecutionsRead, a.streamExecutions))
 }
 
 // ------------------------------------------------------------------ handler

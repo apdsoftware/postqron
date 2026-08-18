@@ -28,6 +28,7 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/billing"
 	"github.com/apdsoftware/postqron/services/api/internal/config"
+	"github.com/apdsoftware/postqron/services/api/internal/execstream"
 	"github.com/apdsoftware/postqron/services/api/internal/githubhook"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/paddle"
@@ -106,6 +107,19 @@ type Deps struct {
 	// codice e non in configurazione.
 	RateLimits RateLimits
 
+	// ExecutionStreams è l'hub dello streaming dei log (SPEC §4.2). Nil, con
+	// Jobs valorizzato, ne fa costruire uno con i tetti d'esercizio: è la
+	// configurazione normale, e il campo esiste perché i test devono poter
+	// abbassare i tetti e comandare il battito senza aspettarlo.
+	//
+	// Chi lo passa ne possiede anche la fine: l'hub tiene una goroutine di
+	// lettura, e [execstream.Hub.Stop] la ferma.
+	ExecutionStreams *execstream.Hub
+
+	// StreamTimings sostituisce i tempi della connessione SSE. Vedi
+	// executions_stream.go.
+	StreamTimings StreamTimings
+
 	// Readiness è la sorgente della prontezza del motore (R7). Nil significa che
 	// `/readyz` non viene registrata: un processo che non ha un motore da
 	// osservare non deve rispondere «pronto» a una domanda su di esso.
@@ -183,7 +197,22 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 		// non c'è un utente a cui ancorare né i job né i limiti di piano, quindi
 		// registrarle da sole non avrebbe senso.
 		if deps.Jobs != nil {
-			newJobsAPI(guard, logger, deps.Jobs).routes(mux)
+			streams := deps.ExecutionStreams
+			if streams == nil {
+				// L'hub nasce qui perché è qui che si sa che c'è un registro da
+				// osservare. Costruirlo non può fallire con un logger valido, e un
+				// logger ce l'abbiamo: l'errore si registra e si prosegue senza
+				// streaming, che è la degradazione giusta — la dashboard perde il
+				// tempo reale, non il registro.
+				hub, err := execstream.New(execstream.Options{Logger: logger})
+				if err != nil {
+					logger.Error("streaming dei log non disponibile: hub non costruito",
+						slog.Any("error", err))
+				} else {
+					streams = hub
+				}
+			}
+			newJobsAPI(guard, logger, deps.Jobs, streams, deps.StreamTimings).routes(mux)
 		} else {
 			logger.Warn("rotte dei job non registrate: nessun servizio jobs configurato")
 		}
