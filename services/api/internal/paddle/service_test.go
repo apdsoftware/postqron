@@ -606,3 +606,36 @@ func TestSecretFromEnv(t *testing.T) {
 		t.Fatalf("un valore di soli spazi non è un segreto: %q", got)
 	}
 }
+
+// TestUnEventoNonAttribuibileNonFaRipetereLaConsegna copre il caso in cui
+// nessuna ripetizione può cambiare l'esito.
+//
+// Nasce da R45: un account cancellato e purgato si porta via la propria
+// sottoscrizione, mentre il contratto — dalla parte di Paddle, che è il Merchant
+// of Record — resta vivo e continua a generare eventi. Quegli eventi arrivano
+// qui senza un proprietario, e sono la definizione di ciò che ritentare non
+// sistema.
+//
+// La differenza con TestEventoFallitoVieneRilavoratoAllaRipetizione è tutta qui:
+// là il guasto era transitorio e la seconda consegna doveva riuscire, quindi
+// `failed` e 500 sono la risposta giusta; qui non c'è nessuna seconda consegna
+// che possa andare meglio, e un 500 comprerebbe soltanto tre giorni di
+// ripetizioni.
+func TestUnEventoNonAttribuibileNonFaRipetereLaConsegna(t *testing.T) {
+	store, sink := nuovoArchivio(), nuovoDestinatario()
+	sink.errore = fmt.Errorf("%w: sottoscrizione sub_01", paddle.ErrUnattributable)
+	svc := servizio(t, store, sink)
+
+	esito, err := consegna(t, svc, eventoSottoscrizione(
+		"evt_01", paddle.EventSubscriptionUpdated, primo, "sub_01", "active", prezzoPr, utente))
+	if err != nil {
+		t.Fatalf("consegna: %v", err)
+	}
+	if esito.Outcome != paddle.OutcomeIgnored {
+		t.Fatalf("esito = %q, atteso %q: un 500 farebbe ripetere Paddle per tre giorni",
+			esito.Outcome, paddle.OutcomeIgnored)
+	}
+	if store.stato("evt_01") != paddle.StatusIgnored {
+		t.Errorf("stato registrato = %q, atteso %q", store.stato("evt_01"), paddle.StatusIgnored)
+	}
+}

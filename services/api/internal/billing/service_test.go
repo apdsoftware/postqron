@@ -317,6 +317,14 @@ func TestSottoscrizioneSenzaUtente(t *testing.T) {
 	if !errors.Is(err, billing.ErrUnknownSubscriber) {
 		t.Fatalf("atteso ErrUnknownSubscriber, ottenuto %v", err)
 	}
+	// L'errore porta con sé anche [paddle.ErrUnattributable], che è
+	// l'informazione di cui ha bisogno chi lo riceve: non «è andata male» ma
+	// «ripetere non serve». Il caso normale che lo produce è un account
+	// cancellato e purgato (R45) la cui sottoscrizione, dalla parte di Paddle,
+	// è ancora viva — e un 500 comprerebbe soltanto tre giorni di ripetizioni.
+	if !errors.Is(err, paddle.ErrUnattributable) {
+		t.Fatalf("atteso anche paddle.ErrUnattributable, ottenuto %v", err)
+	}
 
 	store.utenti["sub_nota"] = utente
 	applicato, err := svc.ApplySubscription(context.Background(),

@@ -210,6 +210,26 @@ func (s *Service) apply(ctx context.Context, result Result, sub Subscription) (R
 	}
 
 	applied, err := s.sink.ApplySubscription(ctx, sub)
+	if errors.Is(err, ErrUnattributable) {
+		// Nessun account a cui attribuire l'evento, e nessuna ripetizione che
+		// possa cambiarlo: il caso normale è un account cancellato e purgato (R45)
+		// la cui sottoscrizione, dalla parte di Paddle, è ancora viva. Si registra
+		// come ignorato e si risponde 200 — un `failed` qui farebbe ripetere la
+		// consegna per tre giorni senza mai riuscire.
+		//
+		// Il livello è `Error` e non `Info` perché è il segnale che qualcuno sta
+		// pagando per un servizio che non ha più: è la conseguenza dichiarata
+		// nella risposta alla richiesta di cancellazione (Termini §4.3, nessun
+		// rimborso pro rata), e va vista da chi guarda i log.
+		s.complete(ctx, sub.Event.ID, StatusIgnored, err.Error())
+		s.log.ErrorContext(ctx, "sottoscrizione Paddle senza account: evento ignorato, non ripetibile",
+			slog.String("event_id", sub.Event.ID),
+			slog.String("subscription_id", sub.ID),
+			slog.String("status", string(sub.Status)),
+			slog.Any("error", err))
+		result.Outcome = OutcomeIgnored
+		return result, nil
+	}
 	if err != nil {
 		// Lo stato `failed` è ciò che permette a una ripetizione — automatica o
 		// lanciata a mano dal cruscotto di Paddle — di rilavorare l'evento invece

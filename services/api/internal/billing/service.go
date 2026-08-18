@@ -118,6 +118,22 @@ func (s *Service) ApplySubscription(ctx context.Context, sub paddle.Subscription
 	}
 
 	result, err := s.store.SaveSubscription(ctx, change)
+	if errors.Is(err, ErrUnknownSubscriber) {
+		// La sottoscrizione non appartiene a nessun account, e il caso che la
+		// produce è previsto: un account cancellato e purgato (R45) si porta via
+		// la propria riga di `subscriptions`, mentre dalla parte di Paddle il
+		// contratto resta vivo e continua a generare eventi.
+		//
+		// L'errore viene rietichettato come [paddle.ErrUnattributable] perché è
+		// quella l'informazione che serve a chi lo riceve: non «è andata male» ma
+		// «ripetere non serve». Il 500 che otterrebbe altrimenti farebbe ripetere
+		// Paddle per tre giorni su un fatto che nessuna ripetizione può sistemare.
+		s.log.ErrorContext(ctx, "sottoscrizione Paddle senza account: probabile account cancellato (R45)",
+			slog.String("subscription_id", sub.ID),
+			slog.String("event_id", sub.Event.ID),
+			slog.String("event_type", sub.Event.Type))
+		return false, fmt.Errorf("%w: %w", paddle.ErrUnattributable, err)
+	}
 	if err != nil {
 		return false, fmt.Errorf("billing: scrittura della sottoscrizione: %w", err)
 	}
