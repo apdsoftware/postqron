@@ -13,7 +13,10 @@
 defineProps<{ navigationOpen: boolean }>()
 const emit = defineEmits<{ toggleNavigation: [] }>()
 
-const { t } = useLocale()
+// `href()` e non un percorso scritto a mano: le rotte sono prefissate per
+// lingua (SPEC §8-bis), e il marchio deve riportare alla panoramica in quella
+// che si sta leggendo.
+const { t, href } = useLocale()
 </script>
 
 <template>
@@ -43,7 +46,7 @@ const { t } = useLocale()
           </button>
 
           <NuxtLink
-            to="/"
+            :to="href('/')"
             class="flex items-center ml-2 md:mr-24"
           >
             <span class="self-center text-xl font-semibold sm:text-2xl whitespace-nowrap dark:text-white">Postqron</span>

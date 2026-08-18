@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ApiError } from '~/utils/api'
-import { authErrorKey, REGISTER_PATH, safeNextPath } from '~/utils/auth'
+import { authErrorKey, localizeNextPath, REGISTER_PATH, safeNextPath } from '~/utils/auth'
 
 /**
  * Accesso (R14).
@@ -26,10 +26,15 @@ import { authErrorKey, REGISTER_PATH, safeNextPath } from '~/utils/auth'
  * da `safeNextPath()`, che è la stessa validazione che ha usato la guardia
  * mettendocelo: viaggia nella barra degli indirizzi, quindi da qui in poi è un
  * valore esterno come qualunque altro, anche se l'abbiamo scritto noi.
+ *
+ * Ci si torna nella lingua di **questa** pagina e non in quella scritta dentro
+ * `next`: chi è arrivato qui rimbalzato e ha cambiato il selettore per capire
+ * cosa gli si chiedeva non deve ritrovarsi la schermata di prima nella lingua di
+ * prima. Il perché per esteso sta in `localizeNextPath()`.
  */
 definePageMeta({ layout: 'auth' })
 
-const { t } = useLocale()
+const { t, href, locale } = useLocale()
 const session = useSession()
 const route = useRoute()
 
@@ -56,7 +61,10 @@ async function submit(): Promise<void> {
      * era partito, non il modulo che ha appena compilato — che la guardia
      * rimanderebbe subito qui, in un rimbalzo senza uscita apparente.
      */
-    await navigateTo(next.value ?? '/', { replace: true })
+    await navigateTo(
+      next.value === null ? href('/') : localizeNextPath(next.value, locale.value),
+      { replace: true },
+    )
   }
   catch (cause) {
     /*
@@ -152,7 +160,7 @@ useHead(computed(() => ({ title: t.value.auth.signIn.title })))
     <p class="mt-6 text-sm font-light text-gray-500 dark:text-gray-400">
       {{ t.auth.signIn.noAccount }}
       <NuxtLink
-        :to="REGISTER_PATH"
+        :to="href(REGISTER_PATH)"
         class="font-medium text-primary-600 hover:underline dark:text-primary-500"
       >
         {{ t.auth.signIn.noAccountLink }}

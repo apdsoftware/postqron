@@ -19,8 +19,17 @@
  * lato client. Senza questa pagina, un refuso nell'indirizzo darebbe il guscio
  * con l'area del contenuto vuota — che si legge come un guasto, non come un
  * indirizzo sbagliato.
+ *
+ * ## Perché sta sotto `[locale]/`
+ *
+ * Perché un indirizzo sbagliato ha comunque una lingua, ed è l'unica cosa che
+ * di lui si sa con certezza: `/de/nessuna-sezione` dev'essere «Seite nicht
+ * gefunden», non la lingua indovinata dal browser. È anche il caso in cui ci si
+ * arriva più spesso e da più lontano — il link di un'email verso una sezione
+ * che ancora non esiste, `/it/jobs/new` finché #26 non la porta, finisce qui: e
+ * almeno lo dice in italiano, dentro il guscio, con un modo di andare altrove.
  */
-const { t } = useLocale()
+const { t, href } = useLocale()
 
 useHead(computed(() => ({ title: t.value.notFound.title })))
 </script>
@@ -34,7 +43,7 @@ useHead(computed(() => ({ title: t.value.notFound.title })))
       {{ t.notFound.intro }}
     </p>
     <NuxtLink
-      to="/"
+      :to="href('/')"
       class="text-white bg-primary-700 hover:bg-primary-800 focus:ring-4 focus:ring-primary-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center inline-flex items-center dark:bg-primary-600 dark:hover:bg-primary-700 dark:focus:ring-primary-800"
     >
       <AppIcon

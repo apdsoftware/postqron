@@ -62,18 +62,40 @@ test.describe('dashboard', () => {
 
   test('una rotta profonda ricade su index.html e la SPA la risolve', async ({ page }) => {
     // Regola `/* /index.html 200` di public/_redirects, riprodotta dal server
-    // statico dei test. Senza, un refresh su /jobs/42 restituirebbe 404: è il
+    // statico dei test. Senza, un refresh su /it/jobs/42 restituirebbe 404: è il
     // modo classico in cui una SPA statica si rompe solo in produzione, dove
     // nessuno ricarica mai la pagina durante lo sviluppo.
-    const response = await page.goto('/jobs/42')
+    //
+    // Il prefisso di lingua non cambia questo meccanismo, e non deve: al server
+    // statico i cinque prefissi non dicono niente — non esistono cinque
+    // directory — e `/it/jobs/42` è un percorso come un altro, servito dallo
+    // stesso guscio. A conoscerli è solo il router lato client.
+    const response = await page.goto('/it/jobs/42')
     expect(response?.status()).toBe(200)
 
     // Il router Vue ha preso il controllo: la pagina non è più il guscio vuoto.
     await expect(page.locator('#__nuxt')).toHaveText(/\S/)
+    await expect(page).toHaveURL('/it/jobs/42')
+  })
+
+  test('il guscio arriva su tutti e cinque i prefissi, e anche su ciò che non lo è', async ({ page, request }) => {
+    // Il server non distingue: qualunque percorso è 200 e qualunque percorso è
+    // il guscio. È l'unico modo in cui una SPA statica può funzionare, ed è il
+    // motivo per cui l'elenco chiuso delle cinque lingue deve stare nel router
+    // (`middleware/01.locale.global.ts`) e non nella distribuzione.
+    for (const path of ['/en', '/it', '/es', '/de', '/fr', '/pt/jobs']) {
+      expect((await request.get(path)).status(), path).toBe(200)
+    }
+
+    // E la differenza fra le cinque e il resto si vede solo dopo che il bundle
+    // ha girato: `pt` non è una lingua, quindi è un segmento di percorso — che
+    // viene prefissato come qualunque altro indirizzo senza lingua.
+    await page.goto('/pt/jobs')
+    await expect(page).toHaveURL('/en/pt/jobs')
   })
 })
 
-// Multilingua (SPEC §8-bis, R31–R32).
+// Multilingua (SPEC §8-bis, R31–R33).
 //
 // Qui le asserzioni sono sui testi, contro la regola generale di questo file,
 // perché il testo *è* il comportamento: «l'interfaccia è in tedesco» non si può
@@ -81,10 +103,12 @@ test.describe('dashboard', () => {
 // solo se cambia la pagina iniziale, e finché non cambia sono la sola prova che
 // la traduzione arriva davvero fino allo schermo.
 //
-// La dashboard non ha rotte per lingua: il rilevamento non produce un redirect
-// come sul sito pubblico, cambia lo stato dell'applicazione. Per questo si
-// verifica ciò che l'utente vede — `<html lang>`, il titolo, il selettore — e
-// non l'indirizzo, che resta lo stesso in tutte e cinque le lingue.
+// A quelle si aggiungono le asserzioni sull'**indirizzo**, che è la cosa nuova:
+// le rotte sono prefissate per lingua come sul sito pubblico, la radice smista
+// e non ha contenuto proprio, e ogni indirizzo dichiara in che lingua aprirsi.
+// Le due famiglie di asserzioni servono a cose diverse e vanno tenute insieme:
+// l'indirizzo prova che il link è condivisibile, il testo prova che la lingua
+// arriva davvero fino allo schermo.
 
 const SWITCHER = '[data-testid="locale-switcher"]'
 
@@ -104,6 +128,9 @@ test.describe('lingua', () => {
     test('al primo accesso l\'interfaccia segue il browser (R31)', async ({ page }) => {
       await page.goto('/')
 
+      // La radice smista e non mostra contenuto proprio: si finisce su un
+      // indirizzo che dichiara la lingua, e da lì in poi è quello a comandare.
+      await expect(page).toHaveURL('/de')
       await expect(page.locator('h1')).toHaveText(TITLES.de)
       await expect(page.locator('html')).toHaveAttribute('lang', 'de')
       // Il selettore mostra la lingua in cui ci si trova, non la predefinita.
@@ -117,6 +144,7 @@ test.describe('lingua', () => {
     test('ripiega sull\'inglese (R31)', async ({ page }) => {
       await page.goto('/')
 
+      await expect(page).toHaveURL('/en')
       await expect(page.locator('h1')).toHaveText(TITLES.en)
       await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     })
@@ -130,7 +158,41 @@ test.describe('lingua', () => {
       // confronto sul tag intero manderebbe in inglese mezza Svizzera.
       await page.goto('/')
 
+      // Il prefisso è il codice della lingua, non il tag del browser: `/it`, e
+      // non `/it-ch`, che sarebbe una sesta variante da mantenere.
+      await expect(page).toHaveURL('/it')
       await expect(page.locator('h1')).toHaveText(TITLES.it)
+    })
+  })
+
+  test.describe('l\'indirizzo comanda, non il browser', () => {
+    test.use({ locale: 'de-DE' })
+
+    test('un indirizzo con la lingua si apre in quella lingua (R31 non si applica)', async ({ page }) => {
+      // È la precedenza scelta, e la ragione per cui il prefisso esiste: un
+      // indirizzo che nomina la lingua deve aprirsi in quella, altrimenti non è
+      // condivisibile — chi riceve il link vedrebbe la propria, e il prefisso
+      // sarebbe decorativo. Vale anche quando il browser dice altro, che è il
+      // caso di chiunque riceva un link da un collega.
+      await page.goto('/fr')
+
+      await expect(page.locator('h1')).toHaveText(TITLES.fr)
+      await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+      await expect(page.locator(SWITCHER)).toHaveValue('fr')
+      // E non viene ricondotto al tedesco: l'indirizzo resta quello che si è
+      // aperto, altrimenti sarebbe un link che non porta dove dice.
+      await expect(page).toHaveURL('/fr')
+    })
+
+    test('guardare una pagina in un\'altra lingua non cambia la propria preferenza', async ({ page }) => {
+      // Il rovescio della precedenza, e la parte che va tenuta ferma: aprire il
+      // link di un collega non deve riscrivere in silenzio la lingua con cui si
+      // apre tutto il resto. Solo il selettore scrive una preferenza.
+      await page.goto('/fr')
+      await expect(page.locator('h1')).toHaveText(TITLES.fr)
+
+      await page.goto('/')
+      await expect(page).toHaveURL('/de')
     })
   })
 
@@ -152,6 +214,10 @@ test.describe('lingua', () => {
       for (const [code, title] of Object.entries(TITLES)) {
         await page.selectOption(SWITCHER, code)
 
+        // La lingua sta nell'indirizzo: il selettore la cambia lì, altrimenti
+        // la pagina si leggerebbe in una lingua e si troverebbe su un indirizzo
+        // che ne dichiara un'altra — cioè un indirizzo che mente a chi lo copia.
+        await expect(page).toHaveURL(`/${code}`)
         await expect(page.locator('h1')).toHaveText(title)
         await expect(page.locator('html')).toHaveAttribute('lang', code)
         // Il titolo del documento segue la lingua: se `useHead` ricevesse un
@@ -163,27 +229,70 @@ test.describe('lingua', () => {
       expect(errors).toEqual([])
     })
 
-    test('cambia lingua sul posto, senza navigare', async ({ page }) => {
+    test('cambia indirizzo senza ricaricare, e senza perdere la pagina', async ({ page }) => {
+      // Questo test provava che il selettore cambiava lingua **senza navigare**,
+      // perché la lingua era stato dell'applicazione. Ora sta nell'indirizzo e
+      // il selettore naviga: quella asserzione non descrive più il disegno.
+      //
+      // Ciò che invece descriveva — che il cambio è immediato e non porta via
+      // quello che si stava guardando — resta desiderabile, e navigando è
+      // *meno* scontato di prima: la chiave predefinita di Nuxt avrebbe
+      // smontato e rimontato la pagina a ogni cambio. È quello che si verifica
+      // qui, ed è il motivo per cui `app.vue` passa a `<NuxtPage>` una chiave
+      // che è il percorso senza lingua.
       await page.goto('/')
-      const before = page.url()
+      await expect(page.locator('[data-testid="health"]')).toBeVisible()
 
-      // Un segno lasciato nel contesto JavaScript della pagina: sopravvive a un
-      // cambio di stato, non a una navigazione né a un ricaricamento.
+      // Un segno nel contesto JavaScript della pagina: sopravvive a una
+      // navigazione lato client, non a un ricaricamento del documento.
       await page.evaluate(() => {
         (window as unknown as Record<string, unknown>).__stillHere = true
       })
+      // E uno nel DOM della pagina, che sopravvive solo se il componente non
+      // viene rimontato. È lo stato che una schermata vera avrebbe in memoria:
+      // i dati già scaricati, la posizione in un elenco, ciò che si sta
+      // scrivendo in un modulo.
+      await page.evaluate(() => {
+        document.querySelector('[data-testid="health"]')?.setAttribute('data-segno', 'x')
+      })
 
       await page.selectOption(SWITCHER, 'fr')
+
+      await expect(page).toHaveURL('/fr')
       await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
 
-      // È la differenza sostanziale dal sito pubblico, dove cambiare lingua
-      // significa cambiare indirizzo. Qui la lingua non sta nell'indirizzo:
-      // cambiarla non deve far perdere la schermata su cui si sta lavorando, né
-      // lo stato che quella schermata ha in memoria.
-      expect(page.url()).toBe(before)
+      // Nessun ricaricamento: è una navigazione del router, non del browser.
       expect(
         await page.evaluate(() => (window as unknown as Record<string, unknown>).__stillHere),
       ).toBe(true)
+      // E nessun rimontaggio: la stessa scheda, tradotta, non una rifatta.
+      await expect(page.locator('[data-testid="health"]')).toHaveAttribute('data-segno', 'x')
+    })
+
+    test('cambiare lingua conserva la rotta profonda, la query e l\'ancora', async ({ page }) => {
+      // Il caso che rende il selettore utile invece che pericoloso: chi è dentro
+      // un elenco filtrato e cambia lingua deve restare in quell'elenco con quei
+      // filtri. Tradurre la pagina buttandone via il contenuto è peggio che non
+      // tradurla.
+      await page.goto('/de/jobs/42?stato=fallito#storico')
+
+      await page.selectOption(SWITCHER, 'es')
+
+      await expect(page).toHaveURL('/es/jobs/42?stato=fallito#storico')
+    })
+
+    test('«indietro» torna alla pagina precedente, non alla lingua precedente', async ({ page }) => {
+      // `replace` e non `push`: cambiare lingua non è andare da un'altra parte.
+      // Con `push`, chi ne prova tre per trovare la propria dovrebbe premere
+      // «indietro» tre volte per uscire dalla schermata.
+      await page.goto('/de')
+      await page.goto('/de/jobs/42')
+
+      await page.selectOption(SWITCHER, 'it')
+      await expect(page).toHaveURL('/it/jobs/42')
+
+      await page.goBack()
+      await expect(page).toHaveURL('/de')
     })
 
     test('la scelta prevale sul rilevamento e persiste fra le visite (R32)', async ({ page, context }) => {
@@ -198,9 +307,14 @@ test.describe('lingua', () => {
       await page.reload()
       await expect(page.locator('h1')).toHaveText(TITLES.it)
 
+      // Dove la scelta memorizzata conta davvero è **lo smistamento**: è la
+      // radice a non dichiarare una lingua, ed è lì che si decide. Un
+      // ricaricamento su `/it` tornerebbe in italiano comunque, perché lo dice
+      // l'indirizzo, e non proverebbe niente.
       const later = await context.newPage()
       await mockBackend(later, true)
       await later.goto('/')
+      await expect(later).toHaveURL('/it')
       await expect(later.locator('h1')).toHaveText(TITLES.it)
       await expect(later.locator(SWITCHER)).toHaveValue('it')
       await later.close()
@@ -211,8 +325,13 @@ test.describe('lingua', () => {
       // togliessimo una lingua, chi l'aveva scelta deve comunque poter entrare.
       await page.goto('/')
       await page.evaluate(() => window.localStorage.setItem('postqron:locale', 'pt'))
-      await page.reload()
 
+      // Si riparte dalla radice e non con un `reload()`: dopo lo smistamento
+      // l'indirizzo dichiara già una lingua, e ricaricarlo non interrogherebbe
+      // più il valore memorizzato.
+      await page.goto('/')
+
+      await expect(page).toHaveURL('/de')
       await expect(page.locator('h1')).toHaveText(TITLES.de)
     })
   })
@@ -229,15 +348,19 @@ test.describe('lingua', () => {
     expect(await response.text()).not.toMatch(/^Disallow:\s*\/\s*$/m)
   })
 
-  test('non dichiara lingue alternative: non è roba da indicizzare', async ({ page }) => {
-    // A differenza del sito pubblico qui non esistono `hreflang` né `canonical`:
-    // le pagine stanno dietro autenticazione e nessun crawler deve trovarne
-    // cinque varianti. Copiarli dal sito sarebbe lavoro da rimuovere.
-    await page.goto('/')
+  test('non dichiara lingue alternative: prefissata non vuol dire indicizzabile', async ({ page }) => {
+    // La distinzione che questa issue deve tenere ferma. Le rotte hanno il
+    // prefisso perché un indirizzo dev'essere condivisibile e componibile da
+    // fuori, non perché qualcuno debba trovarlo: qui non esistono `hreflang` né
+    // `canonical`, e copiarli dal sito pubblico ora che i cinque prefissi ci
+    // sono è la modifica «coerente» da non fare.
+    for (const path of ['/en', '/it/jobs/42']) {
+      await page.goto(path)
 
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
-    await expect(page.locator('link[rel="alternate"]')).toHaveCount(0)
-    await expect(page.locator('link[rel="canonical"]')).toHaveCount(0)
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+      await expect(page.locator('link[rel="alternate"]')).toHaveCount(0)
+      await expect(page.locator('link[rel="canonical"]')).toHaveCount(0)
+    }
   })
 })
 
@@ -271,15 +394,20 @@ test.describe('guscio', () => {
     const links = page.locator(`${SIDEBAR} nav a`)
     await expect(links).not.toHaveCount(0)
 
-    // Sulla radice è attiva la panoramica, e lo dice a chi ascolta la pagina.
-    await expect(page.locator(`${SIDEBAR} nav a[href="/"]`)).toHaveAttribute('aria-current', 'page')
+    // Sulla radice della lingua è attiva la panoramica, e lo dice a chi ascolta
+    // la pagina. I link portano il prefisso: `href="/"` manderebbe a smistare
+    // di nuovo a ogni click, e dalla radice si tornerebbe alla lingua
+    // *preferita* invece che a quella della pagina che si sta guardando.
+    await expect(page.locator(`${SIDEBAR} nav a[href="/en"]`)).toHaveAttribute('aria-current', 'page')
   })
 
   test('su un indirizzo fuori dalle sezioni nessuna voce risulta attiva', async ({ page }) => {
     // La radice è un prefisso di qualunque percorso: senza il caso speciale in
     // `isActivePath()` la panoramica sarebbe attiva ovunque, e l'evidenziazione
     // smetterebbe di dire dove si è.
-    await page.goto('/nessuna-sezione/42')
+    // E il confronto non deve nemmeno inciampare nel prefisso: `/en` è la
+    // panoramica, `/en/nessuna-sezione/42` no.
+    await page.goto('/en/nessuna-sezione/42')
 
     await expect(page.locator(`${SIDEBAR} nav a[aria-current="page"]`)).toHaveCount(0)
   })
@@ -336,15 +464,15 @@ test.describe('cassetto della navigazione sul telefono', () => {
   test('scegliere una sezione richiude il cassetto', async ({ page }) => {
     // Senza, la pagina cambierebbe dietro un pannello che copre lo schermo: chi
     // ha premuto vede lo stesso pannello di prima e conclude che non ha funzionato.
-    await page.goto('/nessuna-sezione/42')
+    await page.goto('/en/nessuna-sezione/42')
 
     await page.locator(NAV_TOGGLE).click()
     await expect(page.locator(SIDEBAR)).toBeVisible()
 
-    await page.locator(`${SIDEBAR} nav a[href="/"]`).click()
+    await page.locator(`${SIDEBAR} nav a[href="/en"]`).click()
 
     await expect(page.locator(SIDEBAR)).toBeHidden()
-    await expect(page.locator(`${SIDEBAR} nav a[href="/"]`)).toHaveAttribute('aria-current', 'page')
+    await expect(page.locator(`${SIDEBAR} nav a[href="/en"]`)).toHaveAttribute('aria-current', 'page')
   })
 })
 
@@ -359,14 +487,14 @@ test.describe('cassetto della navigazione sul telefono', () => {
 
 test.describe('pagina non trovata', () => {
   test('un indirizzo che non esiste lo dice, dentro il guscio', async ({ page }) => {
-    await page.goto('/questa-non-esiste')
+    await page.goto('/en/questa-non-esiste')
 
     await expect(page.locator('h1')).toHaveText('Page not found')
     // Dentro il guscio: chi ci finisce deve poter andare altrove.
     await expect(page.locator(SIDEBAR)).toBeVisible()
 
     await page.getByRole('link', { name: 'Back to the overview' }).click()
-    await expect(page).toHaveURL('/')
+    await expect(page).toHaveURL('/en')
     await expect(page.locator('h1')).toHaveText('Overview')
   })
 })
