@@ -369,11 +369,22 @@ legga `Accept-Language` e risponda di conseguenza. Ne discende che:
 - **Le rotte sono prefissate per lingua** — `/en/...`, `/it/...`, `/es/...`,
   `/de/...`, `/fr/...` — e ogni lingua viene pre-renderizzata. Il numero di rotte
   generate si moltiplica per cinque.
+
+  **Vale su entrambe le applicazioni, dashboard compresa.** Che la dashboard non
+  vada indicizzata toglie la ragione *SEO* del prefisso, non le altre: un
+  indirizzo che non porta con sé la lingua non è condivisibile né collegabile, e
+  ogni link che qualcun altro compone verso la dashboard — a partire da quelli
+  delle email transazionali (R21), che l'utente riceve **nella lingua del proprio
+  profilo** (R33) — deve poter indicare in che lingua aprirla. Senza il prefisso
+  quei link cadono, oppure obbligano chi li compone a conoscere l'eccezione.
 - **Il rilevamento avviene lato client**, con un reindirizzamento dalla radice alla
   lingua scelta. La radice `/` non deve mostrare contenuto proprio: serve solo a
   smistare, altrimenti diventa una sesta variante da mantenere.
-- **SEO:** ogni pagina dichiara `hreflang` verso le altre lingue e un `canonical`
-  proprio. Senza, le cinque versioni competono fra loro nei motori di ricerca.
+- **SEO:** ogni pagina **indicizzabile** dichiara `hreflang` verso le altre lingue e
+  un `canonical` proprio. Senza, le cinque versioni competono fra loro nei motori di
+  ricerca. La dashboard non lo fa, perché non è indicizzabile: dichiara `noindex` su
+  ogni indirizzo, e il suo `robots.txt` **non** vieta la scansione — un `Disallow`
+  impedirebbe al crawler di leggere proprio quel `noindex`.
 - **Nessuna stringa nei componenti.** I testi vivono in file di traduzione; un
   componente che contiene una frase è un difetto, perché non è traducibile.
 
