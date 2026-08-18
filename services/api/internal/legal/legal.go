@@ -194,7 +194,38 @@ const (
 // commento.
 const MaterialChangeNotice = 30 * 24 * time.Hour
 
-// Text è il testo di un rilascio in una lingua: dove sta e che impronta ha.
+// Status è lo stato editoriale di un testo, cioè la risposta a «questo si può
+// mostrare?».
+//
+// I due valori delle traduzioni sono quelli che `legal/README.md` scrive nel
+// front matter, e non è un caso che siano gli stessi: quel file è la **fonte**,
+// e questo tipo è solo il modo in cui il Go lo legge. Approvare una traduzione è
+// una riga sola in un documento — `pending-review` → `approved` — e non deve
+// diventare due.
+type Status string
+
+const (
+	// StatusSource è l'inglese, che il front matter non marca affatto: è la
+	// lingua sorgente, non ha una revisione da attendere, è il testo che le
+	// altre traducono.
+	StatusSource Status = "source"
+	// StatusPendingReview è una traduzione fatta e non ancora rivista da chi ne
+	// risponde. **Non si mostra**, e quindi non ci si può prestare consenso.
+	StatusPendingReview Status = "pending-review"
+	// StatusApproved è una traduzione rivista e pubblicabile.
+	StatusApproved Status = "approved"
+)
+
+// Publishable dice se un testo in questo stato viene mostrato all'utente.
+//
+// È la stessa condizione di `publishedLanguage` in apps/web/utils/legal.ts, e
+// deve restarlo: se le due divergessero, il sito mostrerebbe un testo e la prova
+// ne dichiarerebbe un altro — cioè la prova direbbe il falso proprio sul campo
+// che R46 esiste per fissare.
+func (s Status) Publishable() bool { return s == StatusSource || s == StatusApproved }
+
+// Text è il testo di un rilascio in una lingua: dove sta, che impronta ha e se
+// si può mostrare.
 type Text struct {
 	// File è il nome del file dentro `legal/<lingua>/`. Vuoto significa
 	// `<documento>.md`, che è dove sta il rilascio in vigore.
@@ -205,16 +236,25 @@ type Text struct {
 	// significherebbe cancellare quella che l'utente ha accettato proprio nel
 	// mese in cui deve poterla rileggere per decidere se chiudere l'account.
 	File string
-	// SHA256 è l'impronta esadecimale del file, per intero e frontmatter
-	// compreso.
+	// SHA256 è l'impronta esadecimale **del corpo**, cioè del testo dopo il
+	// front matter.
 	//
 	// È ciò che rende meccanica la regola di `legal/README.md`: «non si modifica
 	// un documento in vigore, si crea una versione nuova». Una virgola cambiata
-	// senza cambiare versione rende rosso il test che confronta le impronte —
-	// che è l'unico momento in cui qualcuno può accorgersene, perché la
-	// riscrittura di un testo sotto un consenso già prestato non lascia nessuna
-	// altra traccia.
+	// senza cambiare versione rende rosso [Load] — che è l'unico momento in cui
+	// qualcuno può accorgersene, perché la riscrittura di un testo sotto un
+	// consenso già prestato non lascia nessun'altra traccia.
+	//
+	// **Il front matter è fuori dall'impronta, ed è il punto.** Dentro c'è
+	// `status`, che cambia il giorno in cui una traduzione viene approvata:
+	// se l'impronta lo comprendesse, approvare significherebbe anche aggiornare
+	// un'impronta dichiarata in Go, e la riga sola diventerebbe due. Ciò che il
+	// front matter dice — versione, data, lingua — non resta comunque senza
+	// controllo: [Load] lo confronta campo per campo con il registro.
 	SHA256 string
+	// Status dice se il testo è mostrabile. Lo riempie [Load] leggendo il front
+	// matter; nel registro dichiarato c'è solo l'inglese, che è [StatusSource].
+	Status Status
 }
 
 // Release è una versione di un documento: quando è stata annunciata, da quando
@@ -247,15 +287,38 @@ type Release struct {
 //
 // È la funzione che decide cosa finisce nella colonna `language` della prova. La
 // regola è una sola e vale la pena scriverla per esteso: **si registra la lingua
-// del testo mostrato, non quella dell'interfaccia**. Un utente con la dashboard
-// in italiano che ha letto i Termini in inglese — perché la traduzione non c'è
-// ancora — ha prestato il suo consenso sull'inglese, e la prova deve dire
-// «en». Il contrario sarebbe una prova che afferma qualcosa che non è successo.
+// del testo mostrato, non quella della rotta**. Un utente che arriva su `/it/`
+// e vede l'originale inglese — perché la traduzione italiana esiste ma non è
+// ancora approvata — ha prestato il suo consenso sull'inglese, e la prova deve
+// dire «en». Il contrario sarebbe una prova che afferma qualcosa che non è
+// successo.
+//
+// I due casi in cui si ripiega sono diversi fra loro e qui si comportano allo
+// stesso modo, ed è corretto: **la traduzione non esiste** e **la traduzione
+// esiste e nessuno l'ha ancora rivista** sono due stati editoriali distinti, ma
+// producono lo stesso fatto — sullo schermo c'è l'inglese. La distinzione vive
+// in [Text.Status], che è dove serve; qui serve solo cosa l'utente ha letto.
+//
+// Non esiste un terzo caso: non si ripiega su una lingua «vicina», perché
+// vicina non vuol dire niente in un testo che ha valore legale. È la stessa
+// regola di `publishedLanguage` in apps/web/utils/legal.ts.
 func (r Release) Presented(preferred Language) Language {
-	if _, ok := r.Texts[preferred]; ok {
+	if text, ok := r.Texts[preferred]; ok && text.Status.Publishable() {
 		return preferred
 	}
 	return SourceLanguage
+}
+
+// Available dice se il testo esiste in una lingua, indipendentemente dal fatto
+// che sia mostrabile.
+//
+// È l'altra metà di [Release.Presented], e sono due domande diverse: «il
+// documento esiste in italiano?» e «un consenso può nascere in italiano?». La
+// prima serve a sapere che c'è qualcosa in attesa di revisione; la seconda a non
+// scrivere una prova falsa.
+func (r Release) Available(lang Language) bool {
+	_, ok := r.Texts[lang]
+	return ok
 }
 
 // FileName è il nome del file di questo rilascio dentro `legal/<lingua>/`.
@@ -314,12 +377,35 @@ func NewRegistry(releases map[Document][]Release) (*Registry, error) {
 		if !slices.Contains(Documents(), doc) {
 			return nil, fmt.Errorf("legal: %w: %q", ErrUnknownDocument, doc)
 		}
-		if err := validateReleases(doc, list); err != nil {
+		cloned := slices.Clone(list)
+		for i := range cloned {
+			cloned[i].Texts = normalizeTexts(cloned[i].Texts)
+		}
+		if err := validateReleases(doc, cloned); err != nil {
 			return nil, err
 		}
-		copied[doc] = slices.Clone(list)
+		copied[doc] = cloned
 	}
 	return &Registry{releases: copied}, nil
+}
+
+// normalizeTexts copia i testi e dà all'inglese lo stato che il front matter non
+// scrive.
+//
+// L'asimmetria è la stessa dei file: l'inglese non porta `status` perché non ha
+// una revisione da attendere (`legal/README.md`), e chi dichiara un rilascio non
+// deve doverlo ripetere. Una traduzione senza stato, invece, resta invalida e
+// [validateReleases] la rifiuta: dimenticarsi di dire se è approvata non deve
+// somigliare a dire di sì.
+func normalizeTexts(texts map[Language]Text) map[Language]Text {
+	out := make(map[Language]Text, len(texts))
+	for lang, text := range texts {
+		if lang == SourceLanguage && text.Status == "" {
+			text.Status = StatusSource
+		}
+		out[lang] = text
+	}
+	return out
 }
 
 func validateReleases(doc Document, list []Release) error {
@@ -369,6 +455,22 @@ func validateReleases(doc Document, list []Release) error {
 			}
 			if !sha256Pattern.MatchString(text.SHA256) {
 				return fmt.Errorf("legal: %s %s (%s): impronta assente o malformata", doc, rel.Version, lang)
+			}
+			switch text.Status {
+			case StatusPendingReview, StatusApproved:
+				if lang == SourceLanguage {
+					return fmt.Errorf(
+						"legal: %s %s: l'inglese dichiara `status: %s`. È la lingua sorgente: non ha una revisione da attendere (legal/README.md)",
+						doc, rel.Version, text.Status)
+				}
+			case StatusSource:
+				if lang != SourceLanguage {
+					return fmt.Errorf("legal: %s %s (%s): solo l'inglese può essere la lingua sorgente", doc, rel.Version, lang)
+				}
+			default:
+				return fmt.Errorf(
+					"legal: %s %s (%s): stato della traduzione non dichiarato. È approvata (e quindi mostrabile) o no?",
+					doc, rel.Version, lang)
 			}
 		}
 

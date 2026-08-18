@@ -58,7 +58,7 @@ var (
 		Notice: legal.NoticeMaterial,
 		Texts: map[legal.Language]legal.Text{
 			legal.English: {File: "terms-of-service.2.0.0.md", SHA256: impronta},
-			legal.Italian: {File: "terms-of-service.2.0.0.md", SHA256: impronta},
+			legal.Italian: {File: "terms-of-service.2.0.0.md", SHA256: impronta, Status: legal.StatusApproved},
 		},
 	}
 	privacy110 = legal.Release{

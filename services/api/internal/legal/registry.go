@@ -2,24 +2,30 @@ package legal
 
 import "sync"
 
-// Questo file è il registro dei documenti così come sono oggi. È **l'unica
-// copia in Go** di ciò che sta nel frontmatter di `legal/`, e la copia non è
-// libera di divergere: TestIlRegistroDescriveIFileVeri rilegge i file,
-// confronta versione, data, lingua e impronta, e diventa rosso al primo
-// disallineamento.
+// Questo file è **metà** del registro: quella che una persona decide e che non
+// deve poter cambiare in silenzio. L'altra metà — quali traduzioni esistono e
+// quali sono state riviste — sta nei file e la legge [Load].
 //
-// # Perché una copia e non i file
+// # Che cosa sta qui e perché
 //
-// Perché il binario dell'API non porta con sé `legal/`. La directory sta nella
-// radice del monorepo, fuori dal modulo Go, quindi `//go:embed` non la
-// raggiunge; leggerla dal disco a runtime significherebbe che un deploy senza
-// quei file registra consensi su versioni inventate — o non ne registra
-// affatto. Una costante compilata dentro il binario non ha quel modo di
-// fallire: se il registro è sbagliato, è sbagliato in CI, dove qualcuno lo
-// vede.
+// Quali versioni esistono, da quando vincolano, se un cambiamento è materiale
+// (Termini §9) e che impronta ha il testo inglese. Sono i fatti su cui poggia
+// una prova di consenso: se cambiano, deve costare una riga di diff che qualcuno
+// legge in review. L'impronta in particolare è ciò che rende meccanica la regola
+// di `legal/README.md` — «non si modifica un documento in vigore» — perché
+// [Load] la ricalcola dal file e fallisce se non combacia.
 //
-// È la stessa forma di internal/account: una costante nel codice, un documento
-// nel repository e un test che li tiene insieme leggendo il documento.
+// # Che cosa non sta qui, ed è deliberato
+//
+// **Lo stato delle traduzioni.** `legal/README.md` stabilisce che approvarne una
+// è una riga sola nel suo front matter, `pending-review` → `approved`. Se lo
+// stato fosse anche qui, quella riga sarebbe due modifiche in due posti, e il
+// giorno in cui qualcuno ne facesse una sola il sito mostrerebbe un testo e la
+// prova ne dichiarerebbe un altro. Lo legge [Load] da dove è scritto.
+//
+// **L'elenco delle traduzioni.** Una lingua nuova di un documento già dichiarato
+// entra da sé: è una traduzione, non una decisione. Un documento nuovo o una
+// versione nuova no — quelli [Load] li rifiuta finché non compaiono qui.
 //
 // # Perché la storia comincia qui
 //
@@ -34,7 +40,15 @@ import "sync"
 // La conseguenza pratica è che i quattro rilasci qui sotto sono tutti
 // [NoticeFirstPublication]: sono i primi che qualcuno possa accettare.
 
-// Current è il registro dichiarato dal repository.
+// Current è il registro dichiarato, **senza le traduzioni**: conosce i quattro
+// documenti e il solo testo inglese.
+//
+// È ciò che il servizio usa quando `legal/` non è stato caricato, e la
+// degradazione è quella giusta: senza i file non si sa quali traduzioni sono
+// approvate, e l'unica cosa che si può affermare con certezza è che l'utente ha
+// letto l'inglese — che è vero per costruzione, perché l'inglese è ciò che il
+// sito mostra quando non ha di meglio. Chi vuole il registro completo chiama
+// [Load].
 //
 // Si costruisce una volta sola e non può fallire in esercizio: se le invarianti
 // di [NewRegistry] non reggessero, il pacchetto non compilerebbe un registro
@@ -68,7 +82,7 @@ var declared = map[Document][]Release{
 		Announced: Date(2026, 8, 18),
 		Notice:    NoticeFirstPublication,
 		Texts: map[Language]Text{
-			English: {SHA256: "1692f61d85fc243307da45b65501497a5196d0f27de0ebc6d6a7cfab0da94bc9"},
+			English: {SHA256: "aa45944991473f993e914236a56bd33503b48e5b2eb33ba872ba869bf0b5c9af"},
 		},
 	}},
 
@@ -78,7 +92,7 @@ var declared = map[Document][]Release{
 		Announced: Date(2026, 8, 17),
 		Notice:    NoticeFirstPublication,
 		Texts: map[Language]Text{
-			English: {SHA256: "cbec067fa447e3bf3be0f7d6d0fbce59d872f18318f6355bb6795a5fed90bb6f"},
+			English: {SHA256: "babe8d89cc5607a77ffc03bf491138a884b783285667da7e8cb0f875086c6f95"},
 		},
 	}},
 
@@ -90,7 +104,7 @@ var declared = map[Document][]Release{
 		Announced: Date(2026, 8, 18),
 		Notice:    NoticeFirstPublication,
 		Texts: map[Language]Text{
-			English: {SHA256: "6d45bdf3971631c2896ee067df988ecd9131536d8db82d8b5c195eb9b90851d0"},
+			English: {SHA256: "36dcd7ac2eb6d3de6eba06d6da71f2d828bf2864119264057392d00a2dcb4c1c"},
 		},
 	}},
 
@@ -100,7 +114,7 @@ var declared = map[Document][]Release{
 		Announced: Date(2026, 8, 17),
 		Notice:    NoticeFirstPublication,
 		Texts: map[Language]Text{
-			English: {SHA256: "6368673eec3dd591ae0fb83673eb1b2f131fd86d5f2f20dc624b6c8c93f690f3"},
+			English: {SHA256: "26b697c404e0dbe53deb96c007f2ab3daae3fc6e77d280e1b69013eb731c35be"},
 		},
 	}},
 }

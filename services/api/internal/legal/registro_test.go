@@ -171,13 +171,28 @@ func TestLaLinguaMostrataÈQuellaCheEsiste(t *testing.T) {
 		t.Errorf("con la sola traduzione inglese, mostrata %q invece di %q", got, legal.English)
 	}
 
+	// La traduzione esiste ma nessuno l'ha ancora rivista: sullo schermo c'è
+	// comunque l'inglese, e la prova deve dire quello. È il caso di tutte e
+	// sedici le traduzioni di oggi.
+	inRevisione := solaInglese
+	inRevisione.Texts = map[legal.Language]legal.Text{
+		legal.English: {SHA256: impronta},
+		legal.Italian: {SHA256: impronta, Status: legal.StatusPendingReview},
+	}
+	if got := inRevisione.Presented(legal.Italian); got != legal.English {
+		t.Errorf("con la traduzione in revisione, mostrata %q invece di %q", got, legal.English)
+	}
+	if !inRevisione.Available(legal.Italian) {
+		t.Error("la traduzione in revisione risulta inesistente: esistere e potersi mostrare sono due cose diverse")
+	}
+
 	tradotto := solaInglese
 	tradotto.Texts = map[legal.Language]legal.Text{
 		legal.English: {SHA256: impronta},
-		legal.Italian: {SHA256: impronta},
+		legal.Italian: {SHA256: impronta, Status: legal.StatusApproved},
 	}
 	if got := tradotto.Presented(legal.Italian); got != legal.Italian {
-		t.Errorf("con la traduzione italiana disponibile, mostrata %q", got)
+		t.Errorf("con la traduzione approvata, mostrata %q", got)
 	}
 }
 
