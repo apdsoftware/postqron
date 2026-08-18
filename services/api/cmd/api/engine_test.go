@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -100,6 +101,9 @@ type banco struct {
 	handler http.Handler
 	target  *bersaglio
 	eng     *engine
+	// server è il server HTTP vero, costruito solo da chi ne ha bisogno: le
+	// prove dello streaming. Vedi [banco.apriFlusso].
+	server *httptest.Server
 
 	cookie string
 	userID string
@@ -640,5 +644,163 @@ func TestUnSegretoInQuerystringNonCompareNelRegistro(t *testing.T) {
 	// (3) Al posto del valore c'è il riferimento.
 	if !strings.Contains(esecuzione.ResponseExcerpt, "${DIGEST_TOKEN}") {
 		t.Errorf("l'estratto non dice che cosa è stato tolto: %q", esecuzione.ResponseExcerpt)
+	}
+}
+
+// -------------------------------------------------- streaming in tempo reale
+
+// apriFlusso apre la SSE del registro di un job, passando dal server HTTP vero.
+//
+// Le altre prove di questo file usano un [httptest.ResponseRecorder], che per
+// una risposta che comincia e non finisce non serve: qui serve un socket.
+func (b *banco) apriFlusso(jobID string) *bufio.Reader {
+	b.t.Helper()
+
+	if b.server == nil {
+		b.server = httptest.NewServer(b.handler)
+		b.t.Cleanup(b.server.Close)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, b.server.URL+"/jobs/"+jobID+"/executions/stream", nil)
+	if err != nil {
+		b.t.Fatalf("richiesta del flusso: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: httpapi.SessionCookieName, Value: b.cookie})
+
+	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
+	if err != nil {
+		b.t.Fatalf("apertura del flusso: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		b.t.Fatalf("apertura del flusso: status %d", resp.StatusCode)
+	}
+	b.t.Cleanup(func() { _ = resp.Body.Close() })
+	return bufio.NewReader(resp.Body)
+}
+
+// attendiEsecuzioneDalFlusso legge la SSE finché non arriva un'esecuzione in
+// stato terminale, e restituisce **il JSON grezzo** dell'evento.
+//
+// Grezzo e non decodificato di proposito: ciò che va verificato è che il segreto
+// non sia sul filo, non che non sia in un campo che qualcuno si è ricordato di
+// controllare.
+func attendiEsecuzioneDalFlusso(t *testing.T, reader *bufio.Reader, entro time.Duration) string {
+	t.Helper()
+
+	tipo := make(chan string, 1)
+	go func() {
+		var evento, dati string
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimSuffix(line, "\n")
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				evento = line[len("event: "):]
+			case strings.HasPrefix(line, "data: "):
+				dati = line[len("data: "):]
+			case line == "":
+				if evento == "execution" && dati != "" {
+					var esecuzione httpapi.ExecutionResponse
+					if err := json.Unmarshal([]byte(dati), &esecuzione); err == nil &&
+						slices.Contains(statiTerminali, esecuzione.Status) {
+						select {
+						case tipo <- dati:
+						default:
+						}
+						return
+					}
+				}
+				evento, dati = "", ""
+			}
+		}
+	}()
+
+	select {
+	case dati := <-tipo:
+		return dati
+	case <-time.After(entro):
+		t.Fatalf("nessuna esecuzione conclusa sul flusso entro %s", entro)
+		return ""
+	}
+}
+
+// TestUnSegretoNonCompareNemmenoNelFlussoInTempoReale è la gemella di
+// TestUnSegretoInQuerystringNonCompareNelRegistro, sull'uscita **nuova**.
+//
+// Lo streaming è un percorso di uscita nuovo per gli stessi dati, ed è
+// esattamente il posto in cui una redazione si aggira per sbaglio: la
+// proiezione è la stessa funzione del registro paginato (vedi
+// internal/httpapi/executions_stream.go), e questa prova verifica che lo sia
+// **davvero**, con un segreto vero, un bersaglio vero e il motore vero.
+//
+// Il flusso si apre **prima** del trigger: ciò che arriva è consegnato in tempo
+// reale, non riletto da uno storico.
+func TestUnSegretoNonCompareNemmenoNelFlussoInTempoReale(t *testing.T) {
+	const valore = "finta-credenziale-del-cliente"
+
+	b := nuovoBanco(t)
+	b.creaSegreto("DIGEST_TOKEN", valore)
+
+	jobID := b.creaJob(map[string]any{
+		"name":     "digest-con-segreto-in-streaming",
+		"schedule": "0 3 * * *",
+		"request": map[string]any{
+			"url":     b.target.URL + "/digest?token=${DIGEST_TOKEN}",
+			"method":  "POST",
+			"headers": map[string]string{"Authorization": "Bearer ${DIGEST_TOKEN}"},
+			"body":    "ciao",
+		},
+		"timeout": "5s",
+	})
+
+	flusso := b.apriFlusso(jobID)
+
+	rec := b.chiama(http.MethodPost, "/jobs/"+jobID+"/executions", map[string]any{
+		"environment": "production",
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("trigger manuale: status %d, corpo %s", rec.Code, rec.Body)
+	}
+
+	evento := attendiEsecuzioneDalFlusso(t, flusso, 30*time.Second)
+
+	// (1) Il segreto è stato risolto davvero: senza, questa prova non sta
+	// verificando nessuna redazione.
+	chiamate := b.target.chiamateSu("/digest")
+	if len(chiamate) != 1 {
+		t.Fatalf("chiamate al bersaglio = %d, attesa 1", len(chiamate))
+	}
+	if got := chiamate[0].Query; got != "token="+valore {
+		t.Fatalf("querystring ricevuta = %q: il segreto non è stato risolto", got)
+	}
+
+	// (2) Il segreto non è sul filo, in nessun campo.
+	if strings.Contains(evento, valore) {
+		t.Fatalf("il segreto è uscito dalla SSE: %s", evento)
+	}
+
+	// (3) Al suo posto c'è il riferimento, così che chi legge capisca perché
+	// l'estratto non corrisponde a ciò che il bersaglio ha risposto.
+	if !strings.Contains(evento, "${DIGEST_TOKEN}") {
+		t.Errorf("l'evento non dice che cosa è stato tolto: %s", evento)
+	}
+
+	// (4) È lo stesso corpo del registro paginato, byte per byte: è la proprietà
+	// che rende impossibile che le due uscite divergano.
+	var dalFlusso httpapi.ExecutionResponse
+	if err := json.Unmarshal([]byte(evento), &dalFlusso); err != nil {
+		t.Fatalf("evento non decodificabile: %v", err)
+	}
+	dalRegistro := b.attendiEsecuzione(jobID, "manual", 5*time.Second)
+	atteso, err := json.Marshal(dalRegistro)
+	if err != nil {
+		t.Fatalf("codifica: %v", err)
+	}
+	if evento != string(atteso) {
+		t.Errorf("il flusso e il registro non consegnano la stessa cosa:\nflusso   = %s\nregistro = %s",
+			evento, atteso)
 	}
 }
