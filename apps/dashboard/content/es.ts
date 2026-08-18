@@ -13,6 +13,11 @@ export const es: DashboardContent = {
     },
     toLightTheme: 'Cambiar al tema claro',
     toDarkTheme: 'Cambiar al tema oscuro',
+    account: {
+      open: 'Menú de la cuenta',
+      signedInAs: 'Sesión iniciada como',
+      signOut: 'Cerrar sesión',
+    },
   },
 
   status: {
@@ -44,5 +49,42 @@ export const es: DashboardContent = {
     title: 'Página no encontrada',
     intro: 'Esta dirección no corresponde a ninguna pantalla del panel. Puede que haya cambiado, o que el enlace sea incorrecto.',
     back: 'Volver al resumen',
+  },
+
+  auth: {
+    signIn: {
+      title: 'Iniciar sesión',
+      submit: 'Iniciar sesión',
+      submitting: 'Iniciando sesión…',
+      noAccount: '¿Todavía no tienes cuenta?',
+      noAccountLink: 'Crea una',
+      interrupted: 'Tu sesión ha terminado. Vuelve a iniciar sesión para retomar donde lo dejaste.',
+      returningTo: 'Volverás a la página que habías pedido.',
+    },
+    signUp: {
+      title: 'Crear una cuenta',
+      submit: 'Crear cuenta',
+      submitting: 'Creando…',
+      haveAccount: '¿Ya tienes una cuenta?',
+      haveAccountLink: 'Inicia sesión',
+      acceptedTitle: 'Revisa tu correo',
+      acceptedBody: 'Si la dirección se puede utilizar, hemos enviado un correo con las instrucciones.',
+      acceptedSignIn: 'Ir al inicio de sesión',
+    },
+    fields: {
+      email: 'Correo electrónico',
+      password: 'Contraseña',
+      fullName: 'Nombre y apellidos',
+      passwordHint: 'Al menos 12 caracteres.',
+    },
+    errors: {
+      credentials: 'El correo o la contraseña no son correctos.',
+      tooManyAttempts: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
+      suspended: 'Esta cuenta está suspendida. Contacta con soporte.',
+      invalidEmail: 'Esta dirección de correo no es válida.',
+      weakPassword: 'Esta contraseña no cumple el requisito de arriba.',
+      unexpected: 'No se ha podido completar la solicitud. Inténtalo de nuevo en un momento.',
+      required: 'Rellena este campo.',
+    },
   },
 }

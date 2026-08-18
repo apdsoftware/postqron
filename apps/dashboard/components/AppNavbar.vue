@@ -3,12 +3,12 @@
  * Barra superiore del template Flowbite: marchio a sinistra, comandi a destra,
  * e sotto i 1024 px il pulsante che apre la barra laterale.
  *
- * Markup di `layouts/partials/navbar-dashboard.html`, senza tre cose che nel
+ * Markup di `layouts/partials/navbar-dashboard.html`, senza due cose che nel
  * template sono contenuto dimostrativo e qui sarebbero segnaposto in produzione
  * (SPEC R37): la ricerca globale (non c'è niente da cercare finché non ci sono
- * job), le notifiche (R57, e vogliono un backend che le emetta) e il menu utente
- * con nome e fotografia di un utente inventato. Il menu utente arriva con la
- * sessione, alla issue #25: il posto in cui va è la fine di questa barra.
+ * job) e le notifiche (R57, e vogliono un backend che le emetta). Il menu utente
+ * c'è, in fondo alla barra come nel template, ma con l'utente vero: vedi
+ * `AccountMenu.vue`.
  */
 defineProps<{ navigationOpen: boolean }>()
 const emit = defineEmits<{ toggleNavigation: [] }>()
@@ -53,6 +53,7 @@ const { t } = useLocale()
         <div class="flex items-center gap-2">
           <LocaleSwitcher />
           <ThemeToggle />
+          <AccountMenu />
         </div>
       </div>
     </div>

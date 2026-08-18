@@ -19,6 +19,11 @@ export const en: DashboardContent = {
     },
     toLightTheme: 'Switch to light theme',
     toDarkTheme: 'Switch to dark theme',
+    account: {
+      open: 'Account menu',
+      signedInAs: 'Signed in as',
+      signOut: 'Sign out',
+    },
   },
 
   status: {
@@ -50,5 +55,42 @@ export const en: DashboardContent = {
     title: 'Page not found',
     intro: 'This address matches no screen of the dashboard. It may have moved, or the link may be wrong.',
     back: 'Back to the overview',
+  },
+
+  auth: {
+    signIn: {
+      title: 'Sign in',
+      submit: 'Sign in',
+      submitting: 'Signing in…',
+      noAccount: 'No account yet?',
+      noAccountLink: 'Create one',
+      interrupted: 'Your session ended. Sign in again to pick up where you left off.',
+      returningTo: 'You will be taken back to the page you asked for.',
+    },
+    signUp: {
+      title: 'Create an account',
+      submit: 'Create account',
+      submitting: 'Creating…',
+      haveAccount: 'Already have an account?',
+      haveAccountLink: 'Sign in',
+      acceptedTitle: 'Check your inbox',
+      acceptedBody: 'If the address can be used, we have sent an email with the next steps.',
+      acceptedSignIn: 'Go to sign in',
+    },
+    fields: {
+      email: 'Email',
+      password: 'Password',
+      fullName: 'Full name',
+      passwordHint: 'At least 12 characters.',
+    },
+    errors: {
+      credentials: 'Email or password is not correct.',
+      tooManyAttempts: 'Too many attempts. Wait a few minutes, then try again.',
+      suspended: 'This account is suspended. Contact support.',
+      invalidEmail: 'This email address is not valid.',
+      weakPassword: 'This password does not meet the requirement above.',
+      unexpected: 'The request could not be completed. Try again in a moment.',
+      required: 'Fill in this field.',
+    },
   },
 }

@@ -57,6 +57,23 @@ export interface ShellContent {
    */
   toLightTheme: string
   toDarkTheme: string
+
+  /** Menu dell'utente collegato, in fondo alla barra superiore. */
+  account: AccountMenuContent
+}
+
+/** Menu dell'utente collegato. */
+export interface AccountMenuContent {
+  /**
+   * Nome accessibile del pulsante che apre il menu. Non è l'email: quella si
+   * legge dentro, e un pulsante che si chiama come il proprio contenuto non
+   * dice a cosa serve.
+   */
+  open: string
+  /** Intestazione che precede l'indirizzo dell'utente. */
+  signedInAs: string
+  /** Comando che chiude la sessione. */
+  signOut: string
 }
 
 /**
@@ -104,9 +121,107 @@ export interface NotFoundContent {
   back: string
 }
 
+/**
+ * Accesso e registrazione (R14).
+ *
+ * Le due schermate condividono una sola chiave perché condividono quasi tutto:
+ * gli stessi campi, gli stessi errori, e il rimando reciproco. Separarle
+ * significherebbe tradurre due volte «Email» e «Password» in cinque lingue.
+ */
+export interface AuthContent {
+  signIn: SignInContent
+  signUp: SignUpContent
+  /** Etichette dei campi, condivise dai due moduli. */
+  fields: AuthFieldsContent
+  /** Messaggi di rifiuto, condivisi dai due moduli. */
+  errors: AuthErrorsContent
+}
+
+export interface SignInContent {
+  title: string
+  /** Pulsante che invia il modulo. */
+  submit: string
+  /** Testo mentre la richiesta è in volo. */
+  submitting: string
+  /** Invito a registrarsi, per chi non ha un account. */
+  noAccount: string
+  noAccountLink: string
+  /**
+   * Avviso mostrato quando si arriva qui per una sessione finita da sé, non per
+   * un accesso volontario. Dice **cosa è successo**, non «errore»: non ha
+   * sbagliato nessuno.
+   */
+  interrupted: string
+  /**
+   * Avviso mostrato quando si arriva qui da una schermata protetta: dopo
+   * l'accesso ci si torna. Serve a spiegare perché l'indirizzo aperto non è
+   * quello che si sta guardando.
+   */
+  returningTo: string
+}
+
+export interface SignUpContent {
+  title: string
+  submit: string
+  submitting: string
+  /** Invito ad accedere, per chi un account ce l'ha già. */
+  haveAccount: string
+  haveAccountLink: string
+  /**
+   * Esito della registrazione. **È lo stesso che l'indirizzo fosse libero o già
+   * registrato**, e la vaghezza è deliberata: il backend risponde 202 nei due
+   * casi proprio per non dire quali indirizzi ha (`acceptedResponse` in
+   * `internal/httpapi/auth.go`). Un titolo tipo «Account creato» annullerebbe
+   * quel lavoro dal lato dell'interfaccia.
+   */
+  acceptedTitle: string
+  acceptedBody: string
+  /** Collegamento all'accesso dalla schermata di esito. */
+  acceptedSignIn: string
+}
+
+export interface AuthFieldsContent {
+  email: string
+  password: string
+  fullName: string
+  /**
+   * Requisito della password, mostrato **prima** di scrivere e non come errore
+   * dopo. Il numero dentro la frase è `MinPasswordLength` del backend, che resta
+   * l'unico giudice: qui si ripete solo per non far scoprire la regola con un
+   * viaggio verso il server.
+   */
+  passwordHint: string
+}
+
+export interface AuthErrorsContent {
+  /**
+   * Credenziali rifiutate.
+   *
+   * **Uno solo, e volutamente vago fra «utente inesistente» e «password
+   * sbagliata».** Il backend si difende dall'enumerazione degli account fino a
+   * pareggiare i *tempi* di risposta dei due casi (verifica una password finta
+   * quando l'utente non c'è); due messaggi diversi qui vanificherebbero tutto
+   * quel lavoro con una frase.
+   */
+  credentials: string
+  /** Troppi tentativi: 429. Non dice se l'account esiste, perché il limite scatta comunque. */
+  tooManyAttempts: string
+  /** Account sospeso: 403, e arriva solo dopo una password corretta. */
+  suspended: string
+  /** Indirizzo email malformato: 400 `invalid_email`. */
+  invalidEmail: string
+  /** Password che non rispetta la policy: 400 `weak_password`. */
+  weakPassword: string
+  /** Qualunque altro rifiuto, compresi i guasti di rete e del server. */
+  unexpected: string
+  /** Campo lasciato vuoto, verificato dal browser prima di partire. */
+  required: string
+}
+
 export interface DashboardContent {
   shell: ShellContent
   status: StatusContent
   home: HomeContent
   notFound: NotFoundContent
+  auth: AuthContent
 }
