@@ -340,6 +340,59 @@ func TestStatoDelPianoNominaIJobFermi(t *testing.T) {
 	}
 }
 
+// R15: i tre tetti che il piano impone — numero di job, risoluzione minima,
+// retention dei log — si leggono **prima** di sbatterci.
+//
+// La prova gira sui quattro piani insieme e non su uno solo, perché il difetto
+// che questo campo esiste per togliere è precisamente una tabella di listino
+// scritta a mano da qualche parte: un client che ricevesse `min_interval`
+// costante lo noterebbe solo confrontando due piani.
+func TestStatoDelPianoDichiaraITettiDiR15(t *testing.T) {
+	f := newBillingFixture(t, true)
+
+	// I valori sono quelli della migrazione 0003, che è la fonte di verità del
+	// listino: qui si prova che risalgano fino al corpo, non quali siano.
+	casi := []struct {
+		piano       string
+		minInterval time.Duration
+		retention   time.Duration
+		atteso      string
+		giorni      int
+	}{
+		{"free", time.Minute, 3 * 24 * time.Hour, "1m", 3},
+		{"pro", 10 * time.Second, 15 * 24 * time.Hour, "10s", 15},
+		{"team", time.Second, 30 * 24 * time.Hour, "1s", 30},
+		{"agency", time.Second, 90 * 24 * time.Hour, "1s", 90},
+	}
+
+	for _, caso := range casi {
+		t.Run(caso.piano, func(t *testing.T) {
+			f.store.ent = billing.Entitlement{
+				PlanCode: caso.piano, PlanName: caso.piano, Status: "active",
+				MinInterval: caso.minInterval, LogRetention: caso.retention,
+			}
+
+			rec := f.do(http.MethodGet, "/billing/subscription", nil, withCookie(f.token))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+			}
+
+			var body httpapi.SubscriptionResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decodifica: %v", err)
+			}
+			// La forma di `min_interval` è quella di `every` e di `timeout`: ciò
+			// che il client legge lo può rimandare indietro senza convertirlo.
+			if body.MinInterval != caso.atteso {
+				t.Errorf("risoluzione minima = %q, attesa %q", body.MinInterval, caso.atteso)
+			}
+			if body.LogRetentionDays != caso.giorni {
+				t.Errorf("retention = %d giorni, attesi %d", body.LogRetentionDays, caso.giorni)
+			}
+		})
+	}
+}
+
 func TestStatoDelPianoRichiedeLaSessione(t *testing.T) {
 	f := newBillingFixture(t, true)
 

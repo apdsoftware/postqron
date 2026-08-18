@@ -695,5 +695,32 @@ func TestILimitiSonoQuelliDelListino(t *testing.T) {
 			t.Fatalf("applicazione di R58 sul piano %q: %v", codice, err)
 		}
 		t.Logf("piano %s: tetto=%v risoluzione=%s", codice, piano.MaxJobs, piano.MinInterval)
+
+		// I tetti che l'entitlement **mostra** e quelli che l'API **applica**
+		// vengono dalla stessa riga di `plans`, e devono restare identici: è
+		// l'unica cosa che impedisce all'interfaccia di annunciare un limite e
+		// all'API di farne rispettare un altro. R15 li vuole entrambi — applicati
+		// lato backend, e detti prima.
+		//
+		// Ogni piano ha il proprio utente perché di sottoscrizione viva ce n'è una
+		// sola per persona (`subscriptions_one_live_per_user_idx`).
+		vetrina := nuovoUtente(t, pool, fmt.Sprintf("listino-%s@esempio.test", codice))
+		if codice != "free" {
+			sottoscrive(t, pool, vetrina, codice, "sub_"+codice)
+		}
+		ent, err := store.Entitlement(t.Context(), vetrina)
+		if err != nil {
+			t.Fatalf("entitlement del piano %q: %v", codice, err)
+		}
+		switch {
+		case ent.PlanCode != codice:
+			t.Errorf("piano %q: entitlement su %q", codice, ent.PlanCode)
+		case ent.MinInterval != piano.MinInterval:
+			t.Errorf("piano %q: risoluzione mostrata %s, applicata %s",
+				codice, ent.MinInterval, piano.MinInterval)
+		case ent.LogRetention != piano.LogRetention:
+			t.Errorf("piano %q: retention mostrata %s, applicata %s",
+				codice, ent.LogRetention, piano.LogRetention)
+		}
 	}
 }
