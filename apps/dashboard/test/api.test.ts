@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ApiError, apiErrorKind, apiUrl, buildQuery, parseErrorCode } from '../utils/api'
+import { ApiError, apiErrorKind, apiUrl, buildQuery, parseErrorCode, parseErrorPayload } from '../utils/api'
 
 describe('apiUrl', () => {
   it('unisce base URL e percorso', () => {
@@ -70,6 +70,53 @@ describe('parseErrorCode', () => {
   })
 })
 
+describe('parseErrorPayload', () => {
+  it('legge i rifiuti per campo, che sono ciò che un modulo evidenzia', () => {
+    const payload = parseErrorPayload(JSON.stringify({
+      error: {
+        code: 'validation_failed',
+        message: 'La richiesta contiene campi non validi.',
+        details: [
+          { field: 'name', code: 'too_long', message: 'il nome supera 100 caratteri.' },
+          { field: 'request.url', code: 'required', message: 'l\'URL è obbligatorio.' },
+        ],
+      },
+    }))
+
+    expect(payload.code).toBe('validation_failed')
+    // Il `message` del backend **non** attraversa questo confine: è in italiano,
+    // e mostrarlo sarebbe una frase non tradotta in mezzo a cinque lingue.
+    expect(payload.details).toEqual([
+      { field: 'name', code: 'too_long' },
+      { field: 'request.url', code: 'required' },
+    ])
+  })
+
+  it('legge il limite di piano, che è ciò su cui si decide se proporre un upgrade', () => {
+    const piano = parseErrorPayload(JSON.stringify({
+      error: { code: 'plan_limit_resolution', message: '…', limit: 'resolution', plan: 'free' },
+    }))
+    expect(piano).toMatchObject({ limit: 'resolution', plan: 'free' })
+
+    // Un tetto **tecnico** non li ha, ed è deliberato: nessun piano ne concede
+    // di più, e suggerire un aggiornamento sarebbe una bugia commerciale.
+    const tecnico = parseErrorPayload(JSON.stringify({
+      error: { code: 'rate_limited', message: '…', retry_after: 30 },
+    }))
+    expect(tecnico).toMatchObject({ limit: null, plan: null })
+  })
+
+  it('un corpo malformato non produce campi indefiniti', () => {
+    for (const body of ['', '<html>502</html>', 'null', '{"error":{"details":"no"}}']) {
+      expect(parseErrorPayload(body), body).toEqual({ code: null, details: [], limit: null, plan: null })
+    }
+    // Una voce di `details` senza la forma attesa viene scartata, non
+    // trasformata in un campo che non esiste.
+    expect(parseErrorPayload('{"error":{"details":[{"field":1},{"code":"x"},null]}}').details)
+      .toEqual([])
+  })
+})
+
 describe('ApiError', () => {
   it('un guasto di rete non ha codice', () => {
     const error = ApiError.network('https://api.postqron.com/v1/jobs', new Error('Failed to fetch'))
@@ -91,7 +138,7 @@ describe('ApiError', () => {
     // I due campi rispondono a domande diverse: `kind` dice cosa può fare
     // l'utente, `code` quale regola è scattata. Un modulo ha bisogno del
     // secondo per indicare *quale* campo rifare.
-    const error = ApiError.fromStatus('https://api.postqron.com/auth/register', 400, '', 'weak_password')
+    const error = ApiError.fromStatus('https://api.postqron.com/auth/register', 400, '', { code: 'weak_password' })
 
     expect(error.kind).toBe('invalid')
     expect(error.code).toBe('weak_password')

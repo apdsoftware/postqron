@@ -137,7 +137,7 @@ describe('localizeNextPath', () => {
 
 describe('authErrorKey', () => {
   const error = (status: number, code: string | null = null) =>
-    ApiError.fromStatus('https://api.postqron.com/auth/login', status, '', code)
+    ApiError.fromStatus('https://api.postqron.com/auth/login', status, '', { code })
 
   it('un 401 dice «email o password non corretti», e nient\'altro', () => {
     // La proprietà da non rompere: il backend non distingue fra utente
