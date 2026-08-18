@@ -409,13 +409,14 @@ func TestAICredentialsStoreOnlyCiphertext(t *testing.T) {
 	ctx := t.Context()
 
 	if _, err := fixture.pool.Exec(ctx,
-		`INSERT INTO ai_credentials (user_id, provider, ciphertext, nonce, last_four)
-		 VALUES ($1, 'anthropic', '\x0102', '\x030405', 'ab12')`, fixture.userID); err != nil {
+		`INSERT INTO ai_credentials (user_id, provider, ciphertext, nonce)
+		 VALUES ($1, 'anthropic', '\x0102', '\x030405')`, fixture.userID); err != nil {
 		t.Fatalf("inserimento: %v", err)
 	}
 
-	// Una seconda credenziale per lo stesso provider è un aggiornamento, non un
-	// duplicato da disambiguare al momento dell'uso.
+	// Una seconda credenziale **viva** per lo stesso provider è un aggiornamento,
+	// non un duplicato da disambiguare al momento dell'uso. Dalla 0016 l'unicità
+	// è parziale: vale fra le sole chiavi non revocate.
 	if _, err := fixture.pool.Exec(ctx,
 		`INSERT INTO ai_credentials (user_id, provider, ciphertext, nonce)
 		 VALUES ($1, 'anthropic', '\x0607', '\x08090a')`, fixture.userID); err == nil {
@@ -434,8 +435,13 @@ func TestAICredentialsStoreOnlyCiphertext(t *testing.T) {
 		if err := rows.Scan(&column); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(column, "plain") || column == "api_key" || column == "secret" {
-			t.Errorf("colonna sospetta in ai_credentials: %q", column)
+		// `last_four` è nell'elenco perché la 0016 l'ha tolta: quattro caratteri
+		// della chiave in chiaro in ogni backup contraddicono «cifrate a riposo».
+		// L'elenco chiuso delle colonne ammesse sta in internal/aicredspg.
+		for _, vietata := range []string{"plain", "api_key", "secret", "last_four", "preview"} {
+			if strings.Contains(column, vietata) {
+				t.Errorf("colonna sospetta in ai_credentials: %q", column)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

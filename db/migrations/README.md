@@ -58,6 +58,8 @@ sostituiscono la ricerca automatica di questa directory.
 | 0012 | `workspace_secrets`: i segreti contro cui `cron.yaml` risolve `${VAR}` |
 | 0013 | `paddle_webhook_events`, `paddle_checkout_intents` e la sospensione dei job al cambio di piano |
 | 0014 | `jobs.overlap_policy`: cosa fare quando un'occorrenza scavalca la precedente (R41) |
+| 0015 | `users.language` e l'esito di consegna su `notifications` (R21, R33) |
+| 0016 | `ai_credentials`: revoca che svuota il materiale, unicità fra le sole chiavi vive, via `last_four` (R18) |
 
 ## Scelte di schema
 

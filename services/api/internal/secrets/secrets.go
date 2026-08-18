@@ -42,10 +42,11 @@ package secrets
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/apdsoftware/postqron/services/api/internal/secretbox"
 )
 
 // Vincoli di forma. Sono nel codice e non in configurazione perché sono lo
@@ -86,64 +87,25 @@ const (
 
 // ---------------------------------------------------------------- il valore
 
-// Value è il valore in chiaro di un segreto.
+// Value è il valore in chiaro di un segreto: una stringa avvolta in un tipo che
+// **non si stampa**, con nessun verbo, in nessun log e in nessun JSON. Per
+// ottenere il valore vero bisogna chiamare `Reveal`, che si legge in una
+// revisione e si cerca con un grep.
 //
-// È una stringa avvolta in un tipo che **non si stampa**. Il punto non è
-// l'incapsulamento: è che `slog.String("secret", value)`, `fmt.Sprintf("%s",
-// value)` e `log.Printf("%v", input)` sono tre righe che qualcuno scrive prima o
-// poi, e con una `string` nuda funzionerebbero tutte e tre — cioè scriverebbero
-// il segreto in un log che la privacy policy §2.2 dice conservato e visibile
-// all'utente.
+// È un alias di [secretbox.Plaintext] e non un tipo suo. La ragione è che gli
+// utenti di questa disciplina sono due — i segreti del workspace e le chiavi AI
+// di R18 (internal/aicreds) — e due implementazioni della stessa maschera sono
+// due implementazioni che possono divergere: la seconda è quella che dimentica
+// `Format` e se ne accorge dal contenuto di un log. Il tipo vive dove entrambe
+// lo trovano, cioè nel package che entrambe usano per cifrare.
 //
-// Con questo tipo scrivono `«segreto»`. Per ottenere il valore vero bisogna
-// chiamare [Value.Reveal], che si legge in una revisione e si cerca con un
-// grep.
-type Value string
+// L'alias, e non una ridefinizione, perché il valore attraversa le rotte e la
+// validazione come `Value`: rinominarlo qui costringerebbe a riscrivere ogni
+// chiamante per un cambio che non riguarda nessuno di loro.
+type Value = secretbox.Plaintext
 
 // redacted è ciò che compare al posto del valore ovunque lo si stampi.
-const redacted = "«segreto»"
-
-// Reveal restituisce il valore in chiaro.
-//
-// **È l'unico modo di ottenerlo**, e il nome è scelto per essere impossibile da
-// scrivere per distrazione: se compare in una riga che costruisce un log o una
-// risposta HTTP, quella riga è un difetto e si vede.
-func (v Value) Reveal() string { return string(v) }
-
-// Len è la lunghezza del valore. Serve alla validazione senza rivelare niente.
-func (v Value) Len() int { return len(v) }
-
-// Empty indica un valore assente.
-func (v Value) Empty() bool { return v == "" }
-
-// String implementa [fmt.Stringer] mascherando il valore.
-func (v Value) String() string { return redacted }
-
-// Format implementa [fmt.Formatter].
-//
-// [fmt.Stringer] da solo non basta: `%q` citerebbe la stringa sottostante e
-// `%#v` ne stamperebbe la forma Go, che è il valore fra virgolette con il nome
-// del tipo davanti. Implementando Formatter la maschera vale per **ogni** verbo,
-// compresi quelli che qualcuno userà fra un anno.
-func (v Value) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 'q':
-		fmt.Fprintf(f, "%q", redacted)
-	default:
-		fmt.Fprint(f, redacted)
-	}
-}
-
-// LogValue implementa [slog.LogValuer]: nei log strutturati compare la maschera.
-func (v Value) LogValue() slog.Value { return slog.StringValue(redacted) }
-
-// MarshalJSON impedisce che il valore finisca in una risposta o in un file di
-// stato serializzando la struttura che lo contiene.
-//
-// Non è la difesa principale — la difesa principale è che [Secret] il campo non
-// ce l'ha — ma è quella che copre i tipi che un giorno lo conterranno per
-// forza, come il corpo di una richiesta di creazione.
-func (v Value) MarshalJSON() ([]byte, error) { return []byte(`"` + redacted + `"`), nil }
+const redacted = secretbox.Redacted
 
 // --------------------------------------------------------------- il segreto
 

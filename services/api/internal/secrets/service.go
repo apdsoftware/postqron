@@ -301,7 +301,7 @@ func (s *Service) Resolve(ctx context.Context, userID string, req Request) (Reso
 	values := make(map[string]Value, len(sealed))
 	ids := make([]string, 0, len(sealed))
 	for _, row := range sealed {
-		plaintext, err := s.keys.Open(secretbox.Box{
+		plaintext, err := s.keys.OpenPlaintext(secretbox.Box{
 			Ciphertext: row.Ciphertext,
 			Nonce:      row.Nonce,
 			KeyVersion: row.KeyVersion,
@@ -314,7 +314,7 @@ func (s *Service) Resolve(ctx context.Context, userID string, req Request) (Reso
 				slog.Any("secret", row.Secret), slog.Any("error", err))
 			return Resolved{}, fmt.Errorf("decifratura del segreto %q: %w", row.Name, err)
 		}
-		values[row.Name] = Value(plaintext)
+		values[row.Name] = plaintext
 		if row.LastUsedAt == nil || s.now().Sub(*row.LastUsedAt) >= touchInterval {
 			ids = append(ids, row.ID)
 		}
@@ -379,7 +379,7 @@ func binding(userID, name string) []byte {
 
 // seal cifra un valore per una riga.
 func (s *Service) seal(userID, name string, value Value) (Sealed, error) {
-	box, err := s.keys.Seal([]byte(value.Reveal()), binding(userID, name))
+	box, err := s.keys.SealPlaintext(value, binding(userID, name))
 	if err != nil {
 		return Sealed{}, fmt.Errorf("cifratura del segreto: %w", err)
 	}
