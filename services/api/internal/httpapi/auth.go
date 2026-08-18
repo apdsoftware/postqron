@@ -144,6 +144,23 @@ type SessionEnvelope struct {
 	Session SessionResponse `json:"session"`
 }
 
+// SessionListResponse è l'elenco dei dispositivi collegati.
+//
+// È una struttura e non una mappa costruita al volo perché è una risposta del
+// contratto pubblico (R51): il documento OpenAPI la descrive, e il controllo di
+// allineamento confronta i campi dichiarati con quelli serializzati (vedi
+// contract_test.go). Di una `map[string]any` non c'è niente da confrontare, e un
+// campo aggiunto lì dentro non lo vedrebbe nessuno.
+type SessionListResponse struct {
+	Sessions []SessionResponse `json:"sessions"`
+}
+
+// RevokedSessionsResponse conta le sessioni chiuse. Vale la stessa ragione di
+// [SessionListResponse].
+type RevokedSessionsResponse struct {
+	Revoked int `json:"revoked"`
+}
+
 // ------------------------------------------------------------------ handler
 
 // register registra un account.
@@ -226,7 +243,7 @@ func (a *authAPI) listSessions(w http.ResponseWriter, r *http.Request, user auth
 	for _, s := range sessions {
 		out = append(out, sessionResponse(s, s.ID == session.ID))
 	}
-	writeJSON(w, r, a.log, http.StatusOK, map[string]any{"sessions": out})
+	writeJSON(w, r, a.log, http.StatusOK, SessionListResponse{Sessions: out})
 }
 
 // revokeSession chiude una sessione indicata per identificativo.
@@ -252,7 +269,7 @@ func (a *authAPI) revokeOtherSessions(w http.ResponseWriter, r *http.Request, us
 		a.fail(w, r, err)
 		return
 	}
-	writeJSON(w, r, a.log, http.StatusOK, map[string]any{"revoked": n})
+	writeJSON(w, r, a.log, http.StatusOK, RevokedSessionsResponse{Revoked: n})
 }
 
 // forgotPassword avvia il recupero password.
