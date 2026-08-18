@@ -12,6 +12,7 @@ import (
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
 	"github.com/apdsoftware/postqron/services/api/internal/authpg"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 )
 
 // Le proprietà provate qui sono quelle che dipendono da PostgreSQL e che un
@@ -45,7 +46,7 @@ func newStore(t *testing.T) (*authpg.Store, *pgxpool.Pool) {
 
 func createUser(t *testing.T, store *authpg.Store, email string) auth.User {
 	t.Helper()
-	user, err := store.CreateUser(t.Context(), email, testHash, "Mario Rossi")
+	user, err := store.CreateUser(t.Context(), auth.NewUser{Email: email, PasswordHash: testHash, FullName: "Mario Rossi"})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestCreateUserRifiutaUnIndirizzoGiaPreso(t *testing.T) {
 	createUser(t, store, testEmail)
 
 	for _, variant := range []string{testEmail, "MARIO.ROSSI@EXAMPLE.COM"} {
-		_, err := store.CreateUser(t.Context(), variant, testHash, "")
+		_, err := store.CreateUser(t.Context(), auth.NewUser{Email: variant, PasswordHash: testHash})
 		if !errors.Is(err, auth.ErrEmailTaken) {
 			t.Errorf("CreateUser(%q): errore = %v, atteso ErrEmailTaken", variant, err)
 		}
@@ -148,7 +149,7 @@ func TestCreateUserConcorrenteHaUnSoloVincitore(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, err := store.CreateUser(t.Context(), testEmail, testHash, "")
+			_, err := store.CreateUser(t.Context(), auth.NewUser{Email: testEmail, PasswordHash: testHash})
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -203,7 +204,7 @@ func TestUnAccountCancellatoNonEPiuRaggiungibile(t *testing.T) {
 		t.Errorf("UserByID su account cancellato: errore = %v, atteso ErrNotFound", err)
 	}
 	// E l'indirizzo si può riusare.
-	if _, err := store.CreateUser(t.Context(), testEmail, testHash, ""); err != nil {
+	if _, err := store.CreateUser(t.Context(), auth.NewUser{Email: testEmail, PasswordHash: testHash}); err != nil {
 		t.Errorf("l'indirizzo non è tornato disponibile: %v", err)
 	}
 	// Una scrittura su un account cancellato non passa.
@@ -863,4 +864,56 @@ func TestLaMigrazione0009EReversibile(t *testing.T) {
 	}
 	user := createUser(t, store, testEmail)
 	newSession(t, store, user.ID, tokenHashA, testNow)
+}
+
+// ------------------------------------------------------- consenso e account
+
+// TestLAccountEIlSuoConsensoNasconoInsieme verifica l'atomicità che R46 pretende
+// dalla registrazione.
+//
+// Le due direzioni sono entrambe necessarie e provano cose diverse: che i
+// consensi vengano scritti, e che **un consenso che non si può scrivere impedisca
+// all'account di nascere**. La seconda è quella che conta: senza, un guasto
+// lascerebbe un utente iscritto di cui non sappiamo dire cosa aveva davanti, e
+// non c'è modo di ricostruirlo dopo.
+func TestLAccountEIlSuoConsensoNasconoInsieme(t *testing.T) {
+	store, pool := newStore(t)
+
+	consensi := legal.Current().ConsentsFor(time.Now(), legal.English, legal.SourceRegistration)
+	user, err := store.CreateUser(t.Context(), auth.NewUser{
+		Email: testEmail, PasswordHash: testHash, FullName: "Mario Rossi", Consents: consensi,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	var registrati int
+	if err := pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM legal_consents WHERE user_id = $1::uuid`, user.ID).Scan(&registrati); err != nil {
+		t.Fatalf("conteggio dei consensi: %v", err)
+	}
+	if registrati != len(consensi) {
+		t.Errorf("%d consensi registrati, attesi %d", registrati, len(consensi))
+	}
+
+	// Un consenso che lo schema rifiuta — qui un'impronta che non è
+	// un'impronta — deve portarsi dietro l'account.
+	rotto := legal.Consent{
+		Document: legal.TermsOfService, Version: "1.2.0", Language: legal.English,
+		Checksum: "non-e-una-impronta", Source: legal.SourceRegistration, AcceptedAt: time.Now(),
+	}
+	if _, err := store.CreateUser(t.Context(), auth.NewUser{
+		Email: "seconda@example.com", PasswordHash: testHash, Consents: []legal.Consent{rotto},
+	}); err == nil {
+		t.Fatal("CreateUser è riuscita con un consenso che lo schema rifiuta")
+	}
+
+	var rimasti int
+	if err := pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM users WHERE email = 'seconda@example.com'`).Scan(&rimasti); err != nil {
+		t.Fatalf("conteggio degli account: %v", err)
+	}
+	if rimasti != 0 {
+		t.Error("l'account è nato senza la prova di ciò che ha accettato: la transazione non ha annullato l'inserimento")
+	}
 }

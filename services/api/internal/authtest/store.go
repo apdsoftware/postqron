@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 )
 
 // Store è un'implementazione in memoria di [auth.Store] per i test.
@@ -36,6 +37,9 @@ type Store struct {
 	sess   map[string]auth.Session
 	tokens map[string]auth.UserToken
 
+	// consents è ciò che la registrazione ha accettato, per utente (R46).
+	consents map[string][]legal.Consent
+
 	// failOn, se valorizzato, fa restituire un errore all'operazione con quel
 	// nome. Serve a provare che un guasto della persistenza non cambia ciò che
 	// il client osserva.
@@ -49,11 +53,12 @@ type Store struct {
 // NewStore costruisce un archivio vuoto.
 func NewStore() *Store {
 	return &Store{
-		users:  map[string]auth.User{},
-		sess:   map[string]auth.Session{},
-		tokens: map[string]auth.UserToken{},
-		failOn: map[string]error{},
-		calls:  map[string]int{},
+		users:    map[string]auth.User{},
+		sess:     map[string]auth.Session{},
+		tokens:   map[string]auth.UserToken{},
+		consents: map[string][]legal.Consent{},
+		failOn:   map[string]error{},
+		calls:    map[string]int{},
 	}
 }
 
@@ -112,13 +117,13 @@ func (m *Store) UserByID(_ context.Context, id string) (auth.User, error) {
 	return user, nil
 }
 
-func (m *Store) CreateUser(_ context.Context, email, passwordHash, fullName string) (auth.User, error) {
+func (m *Store) CreateUser(_ context.Context, in auth.NewUser) (auth.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.enter("CreateUser"); err != nil {
 		return auth.User{}, err
 	}
-	wanted := strings.ToLower(email)
+	wanted := strings.ToLower(in.Email)
 	for _, user := range m.users {
 		if strings.ToLower(user.Email) == wanted {
 			return auth.User{}, auth.ErrEmailTaken
@@ -126,15 +131,30 @@ func (m *Store) CreateUser(_ context.Context, email, passwordHash, fullName stri
 	}
 	user := auth.User{
 		ID:           m.nextID("user"),
-		Email:        email,
-		FullName:     fullName,
+		Email:        in.Email,
+		FullName:     in.FullName,
 		Role:         "user",
 		Timezone:     "UTC",
-		PasswordHash: passwordHash,
+		PasswordHash: in.PasswordHash,
 		CreatedAt:    time.Now(),
 	}
 	m.users[user.ID] = user
+	// I consensi si conservano come li ha passati il Service: è l'unico modo
+	// che un test ha di verificare **cosa** la registrazione ha registrato, e
+	// riprodurre qui l'idempotenza del database non aggiungerebbe niente —
+	// CreateUser si chiama una volta per account, per costruzione.
+	m.consents[user.ID] = append([]legal.Consent(nil), in.Consents...)
 	return user, nil
+}
+
+// ConsentsOf restituisce i consensi registrati alla creazione dell'account.
+//
+// Non fa parte di [auth.Store]: è la finestra che i test hanno su ciò che la
+// registrazione ha scritto (R46).
+func (m *Store) ConsentsOf(userID string) []legal.Consent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]legal.Consent(nil), m.consents[userID]...)
 }
 
 func (m *Store) UpdatePasswordHash(_ context.Context, userID, passwordHash string) error {

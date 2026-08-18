@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/netip"
 	"time"
+
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 )
 
 // TokenPurpose è lo scopo di un token monouso; corrisponde al tipo
@@ -69,6 +71,30 @@ func (s Session) Active(now time.Time, idleTTL time.Duration) bool {
 	return idleTTL <= 0 || now.Sub(s.LastUsedAt) < idleTTL
 }
 
+// NewUser è un account da creare, con la prova di ciò che chi lo crea ha
+// accettato.
+//
+// È una struttura e non quattro parametri perché i consensi non sono un
+// argomento in più: sono la ragione per cui questa operazione è indivisibile.
+type NewUser struct {
+	Email        string
+	PasswordHash string
+	FullName     string
+
+	// Consents sono i consensi ai documenti legali in vigore (R46), da scrivere
+	// **nella stessa transazione dell'account**.
+	//
+	// Non è un dettaglio di efficienza. Un account senza la prova di ciò che ha
+	// accettato è uno stato che non deve poter esistere: se la scrittura fosse
+	// una seconda chiamata, un errore fra le due lascerebbe un utente iscritto
+	// di cui non sappiamo dire cosa aveva davanti — e non c'è un modo di
+	// ricostruirlo dopo, perché la domanda è cosa vedeva *in quel momento*.
+	//
+	// Vuoto è ammesso, e serve ai test che non hanno un registro: lo Store
+	// scrive l'account e basta.
+	Consents []legal.Consent
+}
+
 // UserToken è un token monouso già ridotto alla sua impronta.
 type UserToken struct {
 	ID          string
@@ -110,7 +136,10 @@ type Store interface {
 	UserByID(ctx context.Context, id string) (User, error)
 	// CreateUser crea un account. Se l'indirizzo è già preso restituisce
 	// [ErrEmailTaken] senza modificare nulla.
-	CreateUser(ctx context.Context, email, passwordHash, fullName string) (User, error)
+	//
+	// L'account e i suoi consensi nascono **nella stessa transazione**: vedi
+	// [NewUser.Consents].
+	CreateUser(ctx context.Context, in NewUser) (User, error)
 	// UpdatePasswordHash sostituisce l'hash della password.
 	UpdatePasswordHash(ctx context.Context, userID, passwordHash string) error
 	// TouchLastLogin registra il momento dell'ultimo accesso riuscito.

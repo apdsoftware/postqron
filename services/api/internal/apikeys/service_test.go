@@ -71,7 +71,7 @@ func newFixture(t *testing.T, tune ...func(*apikeys.Options)) *fixture {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	user, err := users.CreateUser(context.Background(), "mario.rossi@example.com", "hash", "Mario Rossi")
+	user, err := users.CreateUser(context.Background(), auth.NewUser{Email: "mario.rossi@example.com", PasswordHash: "hash", FullName: "Mario Rossi"})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestNonSiRevocaLaChiaveDiUnAltroUtente(t *testing.T) {
 	f := newFixture(t)
 	created := f.crea(apikeys.ScopeJobsRead)
 
-	altro, err := f.users.CreateUser(context.Background(), "altro@example.com", "hash", "Altro")
+	altro, err := f.users.CreateUser(context.Background(), auth.NewUser{Email: "altro@example.com", PasswordHash: "hash", FullName: "Altro"})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

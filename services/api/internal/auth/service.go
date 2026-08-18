@@ -45,6 +45,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 	"github.com/apdsoftware/postqron/services/api/internal/ratelimit"
 )
 
@@ -242,6 +243,12 @@ type Options struct {
 	// Now sostituisce l'orologio. Serve ai test sulle scadenze.
 	Now func() time.Time
 
+	// Documents sostituisce [legal.Current], il registro dei documenti legali
+	// da cui la registrazione prende le versioni in vigore (R46). Serve ai test,
+	// che devono poter far cambiare un documento senza aspettare che cambi
+	// davvero.
+	Documents *legal.Registry
+
 	SessionTTL           time.Duration
 	SessionIdleTTL       time.Duration
 	EmailVerificationTTL time.Duration
@@ -254,17 +261,18 @@ type Options struct {
 
 // Service è l'autenticazione. Va costruito con [NewService].
 type Service struct {
-	store   Store
-	hasher  PasswordHasher
-	keys    Keyring
-	mailer  Mailer
-	log     *slog.Logger
-	now     func() time.Time
-	limits  Limits
-	verify  time.Duration
-	reset   time.Duration
-	session time.Duration
-	idle    time.Duration
+	store     Store
+	hasher    PasswordHasher
+	keys      Keyring
+	mailer    Mailer
+	log       *slog.Logger
+	now       func() time.Time
+	documents *legal.Registry
+	limits    Limits
+	verify    time.Duration
+	reset     time.Duration
+	session   time.Duration
+	idle      time.Duration
 
 	loginIP      *ratelimit.Limiter
 	loginAccount *ratelimit.Limiter
@@ -294,23 +302,27 @@ func NewService(opts Options) (*Service, error) {
 	}
 
 	s := &Service{
-		store:   opts.Store,
-		hasher:  opts.Hasher,
-		keys:    opts.Keyring,
-		mailer:  opts.Mailer,
-		log:     opts.Logger,
-		now:     opts.Now,
-		limits:  mergeLimits(opts.Limits),
-		verify:  durationOr(opts.EmailVerificationTTL, DefaultEmailVerificationTTL),
-		reset:   durationOr(opts.PasswordResetTTL, DefaultPasswordResetTTL),
-		session: durationOr(opts.SessionTTL, DefaultSessionTTL),
-		idle:    durationOr(opts.SessionIdleTTL, DefaultSessionIdleTTL),
+		store:     opts.Store,
+		hasher:    opts.Hasher,
+		keys:      opts.Keyring,
+		mailer:    opts.Mailer,
+		log:       opts.Logger,
+		now:       opts.Now,
+		documents: opts.Documents,
+		limits:    mergeLimits(opts.Limits),
+		verify:    durationOr(opts.EmailVerificationTTL, DefaultEmailVerificationTTL),
+		reset:     durationOr(opts.PasswordResetTTL, DefaultPasswordResetTTL),
+		session:   durationOr(opts.SessionTTL, DefaultSessionTTL),
+		idle:      durationOr(opts.SessionIdleTTL, DefaultSessionIdleTTL),
 	}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.documents == nil {
+		s.documents = legal.Current()
 	}
 	if s.idle > s.session {
 		// Una scadenza per inattività più lunga di quella assoluta non ha
@@ -375,6 +387,15 @@ type RegisterInput struct {
 	Password string
 	FullName string
 	Client   Client
+
+	// Language è la lingua in cui l'utente sta leggendo. Serve alla prova del
+	// consenso (R46), non al profilo: decide in quale lingua i documenti legali
+	// gli sono stati mostrati.
+	//
+	// Vuota significa [legal.SourceLanguage]. Non è un ripiego arbitrario: è la
+	// lingua sorgente dei contenuti (SPEC §8-bis), e finché una traduzione non
+	// esiste è quella che l'utente ha davanti comunque.
+	Language legal.Language
 }
 
 // Register crea un account.
@@ -386,6 +407,15 @@ type RegisterInput struct {
 // deliberato), tentano l'inserimento, e mettono in coda un'email diversa. La
 // differenza sta solo in quale template riceve il proprietario dell'indirizzo,
 // che è l'unica persona autorizzata a saperlo.
+//
+// # È qui che nasce il consenso (R46)
+//
+// I Termini si aprono con «By creating an account you accept them, together
+// with the Acceptable Use Policy and the Privacy Policy»: la registrazione **è**
+// l'accettazione, e la prova va scritta nello stesso istante e nella stessa
+// transazione dell'account (vedi [NewUser.Consents]). Le versioni sono quelle
+// in vigore adesso, una per documento, con la lingua in cui i testi sono stati
+// mostrati — che non è sempre quella chiesta, vedi [legal.Release.Presented].
 //
 // Errori possibili: [ErrInvalidEmail], gli errori di policy sulla password,
 // [*RateLimitedError]. Nessuno dei tre dipende dall'esistenza dell'account.
@@ -406,7 +436,28 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) error {
 		return fmt.Errorf("hashing della password: %w", err)
 	}
 
-	user, err := s.store.CreateUser(ctx, email, hash, strings.TrimSpace(in.FullName))
+	language := in.Language
+	if language == "" {
+		language = legal.SourceLanguage
+	}
+	consents := s.documents.ConsentsFor(s.now(), language, legal.SourceRegistration)
+	if len(consents) < len(legal.Documents()) {
+		// Non può succedere con il registro dichiarato — tutti e quattro i
+		// documenti sono in vigore da agosto 2026 — e se succede si registra
+		// invece di rifiutare: l'utente non c'entra, e negargli l'iscrizione non
+		// gli renderebbe il consenso più completo. La riga è ciò che permette di
+		// accorgersene, perché il buco non ha nessun altro sintomo.
+		s.log.WarnContext(ctx, "registrazione con meno consensi dei documenti esistenti (R46)",
+			slog.Int("registrati", len(consents)),
+			slog.Int("documenti", len(legal.Documents())))
+	}
+
+	user, err := s.store.CreateUser(ctx, NewUser{
+		Email:        email,
+		PasswordHash: hash,
+		FullName:     strings.TrimSpace(in.FullName),
+		Consents:     consents,
+	})
 	switch {
 	case errors.Is(err, ErrEmailTaken):
 		// L'indirizzo ha già un account. L'unico modo lecito di dirlo è dirlo al
@@ -422,7 +473,12 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) error {
 
 	s.log.InfoContext(ctx, "account registrato",
 		slog.String("user_id", user.ID),
-		slog.String("client_ip", in.Client.ipKey()))
+		slog.String("client_ip", in.Client.ipKey()),
+		// La riga dice **cosa** è stato accettato, non solo che qualcuno si è
+		// iscritto: è la stessa informazione della tabella, nel posto in cui la
+		// si cerca quando la domanda arriva mesi dopo. Le quattro versioni sono
+		// diverse fra loro, quindi un numero solo non basterebbe.
+		slog.String("consensi", riassuntoConsensi(consents)))
 
 	token, expires, err := s.issueToken(ctx, user.ID, PurposeEmailVerification, s.verify, in.Client)
 	if err != nil {
@@ -1107,6 +1163,21 @@ func (s *Service) logFailedLogin(ctx context.Context, client Client, reason stri
 	s.log.InfoContext(ctx, "accesso rifiutato",
 		slog.String("reason", reason),
 		slog.String("client_ip", client.ipKey()))
+}
+
+// riassuntoConsensi mette i consensi di una registrazione in una riga di log.
+//
+// La forma è `documento@versione/lingua`, ripetuta: `terms-of-service@1.2.0/en
+// privacy-policy@1.1.0/en …`. Un campo strutturato per documento sarebbe più
+// pulito da interrogare e meno leggibile da chi cerca a occhio, che è il modo in
+// cui questa riga viene letta — una volta ogni molto tempo, con una domanda
+// precisa in mente.
+func riassuntoConsensi(consents []legal.Consent) string {
+	parti := make([]string, 0, len(consents))
+	for _, c := range consents {
+		parti = append(parti, fmt.Sprintf("%s@%s/%s", c.Document, c.Version, c.Language))
+	}
+	return strings.Join(parti, " ")
 }
 
 func allow(l *ratelimit.Limiter, key string) error {
