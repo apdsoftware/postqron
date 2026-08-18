@@ -55,7 +55,7 @@ func newAccountAPI(guard *guard, logger *slog.Logger, svc *account.Service) *acc
 // dimenticata in un file di configurazione, sufficiente a distruggere il lavoro
 // di qualcuno. Per cancellare un account serve la credenziale che dimostra di
 // *essere* l'utente — e in aggiunta, sulla richiesta, la sua password.
-func (a *accountAPI) routes(mux *http.ServeMux) {
+func (a *accountAPI) routes(mux router) {
 	mux.HandleFunc("GET /account/deletion", a.authenticated(a.status))
 	mux.HandleFunc("POST /account/deletion", a.authenticated(a.request))
 	mux.HandleFunc("DELETE /account/deletion", a.authenticated(a.cancel))

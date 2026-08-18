@@ -63,6 +63,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/apdsoftware/postqron/services/api/internal/account"
 	"github.com/apdsoftware/postqron/services/api/internal/aicreds"
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
@@ -114,8 +115,7 @@ func rotteDelRouter(t *testing.T) []string {
 	}
 	t.Cleanup(hub.Stop)
 
-	rec := &registratoreDiRotte{}
-	register(rec, cfg, "test", logger, Deps{
+	deps := Deps{
 		Auth:             &auth.Service{},
 		Jobs:             &jobs.Service{},
 		APIKeys:          &apikeys.Service{},
@@ -123,13 +123,57 @@ func rotteDelRouter(t *testing.T) []string {
 		PaddleWebhook:    &paddle.Service{},
 		Billing:          &billing.Service{},
 		Secrets:          &secrets.Service{},
+		Account:          &account.Service{},
 		AIKeys:           &aicreds.Service{},
 		ExecutionStreams: hub,
 		Readiness:        prontezzaFinta{},
 		Metrics:          metricheFinte{},
 		MetricsToken:     "token-di-prova",
-	})
+	}
+	verificaDipendenzeComplete(t, deps)
+
+	rec := &registratoreDiRotte{}
+	register(rec, cfg, "test", logger, deps)
 	return rec.patterns
+}
+
+// verificaDipendenzeComplete pretende che ogni dipendenza sia valorizzata.
+//
+// # Perché esiste
+//
+// Perché senza, il controllo delle rotte si è già svuotato una volta. La issue
+// #460 ha aggiunto `Deps.Account` e tre rotte dietro `if deps.Account != nil`:
+// questo elenco non la valorizzava, quelle rotte non venivano registrate, e il
+// confronto con il documento è passato **verde** su un'API che aveva tre rotte
+// non descritte. Un controllo che si restringe da solo quando il codice cresce è
+// peggio di nessun controllo, perché la sua approvazione continua a sembrare
+// significativa.
+//
+// La regola è meccanica e vale per le dipendenze che ancora non esistono: ogni
+// campo che può essere «assente» — puntatore, interfaccia, stringa — dev'essere
+// presente. Le funzioni sono escluse perché `Now` nil significa «l'orologio
+// vero», che è la configurazione d'esercizio; i valori composti non hanno un
+// nil da distinguere.
+func verificaDipendenzeComplete(t *testing.T, deps Deps) {
+	t.Helper()
+	valore := reflect.ValueOf(deps)
+	tipo := valore.Type()
+
+	for i := range tipo.NumField() {
+		campo, contenuto := tipo.Field(i), valore.Field(i)
+		mancante := false
+		switch contenuto.Kind() {
+		case reflect.Pointer, reflect.Interface:
+			mancante = contenuto.IsNil()
+		case reflect.String:
+			mancante = contenuto.Len() == 0
+		}
+		if mancante {
+			t.Errorf("Deps.%s non è valorizzata: le rotte che stanno dietro a questa dipendenza "+
+				"non verrebbero registrate, e il confronto con il contratto passerebbe senza averle guardate",
+				campo.Name)
+		}
+	}
 }
 
 // registratoreDiRotte è un [router] che non serve niente: prende nota e basta.
@@ -537,6 +581,13 @@ var legami = []legameDiSchema{
 	{schema: "Checkout", valore: CheckoutResponse{}, obbligatori: true},
 	{schema: "CheckoutCustomData", valore: billing.CustomData{}, obbligatori: true},
 	{schema: "CheckoutInput", valore: checkoutRequest{}},
+
+	// Cancellazione dell'account (R45).
+	{schema: "DeletionStatus", valore: DeletionStatusResponse{}, obbligatori: true},
+	{schema: "DeletionSubscription", valore: DeletionSubscription{}, obbligatori: true},
+	{schema: "DeletionReceipt", valore: DeletionReceiptResponse{}, obbligatori: true},
+	{schema: "DeletionRestored", valore: DeletionRestoredResponse{}, obbligatori: true},
+	{schema: "DeletionRequestInput", valore: requestDeletionRequest{}},
 
 	// Webhook.
 	{schema: "GithubDelivery", valore: GitHubWebhookResponse{}, obbligatori: true},

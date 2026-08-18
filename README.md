@@ -391,6 +391,13 @@ Il contratto OpenAPI 3.1 dell'API sta in
 [`services/api/openapi/openapi.yaml`](services/api/openapi/openapi.yaml),
 versionato insieme al codice che descrive.
 
+**È scritto in inglese**, ed è l'unica eccezione alla regola di AGENTS.md §8: la
+riga di confine è chi legge. Il contratto lo legge chi integra l'API — è
+contenuto di prodotto, e SPEC §8-bis dice che la lingua sorgente dei contenuti di
+prodotto è l'inglese. Commenti, commit e documentazione interna restano in
+italiano. I `message` che l'API restituisce sono oggi in italiano e il documento
+li descrive per come sono: tradurli è la issue #445.
+
 **Cosa gli impedisce di mentire.** Un documento scritto a mano diverge dal codice
 entro un mese, e da quel momento è peggio di non averlo: chi lo legge costruisce
 un client su una promessa falsa, e il difetto si manifesta a casa sua. Due

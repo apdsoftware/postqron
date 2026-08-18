@@ -3,172 +3,176 @@ openapi: 3.1.0
 info:
   title: Postqron API
   version: 1.0.0
-  summary: Gestione, sincronizzazione e monitoraggio di cronjob (R8, R9, R51).
+  summary: Manage, sync and monitor cron jobs (R8, R9, R51).
   description: |
-    Contratto dell'API pubblica di Postqron. Descrive **ciò che il servizio fa
-    davvero**: percorsi, corpi, codici di errore e limiti sono confrontati con il
-    codice a ogni corsa di `make ci` — vedi «Come questo documento resta vero».
+    The contract of the Postqron public API. It describes **what the service
+    actually does**: paths, bodies, error codes and limits are compared against
+    the code on every `make ci` run — see "What keeps this document honest".
 
-    ## Come questo documento resta vero
+    ## What keeps this document honest
 
-    Un contratto scritto a mano diverge dal codice entro un mese, e da quel
-    momento è peggio di non averlo: chi lo legge costruisce un client su una
-    promessa falsa, e il difetto si manifesta a casa sua. Qui la divergenza è
-    impedita da un controllo automatico
-    (`services/api/internal/httpapi/contract_test.go`) che confronta con il
-    codice, e fa fallire la CI quando non combaciano:
+    A hand-written contract drifts from the code within a month, and from that
+    moment it is worse than having none: whoever reads it builds a client on a
+    false promise, and the defect shows up at their end. Here drift is prevented
+    by an automated check
+    (`services/api/internal/httpapi/contract_test.go`) that compares the
+    document against the code and fails CI when they disagree:
 
-    - **le rotte** — l'elenco `(metodo, percorso)` viene dal router vero, non da
-      una seconda copia scritta a mano;
-    - **i permessi** — `x-api-key-scope` è confrontato con lo scope che il codice
-      pretende, e nessuna operazione può dichiarare `apiKey` fra i propri metodi
-      di autenticazione se il codice non la registra dietro uno scope;
-    - **i codici di errore** — l'enumerazione `ErrorCode` è confrontata con i
-      codici che il servizio scrive davvero nelle risposte;
-    - **i campi delle risposte** — i nomi, l'obbligatorietà e la nullabilità di
-      ogni schema sono confrontati con le strutture serializzate. È anche il
-      controllo che difende R43: **un campo aggiunto a una risposta non passa la
-      CI finché non è dichiarato qui**, e dichiararlo è il momento in cui ci si
-      accorge di stare esponendo qualcosa;
-    - **le enumerazioni** — ambienti, stati, metodi, scope, provider e piani
-      vengono dalle stesse costanti che il servizio applica.
+    - **routes** — the `(method, path)` list comes from the real router, not
+      from a second hand-written copy;
+    - **permissions** — `x-api-key-scope` is compared against the scope the code
+      enforces, and no operation may list `apiKey` among its authentication
+      methods unless the code registers it behind a scope;
+    - **error codes** — the `ErrorCode` enumeration is compared against the
+      codes the service actually writes into responses;
+    - **response fields** — the names, requiredness and nullability of every
+      schema are compared against the serialised structures. This is also what
+      defends R43: **a field added to a response does not pass CI until it is
+      declared here**, and declaring it is the moment you notice you are
+      exposing something;
+    - **enumerations** — environments, statuses, methods, scopes, providers and
+      plans come from the same constants the service enforces.
 
-    Il documento è inoltre validato contro lo schema OpenAPI 3.1 (`make
-    openapi`), sempre in locale e senza rete: la CI di questo repository è
-    esclusivamente locale (AGENTS.md §2).
+    The document is also validated against the OpenAPI 3.1 schema (`make
+    openapi`), locally and without network access: this repository's CI runs
+    locally only (AGENTS.md §2).
 
-    ## Versione del contratto
+    ## Contract version
 
-    `info.version` è la versione **del contratto**, non del servizio: il numero
-    di build dell'API sta in `GET /healthz`. Cambia quando cambia ciò che questo
-    documento promette:
+    `info.version` is the version of **the contract**, not of the service: the
+    build of the API is in `GET /healthz`. It changes when what this document
+    promises changes:
 
     | | |
     |---|---|
-    | maggiore | una promessa viene ritirata o ristretta: una rotta o un campo che sparisce, un codice di errore che cambia significato, un vincolo che si stringe |
-    | minore | una promessa viene aggiunta: rotte, campi facoltativi, valori nuovi in un'enumerazione |
-    | patch | cambia la descrizione, non il comportamento |
+    | major | a promise is withdrawn or narrowed: a route or field disappears, an error code changes meaning, a constraint tightens |
+    | minor | a promise is added: routes, optional fields, new values in an enumeration |
+    | patch | the wording changes, the behaviour does not |
 
-    **Le rotte non portano un prefisso di versione** (`/jobs`, non `/v1/jobs`):
-    la versione sta qui. Con quale preavviso una funzionalità venga ritirata, e
-    come una versione nuova conviva con la precedente, è la **politica** di
-    versionamento e deprecazione (R52), che appartiene alla issue #466: questo
-    documento dichiara la versione, non la politica.
+    **Routes carry no version prefix** (`/jobs`, not `/v1/jobs`): the version
+    lives here. How much notice is given before a feature is retired, and how a
+    new version coexists with the previous one, is the versioning and
+    deprecation **policy** (R52), which belongs to issue #466: this document
+    declares the version, not the policy.
 
-    ## Autenticazione
+    ## Authentication
 
-    Due credenziali, e la differenza è sostanziale:
+    Two credentials, and the difference matters:
 
-    - **sessione** (R14) — cookie `pq_session`, oppure `Authorization: Bearer
-      <token>` per i client che non hanno un cookie jar. Vale per tutto ciò che
-      l'utente può fare: chi ha la password non ha bisogno del permesso di sé
-      stesso.
-    - **chiave API** (R9) — `Authorization: Bearer pq_live_...`, con **scope**.
-      Vale solo dove è dichiarata, e solo per lo scope indicato in
+    - **session** (R14) — the `pq_session` cookie, or `Authorization: Bearer
+      <token>` for clients without a cookie jar. It covers everything the user
+      can do: whoever holds the password does not need permission from
+      themselves.
+    - **API key** (R9) — `Authorization: Bearer pq_live_...`, with **scopes**. It
+      works only where declared, and only for the scope named in
       `x-api-key-scope`.
 
-    Quando una richiesta porta entrambe, **vince la chiave**: eseguire
-    l'operazione con i poteri pieni della sessione ignorando i limiti della
-    chiave che il chiamante ha dichiarato di voler usare sarebbe un'escalation
-    silenziosa.
+    When a request carries both, **the key wins**: running the operation with
+    the full powers of the session while ignoring the limits of the key the
+    caller explicitly chose to present would be a silent escalation.
 
-    Le rotte che **emettono o sostituiscono credenziali** — `/keys`, `/secrets`,
-    `/ai/keys` — e quelle che **impegnano una spesa** — `/billing` — accettano
-    solo la sessione. Non è una dimenticanza: una chiave di sola lettura che
-    potesse emetterne una di scrittura renderebbe gli scope una formalità
-    aggirabile, e una chiave che potesse sostituire un segreto dirotterebbe le
-    credenziali dell'utente verso un bersaglio scelto da chi ha la chiave.
+    Routes that **issue or replace credentials** — `/keys`, `/secrets`,
+    `/ai/keys` — that **commit to a payment** — `/billing` — and that **destroy
+    the account** — `/account/deletion` — accept the session only. This is not an
+    oversight: a read-only key one request away from issuing a write key would
+    make scopes a formality; a key able to replace a secret would redirect the
+    user's credentials to a target chosen by whoever holds the key; and a key
+    able to request account deletion would make a service credential forgotten
+    in a config file enough to destroy someone's work.
 
-    ## Errori
+    ## Errors
 
-    Ogni errore ha la stessa busta e lo stesso campo stabile:
+    Every error uses the same envelope and the same stable field:
 
     ```json
     { "error": { "code": "plan_limit_jobs", "message": "…", "limit": "jobs", "plan": "free" } }
     ```
 
-    `code` è **stabile e non tradotto**, ed è su quello che si fa branching
-    (R53). `message` è testo per una persona, oggi in italiano, e può cambiare
-    senza preavviso: non va confrontato.
+    `code` is **stable and untranslated**, and it is what you branch on (R53).
+    `message` is prose for a human and may change without notice: do not match
+    on it. **`message` is currently written in Italian** — the API is not
+    localised yet, and localisation of user-facing strings is SPEC §8-bis, issue
+    #445. This document describes the messages as they are today.
 
-    ### I due `429` non sono lo stesso errore (R10)
+    ### The two `429` responses are not the same error (R10)
 
-    Confonderli produce un prodotto ostile, e questo contratto li tiene distinti
-    fin negli schemi:
+    Confusing them produces a hostile product, and this contract keeps them
+    apart down to the schema level:
 
-    - **quota di piano** — `plan_limit_write_rate`, `plan_limit_manual_trigger`.
-      Schema [PlanLimitError](#/components/schemas/PlanLimitError): nomina il
-      `plan` e il `limit`, perché lì l'aggiornamento è davvero la risposta.
-    - **tetto tecnico** — `rate_limited`, `execution_ceiling`, `stream_ceiling`.
-      Schema [ServiceLimitError](#/components/schemas/ServiceLimitError):
-      **non ha `plan` e non ha `limit`, e lo schema vieta che compaiano**. È una
-      difesa del servizio, uguale su tutti i piani: nessun piano ne concede di
-      più, e suggerire un aggiornamento a chi lo incontra sarebbe una bugia
-      commerciale.
+    - **plan quota** — `plan_limit_write_rate`, `plan_limit_manual_trigger`.
+      Schema [PlanLimitError](#/components/schemas/PlanLimitError): it names the
+      `plan` and the `limit`, because there upgrading really is the answer.
+    - **technical ceiling** — `rate_limited`, `execution_ceiling`,
+      `stream_ceiling`. Schema
+      [ServiceLimitError](#/components/schemas/ServiceLimitError): it **has no
+      `plan` and no `limit`, and the schema forbids them from appearing**. It is
+      a defence of the service, identical on every plan: no plan grants more of
+      it, and suggesting an upgrade to whoever hits it would be a commercial lie.
 
-    Un client decide se mostrare un invito all'aggiornamento guardando quei due
-    campi, non il testo del messaggio.
+    A client decides whether to show an upgrade prompt by looking at those two
+    fields, not at the text of the message.
 
-    ### La retention si applica anche in lettura (R10-bis)
+    ### Retention applies to reads too (R10-bis)
 
-    I limiti del listino (3, 15, 30, 90 giorni) valgono sul registro delle
-    esecuzioni. Una richiesta che chiede **esplicitamente** oltre la retention
-    del piano viene rifiutata con `403 plan_limit_retention`, che dice quale
-    piano conserva quanto e da quale istante: non viene ristretta in silenzio.
-    Una richiesta che non chiede nessuna finestra riceve la retention del piano
-    come predefinito, il che non è un rifiuto mascherato — non c'è niente che il
-    chiamante abbia chiesto e non stia ottenendo.
+    The plan limits (3, 15, 30, 90 days) apply to the execution log. A request
+    that **explicitly** asks beyond the plan's retention is rejected with `403
+    plan_limit_retention`, which says which plan keeps how much and from which
+    instant: it is not silently narrowed. A request that asks for no window at
+    all gets the plan's retention as the default, which is not a disguised
+    rejection — there is nothing the caller asked for and is not getting.
 
-    ## Paginazione (R53)
+    ## Pagination (R53)
 
-    Elenchi paginati a **cursore**, con la stessa busta `page` ovunque. Su un job
-    a un secondo il registro cresce di 86.400 righe al giorno, e un `offset`
-    costringerebbe il database a scartarne migliaia per servirne cinquanta.
+    Paginated lists are **cursor-based**, with the same `page` envelope
+    everywhere. On a one-second job the log grows by 86,400 rows a day, and an
+    `offset` would force the database to discard thousands of rows to serve
+    fifty.
 
-    `page.next_cursor` a `null` è **l'unica** condizione di fine: non va dedotta
-    dal numero di righe ricevute, perché una pagina piena può benissimo essere
-    l'ultima. Il cursore è opaco: si rimanda com'è arrivato.
+    `page.next_cursor` set to `null` is **the only** end-of-list condition: it
+    must not be inferred from the number of rows returned, because a full page
+    may well be the last one. The cursor is opaque: send it back exactly as it
+    arrived.
 
-    `limit` oltre il massimo non è un errore, è una richiesta ridimensionata: la
-    dimensione servita è sempre in `page.limit`.
+    A `limit` above the maximum is not an error, it is a resized request: the
+    size actually served is always in `page.limit`.
 
-    ## Idempotenza delle scritture (R53)
+    ## Write idempotency (R53)
 
-    - `PUT` non esiste: le modifiche sono `PATCH` con semantica «ciò che non
-      mandi non cambia», quindi ripetibili senza effetti diversi. Un `null`
-      esplicito è un valore — cancella il campo — ed è distinto da un campo
-      assente.
-    - `POST /jobs` è idempotente sul **nome**, che è l'identità stabile del job:
-      un secondo tentativo con lo stesso nome riceve `409 job_name_taken`, non
-      un duplicato.
-    - `POST /ai/keys` **sostituisce** la chiave viva del provider invece di
-      rifiutarla: la seconda volta che si incolla la chiave di un fornitore non
-      si sta creando un duplicato, la si sta aggiornando.
-    - `POST /jobs/{id}/executions` è idempotente sull'occorrenza (R4): la
-      quaterna `(job, istante, ambiente, tentativo)` è la chiave, e una
-      registrazione già presente riceve `409 execution_already_exists`.
-    - I webhook in ingresso riconoscono le consegne ripetute e rispondono
-      `duplicate` senza produrre un secondo effetto.
+    - There is no `PUT`: modifications are `PATCH` with "what you do not send
+      does not change" semantics, so they are repeatable. An explicit `null` is a
+      value — it clears the field — and is distinct from an absent field.
+    - `POST /jobs` is idempotent on the **name**, which is the stable identity of
+      a job: a second attempt with the same name gets `409 job_name_taken`, not a
+      duplicate.
+    - `POST /ai/keys` **replaces** the provider's live key instead of rejecting
+      it: pasting a provider's key a second time is not creating a duplicate, it
+      is updating one.
+    - `POST /jobs/{id}/executions` is idempotent on the occurrence (R4): the
+      quadruple `(job, instant, environment, attempt)` is the key, and an already
+      recorded occurrence gets `409 execution_already_exists`.
+    - `POST /account/deletion` is idempotent on the pending request: a second
+      call gets `409 deletion_already_requested`, not a second grace window.
+    - Inbound webhooks recognise repeated deliveries and answer `duplicate`
+      without producing a second effect.
 
-    ## Segreti (R9, R18, R42, R43)
+    ## Secrets (R9, R18, R42, R43)
 
-    **Nessuno schema di risposta contiene un segreto**, e non per un filtro
-    applicato al momento di rispondere: sono campi che le strutture non hanno,
-    perché quello che non si serializza non può sfuggire per errore. In
-    particolare:
+    **No response schema contains a secret**, and not because of a filter applied
+    when responding: they are fields the structures do not have, because what is
+    never serialised cannot escape by accident. In particular:
 
-    - il valore in chiaro di una chiave API compare **una volta sola**, in
-      `ApiKeyCreated.secret`, alla creazione. Non esiste `GET /keys/{id}`, non
-      esiste un parametro per rileggerlo, e dopo quella risposta il valore non è
-      più recuperabile da nessuno, nemmeno da un amministratore;
-    - i segreti del workspace non tornano **mai**, nemmeno alla creazione:
-      l'utente ce li ha già;
-    - le chiavi AI non tornano mai, e nemmeno un frammento;
-    - `Job.request.headers` restituisce ciò che è stato scritto, cioè i
-      **riferimenti** `${VAR}`, non i valori risolti: la risoluzione avviene al
-      momento dell'esecuzione, dentro il motore;
-    - `Execution.response_excerpt` è un estratto troncato della risposta del
-      bersaglio, con i segreti redatti (R43).
+    - the plaintext value of an API key appears **exactly once**, in
+      `ApiKeyCreated.secret`, at creation time. There is no `GET /keys/{id}`, no
+      parameter to reveal it, and after that response the value is not
+      recoverable by anyone, not even an administrator;
+    - workspace secrets are **never** returned, not even on creation: the user
+      already has them;
+    - AI keys are never returned, not even a fragment of them;
+    - `Job.request.headers` returns what was written, i.e. the `${VAR}`
+      **references**, not the resolved values: resolution happens at execution
+      time, inside the engine;
+    - `Execution.response_excerpt` is a truncated excerpt of the target's
+      response, with secrets redacted (R43).
 
   contact:
     name: APDSoftware
@@ -179,129 +183,131 @@ info:
 servers:
   - url: http://localhost:8080
     description: |
-      Sviluppo locale (`POSTQRON_HTTP_ADDR`, README § Sviluppo). L'indirizzo di
-      esercizio non è dichiarato qui perché non è ancora deciso in nessun punto
-      del repository: inventarlo in un contratto sarebbe la prima cosa falsa del
-      documento.
+      Local development (`POSTQRON_HTTP_ADDR`, README § Sviluppo). The production
+      base URL is not declared here because it is not yet decided anywhere in the
+      repository: inventing one would be the first false statement in this
+      contract.
 
 tags:
-  - name: sistema
-    description: Liveness, prontezza e metriche (R7). Non sono rotte del prodotto.
-  - name: autenticazione
-    description: Registrazione, accesso, sessioni e password (R14).
-  - name: job
-    description: Cronjob ed esecuzioni (R8).
-  - name: chiavi API
-    description: Emissione e revoca delle chiavi con scope (R9).
-  - name: segreti
-    description: Segreti del workspace risolti in esecuzione (R42, R43).
-  - name: chiavi AI
-    description: Chiave del provider AI dell'utente, BYOK (R18).
-  - name: fatturazione
-    description: Piano in forza e apertura del checkout (R16).
-  - name: webhook
+  - name: system
+    description: Liveness, readiness and metrics (R7). These are not product routes.
+  - name: authentication
+    description: Registration, sign-in, sessions and passwords (R14).
+  - name: jobs
+    description: Cron jobs and executions (R8).
+  - name: api keys
+    description: Issuing and revoking scoped keys (R9).
+  - name: secrets
+    description: Workspace secrets resolved at execution time (R42, R43).
+  - name: ai keys
+    description: The user's own AI provider key, BYOK (R18).
+  - name: billing
+    description: Plan in force and checkout hand-off (R16).
+  - name: account
+    description: Account and workspace deletion with a grace period (R45).
+  - name: webhooks
     description: |
-      Consegne in ingresso da GitHub (R11) e Paddle (R16). **Non sono rotte per i
-      client**: la credenziale è la firma del corpo, non una nostra identità.
+      Inbound deliveries from GitHub (R11) and Paddle (R16). **These are not
+      client routes**: the credential is the signature of the body, not an
+      identity we issued.
 
-# Il predefinito è la sessione. Le rotte che ammettono anche una chiave API lo
-# dichiarano operazione per operazione, insieme allo scope che serve: è la forma
-# che rende verificabile «quali rotte una chiave può usare», e il controllo di
-# allineamento rifiuta un `apiKey` dichiarato qui e non registrato nel codice.
+# The default is the session. Routes that also accept an API key declare it
+# operation by operation, together with the scope required: that shape is what
+# makes "which routes a key can use" verifiable, and the alignment check rejects
+# an `apiKey` declared here but not registered in the code.
 security:
   - sessionCookie: []
   - sessionBearer: []
 
 paths:
-  # ------------------------------------------------------------------ sistema
+  # ------------------------------------------------------------------- system
 
   /healthz:
     get:
-      tags: [sistema]
+      tags: [system]
       operationId: liveness
-      summary: Il processo è in piedi
+      summary: The process is up
       description: |
-        Dichiara **che questo processo sta servendo richieste**, e nient'altro:
-        non tocca il database e non guarda il motore. Risponde `200` per
-        definizione — se non fosse in grado di rispondere, non risponderebbe.
+        States **that this process is serving requests**, and nothing else: it
+        does not touch the database and does not look at the engine. It answers
+        `200` by definition — if it could not answer, it would not answer.
 
-        Detta così sembra inutile, ed è precisamente ciò che serve a chi riavvia
-        un processo inchiodato: una liveness che può fallire per colpa del
-        database farebbe riavviare il servizio in un ciclo che non risolve
-        niente, perché il problema è altrove. La domanda diversa — «il motore sta
-        facendo il suo mestiere?» — è `GET /readyz`.
+        Put that way it sounds useless, and it is precisely what a supervisor
+        restarting a wedged process needs: a liveness probe that can fail because
+        of the database would restart the service in a loop that fixes nothing,
+        because the problem is elsewhere. The different question — "is the engine
+        doing its job?" — is `GET /readyz`.
       security: []
       responses:
         "200":
-          description: Il processo risponde.
+          description: The process answers.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
 
   /readyz:
     get:
-      tags: [sistema]
+      tags: [system]
       operationId: readiness
-      summary: Il motore sta funzionando adesso (R7)
+      summary: The engine is working right now (R7)
       description: |
-        Lo stato HTTP è la risposta vera, il corpo la ripete in forma leggibile:
-        un bilanciatore guarda il codice, una persona il corpo. `503` significa
-        «non mandarmi traffico»; `200` con `status: degraded` significa
-        «funziona, e qualcuno deve intervenire prima che smetta».
+        The HTTP status is the real answer and the body repeats it in readable
+        form: a load balancer looks at the code, a person at the body. `503`
+        means "send me no traffic"; `200` with `status: degraded` means "it
+        works, and somebody must act before it stops".
 
-        `status` è pubblico. Il **dettaglio** dei controlli no, e non è prudenza
-        esagerata: «restano due giorni di margine di partizioni» racconta a
-        chiunque com'è fatto il servizio e quando è debole. Compare solo per chi
-        presenta il token dell'operatore, che è la stessa credenziale delle
-        metriche.
+        `status` is public. The **detail** of the checks is not, and that is not
+        excessive caution: "two days of partition headroom left" tells anyone how
+        the service is built and when it is weak. It appears only for callers
+        presenting the operator token, which is the same credential as the
+        metrics.
 
-        La rotta esiste solo se il processo ha un motore da osservare: senza,
-        risponde `404`.
+        The route exists only if the process has an engine to observe: without
+        one it answers `404`.
       security:
         - {}
         - operatorToken: []
       responses:
         "200":
-          description: Pronto, eventualmente degradato.
+          description: Ready, possibly degraded.
           headers:
             Cache-Control:
-              description: Sempre `no-store`. Una prontezza servita da una cache è una prontezza che dice sempre di sì.
+              description: Always `no-store`. A readiness answer served from a cache is one that always says yes.
               schema: { type: string }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Readiness" }
         "503":
-          description: "Non pronto: non mandare traffico."
+          description: "Not ready: send no traffic."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Readiness" }
 
   /metrics:
     get:
-      tags: [sistema]
+      tags: [system]
       operationId: metrics
-      summary: Metriche del servizio (R7)
+      summary: Service metrics (R7)
       description: |
-        Formato di esposizione testuale, versione 0.0.4.
+        Text exposition format, version 0.0.4.
 
-        La rotta **esiste solo se c'è un token con cui proteggerla**
-        (`POSTQRON_METRICS_TOKEN`): senza, risponde `404`. Registrarla aperta
-        «tanto sono solo metriche» significherebbe pubblicare il carico del
-        servizio, il numero di clienti attivi e i tempi di risposta dei loro
-        bersagli.
+        The route **exists only if there is a token to protect it**
+        (`POSTQRON_METRICS_TOKEN`): without one it answers `404`. Registering it
+        open because "they are only metrics" would publish the load of the
+        service, the number of active customers and the response times of their
+        targets.
       security:
         - operatorToken: []
       responses:
         "200":
-          description: La pagina delle metriche.
+          description: The metrics page.
           content:
             text/plain:
               schema: { type: string }
         "401":
           description: |
-            Token dell'operatore assente o sbagliato — `unauthenticated`. La
-            risposta non distingue i due casi: per chi prova a indovinare sono la
-            stessa cosa.
+            Operator token missing or wrong — `unauthenticated`. The response
+            does not distinguish the two: to someone guessing, they are the same.
           headers:
             WWW-Authenticate:
               description: '`Bearer realm="postqron-metrics"`.'
@@ -310,18 +316,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
-  # ----------------------------------------------------------- autenticazione
+  # ----------------------------------------------------------- authentication
 
   /auth/register:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: register
-      summary: Registra un account (R14)
+      summary: Register an account (R14)
       description: |
-        Risponde `202` in ogni caso in cui la richiesta era ben formata, che
-        l'indirizzo fosse libero o già preso, e il corpo è **identico** nei due
-        casi: dire «ti abbiamo scritto» senza dire *se* c'era un account è tutto
-        il punto.
+        Answers `202` whenever the request was well formed, whether the address
+        was free or already taken, and the body is **identical** in both cases:
+        saying "we have written to you" without saying *whether* an account
+        existed is the whole point.
       security: []
       requestBody:
         required: true
@@ -330,7 +336,7 @@ paths:
             schema: { $ref: "#/components/schemas/RegisterInput" }
       responses:
         "202":
-          description: Presa in carico. Non dice se l'account esisteva.
+          description: Accepted. It does not say whether the account existed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Accepted" }
@@ -345,9 +351,9 @@ paths:
 
   /auth/login:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: login
-      summary: Apre una sessione (R14)
+      summary: Open a session (R14)
       security: []
       requestBody:
         required: true
@@ -356,13 +362,13 @@ paths:
             schema: { $ref: "#/components/schemas/LoginInput" }
       responses:
         "200":
-          description: Sessione aperta.
+          description: Session opened.
           headers:
             Set-Cookie:
               description: |
-                `pq_session`, `HttpOnly`, `SameSite=Lax`, e `Secure` fuori
-                dallo sviluppo. `HttpOnly` mette il token fuori dalla portata di
-                JavaScript: una XSS sulla dashboard non se lo porta via.
+                `pq_session`, `HttpOnly`, `SameSite=Lax`, and `Secure` outside
+                development. `HttpOnly` puts the token out of reach of
+                JavaScript: an XSS on the dashboard cannot carry it away.
               schema: { type: string }
           content:
             application/json:
@@ -371,9 +377,9 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "401":
           description: |
-            `invalid_credentials`. Un solo codice per «indirizzo sconosciuto» e
-            «password sbagliata»: distinguerli farebbe dell'API un oracolo su chi
-            ha un account.
+            `invalid_credentials`. One code for both "unknown address" and "wrong
+            password": distinguishing them would turn the API into an oracle for
+            who has an account.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -391,17 +397,17 @@ paths:
 
   /auth/logout:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: logout
-      summary: Chiude la sessione corrente
+      summary: Close the current session
       description: |
-        Risponde `204` anche se non c'era nessuna sessione: il risultato voluto è
-        già vero, e un errore darebbe a chi ha in mano un token scaduto la
-        conferma che lo era. Il cookie viene comunque cancellato.
+        Answers `204` even when there was no session: the intended result is
+        already true, and an error would confirm to whoever holds an expired
+        token that it was expired. The cookie is cleared either way.
 
-        **È l'unica rotta senza un `429`**, ed è deliberato: chiudere una sessione
-        non costa un hash né una scrittura ripetibile, e limitare chi si scollega
-        vorrebbe dire tenere collegato chi vuole andarsene.
+        **It is the only route without a `429`**, and that is deliberate: closing
+        a session costs neither a hash nor a repeatable write, and rate-limiting
+        sign-out would mean keeping signed in someone who wants to leave.
       security: []
       responses:
         "204":
@@ -411,12 +417,12 @@ paths:
 
   /auth/session:
     get:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: currentSession
-      summary: L'utente collegato
+      summary: The signed-in user
       responses:
         "200":
-          description: Utente e sessione in corso.
+          description: The user and the session in progress.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SessionEnvelope" }
@@ -429,12 +435,12 @@ paths:
 
   /auth/sessions:
     get:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: listSessions
-      summary: I dispositivi collegati
+      summary: The signed-in devices
       responses:
         "200":
-          description: Le sessioni vive dell'utente.
+          description: The user's live sessions.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SessionList" }
@@ -445,12 +451,12 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: revokeOtherSessions
-      summary: Chiude tutte le sessioni tranne quella in uso
+      summary: Close every session except the current one
       responses:
         "200":
-          description: Quante ne sono state chiuse.
+          description: How many were closed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RevokedSessions" }
@@ -463,13 +469,13 @@ paths:
 
   /auth/sessions/{id}:
     delete:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: revokeSession
-      summary: Chiude una sessione
+      summary: Close one session
       description: |
-        Chiudere la **propria** sessione equivale a un logout: il cookie viene
-        cancellato, perché lasciarlo lì farebbe scoprire la revoca alla richiesta
-        successiva con un `401` inspiegabile.
+        Closing **your own** session is equivalent to signing out: the cookie is
+        cleared, because leaving it in place would surface the revocation as an
+        unexplained `401` on the next request.
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
@@ -478,7 +484,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "404":
-          description: "`session_not_found` — inesistente, o di un altro utente."
+          description: "`session_not_found` — nonexistent, or belonging to another user."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -489,10 +495,10 @@ paths:
 
   /auth/password/forgot:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: forgotPassword
-      summary: Avvia il recupero della password
-      description: Risposta identica che l'indirizzo esista o no, come la registrazione.
+      summary: Start a password reset
+      description: Identical response whether or not the address exists, like registration.
       security: []
       requestBody:
         required: true
@@ -501,7 +507,7 @@ paths:
             schema: { $ref: "#/components/schemas/ForgotPasswordInput" }
       responses:
         "202":
-          description: Presa in carico.
+          description: Accepted.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Accepted" }
@@ -516,10 +522,10 @@ paths:
 
   /auth/password/reset:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: resetPassword
-      summary: Consuma il token di recupero e imposta la password nuova
-      description: Tutte le sessioni vengono revocate, compresa quella in corso su questo browser.
+      summary: Consume the reset token and set the new password
+      description: Every session is revoked, including the one in progress in this browser.
       security: []
       requestBody:
         required: true
@@ -531,7 +537,7 @@ paths:
           $ref: "#/components/responses/NoContent"
         "400":
           description: |
-            `invalid_token` (link non valido o scaduto), `weak_password`,
+            `invalid_token` (link invalid or expired), `weak_password`,
             `invalid_request`.
           content:
             application/json:
@@ -545,12 +551,12 @@ paths:
 
   /auth/password/change:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: changePassword
-      summary: Cambia la password dell'utente collegato
+      summary: Change the signed-in user's password
       description: |
-        La sessione corrente riceve un token nuovo — quello vecchio è revocato
-        con tutti gli altri — e il cookie viene riscritto.
+        The current session gets a new token — the old one is revoked along with
+        all the others — and the cookie is rewritten.
       requestBody:
         required: true
         content:
@@ -558,10 +564,10 @@ paths:
             schema: { $ref: "#/components/schemas/ChangePasswordInput" }
       responses:
         "200":
-          description: Password cambiata, sessione rinnovata.
+          description: Password changed, session renewed.
           headers:
             Set-Cookie:
-              description: "`pq_session` con il token nuovo."
+              description: "`pq_session` carrying the new token."
               schema: { type: string }
           content:
             application/json:
@@ -572,7 +578,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "401":
-          description: "`unauthenticated`, oppure `invalid_credentials` se la password attuale non corrisponde."
+          description: "`unauthenticated`, or `invalid_credentials` when the current password does not match."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -585,9 +591,9 @@ paths:
 
   /auth/email/verify:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: verifyEmail
-      summary: Conferma l'indirizzo email
+      summary: Confirm the email address
       security: []
       requestBody:
         required: true
@@ -598,7 +604,7 @@ paths:
         "204":
           $ref: "#/components/responses/NoContent"
         "400":
-          description: "`invalid_token` — link non valido o scaduto."
+          description: "`invalid_token` — link invalid or expired."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -611,12 +617,12 @@ paths:
 
   /auth/email/verify/resend:
     post:
-      tags: [autenticazione]
+      tags: [authentication]
       operationId: resendEmailVerification
-      summary: Rimanda l'email di conferma
+      summary: Send the confirmation email again
       responses:
         "202":
-          description: Presa in carico.
+          description: Accepted.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Accepted" }
@@ -627,13 +633,13 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ---------------------------------------------------------------------- job
+  # --------------------------------------------------------------------- jobs
 
   /jobs:
     get:
-      tags: [job]
+      tags: [jobs]
       operationId: listJobs
-      summary: Elenco dei job (R8)
+      summary: List jobs (R8)
       x-api-key-scope: "jobs:read"
       security:
         - sessionCookie: []
@@ -644,30 +650,30 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - name: enabled
           in: query
-          description: Solo i job accesi (`true`) o spenti (`false`). Assente li prende tutti.
+          description: Only enabled (`true`) or paused (`false`) jobs. Absent returns both.
           schema: { type: boolean }
         - name: environment
           in: query
-          description: Solo i job che vivono in questo ambiente.
+          description: Only jobs living in this environment.
           schema: { $ref: "#/components/schemas/Environment" }
         - name: include_archived
           in: query
           description: |
-            Include i job archiviati, cioè quelli non più presenti nel
-            `cron.yaml` da cui provenivano (R13). Predefinito `false`.
+            Include archived jobs, i.e. those no longer present in the
+            `cron.yaml` they came from (R13). Defaults to `false`.
           schema: { type: boolean }
       responses:
         "200":
-          description: Una pagina dell'elenco.
+          description: One page of the list.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/JobList" }
         "400":
           description: |
-            `validation_failed` con `details` per parametro, oppure
-            `invalid_cursor`. Un `limit=abc` non viene ignorato in silenzio: una
-            pagina di dimensione diversa da quella chiesta si scopre solo
-            contando le righe.
+            `validation_failed` with `details` per parameter, or
+            `invalid_cursor`. A `limit=abc` is not silently ignored: a page of a
+            different size than the one asked for is only discovered by counting
+            rows.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -680,19 +686,18 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     post:
-      tags: [job]
+      tags: [jobs]
       operationId: createJob
-      summary: Crea un job (R1, R8)
+      summary: Create a job (R1, R8)
       description: |
-        Il corpo ricalca lo schema di `cron.yaml` (SPEC §9) — `schedule` ed
-        `every`, `request`, `timeout`, `retries`, `alerts` — perché un job creato
-        dall'API e uno sincronizzato da un repository sono la stessa riga della
-        stessa tabella: due vocabolari per la stessa cosa costringerebbero a
-        tradurre mentalmente ogni volta, e la traduzione è il posto in cui
-        nascono i difetti.
+        The body mirrors the `cron.yaml` schema (SPEC §9) — `schedule` and
+        `every`, `request`, `timeout`, `retries`, `alerts` — because a job created
+        through the API and one synced from a repository are the same row of the
+        same table: two vocabularies for the same thing would force a mental
+        translation every time, and translation is where defects are born.
 
-        I campi assenti prendono i valori predefiniti, che la risposta contiene
-        già risolti.
+        Absent fields take their default values, which the response returns
+        already resolved.
       x-api-key-scope: "jobs:write"
       security:
         - sessionCookie: []
@@ -705,10 +710,10 @@ paths:
             schema: { $ref: "#/components/schemas/JobInput" }
       responses:
         "201":
-          description: Job creato.
+          description: Job created.
           headers:
             Location:
-              description: "`/jobs/{id}` del job creato."
+              description: "`/jobs/{id}` of the created job."
               schema: { type: string }
           content:
             application/json:
@@ -719,10 +724,10 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "403":
           description: |
-            `insufficient_scope`, oppure un limite di piano di **capienza**
-            (R15): `plan_limit_jobs`, `plan_limit_resolution`,
-            `plan_limit_environments`. `403` e non `429` perché riprovare non
-            cambierebbe niente: va cambiato il piano o la richiesta.
+            `insufficient_scope`, or a **capacity** plan limit (R15):
+            `plan_limit_jobs`, `plan_limit_resolution`,
+            `plan_limit_environments`. `403` and not `429` because retrying
+            would change nothing: the plan or the request has to change.
           content:
             application/json:
               schema:
@@ -731,9 +736,9 @@ paths:
                   - $ref: "#/components/schemas/ErrorEnvelope"
         "409":
           description: |
-            `job_name_taken` — il nome è l'identità stabile del job, ed è la
-            chiave su cui la riconciliazione di un `cron.yaml` decide se creare o
-            aggiornare (R13).
+            `job_name_taken` — the name is the stable identity of a job, and the
+            key on which reconciliation of a `cron.yaml` decides whether to
+            create or update (R13).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -748,9 +753,9 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobId"
     get:
-      tags: [job]
+      tags: [jobs]
       operationId: getJob
-      summary: Legge un job
+      summary: Read one job
       x-api-key-scope: "jobs:read"
       security:
         - sessionCookie: []
@@ -758,7 +763,7 @@ paths:
         - apiKey: []
       responses:
         "200":
-          description: Il job.
+          description: The job.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Job" }
@@ -773,18 +778,18 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     patch:
-      tags: [job]
+      tags: [jobs]
       operationId: updateJob
-      summary: Modifica parziale di un job
+      summary: Partially update a job
       description: |
-        **Ciò che non mandi non cambia**, quindi la richiesta è ripetibile. Un
-        `null` esplicito è un valore e non un campo assente: azzera la
-        descrizione o il corpo, e su `schedule` o `every` dismette una modalità
-        di schedulazione.
+        **What you do not send does not change**, so the request is repeatable.
+        An explicit `null` is a value and not an absent field: it clears the
+        description or the body, and on `schedule` or `every` it retires a
+        scheduling mode.
 
-        Una richiesta senza nessun campo riceve `400 empty_patch`: è quasi sempre
-        un client che ha costruito male il corpo, e accettarla in silenzio
-        significherebbe rispondere `200` a chi crede di aver modificato qualcosa.
+        A request with no fields at all gets `400 empty_patch`: it is almost
+        always a client that built the body wrong, and accepting it silently
+        would answer `200` to someone who believes they changed something.
       x-api-key-scope: "jobs:write"
       security:
         - sessionCookie: []
@@ -797,7 +802,7 @@ paths:
             schema: { $ref: "#/components/schemas/JobInput" }
       responses:
         "200":
-          description: Il job aggiornato.
+          description: The updated job.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Job" }
@@ -822,10 +827,9 @@ paths:
           $ref: "#/components/responses/JobNotFound"
         "409":
           description: |
-            `job_name_taken`; `job_managed_by_repository` — il job è definito in
-            un `cron.yaml` e la sincronizzazione riporterebbe indietro qualunque
-            modifica fatta da qui, quindi si può solo metterlo in pausa;
-            `job_archived`.
+            `job_name_taken`; `job_managed_by_repository` — the job is defined in
+            a `cron.yaml` and syncing would revert anything changed from here, so
+            it can only be paused; `job_archived`.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -836,9 +840,9 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
-      tags: [job]
+      tags: [jobs]
       operationId: deleteJob
-      summary: Elimina un job
+      summary: Delete a job
       x-api-key-scope: "jobs:write"
       security:
         - sessionCookie: []
@@ -854,7 +858,7 @@ paths:
         "404":
           $ref: "#/components/responses/JobNotFound"
         "409":
-          description: "`job_managed_by_repository` — va tolto dal `cron.yaml` che lo definisce."
+          description: "`job_managed_by_repository` — remove it from the `cron.yaml` that defines it."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -867,15 +871,15 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobId"
     get:
-      tags: [job]
+      tags: [jobs]
       operationId: listExecutions
-      summary: Registro delle esecuzioni (R6)
+      summary: Execution log (R6)
       description: |
-        Pagina del registro, dalla più recente. **La retention del piano si
-        applica anche qui** (R10-bis): senza `since`, la finestra predefinita è
-        la retention del piano; con un `since` o un `until` che la precedono, la
-        richiesta è rifiutata con `403 plan_limit_retention` invece di essere
-        ristretta in silenzio.
+        One page of the log, most recent first. **The plan's retention applies
+        here too** (R10-bis): without `since`, the default window is the plan's
+        retention; with a `since` or an `until` that predates it, the request is
+        rejected with `403 plan_limit_retention` instead of being silently
+        narrowed.
       x-api-key-scope: "executions:read"
       security:
         - sessionCookie: []
@@ -887,17 +891,16 @@ paths:
         - name: status
           in: query
           description: |
-            Filtra per esito. Ripetibile (`?status=failed&status=timed_out`) o
-            separato da virgole (`?status=failed,timed_out`): la prima è la forma
-            che i client HTTP generano da soli, la seconda quella che si scrive a
-            mano.
+            Filter by outcome. Repeatable (`?status=failed&status=timed_out`) or
+            comma-separated (`?status=failed,timed_out`): the first is what HTTP
+            clients generate on their own, the second is what people type.
           explode: true
           schema:
             type: array
             items: { $ref: "#/components/schemas/ExecutionStatus" }
         - name: trigger
           in: query
-          description: Filtra per origine del tentativo. Ripetibile o separato da virgole.
+          description: Filter by attempt origin. Repeatable or comma-separated.
           explode: true
           schema:
             type: array
@@ -907,20 +910,20 @@ paths:
           schema: { $ref: "#/components/schemas/Environment" }
         - name: since
           in: query
-          description: Istante RFC 3339. Soggetto alla retention del piano (R10-bis).
+          description: RFC 3339 instant. Subject to the plan's retention (R10-bis).
           schema: { type: string, format: date-time }
         - name: until
           in: query
-          description: Istante RFC 3339, successivo a `since`.
+          description: RFC 3339 instant, later than `since`.
           schema: { type: string, format: date-time }
       responses:
         "200":
-          description: Una pagina del registro.
+          description: One page of the log.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ExecutionList" }
         "400":
-          description: "`validation_failed` con `details` per parametro, `invalid_cursor`."
+          description: "`validation_failed` with `details` per parameter, `invalid_cursor`."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -936,9 +939,9 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           description: |
-            `executions_unavailable` — la manutenzione periodica delle partizioni
-            del registro non ha girato. Non è colpa del chiamante e riprovare ha
-            senso: la risposta porta `Retry-After`.
+            `executions_unavailable` — the periodic maintenance of the log
+            partitions has not run. It is not the caller's fault and retrying
+            makes sense: the response carries `Retry-After`.
           headers:
             Retry-After:
               $ref: "#/components/headers/RetryAfter"
@@ -946,21 +949,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     post:
-      tags: [job]
+      tags: [jobs]
       operationId: triggerExecution
-      summary: Esegue adesso (R8)
+      summary: Run now (R8)
       description: |
-        Registra un'esecuzione manuale. Risponde **`202` e non `201`**: la riga è
-        stata creata, ma l'esecuzione non è avvenuta — la farà il motore. Un
-        `201` prometterebbe che il bersaglio è già stato chiamato, e il client
-        che ne leggesse subito l'esito non troverebbe niente.
+        Records a manual execution. It answers **`202` and not `201`**: the row
+        has been created, but the execution has not happened — the engine will
+        run it. A `201` would promise the target has already been called, and a
+        client reading its outcome straight away would find nothing.
 
-        Il corpo è facoltativo: serve solo ai job che vivono in più ambienti.
+        The body is optional: it only matters for jobs living in more than one
+        environment.
 
-        Lo scope è **`executions:trigger`**, distinto da `jobs:write`: cambiare
-        la definizione di un job e far partire adesso una chiamata verso
-        l'esterno sono due poteri diversi, e una chiave da cruscotto vuole il
-        secondo senza il primo.
+        The scope is **`executions:trigger`**, distinct from `jobs:write`:
+        changing a job's definition and firing an outbound call right now are two
+        different powers, and a dashboard key wants the second without the first.
       x-api-key-scope: "executions:trigger"
       security:
         - sessionCookie: []
@@ -973,7 +976,7 @@ paths:
             schema: { $ref: "#/components/schemas/TriggerInput" }
       responses:
         "202":
-          description: Esecuzione registrata. La farà il motore.
+          description: Execution recorded. The engine will run it.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Execution" }
@@ -993,9 +996,9 @@ paths:
           $ref: "#/components/responses/JobNotFound"
         "409":
           description: |
-            `job_disabled` — il job è in pausa, va riattivato prima di eseguirlo;
-            `job_archived`; `execution_already_exists` — quell'occorrenza è già
-            registrata (R4).
+            `job_disabled` — the job is paused and must be re-enabled before it
+            can run; `job_archived`; `execution_already_exists` — that occurrence
+            is already recorded (R4).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1003,17 +1006,17 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "429":
           description: |
-            **Due errori diversi con lo stesso status** (R10), e la differenza
-            arriva fino al corpo:
+            **Two different errors under the same status** (R10), and the
+            difference reaches the body:
 
-            - `plan_limit_manual_trigger` — quota del piano: nomina `plan` e
-              `limit`, perché lì l'aggiornamento è la risposta;
-            - `execution_ceiling` — tetto tecnico alle esecuzioni contemporanee
-              del workspace: **niente `plan`, niente `limit`**, perché nessun
-              piano ne concede di più;
-            - `rate_limited` — tetto tecnico sulle richieste.
+            - `plan_limit_manual_trigger` — plan quota: it names `plan` and
+              `limit`, because there upgrading is the answer;
+            - `execution_ceiling` — technical ceiling on the workspace's
+              concurrent executions: **no `plan`, no `limit`**, because no plan
+              grants more of it;
+            - `rate_limited` — technical ceiling on requests.
 
-            Entrambi portano `Retry-After`.
+            Both carry `Retry-After`.
           headers:
             Retry-After:
               $ref: "#/components/headers/RetryAfter"
@@ -1030,63 +1033,61 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobId"
     get:
-      tags: [job]
+      tags: [jobs]
       operationId: streamExecutions
-      summary: Registro delle esecuzioni in tempo reale (SPEC §4.2)
+      summary: Execution log in real time (SPEC §4.2)
       description: |
-        Flusso `text/event-stream` (SSE) delle esecuzioni di un job. È la stessa
-        lettura del registro consegnata in un altro modo, quindi **lo stesso
-        scope**: chiederne uno diverso costringerebbe a creare una seconda chiave
-        per vedere le stesse righe.
+        A `text/event-stream` (SSE) feed of a job's executions. It is the same
+        read of the log delivered another way, hence **the same scope**: asking
+        for a different one would force a second key to see the same rows.
 
-        ### Ciò che OpenAPI non sa dire
+        ### What OpenAPI cannot express
 
-        Il formato descrive corpi, non flussi: il `content` qui sotto può solo
-        dichiarare che la risposta è testo. La grammatica del filo è questa, e va
-        letta come parte del contratto:
+        The format describes bodies, not streams: the `content` below can only
+        state that the response is text. The wire grammar is this, and it is part
+        of the contract:
 
         ```
-        retry: 3000                  ritardo di riconnessione suggerito, in ms
-        : ping                       battito ogni 20s (commento SSE, nessun evento)
+        retry: 3000                  suggested reconnection delay, in ms
+        : ping                       heartbeat every 20s (SSE comment, no event)
 
-        event: execution             un'esecuzione
-        id: <posizione>              presente solo sugli stati definitivi
-        data: {…}                    lo schema Execution, byte per byte lo stesso
-                                     di GET /jobs/{id}/executions
+        event: execution             one execution
+        id: <position>               present only on terminal states
+        data: {…}                    the Execution schema, byte for byte the same
+                                     as GET /jobs/{id}/executions
 
-        event: overflow              il client non leggeva: si riconnetta
-        data: {…}                    lo schema StreamNotice, code=stream_overflow
+        event: overflow              the client was not reading: reconnect
+        data: {…}                    the StreamNotice schema, code=stream_overflow
 
-        event: reopen                fine della vita della connessione (30 min)
-        data: {…}                    lo schema StreamNotice, code=stream_reopen
+        event: reopen                end of the connection's lifetime (30 min)
+        data: {…}                    the StreamNotice schema, code=stream_reopen
         ```
 
-        Gli schemi `Execution` e `StreamNotice` descrivono i **payload `data:`**:
-        è il legame che il formato non permette di dichiarare, e dichiararlo a
-        parole è meglio che tacerlo.
+        The `Execution` and `StreamNotice` schemas describe the **`data:`
+        payloads**: that binding is what the format gives no way to declare, and
+        declaring it in prose beats leaving it unsaid.
 
-        **`id:` non c'è su tutti gli eventi, ed è deliberato.** Una riga del
-        registro viene aggiornata sul posto, quindi solo uno stato **definitivo**
-        può essere una posizione da cui riprendere; SSE dice che un evento senza
-        `id:` non sposta il `Last-Event-ID` del client, quindi lo stato
-        intermedio si vede e non entra nella storia.
+        **`id:` is not on every event, and that is deliberate.** A log row is
+        updated in place, so only a **terminal** state can be a position to
+        resume from; SSE says an event without `id:` does not move the client's
+        `Last-Event-ID`, so intermediate states are seen without entering the
+        history.
 
-        **Riconnessione:** il browser rimanda da solo `Last-Event-ID`. Il
-        parametro `last_event_id` esiste perché `EventSource` non permette di
-        impostare testate, quindi un client che riprende *dopo un errore
-        applicativo* — invece che dopo una caduta della rete — non avrebbe altro
-        modo di dire da dove ripartire.
+        **Reconnection:** the browser resends `Last-Event-ID` by itself. The
+        `last_event_id` parameter exists because `EventSource` cannot set
+        headers, so a client resuming *after an application error* — rather than
+        after a network drop — would have no other way to say where to restart.
 
-        **La connessione ha una vita massima di 30 minuti**, poi si chiude con
-        `event: reopen`. Non è una difesa dalle risorse: il flusso autorizza il
-        job e legge il piano una volta sola, e una connessione che vivesse un
-        giorno continuerebbe a consegnare righe a una sessione scaduta e con la
-        retention del piano di ieri.
+        **A connection lives at most 30 minutes**, then closes with `event:
+        reopen`. This is not a resource defence: the stream authorises the job
+        and reads the plan exactly once, and a connection living a whole day
+        would keep delivering rows to an expired session with yesterday's plan
+        retention.
 
-        **Gli errori arrivano prima del flusso**, come JSON e con lo status
-        giusto: dopo il primo byte di `text/event-stream` non c'è più modo di
-        cambiare status, ed è per questo che tutto ciò che può fallire viene
-        fatto prima di scrivere qualunque cosa.
+        **Errors arrive before the stream**, as JSON and with the right status:
+        after the first byte of `text/event-stream` there is no way to change the
+        status, which is why everything that can fail happens before anything is
+        written.
       x-api-key-scope: "executions:read"
       security:
         - sessionCookie: []
@@ -1095,44 +1096,44 @@ paths:
       parameters:
         - name: Last-Event-ID
           in: header
-          description: Posizione da cui riprendere. La rimanda il browser da sola.
+          description: The position to resume from. Browsers resend it on their own.
           schema: { type: string }
         - name: last_event_id
           in: query
           description: |
-            La stessa posizione, per i client `EventSource` che non possono
-            impostare testate. La testata ha la precedenza.
+            The same position, for `EventSource` clients that cannot set headers.
+            The header takes precedence.
           schema: { type: string }
         - name: since
           in: query
           description: |
-            Istante RFC 3339 da cui partire. Soggetto alla retention del piano
-            (R10-bis). Assente, si parte da poco prima di adesso — che è ciò che
-            «in tempo reale» significa.
+            RFC 3339 instant to start from. Subject to the plan's retention
+            (R10-bis). Absent, the stream starts just before now — which is what
+            "real time" means.
           schema: { type: string, format: date-time }
       responses:
         "200":
-          description: Il flusso è aperto. Vedi la grammatica nella descrizione.
+          description: The stream is open. See the grammar in the description.
           headers:
             Cache-Control:
-              description: "Sempre `no-store`: un flusso non ha una versione da rivalidare."
+              description: "Always `no-store`: a stream has no version to revalidate."
               schema: { type: string }
             X-Accel-Buffering:
               description: |
-                Sempre `no`. Serve ai reverse proxy che accumulano la risposta
-                prima di inoltrarla: senza, gli eventi arriverebbero a blocchi e
-                «in tempo reale» sarebbe una bugia.
+                Always `no`. It is for reverse proxies that buffer the response
+                before forwarding it: without it events would arrive in batches,
+                and "real time" would be a lie.
               schema: { type: string }
           content:
             text/event-stream:
               schema:
                 type: string
                 description: |
-                  Flusso di eventi SSE. I payload `data:` sono descritti da
-                  `Execution` e `StreamNotice`; OpenAPI non ha modo di legarli a
-                  questo media type.
+                  SSE event stream. The `data:` payloads are described by
+                  `Execution` and `StreamNotice`; OpenAPI has no way to bind them
+                  to this media type.
         "400":
-          description: "`invalid_cursor` — `Last-Event-ID` illeggibile; `validation_failed` — `since` non è un istante RFC 3339."
+          description: "`invalid_cursor` — unreadable `Last-Event-ID`; `validation_failed` — `since` is not an RFC 3339 instant."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1144,10 +1145,10 @@ paths:
           $ref: "#/components/responses/JobNotFound"
         "429":
           description: |
-            `stream_ceiling` — **tetto tecnico** alle connessioni di streaming
-            aperte contemporaneamente. Come ogni tetto tecnico non ha `plan` e
-            non ha `limit`: nessun piano ne concede di più, e nessun
-            aggiornamento lo alza. Oppure `rate_limited`.
+            `stream_ceiling` — a **technical ceiling** on concurrently open
+            streaming connections. Like every technical ceiling it has no `plan`
+            and no `limit`: no plan grants more of it, and no upgrade raises it.
+            Or `rate_limited`.
           headers:
             Retry-After:
               $ref: "#/components/headers/RetryAfter"
@@ -1158,36 +1159,35 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           description: |
-            `stream_unavailable` — lo streaming non è disponibile su questa
-            istanza. Il registro resta leggibile da `GET /jobs/{id}/executions`.
+            `stream_unavailable` — streaming is not available on this instance.
+            The log stays readable through `GET /jobs/{id}/executions`.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
-  # -------------------------------------------------------------- chiavi API
+  # ----------------------------------------------------------------- api keys
 
   /keys:
     get:
-      tags: [chiavi API]
+      tags: [api keys]
       operationId: listApiKeys
-      summary: Elenco delle chiavi API (R9)
+      summary: List API keys (R9)
       description: |
-        **Solo con la sessione.** Una chiave API non può elencare, creare né
-        revocare chiavi: se potesse, una chiave di sola lettura sarebbe a una
-        richiesta di distanza dall'emetterne una di scrittura, e l'intero sistema
-        di scope diventerebbe una formalità aggirabile. La conseguenza pratica —
-        l'automazione non può ruotarsi le chiavi da sola — è voluta: la rotazione
-        è un'operazione che una persona decide.
+        **Session only.** An API key cannot list, create or revoke keys: if it
+        could, a read-only key would be one request away from issuing a write
+        key, and the whole scope system would become a formality. The practical
+        consequence — automation cannot rotate its own keys — is intended:
+        rotation is something a person decides.
       parameters:
         - name: include_revoked
           in: query
           description: |
-            Include le chiavi revocate, che restano in tabella come traccia
-            storica: chi indaga su un incidente vuole vederle.
+            Include revoked keys, which stay in the table as a historical trace:
+            whoever investigates an incident wants to see them.
           schema: { type: boolean }
       responses:
         "200":
-          description: Le chiavi dell'utente. **Nessuna porta il proprio valore.**
+          description: The user's keys. **None of them carries its own value.**
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ApiKeyList" }
@@ -1200,17 +1200,17 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     post:
-      tags: [chiavi API]
+      tags: [api keys]
       operationId: createApiKey
-      summary: Emette una chiave API (R9)
+      summary: Issue an API key (R9)
       description: |
-        **È l'unica risposta dell'intera API che contiene un segreto**, e l'unica
-        volta in cui quel valore esiste: dopo, non è più recuperabile da nessuna
-        parte, per nessuno, nemmeno da un amministratore. Non esiste `GET
-        /keys/{id}` e non esiste un modo di rileggerlo — se si perde, si revoca e
-        se ne crea un'altra.
+        **This is the only response in the whole API that contains a secret**, and
+        the only moment that value exists: afterwards it is not recoverable
+        anywhere, by anyone, not even by an administrator. There is no `GET
+        /keys/{id}` and no way to read it back — if it is lost, revoke it and
+        create another.
 
-        La risposta porta `Cache-Control: no-store`.
+        The response carries `Cache-Control: no-store`.
       requestBody:
         required: true
         content:
@@ -1218,10 +1218,10 @@ paths:
             schema: { $ref: "#/components/schemas/ApiKeyInput" }
       responses:
         "201":
-          description: Chiave creata. `secret` è visibile **solo qui e solo adesso**.
+          description: Key created. `secret` is visible **here and now only**.
           headers:
             Cache-Control:
-              description: Sempre `no-store`, perché il corpo contiene un segreto.
+              description: Always `no-store`, because the body carries a secret.
               schema: { type: string }
           content:
             application/json:
@@ -1231,7 +1231,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "409":
-          description: "`too_many_api_keys` — revocane una prima di crearne un'altra."
+          description: "`too_many_api_keys` — revoke one before creating another."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1244,15 +1244,15 @@ paths:
 
   /keys/scopes:
     get:
-      tags: [chiavi API]
+      tags: [api keys]
       operationId: listApiKeyScopes
-      summary: Gli scope assegnabili a una chiave
+      summary: The scopes assignable to a key
       description: |
-        Serve al form che crea una chiave: duplicare l'elenco nel frontend
-        significherebbe due elenchi che divergono al primo scope aggiunto.
+        It serves the key-creation form: duplicating the list in the frontend
+        would mean two lists that diverge on the first scope added.
       responses:
         "200":
-          description: Gli scope assegnabili.
+          description: The assignable scopes.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ApiKeyScopes" }
@@ -1265,10 +1265,10 @@ paths:
 
   /keys/{id}:
     delete:
-      tags: [chiavi API]
+      tags: [api keys]
       operationId: revokeApiKey
-      summary: Revoca una chiave API
-      description: "L'effetto è immediato: la chiave non funziona già al tentativo successivo, senza attese di scadenza o di cache."
+      summary: Revoke an API key
+      description: "The effect is immediate: the key stops working on the very next attempt, with no expiry or cache to wait for."
       parameters:
         - $ref: "#/components/parameters/ApiKeyId"
       responses:
@@ -1277,7 +1277,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "404":
-          description: "`api_key_not_found` — inesistente, di un altro utente, o già revocata."
+          description: "`api_key_not_found` — nonexistent, another user's, or already revoked."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1286,33 +1286,31 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ----------------------------------------------------------------- segreti
+  # ------------------------------------------------------------------ secrets
 
   /secrets:
     get:
-      tags: [segreti]
+      tags: [secrets]
       operationId: listSecrets
-      summary: Elenco dei segreti del workspace (R42)
+      summary: List workspace secrets (R42)
       description: |
-        **Nessuna rotta di questa API restituisce il valore di un segreto**, e
-        non è una rotta dimenticata: non c'è `GET /secrets/{id}`, non c'è un
-        parametro `reveal`, non c'è una variante amministrativa. Non c'è nemmeno
-        un'anteprima tipo `last_four`: quella ha senso per la chiave di un
-        fornitore noto, che si riconosce dalla coda, non per un valore arbitrario
-        che potrebbe *essere* quattro caratteri significativi.
+        **No route in this API returns the value of a secret**, and it is not a
+        forgotten route: there is no `GET /secrets/{id}`, no `reveal` parameter,
+        no administrative variant. There is not even a `last_four` preview: that
+        makes sense for a known provider's key, recognisable by its tail, not for
+        an arbitrary customer value that might *be* four meaningful characters.
 
-        **Solo con la sessione.** Una chiave API che potesse sostituire il valore
-        di un segreto dirotterebbe le credenziali con cui i job dell'utente si
-        autenticano verso i suoi servizi, e nessun log dell'utente mostrerebbe un
-        valore cambiato.
+        **Session only.** An API key able to replace a secret's value would
+        redirect the credentials with which the user's jobs authenticate to their
+        own services, and no log of theirs would show a changed value.
       parameters:
         - name: include_revoked
           in: query
-          description: Include i segreti revocati, che restano come traccia per chi indaga su un'esecuzione fallita.
+          description: Include revoked secrets, kept as a trace for whoever investigates a failed execution.
           schema: { type: boolean }
       responses:
         "200":
-          description: I segreti del workspace, **senza i loro valori**.
+          description: The workspace secrets, **without their values**.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SecretList" }
@@ -1325,17 +1323,16 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     post:
-      tags: [segreti]
+      tags: [secrets]
       operationId: createSecret
-      summary: Registra un segreto (R42)
+      summary: Store a secret (R42)
       description: |
-        Il valore **non torna nemmeno alla creazione**: a differenza di una
-        chiave API, che generiamo noi, questo ce l'ha già l'utente — l'ha appena
-        incollato.
+        The value **does not come back even on creation**: unlike an API key,
+        which we generate, this one the user already has — they just pasted it.
 
-        La risposta porta `Cache-Control: no-store` benché non contenga il
-        valore: la *richiesta* sì, e un intermediario che memorizzasse lo scambio
-        ne conserverebbe una copia.
+        The response carries `Cache-Control: no-store` even though it contains no
+        value: the *request* does, and an intermediary caching the exchange would
+        keep a copy.
       requestBody:
         required: true
         content:
@@ -1343,19 +1340,19 @@ paths:
             schema: { $ref: "#/components/schemas/SecretInput" }
       responses:
         "201":
-          description: Segreto registrato. **La risposta non contiene il valore.**
+          description: Secret stored. **The response does not contain the value.**
           headers:
             Cache-Control:
-              description: Sempre `no-store`, per via del corpo della richiesta.
+              description: Always `no-store`, because of the request body.
               schema: { type: string }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Secret" }
         "400":
           description: |
-            `validation_failed` o `invalid_request`. Il messaggio **non** cita il
-            testo che non è stato possibile leggere: su una richiesta che porta
-            un segreto, quel testo può essere il segreto.
+            `validation_failed` or `invalid_request`. On this route the message
+            **does not quote** the text that could not be read: on a request
+            carrying a secret, that text may be the secret.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1363,8 +1360,8 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "409":
           description: |
-            `secret_name_taken` — esiste già un segreto vivo con quel nome:
-            aggiornane il valore invece di crearne un altro. `too_many_secrets`.
+            `secret_name_taken` — a live secret with that name already exists:
+            update its value instead of creating another. `too_many_secrets`.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1379,14 +1376,14 @@ paths:
     parameters:
       - $ref: "#/components/parameters/SecretId"
     patch:
-      tags: [segreti]
+      tags: [secrets]
       operationId: updateSecret
-      summary: Sostituisce il valore di un segreto
+      summary: Replace a secret's value
       description: |
-        **Non esiste un modo di cambiare il nome**: rinominare romperebbe in
-        silenzio ogni `cron.yaml` che lo riferisce, e la rottura si vedrebbe alla
-        prima esecuzione invece che al sync — il contrario esatto di ciò che R43
-        chiede.
+        **There is no way to change the name**: renaming would silently break
+        every `cron.yaml` referencing it, and the breakage would surface at the
+        next execution instead of at sync time — the exact opposite of what R43
+        asks for.
       requestBody:
         required: true
         content:
@@ -1394,16 +1391,16 @@ paths:
             schema: { $ref: "#/components/schemas/SecretUpdateInput" }
       responses:
         "200":
-          description: Segreto aggiornato. **La risposta non contiene il valore.**
+          description: Secret updated. **The response does not contain the value.**
           headers:
             Cache-Control:
-              description: Sempre `no-store`.
+              description: Always `no-store`.
               schema: { type: string }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Secret" }
         "400":
-          description: "`validation_failed`, `invalid_request`."
+          description: "`validation_failed`, `invalid_request`, with the message redacted as on creation."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1418,14 +1415,13 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
-      tags: [segreti]
+      tags: [secrets]
       operationId: revokeSecret
-      summary: Revoca un segreto
+      summary: Revoke a secret
       description: |
-        L'effetto è immediato e definitivo: la revoca cancella il testo cifrato,
-        quindi il valore smette di esistere. I job che lo riferiscono cominciano
-        a fallire, **e devono**: il registro delle esecuzioni dirà quale nome
-        manca.
+        The effect is immediate and final: revocation deletes the ciphertext, so
+        the value stops existing. Jobs referencing it start failing, **and they
+        must**: the execution log will name the missing reference.
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
@@ -1438,33 +1434,34 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # --------------------------------------------------------------- chiavi AI
+  # ------------------------------------------------------------------ ai keys
 
   /ai/keys:
     get:
-      tags: [chiavi AI]
+      tags: [ai keys]
       operationId: listAiKeys
-      summary: Elenco delle chiavi AI (R18, BYOK)
+      summary: List AI keys (R18, BYOK)
       description: |
-        **Nessuna rotta restituisce una chiave AI, né un suo frammento.** L'unico
-        punto del prodotto in cui una chiave torna in chiaro è la lettura interna
-        con cui il backend parla al fornitore, e da qui non è raggiungibile.
+        **No route returns an AI key, nor a fragment of one.** The only place in
+        the product where such a key comes back in plaintext is the internal read
+        the backend performs to talk to the provider, and it is not reachable
+        from here.
 
-        `providers` elenca i fornitori ammessi: senza, la dashboard dovrebbe
-        tenerne una copia, e le due liste divergerebbero il giorno in cui
-        l'elenco cambia.
+        `providers` lists the accepted providers: without it the dashboard would
+        keep its own copy, and the two lists would diverge the day the set
+        changes.
 
-        **Solo con la sessione**, come i segreti: una chiave API di Postqron che
-        potesse sostituire la chiave AI dell'utente dirotterebbe verso un
-        bersaglio scelto da chi ha la chiave le richieste che facciamo per suo
-        conto, e gliele farebbe pagare sul conto del fornitore.
+        **Session only**, like secrets: a Postqron API key able to replace the
+        user's AI key would redirect the requests we make on their behalf to a
+        target chosen by whoever holds the key, and bill them to the user's
+        provider account.
       parameters:
         - name: include_revoked
           in: query
           schema: { type: boolean }
       responses:
         "200":
-          description: Le chiavi AI, **senza il loro valore**, e i provider ammessi.
+          description: The AI keys, **without their value**, and the accepted providers.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AiKeyList" }
@@ -1477,17 +1474,17 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
     post:
-      tags: [chiavi AI]
+      tags: [ai keys]
       operationId: saveAiKey
-      summary: Inserisce o sostituisce la chiave di un provider
+      summary: Store or replace a provider's key
       description: |
-        **Sostituisce** la chiave viva del provider invece di rifiutarla: una
-        chiave per provider è ciò che il database ammette, e la seconda volta che
-        un utente incolla la sua chiave non sta creando un duplicato, la sta
-        aggiornando. Rispondere `409` lo costringerebbe a revocare prima di
-        incollare, cioè a passare da uno stato in cui il debugging AI non
-        funziona per fare una cosa che voleva solo aggiornarlo. Non c'è quindi un
-        `PATCH`: non ci sarebbe niente che possa fare e che questa non faccia già.
+        It **replaces** the provider's live key rather than rejecting it: one live
+        key per provider is what the database allows, and the second time a user
+        pastes their key they are not creating a duplicate, they are updating one.
+        Answering `409` would force them to revoke before pasting, i.e. to pass
+        through a state where AI debugging does not work in order to do something
+        that was only meant to update it. Hence there is no `PATCH`: there is
+        nothing it could do that this does not already do.
       requestBody:
         required: true
         content:
@@ -1495,18 +1492,18 @@ paths:
             schema: { $ref: "#/components/schemas/AiKeyInput" }
       responses:
         "201":
-          description: Chiave registrata. **La risposta non contiene la chiave.**
+          description: Key stored. **The response does not contain the key.**
           headers:
             Cache-Control:
-              description: Sempre `no-store`, per via del corpo della richiesta.
+              description: Always `no-store`, because of the request body.
               schema: { type: string }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AiKey" }
         "400":
           description: |
-            `validation_failed` o `invalid_request`. Come per i segreti, il
-            messaggio non cita il testo illeggibile: potrebbe essere la chiave.
+            `validation_failed` or `invalid_request`. As with secrets, the message
+            does not quote the unreadable text: it may be the key.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1521,13 +1518,13 @@ paths:
 
   /ai/keys/{id}:
     delete:
-      tags: [chiavi AI]
+      tags: [ai keys]
       operationId: revokeAiKey
-      summary: Revoca una chiave AI
+      summary: Revoke an AI key
       description: |
-        L'effetto è immediato e definitivo: la revoca cancella il materiale
-        cifrato. Il provider torna libero e l'utente può incollarne subito
-        un'altra.
+        The effect is immediate and final: revocation deletes the encrypted
+        material. The provider slot becomes free and the user can paste another
+        key straight away.
       parameters:
         - $ref: "#/components/parameters/AiKeyId"
       responses:
@@ -1536,7 +1533,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "404":
-          description: "`ai_key_not_found` — inesistente, di un altro utente, o già revocata."
+          description: "`ai_key_not_found` — nonexistent, another user's, or already revoked."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1545,29 +1542,36 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  # ------------------------------------------------------------ fatturazione
+  # ------------------------------------------------------------------ billing
 
   /billing/subscription:
     get:
-      tags: [fatturazione]
+      tags: [billing]
       operationId: getSubscription
-      summary: Il piano in forza (R16)
+      summary: The plan in force (R16)
       description: |
-        **Non restituisce importi.** Paddle è Merchant of Record: i prezzi sono
-        in euro, al netto delle imposte, e la loro fonte di verità è il catalogo
-        Paddle (R61, R61-bis). Una cifra restituita da qui sarebbe una seconda
-        copia libera di divergere da quella che il cliente paga davvero — e la
-        nostra sarebbe quella sbagliata, perché l'imposta la calcola Paddle sul
-        paese del cliente, che noi non conosciamo.
+        **It returns no amounts.** Paddle is the Merchant of Record: prices are in
+        euro, excluding tax, and their source of truth is the Paddle catalogue
+        (R61, R61-bis). A figure returned from here would be a second copy free to
+        diverge from what the customer actually pays — and ours would be the wrong
+        one, because tax is computed by Paddle on the customer's country, which we
+        do not even know.
 
-        I job **sospesi da un cambio di piano** sono contati qui, e per motivo
-        separato (R58): a chi ne ha per il tetto si chiede di sceglierne alcuni
-        da riaccendere, a chi ne ha per la risoluzione si chiede di cambiare la
-        schedulazione. Sono due rimedi diversi, e un totale unico costringerebbe
-        il client a dire una delle due cose a tutti.
+        It does return the **limits in force** — `max_jobs`, `min_interval`,
+        `log_retention_days` — because R15 asks for two things: that limits be
+        enforced in the backend, and that the interface state them. Without these
+        fields a client had two options, both defective: keep a copy of the plan
+        table, free to diverge from the database, or let the user fill in a form
+        that would be rejected.
+
+        Jobs **suspended by a plan change** are counted here, split by reason
+        (R58): those suspended for the job cap need the user to pick which ones to
+        resume, those suspended for resolution need the schedule changed. Two
+        different remedies, and a single total would force the client to tell
+        everyone the same one.
       responses:
         "200":
-          description: Il piano in forza e i job fermi.
+          description: The plan in force, its limits, and the stopped jobs.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Subscription" }
@@ -1580,24 +1584,24 @@ paths:
 
   /billing/checkout:
     post:
-      tags: [fatturazione]
+      tags: [billing]
       operationId: createCheckout
-      summary: Apre un checkout (R16, R63)
+      summary: Open a checkout (R16, R63)
       description: |
-        Restituisce ciò che serve a Paddle.js per aprire il checkout nel browser:
-        un riferimento di catalogo e un token pubblico. **Non chiama Paddle**,
-        quindi non può fallire perché un servizio esterno è lento, e **non
-        restituisce importi**.
+        Returns what Paddle.js needs to open the checkout in the browser: a
+        catalogue reference and a public token. It **does not call Paddle**, so it
+        cannot fail because an external service is slow, and it **returns no
+        amounts**.
 
-        `business_use` è la conferma di R63 e va mandata esplicitamente a `true`:
-        i piani a pagamento sono offerti a professionisti e organizzazioni, ed è
-        questo il presupposto che rende legittima l'esposizione dei prezzi al
-        netto. La partita IVA è facoltativa: diversi regimi minimi europei ne
-        sono privi, e pretenderla escluderebbe acquirenti legittimi.
+        `business_use` is the R63 confirmation and must be sent explicitly as
+        `true`: paid plans are offered to professionals and organisations, and
+        that is the premise that makes displaying prices excluding tax legitimate.
+        The VAT number is optional: several European small-business regimes have
+        none, and requiring it would exclude legitimate buyers.
 
-        **Solo con la sessione**: una dichiarazione resa da una chiave API non è
-        una dichiarazione dell'utente — è una dichiarazione di chi ha la chiave,
-        che può essere un'integrazione scritta mesi prima da qualcun altro.
+        **Session only**: a declaration made by an API key is not the user's
+        declaration — it is the declaration of whoever holds the key, which may be
+        an integration written months ago by somebody else.
       requestBody:
         required: true
         content:
@@ -1605,21 +1609,15 @@ paths:
             schema: { $ref: "#/components/schemas/CheckoutInput" }
       responses:
         "200":
-          description: I riferimenti con cui aprire il checkout.
+          description: The references needed to open the checkout.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Checkout" }
         "400":
           description: |
-            `validation_failed` — corpo illeggibile, campo sconosciuto, o partita
-            IVA non valida.
-
-            Nota di coerenza: su questa rotta un corpo illeggibile riceve
-            `validation_failed` **senza** `details`, mentre ovunque altrove
-            riceve `invalid_request` e un corpo oltre il limite riceve `413
-            body_too_large`. È una divergenza del codice, descritta qui com'è e
-            segnalata nella PR della issue #465: questo documento dice ciò che il
-            servizio fa, non ciò che dovrebbe fare.
+            `invalid_request` — unreadable body, unknown field, or a
+            `Content-Type` other than `application/json`; `validation_failed` —
+            invalid VAT number.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1627,10 +1625,137 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "409":
           description: |
-            `business_use_required` — manca la conferma di uso professionale;
-            `plan_not_purchasable` — il piano Free è l'ingresso e non si compra;
-            `period_not_available` — la fatturazione annuale esiste solo sul
-            piano Pro (R62), e non è una lacuna da aggirare riprovando.
+            `business_use_required` — the professional-use confirmation is
+            missing; `plan_not_purchasable` — the Free plan is the entry point and
+            is not for sale; `period_not_available` — yearly billing exists on the
+            Pro plan only (R62), and it is not a gap to work around by retrying.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: "`billing_unavailable` — no Paddle catalogue on this instance."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  # ------------------------------------------------------------------ account
+
+  /account/deletion:
+    get:
+      tags: [account]
+      operationId: getAccountDeletion
+      summary: State of the deletion request (R45)
+      description: |
+        **The resource is the deletion request, not the account**: it is what gets
+        created, inspected and withdrawn, and it has a state that lasts for the
+        grace period. A `DELETE /account` would have suggested an instantaneous
+        operation, which is exactly what this is not.
+
+        It also answers before the user asks: `grace_hours` says how long they
+        will have to change their mind, and `subscription` says whether a paid
+        subscription would stay alive — so the confirmation screen can state it
+        instead of discovering it from a rejection.
+
+        **Session only**, the strictest choice available and the one with the most
+        at stake: an API key able to request deletion would make a service
+        credential forgotten in a config file enough to destroy someone's work.
+      responses:
+        "200":
+          description: The state of the deletion request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionStatus" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [account]
+      operationId: requestAccountDeletion
+      summary: Request account deletion (R45)
+      description: |
+        Opens the grace window, stops executions and revokes credentials. It
+        answers **`202` and not `200`**: the request is accepted and what it
+        promises — removal of the data — happens after the grace period. A `200`
+        would say it is done.
+
+        The response counts what was stopped, because the privacy policy promises
+        executions stop and credentials are revoked *immediately*: an answer that
+        only said "fine" would leave the user to verify it elsewhere.
+
+        The **password is required** as confirmation (R45). If a paid subscription
+        is alive, `subscription_acknowledged` is required too: closing the account
+        does not cancel the Paddle subscription, and the already-paid period is
+        not refunded — a fact the user must be shown before, not after.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeletionRequestInput" }
+      responses:
+        "202":
+          description: Deletion requested. Executions stopped, credentials revoked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionReceipt" }
+        "400":
+          description: |
+            `validation_failed` — the password field is missing, with `details`
+            pointing at it; `invalid_request` — unreadable body or unknown field.
+            The message does not quote the unreadable text: this body carries a
+            password.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401":
+          description: "`unauthenticated`, or `invalid_credentials` when the confirmation password is wrong."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: |
+            `deletion_already_requested` — a deletion is already in progress and
+            can be withdrawn until the grace period expires;
+            `subscription_active` — a paid subscription is alive and
+            `subscription_acknowledged` was not sent. The latter carries `plan` in
+            the body, so the client can say *what* stays alive without a second
+            request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [account]
+      operationId: cancelAccountDeletion
+      summary: Withdraw the deletion request (R45)
+      description: |
+        Available until the grace period expires. Jobs come back; **credentials do
+        not**, and their absence is the fact: revocation emptied the encrypted
+        material, so there is nothing to restore. Whoever comes back finds their
+        jobs and their data, and issues new keys.
+      responses:
+        "200":
+          description: Request withdrawn, jobs resumed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionRestored" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: "`deletion_not_requested` — there is nothing to withdraw."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1638,39 +1763,34 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
-        "503":
-          description: "`billing_unavailable` — nessun catalogo Paddle su questa istanza."
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
-  # ----------------------------------------------------------------- webhook
+  # ----------------------------------------------------------------- webhooks
 
   /webhooks/github:
     post:
-      tags: [webhook]
+      tags: [webhooks]
       operationId: githubWebhook
-      summary: Consegna di un evento GitHub (R11)
+      summary: GitHub event delivery (R11)
       description: |
-        **Non è una rotta per i client.** La chiama GitHub, che non ha né
-        sessione né chiave API: a dimostrare la provenienza è la firma HMAC del
-        corpo, verificata **prima di qualunque altra cosa** — nessuna decodifica,
-        nessuna scrittura, nessun log del contenuto prima di quel controllo.
+        **This is not a client route.** GitHub calls it, and GitHub has neither a
+        session nor an API key: provenance is proven by the HMAC signature of the
+        body, verified **before anything else** — no decoding, no writing, no
+        logging of the content before that check.
 
-        La distinzione fra `200` e `202` non è cosmetica: `202` significa che
-        l'evento è stato passato al consumatore, `200` che non c'era niente da
-        fare. Sono le due cose che si vogliono distinguere guardando il registro
-        delle consegne dell'App dopo aver ripetuto una consegna a mano.
+        The difference between `200` and `202` is not cosmetic: `202` means the
+        event was handed to the consumer, `200` that there was nothing to do.
+        Those are the two things you want to tell apart when looking at the App's
+        delivery log after redelivering by hand.
 
-        La rotta esiste solo se il segreto della GitHub App è configurato: senza,
-        risponde `404`. Un webhook senza segreto non è un webhook meno sicuro, è
-        un endpoint pubblico che accetta qualunque cosa.
+        The route exists only if the GitHub App secret is configured: without it
+        it answers `404`. A webhook without a secret is not a less secure webhook,
+        it is a public endpoint that accepts anything.
       security: []
       parameters:
         - name: X-Hub-Signature-256
           in: header
           required: true
-          description: HMAC SHA-256 del corpo, con il segreto della GitHub App.
+          description: HMAC SHA-256 of the body, using the GitHub App secret.
           schema: { type: string }
         - name: X-GitHub-Event
           in: header
@@ -1682,94 +1802,94 @@ paths:
           schema: { type: string }
       requestBody:
         required: true
-        description: Il payload di GitHub, verificato **sui byte esatti** che sono arrivati.
+        description: GitHub's payload, verified **on the exact bytes** that arrived.
         content:
           application/json:
             schema: { type: object, additionalProperties: true }
       responses:
         "200":
           description: |
-            Verificata, nessun effetto: `duplicate` (consegna già ricevuta),
-            `ignored` (evento non `push`), `pong` (il `ping` con cui GitHub prova
-            il webhook).
+            Verified, no effect: `duplicate` (delivery already received),
+            `ignored` (not a `push` event), `pong` (the `ping` GitHub sends to
+            test the webhook).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/GithubDelivery" }
         "202":
-          description: "`accepted` — push verificata e presa in carico."
+          description: "`accepted` — push verified and taken over."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/GithubDelivery" }
         "400":
-          description: "`invalid_request` — firmata ma malformata."
+          description: "`invalid_request` — signed but malformed."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "401":
           description: |
-            `invalid_signature` — firma assente, sbagliata, o corpo alterato. Un
-            solo codice per i tre casi: la risposta non deve dire a chi prova
-            quale dei tre ha prodotto.
+            `invalid_signature` — signature missing, wrong, or body tampered with.
+            One code for all three: the response must not tell whoever is probing
+            which of them happened.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "413":
-          description: "`payload_too_large` — il rifiuto precede la verifica della firma, e non produce nessun effetto."
+          description: "`payload_too_large` — the rejection precedes signature verification, and produces no effect."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "500":
-          description: "`internal_error` — lavorazione fallita. Il `500` è deliberato: è la risposta che fa ripetere GitHub."
+          description: "`internal_error` — processing failed. The `500` is deliberate: it is the answer that makes GitHub retry."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   /webhooks/paddle:
     post:
-      tags: [webhook]
+      tags: [webhooks]
       operationId: paddleWebhook
-      summary: Consegna di un evento Paddle (R16)
+      summary: Paddle event delivery (R16)
       description: |
-        **Non è una rotta per i client.** Vale tutto ciò che vale per il webhook
-        GitHub, con la posta in gioco più alta: un evento accettato a torto qui
-        **regala un piano a pagamento**. Per questo il segreto è obbligatorio e
-        senza di esso la rotta non viene registrata affatto.
+        **This is not a client route.** Everything said about the GitHub webhook
+        applies, with more at stake: an event wrongly accepted here **gives away a
+        paid plan**. That is why the secret is mandatory and, without it, the
+        route is not registered at all.
 
-        `duplicate` e `stale` sono due esiti distinti, e la distinzione non è
-        cosmetica: il primo dice che la stessa consegna è arrivata due volte, il
-        secondo che una consegna **diversa e più vecchia** è arrivata dopo una
-        più recente. Sono i due modi in cui un webhook di fatturazione si rompe.
+        `duplicate` and `stale` are two distinct outcomes, and the distinction is
+        not cosmetic: the first says the same delivery arrived twice, the second
+        that a **different and older** delivery arrived after a more recent one.
+        Those are the two ways a billing webhook breaks.
       security: []
       parameters:
         - name: Paddle-Signature
           in: header
           required: true
-          description: Firma del corpo con marca temporale.
+          description: Signature of the body, with a timestamp.
           schema: { type: string }
       requestBody:
         required: true
-        description: Il payload di Paddle, verificato **sui byte esatti** che sono arrivati.
+        description: Paddle's payload, verified **on the exact bytes** that arrived.
         content:
           application/json:
             schema: { type: object, additionalProperties: true }
       responses:
         "200":
-          description: "Verificato, nessun effetto: `duplicate`, `stale`, `ignored`."
+          description: "Verified, no effect: `duplicate`, `stale`, `ignored`."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PaddleDelivery" }
         "202":
-          description: "`applied` — sottoscrizione verificata e applicata agli entitlement."
+          description: "`applied` — subscription verified and applied to the entitlements."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PaddleDelivery" }
         "400":
-          description: "`invalid_request` — firmato ma malformato."
+          description: "`invalid_request` — signed but malformed."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "401":
-          description: "`invalid_signature` — firma assente, sbagliata, corpo alterato o fuori tempo."
+          description: "`invalid_signature` — signature missing, wrong, body tampered with, or outside the time tolerance."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1780,9 +1900,9 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "500":
           description: |
-            `internal_error` — lavorazione fallita. Il `500` è deliberato: fa
-            ripetere Paddle, e un utente che ha pagato e non ha ricevuto il piano
-            deve ottenere una seconda occasione, non un silenzio.
+            `internal_error` — processing failed. The `500` is deliberate: it makes
+            Paddle retry, and a user who paid and did not get their plan deserves a
+            second chance rather than silence.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1794,51 +1914,48 @@ components:
       in: cookie
       name: pq_session
       description: |
-        Sessione di browser (R14). `HttpOnly`: il token è fuori dalla portata di
-        JavaScript, quindi una XSS sulla dashboard non se lo porta via.
+        Browser session (R14). `HttpOnly`: the token is out of reach of
+        JavaScript, so an XSS on the dashboard cannot carry it away.
 
     sessionBearer:
       type: http
       scheme: bearer
       description: |
-        Lo stesso token di sessione, per i client che non hanno un cookie jar.
-        Quando arrivano entrambi, il cookie ha la precedenza — ed è la sessione
-        che l'utente si aspetta di usare.
+        The same session token, for clients without a cookie jar. When both
+        arrive, the cookie wins — it is the session the user expects to be using.
 
     apiKey:
       type: http
       scheme: bearer
       description: |
-        Chiave API con scope (R9): `Authorization: Bearer pq_live_...`. Il
-        prefisso è ciò che la distingue da un token di sessione senza doverli
-        provare entrambi.
+        Scoped API key (R9): `Authorization: Bearer pq_live_...`. The prefix is
+        what tells it apart from a session token without having to try both.
 
-        Lo scope richiesto da ciascuna operazione è dichiarato in
-        `x-api-key-scope`, ed è confrontato con il codice a ogni corsa della CI.
-        I permessi di scrittura **non** implicano quelli di lettura: chi guarda
-        gli scope di una chiave vedrebbe `jobs:write` e dovrebbe sapere a memoria
-        che comprende anche la lettura.
+        The scope each operation requires is declared in `x-api-key-scope`, and it
+        is compared against the code on every CI run. Write scopes do **not**
+        imply read scopes: otherwise someone looking at a key's scopes would see
+        `jobs:write` and have to remember that it covers reading too.
 
-        Le operazioni che non dichiarano questo schema **non accettano una
-        chiave**, mai: sono quelle che emettono credenziali o impegnano una
-        spesa.
+        Operations that do not declare this scheme **do not accept a key**, ever:
+        they are the ones that issue credentials, commit to a payment, or destroy
+        the account.
 
     operatorToken:
       type: http
       scheme: bearer
       description: |
-        Token dell'operatore (`POSTQRON_METRICS_TOKEN`), per le metriche e per il
-        dettaglio della prontezza. **Non è una credenziale di un utente**: quelle
-        sono informazioni sul servizio, e legarle a una chiave API significherebbe
-        che per guardare il motore serve l'account di qualche cliente, e che
-        revocare quella chiave spegne il monitoraggio.
+        Operator token (`POSTQRON_METRICS_TOKEN`), for the metrics and for the
+        detail of the readiness answer. **It is not a user credential**: this is
+        information about the *service*, and tying it to an API key would mean
+        that watching the engine requires some customer's account, and that
+        revoking that key turns monitoring off.
 
   parameters:
     JobId:
       name: id
       in: path
       required: true
-      description: Identificativo del job.
+      description: Job identifier.
       schema: { type: string, format: uuid }
     SessionId:
       name: id
@@ -1864,48 +1981,48 @@ components:
       name: limit
       in: query
       description: |
-        Righe per pagina. Predefinito 50, massimo 200. Un valore più alto **non è
-        un errore**: la richiesta viene ridimensionata, e la dimensione servita è
-        in `page.limit`.
+        Rows per page. Defaults to 50, maximum 200. A higher value **is not an
+        error**: the request is resized, and the size actually served is in
+        `page.limit`.
       schema: { type: integer, minimum: 1, default: 50 }
     Cursor:
       name: cursor
       in: query
       description: |
-        Cursore della pagina successiva, preso da `page.next_cursor`. È opaco per
-        contratto: si rimanda com'è arrivato.
+        Cursor of the next page, taken from `page.next_cursor`. It is opaque by
+        contract: send it back exactly as it arrived.
       schema: { type: string }
 
   headers:
     RetryAfter:
       description: |
-        Secondi interi dopo i quali ha senso riprovare. **È la fonte da leggere**:
-        c'è su ogni rifiuto che si libera da sé, mentre il campo `retry_after` del
-        corpo — che lo ripete in forma leggibile dal codice — non compare sui
-        rifiuti dell'autenticazione (vedi `ServiceLimitError.retry_after`).
+        Whole seconds after which retrying makes sense. **This is the source to
+        read**: it is present on every rejection that clears by itself, whereas
+        the body's `retry_after` field — which repeats it in machine-readable form
+        — is absent on authentication rejections (see
+        `ServiceLimitError.retry_after`).
 
-        Sui limiti di piano e sui tetti applicati dalla riga di routing non è mai
-        zero: «riprova fra 0 secondi» sarebbe un invito a sbattere di nuovo
-        contro lo stesso limite. Sui tentativi di autenticazione è l'attesa
-        troncata ai secondi, che a meno di un secondo dalla fine della finestra
-        vale `0`.
+        On plan limits and on ceilings applied at the routing layer it is never
+        zero: "retry in 0 seconds" would be an invitation to hit the same limit
+        again. On authentication attempts it is the remaining wait truncated to
+        seconds, which within a second of the window's end is `0`.
       schema: { type: integer, minimum: 0 }
 
   responses:
     NoContent:
-      description: Fatto. Nessun corpo.
+      description: Done. No body.
 
     Unauthenticated:
       description: |
-        `unauthenticated` — sessione assente o scaduta; oppure `invalid_api_key`
-        — chiave assente, revocata o scaduta (R9). Sono due codici distinti
-        perché il rimedio è diverso: chi riceve il secondo non deve rifare il
-        login, deve controllare la chiave. Il messaggio non distingue
-        «inesistente» da «revocata» da «scaduta»: quella differenza trasformerebbe
-        l'API in un oracolo su una chiave trovata in giro.
+        `unauthenticated` — session missing or expired; or `invalid_api_key` —
+        key missing, revoked or expired (R9). Two distinct codes because the
+        remedy differs: whoever gets the second does not need to sign in again,
+        they need to check the key. The message does not distinguish
+        "nonexistent" from "revoked" from "expired": that difference would turn
+        the API into an oracle about a key found lying around.
       headers:
         WWW-Authenticate:
-          description: '`Bearer error="invalid_token"` quando la credenziale era una chiave API.'
+          description: '`Bearer error="invalid_token"` when the credential was an API key.'
           schema: { type: string }
       content:
         application/json:
@@ -1913,10 +2030,11 @@ components:
 
     InsufficientScope:
       description: |
-        `insufficient_scope` — la credenziale è valida ma non porta il permesso
-        richiesto. `403` e non `401`: riprovarla non cambierà niente, serve una
-        chiave diversa. Il campo `scope` e la testata `WWW-Authenticate` dicono
-        **quale** permesso mancava, invece di lasciarlo indovinare.
+        `insufficient_scope` — the credential is valid but does not carry the
+        required permission. `403` and not `401`: retrying it changes nothing, a
+        different key is needed. The `scope` field and the `WWW-Authenticate`
+        header say **which** permission was missing, instead of leaving it to be
+        guessed.
       headers:
         WWW-Authenticate:
           description: '`Bearer error="insufficient_scope", scope="..."` (RFC 6750 §3.1).'
@@ -1927,50 +2045,50 @@ components:
 
     ValidationFailed:
       description: |
-        `validation_failed` con `details` per campo, oppure `invalid_request` se
-        il corpo è illeggibile o contiene un campo sconosciuto. Un `passwrod`
-        scritto male sarebbe altrimenti una password vuota, e il client non
-        avrebbe modo di accorgersene.
+        `validation_failed` with `details` per field, or `invalid_request` if the
+        body is unreadable or carries an unknown field. A misspelled `passwrod`
+        would otherwise be an empty password, with no way for the client to
+        notice.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
     InvalidRequest:
-      description: "`invalid_request` — corpo illeggibile, campo sconosciuto, o `Content-Type` diverso da `application/json`."
+      description: "`invalid_request` — unreadable body, unknown field, or a `Content-Type` other than `application/json`."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
     BodyTooLarge:
-      description: "`body_too_large` — il corpo supera il tetto della rotta (8 KiB, 64 KiB sulle rotte dei job)."
+      description: "`body_too_large` — the body exceeds the route's cap (8 KiB, 64 KiB on the job routes)."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
     JobNotFound:
       description: |
-        `job_not_found`. «Non esiste» e «non è tuo» rispondono allo stesso modo:
-        distinguerli direbbe a chiunque se un identificativo altrui è vivo.
+        `job_not_found`. "Does not exist" and "is not yours" answer the same way:
+        telling them apart would tell anyone whether somebody else's identifier is
+        alive.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
     SecretNotFound:
-      description: "`secret_not_found` — inesistente, di un altro workspace, o revocato."
+      description: "`secret_not_found` — nonexistent, another workspace's, or revoked."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
     RetentionExceeded:
       description: |
-        `plan_limit_retention` — la finestra chiesta precede la retention del
-        piano (R10-bis, SPEC §8: 3, 15, 30, 90 giorni). Il rifiuto **dice
-        perché**: nomina il piano, la durata conservata e l'istante prima del
-        quale non ci sono più righe. Non viene ristretta in silenzio, perché un
-        utente che non vede le proprie righe senza sapere il motivo apre un
-        ticket.
+        `plan_limit_retention` — the requested window predates the plan's
+        retention (R10-bis, SPEC §8: 3, 15, 30, 90 days). The rejection **says
+        why**: it names the plan, how long it keeps logs, and the instant before
+        which there are no rows. It is not silently narrowed, because a user who
+        cannot see their own rows without knowing why opens a ticket.
 
-        Può anche essere `insufficient_scope`.
+        It may also be `insufficient_scope`.
       content:
         application/json:
           schema:
@@ -1980,10 +2098,10 @@ components:
 
     RateLimited:
       description: |
-        `rate_limited` — **tetto tecnico** sulle richieste (R10). È una difesa del
-        servizio, uguale su tutti i piani: il corpo **non ha `plan` e non ha
-        `limit`**, perché nessun piano ne concede di più e suggerire un
-        aggiornamento sarebbe una bugia commerciale.
+        `rate_limited` — a **technical ceiling** on requests (R10). It is a defence
+        of the service, identical on every plan: the body has **no `plan` and no
+        `limit`**, because no plan grants more of it and suggesting an upgrade
+        would be a commercial lie.
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
@@ -1993,16 +2111,16 @@ components:
 
     WriteRateLimited:
       description: |
-        Due errori diversi con lo stesso status, e la differenza è tutto il punto
-        di R10:
+        Two different errors under the same status, and the difference is the
+        whole point of R10:
 
-        - `plan_limit_write_rate` — **quota del piano** sulle scritture: nomina
-          `plan` e `limit`, perché lì l'aggiornamento è davvero la risposta;
-        - `rate_limited` — **tetto tecnico**: nessun piano ne concede di più.
+        - `plan_limit_write_rate` — the **plan's quota** on writes: it names
+          `plan` and `limit`, because there upgrading really is the answer;
+        - `rate_limited` — a **technical ceiling**: no plan grants more of it.
 
-        Le letture non consumano la quota di piano: farlo renderebbe la dashboard
-        inutilizzabile sul piano Free, cioè punirebbe l'uso normale per
-        difendersi dall'abuso.
+        Reads do not consume the plan quota: making them would render the
+        dashboard unusable on the Free plan, i.e. punish normal use in order to
+        defend against abuse.
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
@@ -2015,30 +2133,30 @@ components:
 
     InternalError:
       description: |
-        `internal_error`. Il messaggio è generico per costruzione: il dettaglio
-        potrebbe contenere informazioni sul database, e sta nel log del servizio.
+        `internal_error`. The message is generic by construction: the detail might
+        contain information about the database, and it belongs in the service log.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
-    # ------------------------------------------------------------- enumerazioni
+    # ------------------------------------------------------------ enumerations
     #
-    # Ogni enumerazione di questa sezione è confrontata con le costanti del
-    # codice a ogni corsa della CI: un valore aggiunto al dominio e non qui fa
-    # fallire il controllo di allineamento.
+    # Every enumeration in this section is compared against the constants in the
+    # code on each CI run: a value added to the domain and not here fails the
+    # alignment check.
 
     Environment:
       type: string
       enum: [staging, production]
-      description: Ambiente di un job (R23). Il piano Free ne ha uno solo.
+      description: A job's environment (R23). The Free plan has one only.
 
     HttpMethod:
       type: string
       enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
       description: |
-        Metodo della chiamata che il job esegue. Postqron esegue **solo chiamate
-        HTTP** verso endpoint dell'utente: nessun comando shell, nessun container
+        Method of the call the job performs. Postqron performs **HTTP calls
+        only** against the user's endpoints: no shell commands, no containers
         (SPEC §10).
 
     RetryBackoff:
@@ -2049,15 +2167,14 @@ components:
       type: string
       enum: [skip, queue, allow]
       description: |
-        Cosa fare quando un'occorrenza scatta mentre la precedente è ancora in
-        corso (R41). Con la risoluzione al secondo non è un caso raro, è la
-        norma.
+        What to do when an occurrence fires while the previous one is still
+        running (R41). At one-second resolution this is not a rare case, it is the
+        norm.
 
-        Il predefinito è `skip`, ed è l'unico dei tre che non fa danni a un job
-        di cui non si sa niente: `allow` chiama due volte insieme un bersaglio
-        che potrebbe emettere una fattura per chiamata, `queue` accumula un
-        arretrato illimitato quando il job è stabilmente più lento del proprio
-        intervallo.
+        The default is `skip`, the only one of the three that does no harm to a
+        job you know nothing about: `allow` calls a target twice at once when it
+        might issue an invoice per call, and `queue` builds an unbounded backlog
+        whenever the job is steadily slower than its own interval.
 
     AlertChannel:
       type: string
@@ -2075,17 +2192,16 @@ components:
       type: string
       enum: [plan_job_limit, plan_resolution]
       description: |
-        Perché un cambio di piano ha spento il job (R58), cioè cosa serve per
-        riaccenderlo:
+        Why a plan change switched the job off (R58), i.e. what it takes to switch
+        it back on:
 
-        - `plan_job_limit` — i job attivi superavano il tetto del piano. Se ne
-          riaccendono quanti il piano ne consente, e la scelta è dell'utente:
-          due job identici per schedulazione e destinazione possono valere uno la
-          fatturazione mensile e l'altro un promemoria, e nessun criterio
-          automatico può saperlo;
-        - `plan_resolution` — la schedulazione è più fitta di quanto il piano
-          consenta. Va cambiata: non è una questione di posto, e riaccenderne un
-          altro non ne libera.
+        - `plan_job_limit` — active jobs exceeded the plan's cap. As many as the
+          plan allows can be resumed, and the choice is the user's: two jobs
+          identical in schedule and destination may be worth one the monthly
+          invoicing run and the other a reminder, and no automatic criterion can
+          know which;
+        - `plan_resolution` — the schedule is denser than the plan allows. It has
+          to change: this is not about room, and resuming another job frees none.
 
     ApiKeyScope:
       type: string
@@ -2102,26 +2218,26 @@ components:
     BillingPeriod:
       type: string
       enum: [monthly, yearly]
-      description: L'annuale esiste solo sul piano Pro (R62).
+      description: Yearly billing exists on the Pro plan only (R62).
 
     SubscriptionStatus:
       type: string
       enum: [active, trialing, past_due, paused, canceled]
       description: |
-        Lo stato secondo Paddle, che è la fonte di verità del piano (R16).
-        `trialing` compare perché è un valore che Paddle può mandare, non perché
-        esista una prova gratuita: il listino non ne prevede (R59).
+        The status according to Paddle, which is the source of truth for the plan
+        (R16). `trialing` appears because it is a value Paddle can send, not
+        because a free trial exists: the price list has none (R59).
 
     ErrorCode:
       type: string
       description: |
-        Ogni codice che le risposte di errore possono portare. È **stabile e non
-        tradotto**, ed è su questo che il client fa branching (R53): `message` è
-        testo per una persona e può cambiare.
+        Every code an error response can carry. It is **stable and untranslated**,
+        and it is what a client branches on (R53): `message` is prose for a person
+        and may change.
 
-        L'enumerazione è confrontata a ogni corsa della CI con i codici che il
-        servizio scrive davvero: un codice nuovo nel codice e non qui fa fallire
-        il controllo, e viceversa.
+        The enumeration is compared on every CI run against the codes the service
+        actually writes: a new code in the code and not here fails the check, and
+        so does the reverse.
       enum:
         - account_suspended
         - ai_key_not_found
@@ -2129,6 +2245,8 @@ components:
         - billing_unavailable
         - body_too_large
         - business_use_required
+        - deletion_already_requested
+        - deletion_not_requested
         - empty_patch
         - execution_already_exists
         - execution_ceiling
@@ -2162,6 +2280,7 @@ components:
         - session_not_found
         - stream_ceiling
         - stream_unavailable
+        - subscription_active
         - too_many_api_keys
         - too_many_secrets
         - unauthenticated
@@ -2172,14 +2291,14 @@ components:
       type: string
       enum: [stream_overflow, stream_reopen]
       description: |
-        I due avvisi che possono chiudere un flusso SSE. Non sono errori HTTP: il
-        flusso è già aperto, e lo status non si può più cambiare.
+        The two notices that can close an SSE stream. They are not HTTP errors:
+        the stream is already open, and the status can no longer change.
 
-    # ---------------------------------------------------------------- errori
+    # ------------------------------------------------------------------ errors
 
     ErrorEnvelope:
       type: object
-      description: La busta di ogni risposta di errore.
+      description: The envelope of every error response.
       properties:
         error: { $ref: "#/components/schemas/Error" }
       required: [error]
@@ -2190,34 +2309,36 @@ components:
         code: { $ref: "#/components/schemas/ErrorCode" }
         message:
           type: string
-          description: "Testo per una persona, oggi in italiano. **Non va confrontato**: può cambiare senza preavviso."
+          description: |
+            Prose for a person, currently in Italian (localisation is issue #445).
+            **Do not match on it**: it may change without notice.
         details:
           type: array
           description: |
-            I motivi di rifiuto ancorati ai campi che li causano, così che un
-            form possa evidenziarli senza interpretare il messaggio.
+            The reasons for rejection anchored to the fields that caused them, so
+            a form can highlight them without interpreting the message.
           items: { $ref: "#/components/schemas/FieldError" }
         limit:
           type: string
-          description: Quale limite di **piano** è scattato. Assente sui tetti tecnici.
+          description: Which **plan** limit was hit. Absent on technical ceilings.
         plan:
           $ref: "#/components/schemas/PlanCode"
-          description: Su quale piano. Assente sui tetti tecnici.
+          description: On which plan. Absent on technical ceilings.
         retry_after:
           type: integer
-          minimum: 1
-          description: Ripete la testata `Retry-After` in forma leggibile dal codice.
+          minimum: 0
+          description: Repeats the `Retry-After` header in machine-readable form.
         scope:
           $ref: "#/components/schemas/ApiKeyScope"
-          description: Il permesso che mancava alla chiave (R9).
+          description: The permission the key was missing (R9).
       required: [code, message]
 
     FieldError:
       type: object
       description: |
-        Un motivo di rifiuto ancorato al campo che lo causa. `field` usa la
-        notazione a punti del corpo mandato (`request.url`, `alerts.on_failure`):
-        è il percorso dentro il JSON, non un nome di colonna.
+        A rejection reason anchored to the field that caused it. `field` uses the
+        dotted notation of the submitted body (`request.url`,
+        `alerts.on_failure`): it is the path inside the JSON, not a column name.
       properties:
         field: { type: string }
         code: { type: string }
@@ -2226,7 +2347,7 @@ components:
 
     PlanLimitEnvelope:
       type: object
-      description: Un rifiuto dovuto a una **quota di piano** (R10, R15).
+      description: A rejection caused by a **plan quota** (R10, R15).
       properties:
         error: { $ref: "#/components/schemas/PlanLimitError" }
       required: [error]
@@ -2234,11 +2355,11 @@ components:
     PlanLimitError:
       type: object
       description: |
-        Il rifiuto **nomina il piano**, perché lì l'aggiornamento è davvero la
-        risposta. È la metà commerciale di R10: l'altra è
-        [ServiceLimitError](#/components/schemas/ServiceLimitError), e la
-        differenza fra le due è ciò su cui un client decide se mostrare un invito
-        ad aggiornare.
+        The rejection **names the plan**, because there upgrading really is the
+        answer. It is the commercial half of R10: the other is
+        [ServiceLimitError](#/components/schemas/ServiceLimitError), and the
+        difference between the two is what a client uses to decide whether to show
+        an upgrade prompt.
       properties:
         code: { $ref: "#/components/schemas/ErrorCode" }
         message: { type: string }
@@ -2249,7 +2370,7 @@ components:
         retry_after:
           type: integer
           minimum: 1
-          description: Solo sui limiti di **frequenza** (`429`). Sui limiti di capienza (`403`) riprovare non cambierebbe niente.
+          description: Only on **rate** limits (`429`). On capacity limits (`403`) retrying would change nothing.
         details:
           type: array
           items: { $ref: "#/components/schemas/FieldError" }
@@ -2257,7 +2378,7 @@ components:
 
     ServiceLimitEnvelope:
       type: object
-      description: Un rifiuto dovuto a un **tetto tecnico del servizio** (R10).
+      description: A rejection caused by a **technical ceiling of the service** (R10).
       properties:
         error: { $ref: "#/components/schemas/ServiceLimitError" }
       required: [error]
@@ -2265,15 +2386,15 @@ components:
     ServiceLimitError:
       type: object
       description: |
-        Il rifiuto **non nomina nessun piano e non ne promette nessuno**: il
-        tetto è uguale su tutti, nessuno ne concede di più, e riprovare fra
-        `retry_after` secondi è l'unica cosa utile da fare.
+        The rejection **names no plan and promises none**: the ceiling is the same
+        for everybody, nobody gets more of it, and retrying after `retry_after`
+        seconds is the only useful thing to do.
 
-        Il vincolo `not` qui sotto non è decorativo: dice, in forma verificabile
-        da una macchina, che `plan` e `limit` **non compaiono** in questa
-        risposta. Un client che li usa per decidere se proporre un aggiornamento
-        non li troverà mai su un tetto tecnico — che è esattamente ciò che R10
-        pretende.
+        The `not` constraint below is not decorative: it states, in a form a
+        machine can verify, that `plan` and `limit` **never appear** in this
+        response. A client using them to decide whether to offer an upgrade will
+        never find them on a technical ceiling — which is exactly what R10
+        demands.
       properties:
         code: { $ref: "#/components/schemas/ErrorCode" }
         message: { type: string }
@@ -2281,18 +2402,17 @@ components:
           type: integer
           minimum: 0
           description: |
-            **Non è sempre presente, e il motivo è una divergenza del codice, non
-            una scelta.** I tetti applicati sulla riga di routing e dai limiti
-            del dominio lo ripetono nel corpo; il tetto sui tentativi di
-            autenticazione (`POST /auth/login`, `/auth/register`,
-            `/auth/password/*`) lo scrive **solo nella testata `Retry-After`**, e
-            lì il valore è l'attesa troncata ai secondi invece che arrotondata al
-            minimo di uno.
+            **Not always present, and the reason is a divergence in the code, not
+            a choice.** Ceilings applied at the routing layer and by the domain
+            limits repeat it in the body; the ceiling on authentication attempts
+            (`POST /auth/login`, `/auth/register`, `/auth/password/*`) writes it
+            **only in the `Retry-After` header**, and there the value is the
+            remaining wait truncated to seconds rather than rounded up to a
+            minimum of one.
 
-            La testata c'è sempre, in entrambi i casi: **è quella la fonte da
-            leggere.** La divergenza è segnalata nella PR della issue #465;
-            questo documento descrive ciò che il servizio fa, non ciò che
-            dovrebbe fare.
+            The header is always there in both cases: **that is the source to
+            read.** The divergence is reported in the pull request for issue #465;
+            this document describes what the service does, not what it should do.
       required: [code, message]
       not:
         anyOf:
@@ -2301,13 +2421,13 @@ components:
 
     StreamNotice:
       type: object
-      description: Il payload `data:` degli eventi `overflow` e `reopen` di un flusso SSE.
+      description: The `data:` payload of the `overflow` and `reopen` events of an SSE stream.
       properties:
         code: { $ref: "#/components/schemas/StreamNoticeCode" }
         message: { type: string }
       required: [code, message]
 
-    # ---------------------------------------------------------------- sistema
+    # ------------------------------------------------------------------ system
 
     Health:
       type: object
@@ -2316,7 +2436,7 @@ components:
         env: { type: string, examples: [production] }
         version:
           type: string
-          description: La versione **del servizio**. La versione del contratto è `info.version`.
+          description: The version of **the service**. The version of the contract is `info.version`.
       required: [status, env, version]
 
     Readiness:
@@ -2328,14 +2448,14 @@ components:
         ready: { type: boolean }
         checks:
           type: array
-          description: Solo per chi presenta il token dell'operatore.
+          description: Only for callers presenting the operator token.
           items: { $ref: "#/components/schemas/ReadinessCheck" }
         partition_horizon_days:
           type: integer
-          description: Solo per chi presenta il token dell'operatore.
+          description: Only for callers presenting the operator token.
         scheduler_age_seconds:
           type: number
-          description: Solo per chi presenta il token dell'operatore.
+          description: Only for callers presenting the operator token.
       required: [status, ready]
 
     ReadinessCheck:
@@ -2349,18 +2469,18 @@ components:
     Accepted:
       type: object
       description: |
-        Presa in carico deliberatamente vaga: dire «ti abbiamo scritto» senza
-        dire *se* c'era un account è tutto il punto.
+        Deliberately vague acknowledgement: saying "we have written to you"
+        without saying *whether* an account existed is the whole point.
       properties:
         status: { type: string, examples: [accepted] }
         message: { type: string }
       required: [status, message]
 
-    # ---------------------------------------------------------- autenticazione
+    # ---------------------------------------------------------- authentication
 
     User:
       type: object
-      description: L'utente. **Non contiene l'hash della password, e nemmeno il campo.**
+      description: The user. **It carries no password hash, and not even the field.**
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
@@ -2376,9 +2496,9 @@ components:
     Session:
       type: object
       description: |
-        Una sessione come compare nell'elenco dei dispositivi. **Non contiene né
-        il token né la sua impronta**: il primo è un segreto, la seconda non
-        serve a nessun client.
+        A session as it appears in the device list. **It carries neither the token
+        nor its digest**: the first is a secret, the second is of no use to any
+        client.
       properties:
         id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
@@ -2451,38 +2571,38 @@ components:
         token: { type: string }
       required: [token]
 
-    # -------------------------------------------------------------------- job
+    # -------------------------------------------------------------------- jobs
 
     Job:
       type: object
       description: |
-        Un cronjob (R1). **Esattamente uno fra `schedule` ed `every` è
-        valorizzato**, e l'altro è esplicitamente `null` invece che assente: il
-        client non deve distinguere «campo mancante» da «modalità non in uso».
+        A cron job (R1). **Exactly one of `schedule` and `every` is set**, and the
+        other is explicitly `null` rather than absent: a client should not have to
+        tell "missing field" from "mode not in use".
 
-        Le durate sono stringhe (`"30s"`, `"5m"`, `"1h"`) e non numeri, per la
-        stessa ragione per cui il vocabolario è quello di `cron.yaml`: ciò che si
-        legge lo si può rimandare indietro senza conversioni.
+        Durations are strings (`"30s"`, `"5m"`, `"1h"`) and not numbers, for the
+        same reason the vocabulary is that of `cron.yaml`: what you read you can
+        send back without converting.
       properties:
         id: { type: string, format: uuid }
         name:
           type: string
           description: |
-            **L'identità stabile del job**, unica per utente: è la chiave su cui
-            la riconciliazione di un `cron.yaml` decide se creare, aggiornare o
-            disattivare (R13). Rinominare un job equivale a cancellarlo e crearne
-            un altro.
+            **The stable identity of the job**, unique per user: it is the key on
+            which reconciliation of a `cron.yaml` decides whether to create,
+            update or disable (R13). Renaming a job is equivalent to deleting it
+            and creating another.
         description: { type: string }
         schedule:
           type: [string, "null"]
-          description: Espressione cron a 5 campi, granularità minima 1 minuto.
+          description: Cron expression with 5 fields, minimum granularity 1 minute.
           examples: ["0 9 * * *"]
         every:
           type: [string, "null"]
           description: |
-            Intervallo, per la risoluzione sotto il minuto (R22). La risoluzione
-            minima dipende dal piano (SPEC §8): 1 minuto su Free, 10 secondi su
-            Pro, 1 secondo su Team e Agency.
+            Interval, for sub-minute resolution (R22). The minimum resolution
+            depends on the plan (SPEC §8): 1 minute on Free, 10 seconds on Pro, 1
+            second on Team and Agency.
           examples: [10s]
         timezone: { type: string, examples: [Europe/Rome] }
         environments:
@@ -2495,29 +2615,29 @@ components:
           allOf:
             - $ref: "#/components/schemas/OverlapPolicy"
           description: |
-            **Sempre presente**, anche quando vale il predefinito: un campo che
-            comparisse solo se scelto costringerebbe il client a conoscere il
-            predefinito per sapere cosa succede davvero.
+            **Always present**, even when it holds the default: a field that
+            appeared only when chosen would force the client to know the default
+            in order to know what actually happens.
         alerts: { $ref: "#/components/schemas/JobAlerts" }
         enabled: { type: boolean }
         repository_id:
           type: string
           format: uuid
           description: |
-            Valorizzato per i job che vengono da un `cron.yaml` (R13). Serve a
-            sapere in anticipo che le modifiche vanno fatte nel file, invece di
-            scoprirlo da un `409` dopo aver compilato un form.
+            Set for jobs that come from a `cron.yaml` (R13). It lets a client know
+            in advance that changes must be made in the file, instead of finding
+            out from a `409` after filling in a form.
         suspended:
           allOf:
             - $ref: "#/components/schemas/JobSuspension"
           description: |
-            Valorizzato quando è stato **un cambio di piano** a spegnere il job
-            (R58), non l'utente. Senza, `enabled: false` sarebbe indistinguibile
-            da una pausa che l'utente ricorda di aver messo.
+            Set when it was **a plan change** that switched the job off (R58), not
+            the user. Without it, `enabled: false` would be indistinguishable from
+            a pause the user remembers setting.
         next_run_at:
           type: [string, "null"]
           format: date-time
-          description: Lo calcola lo scheduler. `null` su un job appena creato, finché il motore non lo raccoglie.
+          description: "Computed by the scheduler. `null` on a freshly created job, until the engine picks it up."
         archived_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -2543,13 +2663,13 @@ components:
     JobTarget:
       type: object
       description: |
-        Il bersaglio HTTP del job (SPEC §10). Gli indirizzi interni sono rifiutati
-        — loopback, reti private, link-local, l'endpoint di metadata delle
-        piattaforme cloud — sull'**indirizzo risolto** e a ogni redirect (R38).
+        The job's HTTP target (SPEC §10). Internal addresses are refused —
+        loopback, private ranges, link-local, the cloud metadata endpoint — on the
+        **resolved address** and on every redirect (R38).
 
-        `headers` restituisce ciò che è stato scritto, cioè i **riferimenti**
-        `${VAR}` ai segreti del workspace, non i valori risolti: la risoluzione
-        avviene al momento dell'esecuzione, dentro il motore (R43).
+        `headers` returns what was written, i.e. the `${VAR}` **references** to
+        workspace secrets, not the resolved values: resolution happens at
+        execution time, inside the engine (R43).
       properties:
         url: { type: string, format: uri }
         method: { $ref: "#/components/schemas/HttpMethod" }
@@ -2593,9 +2713,9 @@ components:
     Page:
       type: object
       description: |
-        La pagina servita. `next_cursor` a `null` è **l'unica** condizione di
-        fine: non va dedotta dal numero di righe, perché una pagina piena può
-        essere l'ultima.
+        The page served. `next_cursor` set to `null` is **the only** end-of-list
+        condition: it must not be inferred from the row count, because a full page
+        may be the last one.
       properties:
         limit: { type: integer }
         next_cursor: { type: [string, "null"] }
@@ -2604,14 +2724,14 @@ components:
     JobInput:
       type: object
       description: |
-        Corpo di creazione e modifica. **Ciò che non mandi non cambia**: alla
-        creazione i campi assenti prendono i predefiniti, alla modifica lasciano
-        intatto il valore esistente. Un `null` esplicito è un valore — azzera il
-        campo, o dismette una modalità di schedulazione — ed è distinto da un
-        campo assente.
+        Body for creation and modification. **What you do not send does not
+        change**: on creation absent fields take their defaults, on modification
+        they leave the existing value alone. An explicit `null` is a value — it
+        clears the field, or retires a scheduling mode — and is distinct from an
+        absent field.
 
-        `schedule` ed `every` sono **mutuamente esclusivi**: dichiararli entrambi,
-        o nessuno dei due, è un errore di validazione (SPEC §9).
+        `schedule` and `every` are **mutually exclusive**: declaring both, or
+        neither, is a validation error (SPEC §9).
       properties:
         name: { type: string }
         description: { type: [string, "null"] }
@@ -2657,7 +2777,7 @@ components:
 
     TriggerInput:
       type: object
-      description: "Corpo del trigger manuale. Facoltativo: serve solo ai job che vivono in più ambienti."
+      description: "Body of a manual trigger. Optional: it only matters for jobs living in more than one environment."
       properties:
         environment: { $ref: "#/components/schemas/Environment" }
       additionalProperties: false
@@ -2665,10 +2785,10 @@ components:
     Execution:
       type: object
       description: |
-        Un tentativo (R6). **Non ha un identificativo sintetico** perché la riga
-        non ne ha uno: la chiave è la quaterna naturale `(job, istante, ambiente,
-        tentativo)`, e inventarne uno qui produrrebbe un valore che non si può
-        usare per rileggere niente.
+        One attempt (R6). **It has no synthetic identifier** because the row has
+        none: the key is the natural quadruple `(job, instant, environment,
+        attempt)`, and inventing one here would produce a value that cannot be
+        used to read anything back.
       properties:
         job_id: { type: string, format: uuid }
         scheduled_for: { type: string, format: date-time }
@@ -2683,9 +2803,9 @@ components:
         response_excerpt:
           type: string
           description: |
-            Estratto **troncato** della risposta del bersaglio, con i segreti
-            redatti (R43): questo registro è visibile all'utente, e un valore che
-            ci finisse dentro sarebbe un segreto uscito.
+            A **truncated** excerpt of the target's response, with secrets
+            redacted (R43): this log is visible to the user, and a value landing
+            in it would be a secret that got out.
         error: { type: string }
         created_at: { type: string, format: date-time }
       required:
@@ -2712,20 +2832,20 @@ components:
         page: { $ref: "#/components/schemas/Page" }
       required: [executions, page]
 
-    # ------------------------------------------------------------- chiavi API
+    # ---------------------------------------------------------------- api keys
 
     ApiKey:
       type: object
       description: |
-        Una chiave API. **Non contiene il valore in chiaro, e nemmeno la sua
-        impronta**: non è un filtro applicato al momento di rispondere, sono
-        campi che la struttura non ha.
+        An API key. **It carries neither the plaintext value nor its digest**:
+        that is not a filter applied when responding, they are fields the
+        structure does not have.
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         prefix:
           type: string
-          description: "La parte iniziale della chiave, in chiaro: serve a riconoscerla in elenco e non basta a ricostruirla."
+          description: "The leading part of the key, in plaintext: enough to recognise it in a list, not enough to rebuild it."
         scopes:
           type: array
           items: { $ref: "#/components/schemas/ApiKeyScope" }
@@ -2747,21 +2867,20 @@ components:
     ApiKeyCreated:
       type: object
       description: |
-        **L'unica risposta dell'API che contiene un segreto.** `secret` esiste
-        solo qui e solo adesso: dopo non è recuperabile da nessuna parte, per
-        nessuno.
+        **The only response in the API that contains a secret.** `secret` exists
+        here and now only: afterwards it is not recoverable anywhere, by anyone.
       properties:
         key: { $ref: "#/components/schemas/ApiKey" }
         secret:
           type: string
-          description: Il valore in chiaro, mostrato **una volta sola** (R9).
+          description: The plaintext value, shown **exactly once** (R9).
           examples: [pq_live_xxxxxxxxxxxxxxxxxxxxxxxx]
         warning:
           type: string
           description: |
-            Il fatto che il valore non si rilegge, detto al chiamante nel momento
-            in cui gli serve saperlo: un client che non lo sa mostra la chiave in
-            un avviso che scompare.
+            The fact that the value cannot be read back, told to the caller at the
+            moment they need to know it: a client unaware of it shows the key in a
+            toast that disappears.
       required: [key, secret, warning]
 
     ApiKeyScopes:
@@ -2782,26 +2901,26 @@ components:
         expires_at:
           type: [string, "null"]
           format: date-time
-          description: Assente significa «non scade».
+          description: Absent means "never expires".
       additionalProperties: false
 
-    # ---------------------------------------------------------------- segreti
+    # ----------------------------------------------------------------- secrets
 
     Secret:
       type: object
       description: |
-        Un segreto del workspace. **Non contiene il valore, e nemmeno un suo
-        pezzo.** A riconoscerlo basta il nome che gli ha dato l'utente, che è
-        anche ciò che scrive nel proprio `cron.yaml`.
+        A workspace secret. **It carries neither the value nor a piece of it.** The
+        name the user gave it is enough to recognise it, and it is also what they
+        write in their `cron.yaml`.
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         reference:
           type: string
           description: |
-            Il testo da incollare in `cron.yaml`. È ridondante rispetto a `name`
-            ed è lì apposta: è ciò che si copia con un click, e senza di esso
-            l'utente deve sapere a memoria che la sintassi è `${...}`.
+            The text to paste into `cron.yaml`. It is redundant with `name` and it
+            is there on purpose: it is what gets copied with one click, and
+            without it the user has to remember that the syntax is `${...}`.
           examples: ["${DIGEST_TOKEN}"]
         description: { type: string }
         last_used_at: { type: string, format: date-time }
@@ -2825,28 +2944,28 @@ components:
         name: { type: string }
         value:
           type: string
-          description: Il valore, cifrato a riposo e **mai restituito** da nessuna rotta.
+          description: The value, encrypted at rest and **never returned** by any route.
         description: { type: string }
       additionalProperties: false
 
     SecretUpdateInput:
       type: object
-      description: "Il **nome non si cambia**: rinominare romperebbe in silenzio ogni `cron.yaml` che lo riferisce."
+      description: "The **name cannot be changed**: renaming would silently break every `cron.yaml` referencing it."
       properties:
         value: { type: string }
         description:
           type: [string, "null"]
-          description: Assente lascia la nota com'era; presente e vuota la cancella.
+          description: Absent leaves the note as it was; present and empty clears it.
       additionalProperties: false
 
-    # -------------------------------------------------------------- chiavi AI
+    # ----------------------------------------------------------------- ai keys
 
     AiKey:
       type: object
       description: |
-        Una chiave AI (BYOK, R18). **Non contiene la chiave, e nemmeno un
-        frammento**: «quale chiave è questa» lo dice il provider, «è quella che ho
-        appena ruotato» lo dice `updated_at`.
+        An AI key (BYOK, R18). **It carries neither the key nor a fragment of
+        it**: "which key is this" is answered by the provider, "is this the one I
+        just rotated" by `updated_at`.
       properties:
         id: { type: string, format: uuid }
         provider: { $ref: "#/components/schemas/AiProvider" }
@@ -2866,7 +2985,7 @@ components:
           items: { $ref: "#/components/schemas/AiKey" }
         providers:
           type: array
-          description: I fornitori ammessi, serviti dal backend perché la dashboard non ne tenga una copia che diverge.
+          description: The accepted providers, served by the backend so the dashboard need not keep a copy that diverges.
           items: { $ref: "#/components/schemas/AiProvider" }
       required: [keys, providers]
 
@@ -2876,15 +2995,15 @@ components:
         provider: { $ref: "#/components/schemas/AiProvider" }
         key:
           type: string
-          description: La chiave del fornitore, cifrata a riposo e **mai restituita**.
+          description: The provider's key, encrypted at rest and **never returned**.
         label: { type: string }
       additionalProperties: false
 
-    # ----------------------------------------------------------- fatturazione
+    # ----------------------------------------------------------------- billing
 
     Subscription:
       type: object
-      description: "Il piano in forza. **Nessun importo**: i prezzi sono del catalogo Paddle (R61)."
+      description: "The plan in force. **No amounts**: prices belong to the Paddle catalogue (R61)."
       properties:
         plan: { $ref: "#/components/schemas/PlanCode" }
         plan_name: { type: string }
@@ -2895,22 +3014,44 @@ components:
           type: string
           format: date-time
           description: |
-            La disdetta programmata ha effetto **alla fine del periodo pagato**:
-            fino ad allora il piano resta questo, e il client deve poterlo dire
-            invece di far credere che sia già finito.
+            A scheduled cancellation takes effect **at the end of the paid
+            period**: until then the plan stays this one, and the client must be
+            able to say so instead of implying it has already ended.
         max_jobs:
           type: integer
-          description: Il tetto del piano. Assente significa nessun tetto rigido.
+          description: The plan's job cap. Absent means no hard cap.
         active_jobs: { type: integer }
+        min_interval:
+          type: string
+          description: |
+            The finest resolution the plan allows, as a duration in the same form
+            the rest of the API uses (`1s`, `10s`, `1m`) — the form `every`
+            accepts, so a client can compare without converting.
+          examples: [10s]
+        log_retention_days:
+          type: integer
+          description: |
+            How long the execution log is kept, in **days** — the unit of the
+            price list, not a duration. "3 days" is the line the user read before
+            subscribing, and `72h` would make them convert it back.
         suspended_jobs: { $ref: "#/components/schemas/SuspendedJobs" }
-      required: [plan, plan_name, status, active_jobs, suspended_jobs]
+      required:
+        [
+          plan,
+          plan_name,
+          status,
+          active_jobs,
+          min_interval,
+          log_retention_days,
+          suspended_jobs,
+        ]
 
     SuspendedJobs:
       type: object
       description: |
-        I job spenti da un cambio di piano, contati **per motivo** (R58): i due
-        rimedi sono diversi, e un totale unico costringerebbe il client a dire
-        una delle due cose a tutti.
+        Jobs switched off by a plan change, counted **by reason** (R58): the two
+        remedies differ, and a single total would force the client to tell
+        everyone the same one.
       properties:
         by_job_limit: { type: integer }
         by_resolution: { type: integer }
@@ -2925,53 +3066,144 @@ components:
         business_use:
           type: boolean
           description: |
-            La conferma di R63, **obbligatoriamente esplicita**: un campo il cui
-            valore predefinito accetta sarebbe la casella preselezionata che R63
-            vieta.
+            The R63 confirmation, **explicit by requirement**: a field whose
+            default value accepts would be the pre-ticked box R63 forbids.
         vat_number:
           type: string
           description: |
-            Facoltativa: si conferma sempre lo status, si raccoglie il numero
-            quando c'è. Diversi regimi minimi europei ne sono privi, e pretenderla
-            escluderebbe acquirenti legittimi.
+            Optional: the status is always confirmed, the number is collected when
+            there is one. Several European small-business regimes have none, and
+            requiring it would exclude legitimate buyers.
       additionalProperties: false
 
     Checkout:
       type: object
-      description: Ciò che serve al browser per aprire il checkout. **Nessun importo.**
+      description: What the browser needs to open the checkout. **No amounts.**
       properties:
         plan: { $ref: "#/components/schemas/PlanCode" }
         plan_name: { type: string }
         period: { $ref: "#/components/schemas/BillingPeriod" }
         price_id:
           type: string
-          description: La riga del catalogo Paddle da aprire. È un **riferimento**, non un prezzo.
+          description: The Paddle catalogue row to open. It is a **reference**, not a price.
         environment: { type: string }
         client_token:
           type: string
           description: |
-            Token **pubblico per costruzione** di Paddle.js — vive nel codice
-            della pagina. Non va confuso con la chiave API server-side, che non
-            esce mai dal backend.
+            Paddle.js token, **public by construction** — it lives in the page's
+            code. Not to be confused with the server-side API key, which never
+            leaves the backend.
         custom_data: { $ref: "#/components/schemas/CheckoutCustomData" }
       required: [plan, plan_name, period, price_id, environment, client_token, custom_data]
 
     CheckoutCustomData:
       type: object
-      description: "Ciò che Paddle rimanda indietro nei webhook: è il legame fra il pagamento e l'account. Va passato a Paddle.js così com'è."
+      description: "What Paddle sends back in webhooks: the link between the payment and the account. Pass it to Paddle.js unchanged."
       properties:
         user_id: { type: string, format: uuid }
       required: [user_id]
 
-    # ---------------------------------------------------------------- webhook
+    # ----------------------------------------------------------------- account
+
+    DeletionStatus:
+      type: object
+      description: |
+        The state of the deletion request. `requested_at` and `purge_after` are
+        present only while a request is pending.
+      properties:
+        requested: { type: boolean }
+        requested_at: { type: string, format: date-time }
+        purge_after:
+          type: string
+          format: date-time
+          description: When the data is removed for good, if the request is not withdrawn first.
+        grace_hours:
+          type: number
+          description: |
+            The grace period in force, in **hours**. The confirmation screen needs
+            it *before* the user asks, and it is in hours rather than days because
+            configuration allows any duration: a test environment set to one hour
+            must not round down to zero days.
+        subscription:
+          allOf:
+            - $ref: "#/components/schemas/DeletionSubscription"
+          description: |
+            Present only when a paid subscription is alive. Closing the account
+            does **not** cancel it — see `subscription_active`.
+      required: [requested, grace_hours]
+
+    DeletionSubscription:
+      type: object
+      description: |
+        The subscription that deletion does **not** cancel. It is managed by
+        Paddle and must be cancelled there; the already-paid period runs to its
+        end and is not refunded.
+      properties:
+        plan_code: { type: string }
+        paddle_subscription_id: { type: string }
+      required: [plan_code, paddle_subscription_id]
+
+    DeletionReceipt:
+      type: object
+      description: |
+        What the request stopped. The counts are here because the privacy policy
+        promises executions stop and credentials are revoked *immediately*: an
+        answer that only said "fine" would leave the user to check elsewhere.
+      properties:
+        requested_at: { type: string, format: date-time }
+        purge_after: { type: string, format: date-time }
+        jobs_stopped: { type: integer }
+        api_keys_revoked: { type: integer }
+        secrets_revoked: { type: integer }
+        ai_keys_revoked: { type: integer }
+        sessions_revoked: { type: integer }
+      required:
+        [
+          requested_at,
+          purge_after,
+          jobs_stopped,
+          api_keys_revoked,
+          secrets_revoked,
+          ai_keys_revoked,
+          sessions_revoked,
+        ]
+
+    DeletionRestored:
+      type: object
+      description: |
+        What withdrawing put back. **It does not mention credentials**, and their
+        absence is the fact: revocation emptied the encrypted material, so there
+        is nothing to give back. Jobs come back; keys and secrets have to be
+        issued again.
+      properties:
+        jobs_resumed: { type: integer }
+      required: [jobs_resumed]
+
+    DeletionRequestInput:
+      type: object
+      properties:
+        password:
+          type: string
+          format: password
+          description: Confirmation of the deletion (R45). Required.
+        subscription_acknowledged:
+          type: boolean
+          description: |
+            Acknowledgement that closing the account does not cancel the Paddle
+            subscription. Required **only** when one is alive: the client learns
+            that from `GET /account/deletion`, or from the `subscription_active`
+            rejection.
+      additionalProperties: false
+
+    # ---------------------------------------------------------------- webhooks
 
     GithubDelivery:
       type: object
       description: |
-        Ripete l'identificativo della consegna e l'evento perché è ciò che rende
-        leggibile il registro dell'App: ritrovare il proprio `X-GitHub-Delivery`
-        con l'esito accanto permette di collaudare senza accedere ai nostri log.
-        **Non contiene niente che venga dal corpo della richiesta.**
+        It repeats the delivery identifier and the event because that is what
+        makes the App's log readable: finding your own `X-GitHub-Delivery` with
+        the outcome next to it allows testing without access to our logs. **It
+        contains nothing taken from the request body.**
       properties:
         delivery: { type: string }
         event: { type: string }
@@ -2982,7 +3214,7 @@ components:
 
     PaddleDelivery:
       type: object
-      description: Come sopra, e in particolare **nessun dato di fatturazione**.
+      description: As above, and in particular **no billing data**.
       properties:
         event_id: { type: string }
         type: { type: string }
