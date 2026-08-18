@@ -601,3 +601,61 @@ func contaEsecuzioni(t *testing.T, pool *pgxpool.Pool, jobID string) int {
 	}
 	return n
 }
+
+// TestIRepositoryDiUnAccountInCancellazioneNonSiTrovano è la difesa contro il
+// modo più subdolo in cui una cancellazione può disfarsi da sola (R45).
+//
+// La richiesta di cancellazione ferma i job dell'utente. Se durante la finestra
+// di ripensamento arriva una push, la riconciliazione scrive `enabled` da quello
+// che dice il file (R13): non si limiterebbe a creare — **accenderebbe**, e
+// azzererebbe la sospensione. Il motore tornerebbe a chiamare i bersagli di un
+// utente che ha chiesto di andarsene, e la privacy policy §5, che promette
+// «we stop execution […] immediately», sarebbe falsa dal primo push.
+//
+// La difesa è qui e non in `Apply` perché è qui che si decide *di chi* è la
+// push: un repository che non si trova non ha niente da sincronizzare, e la
+// consegna resta registrata senza effetti. Se l'utente cambia idea, il push
+// successivo lo ritrova.
+func TestIRepositoryDiUnAccountInCancellazioneNonSiTrovano(t *testing.T) {
+	store, pool := nuovoStore(t)
+	utente := creaUtente(t, pool, "in-cancellazione@esempio.it")
+	collegaRepository(t, pool, utente, 4242)
+
+	repositories, err := store.RepositoriesByExternalID(t.Context(), 4242)
+	if err != nil {
+		t.Fatalf("RepositoriesByExternalID: %v", err)
+	}
+	if len(repositories) != 1 {
+		t.Fatalf("collegamenti prima della richiesta = %d, atteso 1", len(repositories))
+	}
+
+	if _, err := pool.Exec(t.Context(),
+		`UPDATE users SET deletion_requested_at = now(), purge_after = now() + interval '30 days'
+		  WHERE id = $1::uuid`, utente); err != nil {
+		t.Fatalf("richiesta di cancellazione: %v", err)
+	}
+
+	repositories, err = store.RepositoriesByExternalID(t.Context(), 4242)
+	if err != nil {
+		t.Fatalf("RepositoriesByExternalID: %v", err)
+	}
+	if len(repositories) != 0 {
+		t.Fatalf("collegamenti durante la cancellazione = %d, atteso 0: una push riaccenderebbe i job fermati",
+			len(repositories))
+	}
+
+	// Annullata la richiesta, il repository torna a essere sincronizzabile:
+	// «you can change your mind» vale anche per il sync.
+	if _, err := pool.Exec(t.Context(),
+		`UPDATE users SET deletion_requested_at = NULL, purge_after = NULL WHERE id = $1::uuid`,
+		utente); err != nil {
+		t.Fatalf("annullamento: %v", err)
+	}
+	repositories, err = store.RepositoriesByExternalID(t.Context(), 4242)
+	if err != nil {
+		t.Fatalf("RepositoriesByExternalID: %v", err)
+	}
+	if len(repositories) != 1 {
+		t.Errorf("collegamenti dopo l'annullamento = %d, atteso 1", len(repositories))
+	}
+}

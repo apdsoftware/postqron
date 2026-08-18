@@ -66,12 +66,32 @@ const managedJobColumns = `id::text, user_id::text, name, coalesce(description, 
 	enabled, archived_at`
 
 // RepositoriesByExternalID trova i collegamenti che seguono un repository.
+//
+// # I repository di un account in cancellazione non ci sono
+//
+// La condizione su `users.deletion_requested_at` non è una rifinitura: senza,
+// una push arrivata durante la finestra di ripensamento **rimetterebbe in moto i
+// job che la cancellazione ha fermato**. La riconciliazione scrive `enabled` da
+// quello che dice il file (R13), quindi non si limiterebbe a creare — accende, e
+// azzera la sospensione. Il risultato sarebbe un motore che continua a chiamare
+// i bersagli di un utente che ha chiesto di andarsene, e la privacy policy §5
+// che promette il contrario.
+//
+// Un repository non riconosciuto non è un errore per chi chiama: la consegna
+// resta registrata e non trova niente da sincronizzare, che è esattamente ciò
+// che deve succedere. Se l'utente cambia idea, il push successivo lo ritrova.
 func (s *Store) RepositoriesByExternalID(ctx context.Context, externalID int64) ([]reposync.Repository, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+repositoryColumns+`
-		   FROM repositories
-		  WHERE provider = $1::repository_provider AND external_id = $2
-		  ORDER BY created_at`,
+		   FROM repositories r
+		  WHERE r.provider = $1::repository_provider AND r.external_id = $2
+		    AND EXISTS (
+		        SELECT 1 FROM users u
+		         WHERE u.id = r.user_id
+		           AND u.deleted_at IS NULL
+		           AND u.deletion_requested_at IS NULL
+		    )
+		  ORDER BY r.created_at`,
 		reposync.Provider, externalID)
 	if err != nil {
 		return nil, fmt.Errorf("reposyncpg: ricerca dei repository: %w", err)

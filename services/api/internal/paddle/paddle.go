@@ -115,6 +115,29 @@ var (
 	// payload non decodificabile, campi obbligatori assenti. Si può dire al
 	// chiamante cosa manca: la firma prova che il chiamante è Paddle.
 	ErrInvalidRequest = errors.New("paddle: richiesta non valida")
+
+	// ErrUnattributable indica un evento che non si riesce ad attribuire a
+	// nessun account: **ripeterlo non lo renderà attribuibile**, e va quindi
+	// registrato come ignorato invece che come fallito.
+	//
+	// Lo restituisce il consumatore degli entitlement (internal/billing) e lo
+	// riconosce [Service.apply]. Il caso da cui nasce è preciso: un account
+	// cancellato e purgato (R45) porta via con sé la propria sottoscrizione, e
+	// dal giorno dopo ogni evento di quella sottoscrizione arriva qui senza un
+	// proprietario — perché il contratto, dalla parte di Paddle, è ancora vivo.
+	//
+	// Senza questo errore quegli eventi sarebbero `failed`, cioè `500`, cioè
+	// **Paddle che ripete per tre giorni** una consegna che nessuna ripetizione
+	// può sistemare: un allarme continuo su un fatto normale, che finirebbe per
+	// coprire quelli veri.
+	//
+	// Il rovescio va conosciuto: un evento che *dovremmo* saper attribuire e che
+	// non attribuiamo — un `custom_data.user_id` perso, un database ripristinato
+	// a metà — diventa silenzioso allo stesso modo. È il compromesso giusto
+	// perché anche in quel caso la ripetizione non serve a niente, e il fatto
+	// resta scritto: la riga in `paddle_webhook_events` porta il motivo, e il log
+	// lo dice a livello di errore.
+	ErrUnattributable = errors.New("paddle: evento senza account a cui attribuirlo")
 )
 
 // Limiti di forma dei valori che finiscono nella migrazione 0013. Non sono

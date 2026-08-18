@@ -813,6 +813,52 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string, 
 	return nil
 }
 
+// ConfirmPassword verifica che chi ha la sessione conosca anche la password,
+// senza cambiare niente.
+//
+// Serve alle azioni che una sessione da sola non deve poter compiere. La prima è
+// la cancellazione dell'account (R45): è irreversibile, e una sessione rubata da
+// un portatile lasciato aperto non deve bastare a distruggere il lavoro di
+// qualcuno. È la stessa ragione per cui [Service.ChangePassword] chiede quella
+// corrente, e usa lo stesso secchio del login — chi prova password a tentativi
+// da una sessione rubata incontra lo stesso tetto, qualunque rotta stia
+// bersagliando.
+//
+// L'account senza password (nato da un provider esterno, o con l'hash azzerato)
+// riceve [ErrInvalidCredentials] al costo di una verifica vera, come nel login:
+// la risposta non deve dire *perché* la conferma non è possibile.
+func (s *Service) ConfirmPassword(ctx context.Context, userID, password string) error {
+	user, err := s.store.UserByID(ctx, userID)
+	if err != nil {
+		// Non c'è nulla da nascondere a chi ha già una sessione valida: se
+		// l'account non c'è più, il chiamante lo scoprirà comunque alla richiesta
+		// successiva.
+		return fmt.Errorf("lettura dell'account: %w", err)
+	}
+
+	accountKey := emailKey(user.Email)
+	if err := allow(s.loginAccount, accountKey); err != nil {
+		return err
+	}
+
+	if user.PasswordHash == "" {
+		if err := s.hasher.VerifyDecoy(ctx, password); err != nil {
+			return err
+		}
+		return ErrInvalidCredentials
+	}
+
+	ok, _, err := s.hasher.Verify(ctx, user.PasswordHash, password)
+	if err != nil {
+		return fmt.Errorf("verifica della password: %w", err)
+	}
+	if !ok {
+		return ErrInvalidCredentials
+	}
+	s.loginAccount.Reset(accountKey)
+	return nil
+}
+
 // ChangePassword cambia la password di un utente già autenticato.
 //
 // Richiede la password corrente: senza, una sessione rubata basterebbe a

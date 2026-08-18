@@ -1596,3 +1596,58 @@ func TestShutdownRispettaIlContesto(t *testing.T) {
 	close(blocked)
 	svc.Wait()
 }
+
+// TestConfirmPasswordVerificaSenzaCambiareNiente copre la conferma che la
+// cancellazione dell'account pretende (R45).
+//
+// Le tre proprietà che contano: la password giusta passa, quella sbagliata
+// riceve [auth.ErrInvalidCredentials], e **niente cambia** — le sessioni aperte
+// restano tali, perché confermare non è cambiare la password.
+func TestConfirmPasswordVerificaSenzaCambiareNiente(t *testing.T) {
+	f := newFixture(t)
+	user := f.register(testEmail, testPassword)
+	sessione := f.login(testEmail, testPassword)
+
+	if err := f.svc.ConfirmPassword(t.Context(), user.ID, testPassword); err != nil {
+		t.Fatalf("ConfirmPassword con la password giusta: %v", err)
+	}
+	if _, _, err := f.svc.Authenticate(t.Context(), sessione.Token); err != nil {
+		t.Errorf("la conferma ha invalidato la sessione: %v", err)
+	}
+
+	err := f.svc.ConfirmPassword(t.Context(), user.ID, "password-sbagliata-ma-lunga")
+	if !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Errorf("ConfirmPassword con la password sbagliata: %v, atteso ErrInvalidCredentials", err)
+	}
+}
+
+// TestConfirmPasswordUsaIlSecchioDelLogin: chi prova password a tentativi da una
+// sessione rubata deve incontrare lo stesso tetto del login, non un secondo
+// secchio con le proprie soglie.
+//
+// Senza, la rotta di cancellazione sarebbe un oracolo su cui indovinare la
+// password senza limiti — e il premio, in quel caso, è la distruzione
+// dell'account.
+func TestConfirmPasswordUsaIlSecchioDelLogin(t *testing.T) {
+	f := newFixture(t)
+	user := f.register(testEmail, testPassword)
+
+	var limited *auth.RateLimitedError
+	for i := 0; i < 50; i++ {
+		err := f.svc.ConfirmPassword(t.Context(), user.ID, "password-sbagliata-ma-lunga")
+		if errors.As(err, &limited) {
+			break
+		}
+	}
+	if limited == nil {
+		t.Fatal("cinquanta tentativi di conferma non hanno incontrato nessun tetto")
+	}
+
+	// E il tetto è quello dell'account: il login con la password giusta lo
+	// incontra a sua volta, perché è lo stesso secchio.
+	if _, err := f.svc.Login(t.Context(), auth.LoginInput{
+		Email: testEmail, Password: testPassword,
+	}); !errors.As(err, &limited) {
+		t.Errorf("il login non ha incontrato il tetto riempito dalle conferme: %v", err)
+	}
+}
