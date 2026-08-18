@@ -1,7 +1,7 @@
 ---
 document: terms-of-service
-version: 1.1.0
-effective_date: 2026-08-17
+version: 1.2.0
+effective_date: 2026-08-18
 language: en
 ---
 
@@ -141,6 +141,12 @@ the Acceptable Use Policy, in the manner and with the notice described there.
 
 You may close your account at any time. On closure we stop execution, revoke keys and
 delete your data after the grace period stated in the Privacy Policy.
+
+**Closing your account does not cancel a paid subscription.** Payment is handled by
+Paddle as Merchant of Record (§1), so a subscription is cancelled with Paddle, not
+with us. If you close your account while a paid plan is running, the period you have
+already paid for runs to its end, as described in §4.3. We tell you this before you
+confirm, and ask you to acknowledge it.
 
 ## 8. Liability
 

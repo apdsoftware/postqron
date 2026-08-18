@@ -406,13 +406,20 @@ var errBodyTooLarge = errors.New("corpo della richiesta troppo grande")
 // meno. E `validation_failed` altrove significa «campi non validi, con
 // `details` per campo»: senza `details` lo stesso codice diceva due cose.
 //
-// **Due rotte non usano questo helper, ed è voluto.** `POST /secrets` e le rotte
-// delle chiavi AI redigono il messaggio invece di rimandarlo: `json.Decoder` cita
-// il testo che non è riuscito a leggere, e nel corpo di quelle richieste quel
-// testo può essere il segreto. Passano quindi dal proprio `decode`, che riusa lo
-// stesso stato e lo stesso codice ma non `err.Error()`. Chi aggiunge una rotta
-// che porta materiale sensibile deve fare altrettanto: questo helper è per i
-// corpi che si possono citare.
+// **Alcune rotte non usano questo helper, ed è voluto.** Oggi sono `POST
+// /secrets`, le chiavi AI e `/account/deletion`: redigono il messaggio invece di
+// rimandarlo, perché `json.Decoder` cita il testo che non è riuscito a leggere, e
+// nel corpo di quelle richieste quel testo può essere un segreto, una chiave o
+// una password. Passano quindi dal proprio `decode`, che riusa lo stesso stato e
+// lo stesso codice ma non `err.Error()`. Chi aggiunge una rotta che porta
+// materiale sensibile deve fare altrettanto: questo helper è per i corpi che si
+// possono citare.
+//
+// Il conteggio qui era «due» e ne aveva già mancata una: `/account/deletion` è
+// arrivata con #460 e nessuno è tornato a contarle. Il numero non serve a niente
+// e invecchia da solo, mentre la regola no — per questo ora non c'è. La verità
+// che conta la tiene un test, non un commento:
+// `TestOgniRottaCheLeggeUnCorpoTraduceGliErroriAlloStessoModo`.
 //
 // Restituisce `false` sempre, così i chiamanti possono scrivere
 // `return writeDecodeError(...)` invece di ripetere la coppia.

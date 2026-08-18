@@ -1,7 +1,7 @@
 ---
 document: privacy-policy
-version: 1.0.0
-effective_date: 2026-08-17
+version: 1.1.0
+effective_date: 2026-08-18
 language: en
 ---
 
@@ -158,6 +158,13 @@ remove the data after a grace period of
 during which you can change your mind. Data already written to backups disappears as
 those backups rotate out. Records we must keep for tax or legal reasons survive
 deletion, and only those.
+
+One thing outlives deletion without being about you any more. Where an administrator
+has acted on your account, our security log keeps a record of what **they** did, with
+every reference to you removed. What remains says that an action happened and who took
+it; it no longer says to whom. We keep it because otherwise closing an account would
+erase the evidence of someone else's access to it. This is not a record we keep for
+tax or legal reasons — it is a security record about another person's actions.
 
 ## 6. Your rights
 

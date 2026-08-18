@@ -17,17 +17,28 @@ describe('documenti legali pubblicati', () => {
   // che questo test esiste per sorvegliare — la prova del consenso registra
   // quale versione l'utente ha accettato, documento per documento (R46).
   const VERSIONI: Record<string, string> = {
-    'terms-of-service': '1.1.0',
-    'privacy-policy': '1.0.0',
+    'terms-of-service': '1.2.0',
+    'privacy-policy': '1.1.0',
     'cookie-policy': '1.0.0',
     'acceptable-use-policy': '1.0.0',
+  }
+
+  // La data segue la versione, documento per documento, per la stessa ragione:
+  // è una proprietà della **versione**, non del lancio, e il consenso registra
+  // entrambe. Tenerla unica qui l'aveva già resa falsa — due documenti sono
+  // passati al 18 agosto e il test pretendeva ancora il 17 per tutti e quattro.
+  const DATE: Record<string, string> = {
+    'terms-of-service': '2026-08-18',
+    'privacy-policy': '2026-08-18',
+    'cookie-policy': '2026-08-17',
+    'acceptable-use-policy': '2026-08-17',
   }
 
   it.each(LEGAL_DOCUMENT_IDS)('%s espone versione e data approvate', (id) => {
     const document = legalDocument(id, DEFAULT_LOCALE)
 
     expect(document.version).toBe(VERSIONI[id])
-    expect(document.effectiveDate).toBe('2026-08-17')
+    expect(document.effectiveDate).toBe(DATE[id])
     expect(document.language).toBe('en')
     expect(document.html).not.toBe('')
   })

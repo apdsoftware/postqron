@@ -35,8 +35,22 @@ verifica l'assenza prima del deploy (#473).
 
 ### Stato attuale
 
-**Nessun segnaposto aperto.** I quattro documenti sono alla versione `1.0.0` con data
-di entrata in vigore `2026-08-17`.
+**Nessun segnaposto aperto.** Nessuno dei quattro è ancora stato rivisto da una
+persona: sono tutti in attesa della revisione, e finché non arriva vanno letti come
+una proposta completa, non come un testo approvato.
+
+| Documento | Versione | In vigore dal | Cosa ha mosso la versione |
+|---|---|---|---|
+| `terms-of-service.md` | `1.2.0` | 2026-08-18 | 1.1.0: il downgrade sospende tutto e riattiva l'utente (R58). 1.2.0: chiudere l'account non annulla l'abbonamento Paddle |
+| `privacy-policy.md` | `1.1.0` | 2026-08-18 | 1.1.0: la traccia delle azioni di un admin sopravvive alla cancellazione, senza più riferimenti all'utente |
+| `acceptable-use-policy.md` | `1.0.0` | 2026-08-17 | — |
+| `cookie-policy.md` | `1.0.0` | 2026-08-17 | — |
+
+Le due modifiche del 18 agosto sono nate dalla issue #460, e in entrambi i casi il
+codice ha trovato **un silenzio del documento su qualcosa che facciamo** — non una
+contraddizione. È la direzione giusta: quando la frase è difficile da rendere vera, è
+il codice a essere sbagliato; quando il codice fa una cosa che il documento non
+nomina, è il documento a essere incompleto.
 
 Sulla data: è una proprietà della **versione del documento**, non del lancio. Il
 momento in cui un utente è vincolato è quello in cui accetta, e viene registrato per
