@@ -1,4 +1,5 @@
-import { isPublicPath, LOGIN_PATH, safeNextPath } from '~/utils/auth'
+import { isPublicPath, localizeNextPath, LOGIN_PATH, safeNextPath } from '~/utils/auth'
+import { DEFAULT_LOCALE, localeFromPath, localePath } from '~/utils/locale'
 
 /**
  * La guardia di rotta (R14).
@@ -43,9 +44,29 @@ import { isPublicPath, LOGIN_PATH, safeNextPath } from '~/utils/auth'
  *
  * Alle navigazioni successive `ensure()` risponde già risolto e questa funzione
  * non attende niente.
+ *
+ * ## La lingua
+ *
+ * Non la decide questa guardia e non la guarda: la porta l'indirizzo, e
+ * `01.locale.global.ts` — che gira prima, ed è per questo che i due file sono
+ * numerati — garantisce che il prefisso ci sia. Qui serve solo a comporre gli
+ * indirizzi che questa funzione produce: chi viene rimbalzato da `/de/jobs/42`
+ * deve trovare il modulo di accesso in tedesco e tornare in tedesco dov'era. Il
+ * caso opposto — l'accesso nella lingua del browser e la schermata di ritorno
+ * in un'altra — è un cambio di lingua a metà di un'operazione, e non lo si
+ * spiega a chi lo subisce.
  */
 export default defineNuxtRouteMiddleware(async (to) => {
   const resolved = await useSession().ensure()
+
+  /*
+   * `DEFAULT_LOCALE` è un ramo che non si percorre: senza prefisso il middleware
+   * della lingua ha già reindirizzato, e un `navigateTo` restituito da un
+   * middleware interrompe la navigazione prima che si arrivi qui. Sta scritto
+   * perché il tipo lo chiede, non perché sia un ripiego di comodo.
+   */
+  const locale = localeFromPath(to.path) ?? DEFAULT_LOCALE
+  const loginPath = localePath(LOGIN_PATH, locale)
 
   if (isPublicPath(to.path)) {
     /*
@@ -56,7 +77,17 @@ export default defineNuxtRouteMiddleware(async (to) => {
      * ancora buona.
      */
     if (resolved === 'authenticated') {
-      return navigateTo(safeNextPath(to.query.next) ?? '/', { replace: true })
+      /*
+       * Il ritorno è nella lingua di questa pagina, non in quella scritta nel
+       * `next` (vedi `localizeNextPath()`), e il ripiego è la panoramica sempre
+       * in questa lingua: è quella in cui l'utente stava leggendo un istante fa,
+       * ed è l'unica scelta che non lo sposta.
+       */
+      const next = safeNextPath(to.query.next)
+      return navigateTo(
+        next === null ? localePath('/', locale) : localizeNextPath(next, locale),
+        { replace: true },
+      )
     }
     return
   }
@@ -74,7 +105,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
      */
     const next = safeNextPath(to.fullPath)
     return navigateTo(
-      next === null ? LOGIN_PATH : { path: LOGIN_PATH, query: { next } },
+      next === null ? loginPath : { path: loginPath, query: { next } },
       { replace: true },
     )
   }

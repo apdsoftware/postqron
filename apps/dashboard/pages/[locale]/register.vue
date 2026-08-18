@@ -25,7 +25,7 @@ import { authErrorKey, LOGIN_PATH, MIN_PASSWORD_LENGTH } from '~/utils/auth'
  */
 definePageMeta({ layout: 'auth' })
 
-const { t } = useLocale()
+const { t, href } = useLocale()
 const session = useSession()
 
 const fullName = ref('')
@@ -70,7 +70,7 @@ useHead(computed(() => ({ title: t.value.auth.signUp.title })))
       {{ t.auth.signUp.acceptedBody }}
     </p>
     <NuxtLink
-      :to="LOGIN_PATH"
+      :to="href(LOGIN_PATH)"
       class="inline-block mt-6 text-sm font-medium text-primary-600 hover:underline dark:text-primary-500"
     >
       {{ t.auth.signUp.acceptedSignIn }}
@@ -137,7 +137,7 @@ useHead(computed(() => ({ title: t.value.auth.signUp.title })))
     <p class="mt-6 text-sm font-light text-gray-500 dark:text-gray-400">
       {{ t.auth.signUp.haveAccount }}
       <NuxtLink
-        :to="LOGIN_PATH"
+        :to="href(LOGIN_PATH)"
         class="font-medium text-primary-600 hover:underline dark:text-primary-500"
       >
         {{ t.auth.signUp.haveAccountLink }}

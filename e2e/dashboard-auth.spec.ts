@@ -60,10 +60,12 @@ test.describe('guardia di rotta', () => {
 
     await page.goto('/')
 
-    // `/login` nudo, senza `?next=/`: la panoramica è già il ripiego, e
+    // `/en/login` nudo, senza `?next=`: la panoramica è già il ripiego, e
     // dichiararla metterebbe un parametro che non cambia niente nell'indirizzo
-    // di chiunque apra la dashboard da scollegato.
-    await expect(page).toHaveURL('/login')
+    // di chiunque apra la dashboard da scollegato. Il prefisso c'è perché la
+    // radice ha smistato prima che la guardia guardasse (`01.locale` gira prima
+    // di `02.auth`), e la lingua accompagna il rimbalzo fino in fondo.
+    await expect(page).toHaveURL('/en/login')
     await expect(page.locator('h1')).toHaveText('Sign in')
     // Il guscio della dashboard non compare: l'accesso ha un layout suo, e la
     // barra laterale sarebbe un elenco di posti dove non si può andare.
@@ -104,7 +106,10 @@ test.describe('guardia di rotta', () => {
 
     await page.goto('/login')
 
-    await expect(page).toHaveURL('/')
+    // Due reindirizzamenti in fila, entrambi `replace`: lo smistamento della
+    // lingua e poi la guardia. Si finisce sulla panoramica **nella lingua in
+    // cui si stava**, non su quella preferita ricalcolata da capo.
+    await expect(page).toHaveURL('/en')
     await expect(page.locator('h1')).toHaveText('Overview')
   })
 
@@ -118,7 +123,7 @@ test.describe('guardia di rotta', () => {
 
     await page.goto('/')
 
-    await expect(page).toHaveURL('/')
+    await expect(page).toHaveURL('/en')
     await expect(page.locator('[data-testid="state-error"]')).toBeVisible()
     await expect(page.locator('[data-testid="state-retry"]')).toBeVisible()
   })
@@ -126,22 +131,29 @@ test.describe('guardia di rotta', () => {
 
 test.describe('ritorno dove si voleva andare', () => {
   test('una rotta profonda sopravvive all\'accesso', async ({ page }) => {
-    // Il caso del segnalibro e del link in un\'email: `/jobs/42` ricade su
-    // index.html (regola `/* /index.html 200`), la guardia manda all'accesso, e
-    // dopo l'accesso si deve tornare **lì**, non alla panoramica.
+    // Il caso del segnalibro: `/jobs/42` ricade su index.html (regola
+    // `/* /index.html 200`), la guardia manda all'accesso, e dopo l'accesso si
+    // deve tornare **lì**, non alla panoramica.
+    //
+    // Un segnalibro vecchio non ha il prefisso di lingua, e non deve diventare
+    // «non trovato» per questo: viene smistato, e da quel momento in poi il
+    // ritorno viaggia con la lingua addosso. Il `next` è quindi `/en/jobs/42` e
+    // non `/jobs/42`: se fosse quest'ultimo, dopo l'accesso si passerebbe di
+    // nuovo dallo smistamento e si potrebbe finire in una lingua diversa da
+    // quella in cui si è appena letto il modulo di accesso.
     const control = await mockBackend(page, false)
     await mockLogin(page)
 
     await page.goto('/jobs/42')
 
-    await expect(page).toHaveURL('/login?next=/jobs/42')
+    await expect(page).toHaveURL('/en/login?next=/en/jobs/42')
     await expect(page.locator('[data-testid="session-returning"]')).toBeVisible()
 
     await awaitSignInForm(page)
     control.restore()
     await signIn(page)
 
-    await expect(page).toHaveURL('/jobs/42')
+    await expect(page).toHaveURL('/en/jobs/42')
   })
 
   test('dopo l\'accesso, «indietro» non riporta al modulo', async ({ page }) => {
@@ -155,7 +167,7 @@ test.describe('ritorno dove si voleva andare', () => {
     await awaitSignInForm(page)
     control.restore()
     await signIn(page)
-    await expect(page).toHaveURL('/jobs/42')
+    await expect(page).toHaveURL('/en/jobs/42')
 
     await page.goBack()
     await expect(page).not.toHaveURL(/\/login/)
@@ -174,7 +186,7 @@ test.describe('ritorno dove si voleva andare', () => {
     control.restore()
     await signIn(page)
 
-    await expect(page).toHaveURL('/')
+    await expect(page).toHaveURL('/en')
   })
 })
 
@@ -198,6 +210,9 @@ test.describe('sessione che finisce a metà lavoro', () => {
     // tornare all'elenco senza i suoi filtri è comunque aver perso il posto. È
     // il motivo per cui si ricorda `fullPath` e non `path`.
     await page.goto('/?scheda=salute')
+    // Smistata con la sua query: perdere i filtri smistando sarebbe perdere il
+    // posto prima ancora di arrivarci.
+    await expect(page).toHaveURL('/en?scheda=salute')
     await expect(page.locator('[data-testid="health"]')).toBeVisible()
 
     // La sessione muore mentre l'utente sta guardando la schermata. Nessuna
@@ -216,12 +231,12 @@ test.describe('sessione che finisce a metà lavoro', () => {
     control.restore()
     await signIn(page)
 
-    await expect(page).toHaveURL('/?scheda=salute')
+    await expect(page).toHaveURL('/en?scheda=salute')
     await expect(page.locator('h1')).toHaveText('Overview')
     // L'avviso è consumato: non deve ricomparire al prossimo accesso volontario.
     await page.locator('[data-testid="account-toggle"]').click()
     await page.locator('[data-testid="sign-out"]').click()
-    await expect(page).toHaveURL('/login')
+    await expect(page).toHaveURL('/en/login')
     await expect(page.locator('[data-testid="session-interrupted"]')).toHaveCount(0)
   })
 })
@@ -239,7 +254,7 @@ test.describe('uscita', () => {
 
     await page.locator('[data-testid="sign-out"]').click()
 
-    await expect(page).toHaveURL('/login')
+    await expect(page).toHaveURL('/en/login')
     await expect(page.locator('h1')).toHaveText('Sign in')
     // E la sessione è chiusa davvero: riaprire la schermata protetta rimanda qui.
     await page.goto('/')
@@ -398,6 +413,7 @@ test.describe('lingua delle schermate di autenticazione', () => {
     await page.goto('/login')
     for (const [code, title] of Object.entries(SIGN_IN_TITLES)) {
       await page.selectOption(SWITCHER, code)
+      await expect(page).toHaveURL(`/${code}/login`)
       await expect(page.locator('h1')).toHaveText(title)
       await expect(page.locator('html')).toHaveAttribute('lang', code)
       await expect(page).toHaveTitle(`${title} · Postqron`)
@@ -406,8 +422,52 @@ test.describe('lingua delle schermate di autenticazione', () => {
     await page.goto('/register')
     for (const [code, title] of Object.entries(SIGN_UP_TITLES)) {
       await page.selectOption(SWITCHER, code)
+      await expect(page).toHaveURL(`/${code}/register`)
       await expect(page.locator('h1')).toHaveText(title)
     }
+  })
+
+  test('cambiare lingua sul modulo non porta via quello che si stava scrivendo', async ({ page }) => {
+    // È il caso in cui «cambiare lingua naviga» potrebbe costare davvero: chi
+    // non legge la lingua indovinata dal browser cambia il selettore **mentre**
+    // sta compilando, ed è la schermata in cui perdere il campo compilato è più
+    // fastidioso. Non succede perché la chiave di `<NuxtPage>` è il percorso
+    // senza lingua, quindi il modulo non viene rimontato.
+    //
+    // La password sì, si azzera — ma non per questo: è `type="password"` e i
+    // browser non la ripropongono. L'indirizzo è ciò che si deve ritrovare.
+    await mockBackend(page, false)
+
+    await page.goto('/login')
+    await page.getByLabel('Email', { exact: true }).fill('mario.rossi@example.com')
+
+    await page.selectOption(SWITCHER, 'it')
+
+    await expect(page).toHaveURL('/it/login')
+    await expect(page.locator('h1')).toHaveText(SIGN_IN_TITLES.it)
+    await expect(page.getByLabel('Email', { exact: true })).toHaveValue('mario.rossi@example.com')
+  })
+
+  test('il ritorno dopo l\'accesso resta nella lingua in cui si è entrati', async ({ page }) => {
+    // Il rimbalzo, il cambio di lingua sul modulo, e poi il ritorno: `?next=`
+    // porta il prefisso di quando è stato scritto, e se restasse tale si
+    // tornerebbe in inglese dopo aver letto e compilato in italiano. La lingua
+    // di ritorno è quella dell'accesso, che è l'ultima che l'utente ha scelto.
+    const control = await mockBackend(page, false)
+    await mockLogin(page)
+
+    await page.goto('/jobs/42')
+    await expect(page).toHaveURL('/en/login?next=/en/jobs/42')
+
+    await page.selectOption(SWITCHER, 'it')
+    await expect(page).toHaveURL('/it/login?next=/en/jobs/42')
+
+    await awaitSignInForm(page)
+    control.restore()
+    await signIn(page)
+
+    await expect(page).toHaveURL('/it/jobs/42')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'it')
   })
 
   test.describe('browser in tedesco', () => {
@@ -420,7 +480,75 @@ test.describe('lingua delle schermate di autenticazione', () => {
 
       await page.goto('/jobs/42')
 
+      await expect(page).toHaveURL('/de/login?next=/de/jobs/42')
       await expect(page.locator('h1')).toHaveText(SIGN_IN_TITLES.de)
     })
+  })
+})
+
+// Il difetto che questa issue chiude (SPEC §8-bis, R21, R33).
+//
+// I template delle email compongono i link con `AppURL()`
+// (`services/api/internal/emailrender/context.go`), che antepone la lingua del
+// profilo del destinatario: `https://app.postqron.com/it/jobs/new`. Finché la
+// dashboard non ha avuto le rotte prefissate, **quegli indirizzi cadevano sulla
+// pagina «non trovata»** — e con la guardia di sessione ci si arrivava dopo aver
+// scritto la password, che è il modo peggiore di scoprirlo.
+//
+// I percorsi qui sotto sono copiati da `emails/templates/`, non inventati: se
+// un template ne comporrà uno nuovo, questo test non se ne accorgerà — ma se
+// qualcuno toglie il prefisso alle rotte, sì.
+
+const LINK_DELLE_EMAIL = [
+  // welcome.{html,txt}.tmpl
+  { path: '/it/jobs/new', locale: 'it', lang: 'it' },
+  // job_failed, via jobFailedContext.JobURL()
+  { path: '/de/jobs/42/executions', locale: 'de', lang: 'de' },
+  // security_alert.{html,txt}.tmpl
+  { path: '/fr/settings/security', locale: 'fr', lang: 'fr' },
+  // plan_changed.{html,txt}.tmpl
+  { path: '/es/settings/billing', locale: 'es', lang: 'es' },
+] as const
+
+test.describe('i link delle email transazionali', () => {
+  // Browser in inglese di proposito: la lingua che deve vincere è quella scritta
+  // nell'indirizzo — che il backend ha preso dal profilo (R33) — non quella del
+  // dispositivo su cui l'utente apre il messaggio. È tutta la ragione per cui il
+  // prefisso esiste.
+  test.use({ locale: 'en-US' })
+
+  for (const { path, lang } of LINK_DELLE_EMAIL) {
+    test(`${path} apre la dashboard in ${lang}, non la pagina di smistamento`, async ({ page }) => {
+      await mockBackend(page, true)
+
+      await page.goto(path)
+
+      // L'indirizzo non viene riscritto: un link che porta altrove non è il link
+      // che il messaggio prometteva.
+      await expect(page).toHaveURL(path)
+      await expect(page.locator('html')).toHaveAttribute('lang', lang)
+      // E si arriva dentro il guscio, non su una schermata orfana.
+      await expect(page.locator(SIDEBAR)).toBeVisible()
+    })
+  }
+
+  test('passando dall\'accesso, la lingua del link sopravvive al giro (#523)', async ({ page }) => {
+    // Il sintomo peggiore descritto dalla issue: si clicca il link nell'email,
+    // la sessione è scaduta, si scrive la password — e prima di questa modifica
+    // si finiva su «pagina non trovata». Il giro completo, con il link vero.
+    const control = await mockBackend(page, false)
+    await mockLogin(page)
+
+    await page.goto('/it/jobs/new')
+
+    await expect(page).toHaveURL('/it/login?next=/it/jobs/new')
+    await expect(page.locator('h1')).toHaveText(SIGN_IN_TITLES.it)
+
+    await awaitSignInForm(page)
+    control.restore()
+    await signIn(page)
+
+    await expect(page).toHaveURL('/it/jobs/new')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'it')
   })
 })

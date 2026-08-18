@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { stripLocale } from '~/utils/locale'
 import { isActivePath, NAVIGATION } from '~/utils/navigation'
 
 /**
@@ -27,8 +28,19 @@ import { isActivePath, NAVIGATION } from '~/utils/navigation'
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
-const { t } = useLocale()
+const { t, href } = useLocale()
 const route = useRoute()
+
+/**
+ * Dove si è, **senza lingua**: è la forma in cui il registro scrive i percorsi,
+ * ed è ciò che rende l'evidenziazione della voce corrente indifferente alla
+ * lingua senza che `isActivePath()` debba sapere che le lingue esistono.
+ *
+ * Si toglie qui, in un punto solo, e non a ogni confronto: una sezione nuova
+ * (#26, #27, #28, #29) è una riga in `utils/navigation.ts`, e non deve poter
+ * dimenticare il prefisso.
+ */
+const here = computed(() => stripLocale(route.path))
 
 /**
  * Chi la usa da telefono ha aperto un cassetto sopra la pagina: toccare una
@@ -68,10 +80,10 @@ watch(() => route.path, () => {
                   sfondo grigio (R54, WCAG 2.2 1.4.1).
                 -->
                 <NuxtLink
-                  :to="entry.path"
+                  :to="href(entry.path)"
                   class="flex items-center p-2 text-base text-gray-900 rounded-lg hover:bg-gray-100 group dark:text-gray-200 dark:hover:bg-gray-700"
-                  :class="isActivePath(entry.path, route.path) ? 'bg-gray-100 dark:bg-gray-700' : ''"
-                  :aria-current="isActivePath(entry.path, route.path) ? 'page' : undefined"
+                  :class="isActivePath(entry.path, here) ? 'bg-gray-100 dark:bg-gray-700' : ''"
+                  :aria-current="isActivePath(entry.path, here) ? 'page' : undefined"
                 >
                   <AppIcon
                     :name="entry.icon"

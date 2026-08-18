@@ -5,14 +5,22 @@ import { LOCALES } from '~/utils/locale'
 /**
  * Selettore di lingua (R32).
  *
- * Sul sito pubblico il selettore è un elenco di link: cambiare lingua significa
- * cambiare indirizzo, perché ogni lingua è un insieme di pagine pre-renderizzate
- * diverso. Qui non c'è nulla da navigare — la dashboard è una SPA e i testi sono
- * già tutti nel bundle — quindi il controllo giusto è un campo di scelta, non
- * una navigazione: la pagina resta dov'è e cambia lingua sul posto.
+ * Anche qui, come sul sito pubblico, cambiare lingua **cambia indirizzo**: la
+ * lingua sta nel percorso (SPEC §8-bis) e una pagina che si legge in francese
+ * mentre l'indirizzo dice `/it/…` è un indirizzo che mente a chi lo copia.
  *
- * È un `<select>` nativo e non la tendina di Flowbite, che è un `<button>` più
- * un `<div>` di voci governati da `flowbite.js`. Con il `<select>` tastiera,
+ * Resta però un `<select>` e non un elenco di link, perché la differenza fra le
+ * due applicazioni non è sparita, si è spostata: là ogni lingua è un insieme di
+ * file diverso e il salto è un caricamento vero, qui è un guscio unico e la
+ * navigazione avviene tutta nel browser. Quello che ne discende è il requisito
+ * che questo componente deve rispettare, e che l'e2e verifica: **la pagina non
+ * si ricarica e non perde quello che aveva** — i dati già scaricati, la
+ * posizione nell'elenco, la password scritta a metà. Se ne occupa la chiave di
+ * `<NuxtPage>` in `app.vue`, che è il percorso senza lingua e quindi non cambia.
+ *
+ * È un `<select>` nativo anche per la ragione di prima, che vale ancora: non la
+ * tendina di Flowbite, che è un `<button>` più un `<div>` di voci governati da
+ * `flowbite.js`. Con il `<select>` tastiera,
  * lettori di schermo e ruota di scelta del telefono funzionano senza che si
  * debba riscrivere ciò che il browser già fa — e senza i 29 KB di JavaScript
  * che quella tendina porterebbe con sé. La veste è quella dei campi del
@@ -26,9 +34,11 @@ import { LOCALES } from '~/utils/locale'
 const { locale, t, setLocale } = useLocale()
 
 /**
- * `v-model` con getter e setter invece che sullo stato diretto: la scelta deve
- * passare da `setLocale()`, che è ciò che la rende persistente. Scrivere sullo
- * stato la applicherebbe soltanto a questa visita.
+ * `v-model` con getter e setter, e non un `ref` da tenere allineato: la lingua
+ * corrente si legge dall'indirizzo e si cambia con `setLocale()`, che ricorda la
+ * scelta (R32) e naviga. Una copia locale dovrebbe essere risincronizzata a ogni
+ * navigazione — compreso il tasto «indietro», che riporta all'indirizzo
+ * precedente e quindi alla lingua precedente senza passare da qui.
  */
 const selected = computed<LocaleCode>({
   get: () => locale.value,

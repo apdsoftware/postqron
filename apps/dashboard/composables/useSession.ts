@@ -1,6 +1,7 @@
 import type { Ref } from 'vue'
 import { ApiError } from '~/utils/api'
 import { LOGIN_PATH, safeNextPath } from '~/utils/auth'
+import { DEFAULT_LOCALE, localeFromPath, localePath } from '~/utils/locale'
 
 /**
  * La sessione dell'utente, per quel poco che una SPA statica può saperne (R14).
@@ -165,6 +166,22 @@ export function useSession(): DashboardSession {
 
   const router = useRouter()
 
+  /**
+   * L'accesso nella lingua della pagina da cui si esce.
+   *
+   * Le rotte sono prefissate (SPEC §8-bis) e questo composable porta l'utente
+   * all'accesso da due strade — l'uscita volontaria e la sessione scaduta — che
+   * partono entrambe da una schermata già in una lingua. Mandarlo su un
+   * `/login` senza prefisso lo farebbe smistare sulla lingua *preferita*, che
+   * dopo una scelta col selettore in questa visita è un'altra: si uscirebbe
+   * dall'italiano e si arriverebbe all'accesso in inglese, senza aver toccato
+   * niente.
+   */
+  function loginPath(): string {
+    const path = router.currentRoute.value.path
+    return localePath(LOGIN_PATH, localeFromPath(path) ?? DEFAULT_LOCALE)
+  }
+
   function adopt(envelope: SessionEnvelope): void {
     user.value = envelope.user
     status.value = 'authenticated'
@@ -243,9 +260,10 @@ export function useSession(): DashboardSession {
       await useApi().request<unknown>('/auth/logout', { method: 'POST', onUnauthorized: 'throw' })
     }
     finally {
+      const destination = loginPath()
       forget('anonymous')
       interrupted.value = false
-      await router.push(LOGIN_PATH)
+      await router.push(destination)
     }
   }
 
@@ -267,8 +285,9 @@ export function useSession(): DashboardSession {
      */
     const from = router.currentRoute.value.fullPath
     const next = safeNextPath(from)
+    const destination = loginPath()
 
-    void router.push(next === null ? LOGIN_PATH : { path: LOGIN_PATH, query: { next } })
+    void router.push(next === null ? destination : { path: destination, query: { next } })
   }
 
   return { status, user, interrupted, ensure, signIn, register, signOut, expire }
