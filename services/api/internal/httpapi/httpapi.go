@@ -98,12 +98,43 @@ type Deps struct {
 	// codice e non in configurazione.
 	RateLimits RateLimits
 
+	// Readiness è la sorgente della prontezza del motore (R7). Nil significa che
+	// `/readyz` non viene registrata: un processo che non ha un motore da
+	// osservare non deve rispondere «pronto» a una domanda su di esso.
+	Readiness Readiness
+
+	// Metrics è la pagina delle metriche (R7). Nil, oppure MetricsToken vuoto,
+	// significa che `/metrics` non viene registrata affatto: vedi
+	// [observabilityAPI.routes].
+	Metrics Metrics
+
+	// MetricsToken è la credenziale dell'operatore, da [MetricsTokenEnvVar].
+	// Vuota toglie `/metrics` e riduce `/readyz` al solo stato complessivo.
+	MetricsToken string
+
 	// Now sostituisce l'orologio dei limitatori. Serve ai test, che devono poter
 	// far passare una finestra senza aspettarla.
 	Now func() time.Time
 }
 
 // Health è il corpo della risposta di /healthz.
+//
+// # Che cosa dichiara, esattamente
+//
+// **Che questo processo è in piedi e sta servendo richieste.** Nient'altro: non
+// tocca il database, non guarda il motore, e risponde `200` per definizione — se
+// non fosse in grado di rispondere, non risponderebbe.
+//
+// Detta così sembra inutile, e invece è precisamente ciò che serve a chi riavvia
+// un processo inchiodato: una liveness che può fallire per colpa del database
+// farebbe ammazzare e riavviare il servizio in un ciclo che non risolve niente,
+// perché il problema è altrove.
+//
+// La domanda diversa — «il motore sta facendo il suo mestiere?» — ha un altro
+// endpoint, `/readyz`, e un altro pacchetto (internal/health). Tenerle separate
+// è il punto: un processo vivo che non riesce a scrivere sul database è malato, e
+// un health check che rispondesse `200` **per conto suo** direbbe che va tutto
+// bene mentre non parte più niente.
 type Health struct {
 	Status  string `json:"status"`
 	Env     string `json:"env"`
@@ -114,6 +145,7 @@ type Health struct {
 func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps) http.Handler {
 	mux := http.NewServeMux()
 
+	// Liveness. Vedi [Health] per che cosa dichiara e che cosa no.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, r, logger, http.StatusOK, Health{
 			Status:  "ok",
@@ -121,6 +153,19 @@ func NewRouter(cfg config.Config, version string, logger *slog.Logger, deps Deps
 			Version: version,
 		})
 	})
+
+	// Prontezza e metriche (R7). Stanno **fuori** dal guard dell'identità: chi
+	// le interroga non è un utente del prodotto ma chi gestisce il servizio, e
+	// la loro credenziale è un'altra — vedi [operatorToken].
+	obs := newObservabilityAPI(logger, deps)
+	obs.routes(mux)
+	switch {
+	case deps.Readiness == nil:
+		logger.Warn("rotta di prontezza non registrata: nessuna sonda del motore configurata")
+	case deps.MetricsToken == "":
+		logger.Warn("metriche non esposte: "+MetricsTokenEnvVar+" non impostata",
+			slog.String("conseguenza", "/metrics risponde 404 e /readyz dice solo lo stato complessivo"))
+	}
 
 	if deps.Auth != nil {
 		guard := newGuard(cfg, logger, deps)
