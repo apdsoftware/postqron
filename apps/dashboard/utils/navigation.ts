@@ -31,7 +31,7 @@ import type { IconName } from '~/utils/icons'
  * Sono anche le chiavi dei testi: `NavId` è ciò che lega il registro ai file di
  * traduzione, ed è il motivo per cui è un'unione letterale e non `string`.
  */
-export const NAV_IDS = ['overview'] as const
+export const NAV_IDS = ['overview', 'jobs'] as const
 
 export type NavId = (typeof NAV_IDS)[number]
 
@@ -44,12 +44,17 @@ export interface NavEntry {
 /**
  * Le sezioni della dashboard, nell'ordine in cui compaiono nella barra laterale.
  *
- * Oggi ce n'è una sola, e l'elenco è corto perché è onesto: le altre arrivano
- * con le issue che le implementano. Una voce che rimanda a una pagina «in
- * arrivo» sarebbe contenuto segnaposto in produzione, che SPEC R37 vieta.
+ * L'elenco è corto perché è onesto: le altre arrivano con le issue che le
+ * implementano. Una voce che rimanda a una pagina «in arrivo» sarebbe contenuto
+ * segnaposto in produzione, che SPEC R37 vieta.
+ *
+ * `/jobs` non è un percorso scelto qui: è quello che le email transazionali
+ * compongono già da mesi — `AppURL("/jobs")` e `AppURL("/jobs/new")` in
+ * `emails/templates/` — e cambiarlo farebbe cadere ogni link mandato finora.
  */
 export const NAVIGATION: readonly NavEntry[] = [
   { id: 'overview', path: '/', icon: 'overview' },
+  { id: 'jobs', path: '/jobs', icon: 'clock' },
 ]
 
 /**

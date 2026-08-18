@@ -485,7 +485,7 @@ function validateTarget(draft: JobDraft, add: Adder): void {
      * vive dov'è l'unica cosa che conta, cioè l'apertura della connessione, e
      * nessun controllo fatto nel browser può anticiparlo.
      */
-    let parsed: URL | null = null
+    let parsed: URL | null
     try {
       parsed = new URL(url)
     }

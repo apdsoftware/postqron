@@ -99,6 +99,54 @@ export const ICONS = {
     fillRule: 'evenodd',
   },
 
+  /** Orologio: i cronjob, e la prossima esecuzione. */
+  clock: {
+    paths: [
+      'M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z',
+    ],
+    fillRule: 'evenodd',
+  },
+
+  /** Più: aggiunge una riga — un cronjob, un header. */
+  plus: {
+    paths: [
+      'M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z',
+    ],
+    fillRule: 'evenodd',
+  },
+
+  /** Cestino: elimina. */
+  trash: {
+    paths: [
+      'M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z',
+    ],
+    fillRule: 'evenodd',
+  },
+
+  /** Freccia di riproduzione: esegue adesso (trigger manuale). */
+  play: {
+    paths: [
+      'M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z',
+    ],
+    fillRule: 'evenodd',
+  },
+
+  /** Due barre: mette in pausa. */
+  pause: {
+    paths: [
+      'M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z',
+    ],
+    fillRule: 'evenodd',
+  },
+
+  /** Matita: modifica. */
+  edit: {
+    paths: [
+      'M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z',
+    ],
+    fillRule: 'evenodd',
+  },
+
   /** Chevron verso il basso: apre un menu a tendina. */
   chevronDown: {
     paths: [
