@@ -725,7 +725,10 @@ paths:
             cambierebbe niente: va cambiato il piano o la richiesta.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/PlanLimitEnvelope" }
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/PlanLimitEnvelope"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
         "409":
           description: |
             `job_name_taken` — il nome è l'identità stabile del job, ed è la
@@ -811,7 +814,10 @@ paths:
             `plan_limit_environments`.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/PlanLimitEnvelope" }
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/PlanLimitEnvelope"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           $ref: "#/components/responses/JobNotFound"
         "409":
@@ -1967,7 +1973,10 @@ components:
         Può anche essere `insufficient_scope`.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/PlanLimitEnvelope" }
+          schema:
+            anyOf:
+              - $ref: "#/components/schemas/PlanLimitEnvelope"
+              - $ref: "#/components/schemas/ErrorEnvelope"
 
     RateLimited:
       description: |
