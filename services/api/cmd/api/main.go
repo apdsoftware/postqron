@@ -44,6 +44,8 @@ import (
 	"github.com/apdsoftware/postqron/services/api/internal/httpapi"
 	"github.com/apdsoftware/postqron/services/api/internal/jobs"
 	"github.com/apdsoftware/postqron/services/api/internal/jobspg"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
+	"github.com/apdsoftware/postqron/services/api/internal/legalpg"
 	"github.com/apdsoftware/postqron/services/api/internal/mailronix"
 	"github.com/apdsoftware/postqron/services/api/internal/metrics"
 	"github.com/apdsoftware/postqron/services/api/internal/netguard"
@@ -310,6 +312,24 @@ func run() error {
 			slog.String("env", account.GraceEnvVar))
 	}
 
+	// Il consenso ai documenti legali (R46). Si costruisce sempre, per la stessa
+	// ragione della cancellazione: senza queste rotte un documento che cambia
+	// non si potrebbe accettare dall'applicazione, e i Termini §9 offrono
+	// all'utente una scelta — accettare, oppure chiudere l'account prima che la
+	// modifica entri in vigore — di cui questa è la prima metà.
+	//
+	// Il registro dei documenti è quello dichiarato in internal/legal, che è
+	// anche quello che la registrazione usa: un secondo registro qui
+	// significherebbe due verità su quale versione è in vigore.
+	legalStore, err := legalpg.New(pool)
+	if err != nil {
+		return err
+	}
+	legalService, err := legal.New(legal.Options{Store: legalStore, Logger: logger})
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(cfg, version, logger, httpapi.Deps{
@@ -326,7 +346,10 @@ func run() error {
 			AIKeys: aiKeysService,
 			// Le rotte `/account/deletion` (R45). Vedi accountAPI.routes: stanno
 			// dietro la sessione e, sulla richiesta, dietro la password.
-			Account:        accountService,
+			Account: accountService,
+			// Le rotte `/legal/consents` (R46). Vedi legalAPI.routes: stanno dietro la
+			// sessione, perché accettare un contratto è un atto della persona.
+			Legal:          legalService,
 			GitHubWebhook:  gitHubWebhook,
 			PaddleWebhook:  paddleWebhook,
 			Billing:        billingService,

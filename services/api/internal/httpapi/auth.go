@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
+	"github.com/apdsoftware/postqron/services/api/internal/legal"
 )
 
 // maxUserAgentLength tronca la stringa dichiarata dal client prima di
@@ -53,6 +54,16 @@ type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	FullName string `json:"full_name"`
+	// Language è la lingua in cui l'utente sta leggendo, e serve alla prova del
+	// consenso ai documenti legali (R46): creare un account **è**
+	// l'accettazione dei Termini, e la prova registra in che lingua i testi
+	// erano davanti a chi ha premuto il bottone.
+	//
+	// Assente significa inglese, che è la lingua sorgente dei contenuti (SPEC
+	// §8-bis) e quella che l'utente vede comunque finché una traduzione non
+	// esiste. Accetta anche la forma con la regione (`it-IT`), che è quella che
+	// un browser dichiara.
+	Language string `json:"language"`
 }
 
 type loginRequest struct {
@@ -173,10 +184,32 @@ func (a *authAPI) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// La lingua si valida qui e non nel servizio perché è una proprietà del
+	// corpo della richiesta. Il rifiuto non è un canale di enumerazione: dipende
+	// da cosa ha scritto il client, non dall'esistenza dell'account.
+	var language legal.Language
+	if body.Language != "" {
+		parsed, err := legal.ParseLanguage(body.Language)
+		if err != nil {
+			writeErrorDetail(w, r, a.log, http.StatusBadRequest, ErrorDetail{
+				Code:    "validation_failed",
+				Message: "La richiesta contiene campi non validi.",
+				Details: []FieldErrorBody{{
+					Field:   "language",
+					Code:    "unsupported",
+					Message: "La lingua «" + body.Language + "» non è fra quelle supportate.",
+				}},
+			})
+			return
+		}
+		language = parsed
+	}
+
 	err := a.svc.Register(r.Context(), auth.RegisterInput{
 		Email:    body.Email,
 		Password: body.Password,
 		FullName: body.FullName,
+		Language: language,
 		Client:   a.client(r),
 	})
 	if err != nil {
