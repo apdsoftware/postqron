@@ -1871,11 +1871,17 @@ components:
   headers:
     RetryAfter:
       description: |
-        Secondi interi dopo i quali ha senso riprovare. Mai zero: «riprova fra 0
-        secondi» è un invito a sbattere di nuovo contro lo stesso limite. Il
-        campo `retry_after` del corpo ripete lo stesso valore in forma leggibile
-        dal codice.
-      schema: { type: integer, minimum: 1 }
+        Secondi interi dopo i quali ha senso riprovare. **È la fonte da leggere**:
+        c'è su ogni rifiuto che si libera da sé, mentre il campo `retry_after` del
+        corpo — che lo ripete in forma leggibile dal codice — non compare sui
+        rifiuti dell'autenticazione (vedi `ServiceLimitError.retry_after`).
+
+        Sui limiti di piano e sui tetti applicati dalla riga di routing non è mai
+        zero: «riprova fra 0 secondi» sarebbe un invito a sbattere di nuovo
+        contro lo stesso limite. Sui tentativi di autenticazione è l'attesa
+        troncata ai secondi, che a meno di un secondo dalla fine della finestra
+        vale `0`.
+      schema: { type: integer, minimum: 0 }
 
   responses:
     NoContent:
@@ -2260,8 +2266,23 @@ components:
       properties:
         code: { $ref: "#/components/schemas/ErrorCode" }
         message: { type: string }
-        retry_after: { type: integer, minimum: 1 }
-      required: [code, message, retry_after]
+        retry_after:
+          type: integer
+          minimum: 0
+          description: |
+            **Non è sempre presente, e il motivo è una divergenza del codice, non
+            una scelta.** I tetti applicati sulla riga di routing e dai limiti
+            del dominio lo ripetono nel corpo; il tetto sui tentativi di
+            autenticazione (`POST /auth/login`, `/auth/register`,
+            `/auth/password/*`) lo scrive **solo nella testata `Retry-After`**, e
+            lì il valore è l'attesa troncata ai secondi invece che arrotondata al
+            minimo di uno.
+
+            La testata c'è sempre, in entrambi i casi: **è quella la fonte da
+            leggere.** La divergenza è segnalata nella PR della issue #465;
+            questo documento descrive ciò che il servizio fa, non ciò che
+            dovrebbe fare.
+      required: [code, message]
       not:
         anyOf:
           - required: [plan]
