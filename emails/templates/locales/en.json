@@ -3,6 +3,9 @@
     "greeting_named": "Hi {name},",
     "greeting_anonymous": "Hi,",
     "footer_transactional": "You are receiving this message because you have a {product} account. Transactional emails are part of the service and cannot be turned off.",
+    "footer_marketing": "You are receiving this message because you agreed to hear from {product} about the product. It is not part of the service, and you can stop it whenever you like.",
+    "footer_unsubscribe": "Stop receiving product email",
+    "footer_unsubscribe_scope": "That link stops product email only. The email the service needs to send you — failed-job alerts, security events, plan changes — keeps coming, because it is not marketing.",
     "footer_support": "Questions? Write to {support}.",
     "time_note": "All times are shown in UTC.",
     "label_job": "Job",
@@ -79,5 +82,19 @@
     "unexpected": "If it was not, change your password and revoke your API keys now, then write to {support}.",
     "cta": "Review account security",
     "phishing_note": "{product} never asks you for your password or for an API key by email, and never sends either one in a message."
+  },
+  "unsubscribe": {
+    "title": "Stop receiving product email",
+    "question": "Stop sending you email from {product} about the product?",
+    "scope": "This stops product email only. Failed-job alerts, security events and plan changes keep coming: they are how the service tells you things, and they are not marketing.",
+    "confirm": "Yes, stop them",
+    "done_title": "Done",
+    "done_body": "No more product email will go out to this address. Nothing else about your account changes.",
+    "already_title": "Nothing to do",
+    "already_body": "This address is already set to receive no product email.",
+    "resubscribe": "Changed your mind? You can turn product email back on from your account settings.",
+    "invalid_title": "This link does not work",
+    "invalid_body": "The address is incomplete or was altered along the way. Open the link from the message again, or write to {support} and we will take care of it.",
+    "support": "Questions? Write to {support}."
   }
 }

@@ -27,6 +27,16 @@ type baseContext struct {
 	// Year è l'anno del piè di pagina, preso dall'orologio del renderer.
 	Year int
 
+	// Marketing dice al layout quale piè di pagina scrivere. Non è una
+	// preferenza del chiamante: lo imposta [Renderer.Render] leggendo
+	// [KindOf], e i due piè di pagina dicono cose opposte — uno che non ci si
+	// può disiscrivere (§2.7), l'altro come farlo (§2.8).
+	Marketing bool
+	// UnsubscribeURL è il link di §2.8. Vuoto per ogni email transazionale, e
+	// obbligatoriamente valorizzato per quelle di marketing: [Renderer.Render]
+	// rifiuta entrambe le incoerenze.
+	UnsubscribeURL string
+
 	catalog *catalog
 }
 
@@ -134,6 +144,13 @@ type planChangedContext struct {
 type securityAlertContext struct {
 	baseContext
 	Data SecurityAlertData
+}
+
+// ------------------------------------------------------------- aggiornamento
+
+type productUpdateContext struct {
+	baseContext
+	Data ProductUpdateData
 }
 
 // KindDescription racconta in una frase che cosa è successo.

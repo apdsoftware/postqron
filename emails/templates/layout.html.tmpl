@@ -72,7 +72,13 @@ a { color: #4278e5; }
 
 <tr>
 <td class="pq-pad" style="padding:24px 40px 8px 40px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;color:#6f8ba4;">
+{{if .Marketing -}}
+<p style="margin:0 0 8px 0;">{{.T "common.footer_marketing" "product" .Site.ProductName}}</p>
+<p style="margin:0 0 8px 0;"><a href="{{.UnsubscribeURL}}" style="color:#6f8ba4;">{{.T "common.footer_unsubscribe"}}</a></p>
+<p style="margin:0 0 8px 0;">{{.T "common.footer_unsubscribe_scope"}}</p>
+{{- else -}}
 <p style="margin:0 0 8px 0;">{{.T "common.footer_transactional" "product" .Site.ProductName}}</p>
+{{- end}}
 <p style="margin:0 0 8px 0;">{{.T "common.footer_support" "support" .Site.SupportEmail}}</p>
 <p style="margin:0;">{{.Year}} {{.Site.ProductName}} &#183; <a href="{{.URL "/"}}" style="color:#6f8ba4;">{{.Site.PublicBaseURL}}</a></p>
 </td>

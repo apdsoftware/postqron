@@ -8,7 +8,13 @@
 {{define "layout" -}}
 {{template "content" .}}
 ----------------------------------------------------------------------
+{{if .Marketing -}}
+{{.T "common.footer_marketing" "product" .Site.ProductName}}
+{{.T "common.footer_unsubscribe"}}: {{.UnsubscribeURL}}
+{{.T "common.footer_unsubscribe_scope"}}
+{{else -}}
 {{.T "common.footer_transactional" "product" .Site.ProductName}}
+{{end -}}
 {{.T "common.footer_support" "support" .Site.SupportEmail}}
 {{.Year}} {{.Site.ProductName}} - {{.Site.PublicBaseURL}}
 {{end}}

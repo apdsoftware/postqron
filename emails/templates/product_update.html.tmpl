@@ -1,0 +1,27 @@
+{{/*
+  Comunicazione di prodotto — l'unica email di marketing (Privacy Policy §2.8).
+
+  È l'unico template il cui **corpo** non viene dai locales: titolo e capoversi
+  arrivano dal contesto, perché sono il messaggio e cambiano a ogni invio. Nei
+  locales resta ciò che è uguale per tutti, cioè l'oggetto e il piè di pagina —
+  ed è nel piè di pagina che sta il link di disiscrizione.
+
+  Il link **non è qui**: lo scrive layout.html.tmpl, che lo mette in ogni email
+  la cui natura è `marketing` e in nessun'altra. È deliberato che questo file
+  non possa dimenticarselo, perché un template nuovo di marketing lo
+  erediterebbe senza doverci pensare.
+*/ -}}
+
+{{define "preheader"}}{{.Data.Headline}}{{end}}
+
+{{define "content" -}}
+<h1 class="pq-heading" style="margin:0 0 20px 0;font-family:Helvetica,Arial,sans-serif;font-size:26px;line-height:32px;font-weight:bold;color:#3b566e;">{{.Data.Headline}}</h1>
+
+{{range .Data.Paragraphs}}
+<p style="margin:0 0 16px 0;">{{.}}</p>
+{{end}}
+
+{{if .Data.HasCallToAction}}
+{{template "button" (button .Accent .Data.CallToActionURL .Data.CallToActionLabel)}}
+{{end}}
+{{- end}}

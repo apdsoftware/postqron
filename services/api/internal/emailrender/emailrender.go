@@ -1,5 +1,14 @@
-// Package emailrender compila le email transazionali di Postqron a partire dai
-// template versionati in emails/templates/ (R19, R20).
+// Package emailrender compila le email di Postqron a partire dai template
+// versionati in emails/templates/ (R19, R20).
+//
+// # Due famiglie, e la domanda obbligatoria
+//
+// Le email non sono tutte la stessa cosa: le quattro transazionali di R21 non
+// hanno un link di disiscrizione (privacy policy §2.7), quella di marketing ne
+// ha sempre uno (§2.8). Il piè di pagina lo sceglie il layout a partire da
+// [KindOf], e **nessun evento si compila senza aver dichiarato la propria
+// natura**. Il perché la domanda sia obbligatoria invece che facoltativa sta in
+// [Kind], ed è la cosa più importante di questo package.
 //
 // # Che cosa produce, e che cosa non fa
 //
@@ -161,15 +170,28 @@ func NewFromDir(dir string, site Site, opts ...Option) (*Renderer, error) {
 // data deve essere il tipo dell'evento — WelcomeData per EventWelcome e così
 // via. Una lingua sconosciuta non è un errore: ricade sull'inglese, che è il
 // comportamento previsto dalla spec quando nessuna lingua corrisponde.
+//
+// Un evento che non ha dichiarato la propria natura in [kinds] **non si compila
+// affatto**: vedi [Kind] per il perché la domanda «è marketing?» è obbligatoria.
 func (r *Renderer) Render(event Event, language string, data any) (Message, error) {
 	language = NormalizeLanguage(language)
 
+	kind, declared := KindOf(event)
+	if !declared {
+		return Message{}, fmt.Errorf(
+			"evento %q senza natura dichiarata: aggiungilo a `kinds` dicendo se è %q o %q. "+
+				"Non c'è un valore predefinito perché sbagliarlo significa o un link di disiscrizione "+
+				"su un avviso di sicurezza, o una promozione senza (privacy policy §2.7 e §2.8)",
+			event, KindTransactional, KindMarketing)
+	}
+
 	base := baseContext{
-		Language: language,
-		Site:     r.site,
-		Accent:   accents[event],
-		Year:     r.now().UTC().Year(),
-		catalog:  r.catalog,
+		Language:  language,
+		Site:      r.site,
+		Accent:    accents[event],
+		Year:      r.now().UTC().Year(),
+		Marketing: kind == KindMarketing,
+		catalog:   r.catalog,
 	}
 
 	var ctx interface{ setSubject(string) }
@@ -198,8 +220,40 @@ func (r *Renderer) Render(event Event, language string, data any) (Message, erro
 			return Message{}, err
 		}
 		ctx = &securityAlertContext{baseContext: base, Data: typed}
+	case EventProductUpdate:
+		typed, err := coerce[ProductUpdateData](event, data)
+		if err != nil {
+			return Message{}, err
+		}
+		// `validate` ha già preteso che l'indirizzo ci sia e sia utilizzabile:
+		// qui si porta nel contesto, dove il layout lo trova. È l'unico punto in
+		// cui un link di disiscrizione entra in un'email, ed è raggiungibile
+		// solo da un evento che [kinds] dichiara di marketing.
+		base.UnsubscribeURL = typed.UnsubscribeURL
+		ctx = &productUpdateContext{baseContext: base, Data: typed}
 	default:
+		// Irraggiungibile finché [kinds] e questo switch elencano gli stessi
+		// eventi, e `TestOgniEventoDichiaraLaPropriaNatura` tiene il conto. Resta
+		// perché la coerenza fra i due elenchi è una proprietà verificata, non
+		// una garanzia del compilatore.
 		return Message{}, fmt.Errorf("evento sconosciuto: %q", event)
+	}
+
+	// Le due incoerenze, guardate insieme perché sono la stessa proprietà vista
+	// dai due lati. Oggi nessuna delle due è raggiungibile — un solo ramo dello
+	// switch valorizza il campo, e lo fa con un valore già convalidato — e i
+	// controlli ci sono per l'edizione che verrà: il secondo evento di
+	// marketing, aggiunto da chi non ha letto questa funzione, è esattamente il
+	// caso in cui il link si dimentica. Costano un confronto, e difendono due
+	// frasi di un documento legale.
+	if base.Marketing && base.UnsubscribeURL == "" {
+		return Message{}, fmt.Errorf(
+			"evento %q è di marketing e non ha un link di disiscrizione: §2.8 lo promette in ogni messaggio", event)
+	}
+	if !base.Marketing && base.UnsubscribeURL != "" {
+		return Message{}, fmt.Errorf(
+			"evento %q è transazionale e porta un link di disiscrizione: §2.7 dice che da queste email "+
+				"non ci si disiscrive, e un link che l'utente userebbe gli toglierebbe gli avvisi del servizio", event)
 	}
 
 	// L'oggetto per primo: il corpo HTML lo rimette nel <title>, così la
@@ -231,6 +285,21 @@ func (r *Renderer) Render(event Event, language string, data any) (Message, erro
 		Text:     strings.TrimSpace(body) + "\n",
 		Language: language,
 	}, nil
+}
+
+// Text traduce una chiave del catalogo nella lingua indicata.
+//
+// Esiste per la pagina di disiscrizione (§2.8), che è l'unica superficie fuori
+// da un'email a dover parlare le stesse cinque lingue con gli stessi testi. Fare
+// altrimenti avrebbe voluto dire un secondo catalogo, con le sue chiavi e la sua
+// regola di ricaduta: due cataloghi che dicono la stessa cosa divergono, e a
+// divergere sarebbe stata proprio la frase che spiega che le email transazionali
+// continuano ad arrivare.
+//
+// Vale la regola dell'email: lingua sconosciuta ricade sull'inglese, e la
+// ricaduta è **per chiave**.
+func (r *Renderer) Text(language, key string, args ...string) (string, error) {
+	return r.catalog.text(NormalizeLanguage(language), key, args)
 }
 
 // coerce estrae il tipo atteso da data, convalidandolo.
