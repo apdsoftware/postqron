@@ -21,6 +21,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/apdsoftware/postqron/services/api/internal/aicreds"
+	"github.com/apdsoftware/postqron/services/api/internal/aicredspg"
 	"github.com/apdsoftware/postqron/services/api/internal/apikeypg"
 	"github.com/apdsoftware/postqron/services/api/internal/apikeys"
 	"github.com/apdsoftware/postqron/services/api/internal/auth"
@@ -135,7 +137,35 @@ func run() error {
 	// divergere, e nessun posto in cui accorgersene.
 	guard := netguard.New(netguard.Options{Logger: logger})
 
-	secretsService, err := newSecretsService(pool, logger)
+	// Il mazzo di chiavi di cifratura del processo, letto **una volta** da
+	// `ENCRYPTION_KEY` (vedi [secretbox.EnvVar]). Lo usano i segreti del workspace
+	// (R42) e le chiavi AI degli utenti (R18): un mazzo per funzionalità sarebbe
+	// due letture della stessa variabile, e due letture sono due cose che possono
+	// divergere il giorno in cui una delle due impara a fare qualcosa di diverso.
+	//
+	// Lo stesso mazzo non significa lo stesso segreto: i due package legano il
+	// testo cifrato alla riga con domini distinti — vedi `binding` in
+	// internal/secrets e in internal/aicreds — quindi il materiale di un segreto
+	// del workspace non si apre come chiave AI, e viceversa.
+	//
+	// La variabile diventa così obbligatoria all'avvio, e non c'è un modo sensato
+	// di degradare: senza chiave i segreti non si decifrano, e un motore che
+	// eseguisse lo stesso manderebbe al bersaglio dell'utente la stringa
+	// `${TOKEN}` al posto della sua credenziale.
+	keyring, err := secretbox.KeyringFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	logger.Info("cifratura dei segreti a riposo attiva",
+		slog.Any("versioni", keyring.Versions()),
+		slog.Int("versione_attiva", int(keyring.ActiveVersion())))
+
+	secretsService, err := newSecretsService(pool, keyring, logger)
+	if err != nil {
+		return err
+	}
+
+	aiKeysService, err := newAIKeysService(pool, keyring, logger)
 	if err != nil {
 		return err
 	}
@@ -251,7 +281,11 @@ func run() error {
 			// Le rotte `/secrets` (R42) sono lo stesso servizio che il motore usa per
 			// risolvere: un segreto che l'utente non può creare è un segreto che il
 			// motore non risolverà mai.
-			Secrets:        secretsService,
+			Secrets: secretsService,
+			// Le rotte `/ai/keys` (R18) sono lo stesso servizio da cui il debugging
+			// dei log rilegge la chiave: una chiave che l'utente non può incollare è
+			// una chiave con cui non chiameremo mai il fornitore.
+			AIKeys:         aiKeysService,
 			GitHubWebhook:  gitHubWebhook,
 			PaddleWebhook:  paddleWebhook,
 			Billing:        billingService,
@@ -723,20 +757,42 @@ func sinkOrNilEntitlement(svc *billing.Service) paddle.EntitlementSink {
 // momento di eseguire. Due istanze sarebbero due keyring liberi di divergere,
 // cioè un segreto creato con una chiave e illeggibile con l'altra.
 //
-// `ENCRYPTION_KEY` diventa così obbligatoria all'avvio (vedi [secretbox.EnvVar]).
-// Non c'è un modo sensato di degradare: senza chiave i segreti non si decifrano,
-// e un motore che eseguisse lo stesso manderebbe al bersaglio dell'utente la
-// stringa `${TOKEN}` al posto della sua credenziale.
-func newSecretsService(pool *pgxpool.Pool, logger *slog.Logger) (*secrets.Service, error) {
+// Il keyring arriva da fuori e non viene letto qui: dalla issue #424 lo
+// condivide con le chiavi AI, e la lettura di `ENCRYPTION_KEY` è una sola, in
+// [run].
+func newSecretsService(
+	pool *pgxpool.Pool, keyring secretbox.Keyring, logger *slog.Logger,
+) (*secrets.Service, error) {
 	store, err := secretspg.New(pool)
 	if err != nil {
 		return nil, err
 	}
-	keyring, err := secretbox.KeyringFromEnv(os.Getenv)
+	return secrets.NewService(secrets.Options{
+		Store:   store,
+		Keyring: keyring,
+		Logger:  logger,
+	})
+}
+
+// newAIKeysService costruisce le chiavi AI degli utenti (R18, BYOK).
+//
+// Il servizio è **uno solo** per il processo e serve due utenti diversi: le
+// rotte `/ai/keys`, da cui l'utente incolla la sua chiave, e il debugging dei
+// log (R30, #437), che la rilegge per chiamare il fornitore. Vale la stessa
+// ragione dei segreti: due istanze sarebbero due keyring liberi di divergere.
+//
+// A differenza dei segreti, un'assenza qui non ferma il motore — i job girano
+// lo stesso, senza analisi automatica dei log — ma non c'è niente che possa
+// mancare: lo store si costruisce sempre e il keyring è già stato validato
+// all'avvio.
+func newAIKeysService(
+	pool *pgxpool.Pool, keyring secretbox.Keyring, logger *slog.Logger,
+) (*aicreds.Service, error) {
+	store, err := aicredspg.New(pool)
 	if err != nil {
 		return nil, err
 	}
-	return secrets.NewService(secrets.Options{
+	return aicreds.NewService(aicreds.Options{
 		Store:   store,
 		Keyring: keyring,
 		Logger:  logger,
