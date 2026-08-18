@@ -319,21 +319,74 @@ func (c *Courier) close(
 
 // render traduce una notifica in un messaggio compilato.
 //
+// Fra la scelta del template e la compilazione c'è un controllo, ed è il
+// guardiano del confine dichiarato nella doc di questo package: **da qui non
+// passa marketing**. Vedi [errMarketingInCodaTransazionale].
+func (c *Courier) render(p Pending) (emailrender.Message, error) {
+	event, data, err := transactionalTemplate(p)
+	if err != nil {
+		return emailrender.Message{}, err
+	}
+
+	if err := assertTransactional(event); err != nil {
+		return emailrender.Message{}, err
+	}
+
+	return c.renderer.Render(event, p.Recipient.Language, data)
+}
+
+// assertTransactional rifiuta un template che non sia transazionale.
+//
+// Un evento senza natura dichiarata viene rifiutato come il marketing, e non è
+// prudenza eccessiva: le due direzioni dell'errore non si equivalgono. Mandare
+// una comunicazione di marketing senza consenso e senza disiscrizione è un
+// illecito; non mandare un'email finché qualcuno non ha dichiarato che cos'è
+// costa una riga `failed` con scritto il perché.
+func assertTransactional(event emailrender.Event) error {
+	kind, declared := emailrender.KindOf(event)
+	switch {
+	case !declared:
+		return fmt.Errorf("%w: %q non dichiara la propria natura", errMarketingInCodaTransazionale, event)
+	case kind != emailrender.KindTransactional:
+		return fmt.Errorf("%w: %q è %q", errMarketingInCodaTransazionale, event, kind)
+	}
+	return nil
+}
+
+// errMarketingInCodaTransazionale è il rifiuto di recapitare una comunicazione
+// di marketing dalla coda delle notifiche.
+//
+// La coda non ha, e non deve avere, un modo di verificare il consenso
+// dell'Art. 6(1)(a): la sua politica è quella anti-spam degli avvisi, che
+// raggruppa e limita ma **manda sempre**, perché un avviso di sicurezza va
+// mandato. Una comunicazione di marketing che finisse qui partirebbe senza che
+// nessuno abbia guardato se l'utente l'ha chiesta, e senza il link di
+// disiscrizione che il layout scrive solo per gli eventi di marketing.
+//
+// Il controllo è a valle della scelta del template e non della scrittura in
+// coda, perché è lì che si conosce la natura dell'evento: chi accoda vede un
+// [Event] di questo package, che è già un dominio chiuso di eventi
+// transazionali, e il modo in cui il confine si romperebbe è che qualcuno
+// aggiunga un caso a [transactionalTemplate] puntando a un template di
+// marketing. Il controllo sta dove quel gesto si vede.
+var errMarketingInCodaTransazionale = errors.New(
+	"notify: la coda delle notifiche non recapita comunicazioni di marketing " +
+		"(privacy policy §2.8: consenso separato e disiscrizione obbligatoria, che qui non si verificano)")
+
+// transactionalTemplate sceglie template e contesto per una notifica.
+//
 // È l'unico punto in cui i nomi dei quattro eventi del database diventano quelli
 // dei quattro template — `security` di qua, `security_alert` di là — e l'unico
 // in cui il [Payload] diventa il contesto tipato che emailrender pretende. Un
 // campo del payload che non compare qui non compare in nessuna email.
-func (c *Courier) render(p Pending) (emailrender.Message, error) {
-	language := p.Recipient.Language
-
+func transactionalTemplate(p Pending) (emailrender.Event, any, error) {
 	switch p.Event {
 	case EventWelcome:
 		name := p.Recipient.Name
 		if name == "" {
 			name = p.Payload.RecipientName
 		}
-		return c.renderer.Render(emailrender.EventWelcome, language,
-			emailrender.WelcomeData{RecipientName: name})
+		return emailrender.EventWelcome, emailrender.WelcomeData{RecipientName: name}, nil
 
 	case EventJobFailed:
 		failures := p.Payload.Failures
@@ -342,42 +395,39 @@ func (c *Courier) render(p Pending) (emailrender.Message, error) {
 			// con zero è una riga scritta male, non un avviso senza fallimenti.
 			failures = 1
 		}
-		return c.renderer.Render(emailrender.EventJobFailed, language,
-			emailrender.JobFailedData{
-				JobID:               p.JobID,
-				JobName:             p.Payload.JobName,
-				Environment:         emailrender.Environment(p.Environment),
-				ConsecutiveFailures: failures,
-				LastAttemptAt:       p.Payload.LastAttemptAt,
-				FailureKind:         emailrender.FailureKind(p.Payload.FailureKind),
-				HTTPStatus:          p.Payload.HTTPStatus,
-			})
+		return emailrender.EventJobFailed, emailrender.JobFailedData{
+			JobID:               p.JobID,
+			JobName:             p.Payload.JobName,
+			Environment:         emailrender.Environment(p.Environment),
+			ConsecutiveFailures: failures,
+			LastAttemptAt:       p.Payload.LastAttemptAt,
+			FailureKind:         emailrender.FailureKind(p.Payload.FailureKind),
+			HTTPStatus:          p.Payload.HTTPStatus,
+		}, nil
 
 	case EventPlanChanged:
-		return c.renderer.Render(emailrender.EventPlanChanged, language,
-			emailrender.PlanChangedData{
-				PreviousPlan:          p.Payload.PreviousPlan,
-				NewPlan:               p.Payload.NewPlan,
-				EffectiveAt:           p.Payload.EffectiveAt,
-				SuspendedByJobLimit:   p.Payload.SuspendedByJobLimit,
-				SuspendedByResolution: p.Payload.SuspendedByResolution,
-			})
+		return emailrender.EventPlanChanged, emailrender.PlanChangedData{
+			PreviousPlan:          p.Payload.PreviousPlan,
+			NewPlan:               p.Payload.NewPlan,
+			EffectiveAt:           p.Payload.EffectiveAt,
+			SuspendedByJobLimit:   p.Payload.SuspendedByJobLimit,
+			SuspendedByResolution: p.Payload.SuspendedByResolution,
+		}, nil
 
 	case EventSecurity:
-		return c.renderer.Render(emailrender.EventSecurityAlert, language,
-			emailrender.SecurityAlertData{
-				Kind:         emailrender.SecurityEventKind(p.Payload.SecurityKind),
-				OccurredAt:   p.Payload.OccurredAt,
-				ResourceName: p.Payload.ResourceName,
-				SourceIP:     p.Payload.SourceIP,
-			})
+		return emailrender.EventSecurityAlert, emailrender.SecurityAlertData{
+			Kind:         emailrender.SecurityEventKind(p.Payload.SecurityKind),
+			OccurredAt:   p.Payload.OccurredAt,
+			ResourceName: p.Payload.ResourceName,
+			SourceIP:     p.Payload.SourceIP,
+		}, nil
 
 	default:
 		// `job_recovered` esiste nell'enumerato della 0001 ma non fra gli eventi
 		// di R21, e non ha un template. Arrivare qui significa che qualcuno lo ha
 		// accodato: meglio una riga `failed` con scritto perché che un'email a
 		// caso.
-		return emailrender.Message{}, fmt.Errorf("evento senza template: %q", p.Event)
+		return "", nil, fmt.Errorf("evento senza template: %q", p.Event)
 	}
 }
 
