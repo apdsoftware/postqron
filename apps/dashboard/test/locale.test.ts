@@ -7,7 +7,10 @@ import {
   LOCALE_STORAGE_KEY,
   detectLocale,
   isLocaleCode,
+  localeFromPath,
+  localePath,
   resolveLocale,
+  stripLocale,
 } from '~/utils/locale'
 
 describe('LOCALES', () => {
@@ -92,5 +95,66 @@ describe('LOCALE_STORAGE_KEY', () => {
   it('è spaziata col nome del prodotto', () => {
     // La chiave convive con quelle di altre librerie sulla stessa origin.
     expect(LOCALE_STORAGE_KEY).toBe('postqron:locale')
+  })
+})
+
+describe('localePath', () => {
+  it('antepone la lingua ai percorsi scritti nel codice', () => {
+    expect(localePath('/', 'it')).toBe('/it')
+    expect(localePath('/jobs/42', 'it')).toBe('/it/jobs/42')
+    expect(localePath('/login', 'de')).toBe('/de/login')
+  })
+
+  it('non lascia lo slash finale', () => {
+    // A differenza del sito pubblico, dove ogni rotta è una directory
+    // pre-renderizzata: qui `/it/` e `/it` sarebbero due stringhe diverse per
+    // lo stesso indirizzo, e a confrontarle è del codice.
+    expect(localePath('/jobs/', 'fr')).toBe('/fr/jobs')
+    expect(localePath('', 'fr')).toBe('/fr')
+  })
+
+  it('non prefissa due volte', () => {
+    // Chiamarla su un valore che arriva dalla rotta corrente è un errore
+    // facile, e `/it/it/jobs` non è un indirizzo da scoprire aprendolo.
+    expect(localePath('/it/jobs/42', 'it')).toBe('/it/jobs/42')
+    expect(localePath('/it/jobs/42', 'fr')).toBe('/fr/jobs/42')
+  })
+})
+
+describe('stripLocale', () => {
+  it('toglie il prefisso, lasciando la forma neutra', () => {
+    expect(stripLocale('/it/jobs/42')).toBe('/jobs/42')
+    expect(stripLocale('/de/login')).toBe('/login')
+  })
+
+  it('la radice di una lingua è la radice', () => {
+    // È ciò che rende la panoramica evidenziata in tutte e cinque le lingue:
+    // il confronto con il registro della navigazione avviene sulla forma neutra.
+    expect(stripLocale('/it')).toBe('/')
+    expect(stripLocale('/it/')).toBe('/')
+    expect(stripLocale('/')).toBe('/')
+  })
+
+  it('lascia intatto ciò che non comincia con una lingua', () => {
+    // Un vecchio segnalibro su `/jobs/42`, che il middleware prefisserà.
+    expect(stripLocale('/jobs/42')).toBe('/jobs/42')
+    // `pt` non è fra le cinque: è un segmento di percorso come un altro.
+    expect(stripLocale('/pt/jobs')).toBe('/pt/jobs')
+  })
+})
+
+describe('localeFromPath', () => {
+  it('legge la lingua dal primo segmento', () => {
+    expect(localeFromPath('/it')).toBe('it')
+    expect(localeFromPath('/de/jobs/42')).toBe('de')
+  })
+
+  it('dice `null` quando l\'indirizzo non dichiara una lingua', () => {
+    // È la domanda a cui risponde il middleware di smistamento: senza questa
+    // distinzione `/jobs` diventerebbe la lingua «jobs».
+    expect(localeFromPath('/')).toBeNull()
+    expect(localeFromPath('/jobs')).toBeNull()
+    expect(localeFromPath('/pt/jobs')).toBeNull()
+    expect(localeFromPath('/EN/jobs')).toBeNull()
   })
 })
