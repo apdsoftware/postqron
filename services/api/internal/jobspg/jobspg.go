@@ -559,6 +559,11 @@ func (s *Store) ListExecutionsForward(ctx context.Context, filter jobs.Execution
 // environment, attempt): è una lettura all'indietro dell'indice che esiste già,
 // senza ordinamenti aggiuntivi. Con 86.400 righe al giorno per job, è la
 // differenza fra una query costante e una che peggiora ogni giorno.
+//
+// Le colonne dell'ORDER BY sono qualificate per la ragione spiegata in
+// [Store.ListExecutionsForward]: senza, `environment` si legherebbe alla colonna
+// **in uscita**, che è `text`, e l'ordinamento sarebbe alfabetico mentre il
+// cursore confronta valori dell'enum.
 func (s *Store) ListExecutions(ctx context.Context, filter jobs.ExecutionFilter) ([]jobs.Execution, error) {
 	var cursorScheduledFor *time.Time
 	var cursorEnvironment *string
@@ -582,7 +587,7 @@ func (s *Store) ListExecutions(ctx context.Context, filter jobs.ExecutionFilter)
 		    AND ($7::timestamptz IS NULL
 		         OR (scheduled_for, environment, attempt)
 		            < ($7::timestamptz, $8::text::environment, $9::smallint))
-		  ORDER BY scheduled_for DESC, environment DESC, attempt DESC
+		  ORDER BY job_executions.scheduled_for DESC, job_executions.environment DESC, job_executions.attempt DESC
 		  LIMIT $10`,
 		filter.JobID,
 		nullableList(stringsOf(filter.Status)),
