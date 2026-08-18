@@ -34,6 +34,25 @@ import (
 // database.
 func testClock() time.Time { return lontanoDaUnConfine(time.Hour, 90*time.Second, 10*time.Second) }
 
+// testClockMinuto è la stessa guardia per i test che creano job con
+// `Every: time.Minute`, e la distinzione non è pedanteria: **la griglia da
+// evitare è quella del job, non un'ora generica.**
+//
+// `testClock` tiene lontani i confini d'ora e non dice niente sui minuti. Un job
+// al minuto ne incontra uno ogni sessanta secondi, quindi la finestra
+// `due = now-1s` ne conteneva uno circa una volta su sessanta — invisibile
+// eseguendo il pacchetto da solo, frequente sotto il carico della CI parallela,
+// dove è arrivata a fallire con `MaxLag: 1s`.
+//
+// I margini sono più stretti di quelli dell'ora perché devono stare dentro una
+// griglia di sessanta secondi: `indietro` supera comunque l'ampiezza della
+// finestra, e `avanti` copre l'impalcatura del test — creazione di database,
+// utente e job, misurata sotto i 0,8 s — con un ordine di grandezza di margine.
+// Restano accettabili 47 secondi su 60, quindi l'attesa peggiore è di tredici.
+func testClockMinuto() time.Time {
+	return lontanoDaUnConfine(time.Minute, 10*time.Second, 3*time.Second)
+}
+
 // lontanoDaUnConfine restituisce l'istante corrente garantendo che nessun confine
 // della griglia cada vicino: né entro `avanti` nel futuro, né entro `indietro` nel
 // passato.
@@ -559,7 +578,7 @@ func TestLeOccorrenzeTroppoVecchieNonVengonoEseguite(t *testing.T) {
 	pool := newTestDatabase(t)
 	user := createUser(t, pool)
 
-	now := testClock()
+	now := testClockMinuto()
 	// Un job al minuto fermo da mezz'ora, con finestra di recupero di cinque
 	// minuti: 25 occorrenze non si eseguono, le ultime sì.
 	due := now.Add(-30 * time.Minute).Truncate(time.Minute)
@@ -641,7 +660,7 @@ func TestLaPoliticaDiSovrapposizioneArrivaAlDispatch(t *testing.T) {
 	pool := newTestDatabase(t)
 	user := createUser(t, pool)
 
-	now := testClock()
+	now := testClockMinuto()
 	due := now.Add(-time.Second)
 	// `queue` e non il predefinito: un test che confrontasse il valore letto con
 	// il proprio default passerebbe anche se la colonna non venisse letta affatto.
@@ -674,7 +693,7 @@ func TestUnOccorrenzaSovrappostaVieneChiusaSkipped(t *testing.T) {
 	pool := newTestDatabase(t)
 	user := createUser(t, pool)
 
-	now := testClock()
+	now := testClockMinuto()
 	due := now.Add(-time.Second)
 	createJob(t, pool, user, jobSpec{Every: time.Minute, NextRunAt: &due})
 
