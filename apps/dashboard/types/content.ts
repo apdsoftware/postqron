@@ -10,10 +10,13 @@
  * L'inglese è la lingua sorgente: si scrive lì e si traduce da lì.
  *
  * La struttura segue l'interfaccia, non le pagine: `shell` è ciò che si vede su
- * ogni schermata, `home` è la schermata iniziale. Le sezioni della dashboard
+ * ogni schermata, `status` è il vocabolario degli stati che ogni vista può
+ * assumere, `home` e `notFound` sono due schermate. Le sezioni della dashboard
  * vera — job, esecuzioni, chiavi API — aggiungeranno una chiave ciascuna con le
- * issue che le portano.
+ * issue che le portano, più una voce in `shell.nav`.
  */
+import type { ApiErrorKind } from '~/utils/api'
+import type { NavId } from '~/utils/navigation'
 
 /** Testi presenti su ogni schermata, indipendenti dalla rotta. */
 export interface ShellContent {
@@ -24,23 +27,86 @@ export interface ShellContent {
    * usa uno screen reader sente un elenco di parole senza sapere cosa scelgono.
    */
   languageLabel: string
+
+  /**
+   * Collegamento che salta la navigazione e porta al contenuto (R54, WCAG 2.2
+   * 2.4.1). Chi naviga da tastiera altrimenti attraversa barra superiore e
+   * barra laterale a ogni cambio di pagina prima di arrivare a leggere.
+   */
+  skipToContent: string
+
+  /** Nome accessibile della navigazione principale. */
+  navigationLabel: string
+
+  /** Etichette del pulsante che apre e chiude la barra laterale sul telefono. */
+  openNavigation: string
+  closeNavigation: string
+
+  /**
+   * Nomi delle sezioni, uno per voce del registro in `utils/navigation.ts`.
+   *
+   * `Record<NavId, string>` è la garanzia strutturale: una sezione aggiunta al
+   * registro senza il testo non compila, in nessuna delle cinque lingue.
+   */
+  nav: Record<NavId, string>
+
+  /**
+   * Etichette dell'interruttore del tema. Dicono **dove si va**, non dove si è:
+   * il pulsante è un'azione, e «tema scuro» su un'interfaccia già scura
+   * sembrerebbe uno stato.
+   */
+  toLightTheme: string
+  toDarkTheme: string
 }
 
-/** Schermata iniziale. Resta lo scaffold finché non arriva il layout Flowbite. */
+/**
+ * Vocabolario degli stati di una vista (R56).
+ *
+ * Sta in una chiave sua e non dentro ogni schermata perché le frasi sono le
+ * stesse ovunque: «non si è riusciti a caricare» non cambia a seconda che si
+ * stessero caricando i job o le esecuzioni, e duplicarla per vista significa
+ * cinque traduzioni in più per ogni sezione nuova.
+ */
+export interface StatusContent {
+  /** Annuncio del caricamento per i lettori di schermo. */
+  loading: string
+  /** Titolo del riquadro d'errore. */
+  errorTitle: string
+  /** Pulsante che rifà la richiesta. */
+  retry: string
+  /**
+   * Un messaggio per categoria di guasto (`ApiErrorKind`), perché è la
+   * distinzione su cui cambia cosa può fare l'utente.
+   */
+  errors: Record<ApiErrorKind, string>
+}
+
+/** Schermata iniziale. */
 export interface HomeContent {
   title: string
   intro: string
   backendTitle: string
   /** Etichetta dell'indirizzo dell'API; il valore accanto non è tradotto. */
   apiBaseLabel: string
-  /** Pulsante di verifica, a riposo e mentre la richiesta è in corso. */
+  /** Etichette dei tre valori restituiti dall'health check. */
+  statusLabel: string
+  environmentLabel: string
+  versionLabel: string
+  /** Pulsante di verifica. */
   check: string
-  checking: string
-  /** Messaggio mostrato quando il backend non risponde. */
-  unreachable: string
+}
+
+/** Indirizzo che non corrisponde a nessuna schermata. */
+export interface NotFoundContent {
+  title: string
+  intro: string
+  /** Collegamento di rientro alla panoramica. */
+  back: string
 }
 
 export interface DashboardContent {
   shell: ShellContent
+  status: StatusContent
   home: HomeContent
+  notFound: NotFoundContent
 }

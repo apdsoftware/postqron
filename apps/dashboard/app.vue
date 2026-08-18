@@ -1,6 +1,15 @@
 <script setup lang="ts">
 const { htmlLang } = useLocale()
 
+/*
+ * Chiamato qui e non nel guscio: la classe `dark` sta sull'elemento radice, che
+ * è fuori dal layout, e chiamarlo alla radice dell'applicazione garantisce che
+ * lo stato esista prima di qualunque componente che lo legga. Lo script in
+ * `nuxt.config.ts` ha già messo la classe prima del primo pixel; da qui in poi
+ * la governa questo.
+ */
+useColorScheme()
+
 useHead({
   titleTemplate: title => (title ? `${title} · Postqron` : 'Postqron'),
 

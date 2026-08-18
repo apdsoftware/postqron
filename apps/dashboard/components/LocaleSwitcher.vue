@@ -11,10 +11,17 @@ import { LOCALES } from '~/utils/locale'
  * già tutti nel bundle — quindi il controllo giusto è un campo di scelta, non
  * una navigazione: la pagina resta dov'è e cambia lingua sul posto.
  *
- * È un `<select>` nativo e non una tendina costruita a mano perché così tastiera,
- * lettori di schermo e controlli di sistema funzionano senza che si debba
- * riscrivere ciò che il browser già fa. Il template Flowbite (backlog 24) potrà
- * vestirlo; la semantica non deve cambiare.
+ * È un `<select>` nativo e non la tendina di Flowbite, che è un `<button>` più
+ * un `<div>` di voci governati da `flowbite.js`. Con il `<select>` tastiera,
+ * lettori di schermo e ruota di scelta del telefono funzionano senza che si
+ * debba riscrivere ciò che il browser già fa — e senza i 29 KB di JavaScript
+ * che quella tendina porterebbe con sé. La veste è quella dei campi del
+ * template (`form-select` di Flowbite), la semantica resta del browser.
+ *
+ * Sta nella barra superiore e non nel piede della barra laterale, dove lo mette
+ * il template: quel piede è `hidden lg:flex` e sul telefono sparirebbe, mentre
+ * R32 vuole il selettore nell'interfaccia — cioè su ogni schermata e a ogni
+ * larghezza.
  */
 const { locale, t, setLocale } = useLocale()
 
@@ -32,7 +39,7 @@ const selected = computed<LocaleCode>({
 <template>
   <select
     v-model="selected"
-    class="locale-switcher"
+    class="block p-2 pe-9 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:focus:ring-primary-500 dark:focus:border-primary-500"
     :aria-label="t.shell.languageLabel"
     data-testid="locale-switcher"
   >
@@ -51,20 +58,3 @@ const selected = computed<LocaleCode>({
     </option>
   </select>
 </template>
-
-<style scoped>
-.locale-switcher {
-  border: 1px solid #d4d4d8;
-  border-radius: 0.375rem;
-  background: #fff;
-  padding: 0.375rem 0.5rem;
-  font: inherit;
-  font-size: 0.875rem;
-  color: inherit;
-}
-
-.locale-switcher:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 1px;
-}
-</style>
