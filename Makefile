@@ -143,6 +143,14 @@ lint-format:
 	@# il resto ha già gofmt o ESLint stylistic.
 	pnpm exec prettier --check .
 
+.PHONY: openapi
+openapi: ## Valida il contratto OpenAPI dell'API pubblica (R51)
+	@# Il contratto è verificato da due controlli che rispondono a due domande
+	@# diverse, e nessuno dei due copre l'altro: questo dice se il documento è
+	@# leggibile dagli strumenti, `test-go` dice se è vero — vedi
+	@# services/api/internal/httpapi/contract_test.go.
+	@node scripts/openapi-validate.mjs
+
 .PHONY: typecheck-ci
 typecheck-ci:
 	@# Il codice della CI stessa — configurazione Playwright, test e2e, server
@@ -252,7 +260,7 @@ ci-web: lint-web typecheck-web test-web build-web
 ci-dashboard: lint-dashboard typecheck-dashboard test-dashboard build-dashboard
 
 .PHONY: ci-root
-ci-root: lint-format typecheck-ci secrets ci-selftest
+ci-root: lint-format typecheck-ci openapi secrets ci-selftest
 
 .PHONY: ci
 ci: ## Pipeline completa — deve passare prima del merge
