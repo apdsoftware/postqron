@@ -106,10 +106,13 @@ utente con versione e lingua (R46) — quindi datare la 1.0.0 al giorno in cui �
 completata è corretto anche con il sito non ancora pubblico. Se la revisione legale
 cambia i testi, cambia la versione e con essa la data, che è già la regola qui sopra.
 
-**Le traduzioni sono tutte a `pending-review`.** Le quattro lingue esistono in
-`legal/it|es|de|fr/` alle stesse versioni e alle stesse date dell'inglese, ed è
-l'approvazione dell'originale del 18 agosto ad averle rese possibili: tradurre un testo
-ancora in movimento significa rifarlo. Nessuna è ancora mostrata dal sito.
+**Le traduzioni sono approvate.** La revisione del **2026-08-19** ha promosso tutte e
+sedici da `pending-review` ad `approved`, alle stesse versioni e alle stesse date
+dell'inglese. Da questo momento il sito mostra la lingua richiesta invece di ripiegare
+sull'inglese, e la prova del consenso registra quella lingua (R46).
+
+Come per l'originale, l'approvazione **non fa avanzare le versioni**: non è cambiato il
+testo, è cambiato chi ne risponde.
 
 Le decisioni incorporate: giurisdizione italiana e foro di Bergamo, Hetzner in
 Germania, Paddle nel Regno Unito, Mailronix operato dalla stessa entità che opera

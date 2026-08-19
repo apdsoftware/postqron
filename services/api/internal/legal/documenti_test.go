@@ -42,6 +42,26 @@ func caricaVero(t *testing.T) *legal.Registry {
 // Parte dai file veri e non da un finto minimo perché ciò che si vuole provare è
 // il comportamento **su questi documenti**: un albero inventato proverebbe che il
 // caricatore funziona su un albero inventato.
+// conStato riscrive lo stato di **tutte** le traduzioni dell'albero.
+//
+// Serve perché i test che parlano di revisione non devono dipendere da dove si
+// trova oggi la revisione vera: `legal/` è un dato che cambia — le sedici
+// traduzioni sono passate ad `approved` il 2026-08-19 — e un test che ne
+// ereditasse lo stato misurerebbe quel dato invece della regola. Chi costruisce
+// un caso dichiara la premessa che gli serve.
+func conStato(albero fstest.MapFS, stato string) fstest.MapFS {
+	for percorso, file := range albero {
+		if !strings.HasPrefix(percorso, "en/") && strings.HasSuffix(percorso, ".md") {
+			testo := string(file.Data)
+			for _, vecchio := range []string{"status: pending-review", "status: approved"} {
+				testo = strings.Replace(testo, vecchio, "status: "+stato, 1)
+			}
+			albero[percorso] = &fstest.MapFile{Data: []byte(testo)}
+		}
+	}
+	return albero
+}
+
 func alberoVero(t *testing.T) fstest.MapFS {
 	t.Helper()
 	radice := filepath.Join(radiceDelRepository(t), "legal")
@@ -178,6 +198,17 @@ func TestApprovareUnaTraduzioneÈUnaRigaSola(t *testing.T) {
 	albero := alberoVero(t)
 	percorso := path.Join(string(legal.Italian), "terms-of-service.md")
 
+	// Il test costruisce **entrambi** gli stati invece di ereditarne uno
+	// dall'albero vero, e la ragione l'abbiamo pagata: la prima stesura dava per
+	// scontato che l'italiano fosse `pending-review`, e il giorno in cui la
+	// revisione ha approvato le sedici traduzioni è diventata rossa. Un test che
+	// dipende da un dato modificabile del repository misura quel dato, non la
+	// regola — e qui la regola vale in tutte e due le direzioni.
+	conStato(albero, "pending-review")
+	if !strings.Contains(string(albero[percorso].Data), "status: pending-review") {
+		t.Fatalf("%s non porta `status`: il formato del front matter è cambiato", percorso)
+	}
+
 	prima, err := legal.LoadFS(albero)
 	if err != nil {
 		t.Fatalf("caricamento: %v", err)
@@ -187,11 +218,7 @@ func TestApprovareUnaTraduzioneÈUnaRigaSola(t *testing.T) {
 		t.Fatalf("con la traduzione in revisione il consenso nasce in %q", lingua[0].Language)
 	}
 
-	originale := string(albero[percorso].Data)
-	approvato := strings.Replace(originale, "status: pending-review", "status: approved", 1)
-	if approvato == originale {
-		t.Fatalf("%s non contiene `status: pending-review`: il formato del front matter è cambiato", percorso)
-	}
+	approvato := strings.Replace(string(albero[percorso].Data), "status: pending-review", "status: approved", 1)
 	albero[percorso] = &fstest.MapFile{Data: []byte(approvato)}
 
 	dopo, err := legal.LoadFS(albero)
@@ -284,12 +311,14 @@ func TestIlCaricatoreRifiutaCiòCheNonSaCollocare(t *testing.T) {
 		},
 		"una traduzione senza stato": {
 			guasta: func(albero fstest.MapFS) {
+				conStato(albero, "pending-review")
 				sostituisci(albero, "it/cookie-policy.md", "status: pending-review\n", "")
 			},
 			attesa: "non dichiara `status`",
 		},
 		"una traduzione con uno stato inventato": {
 			guasta: func(albero fstest.MapFS) {
+				conStato(albero, "pending-review")
 				sostituisci(albero, "it/cookie-policy.md", "status: pending-review", "status: quasi")
 			},
 			attesa: "non è né `pending-review` né `approved`",

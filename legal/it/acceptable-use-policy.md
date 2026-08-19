@@ -3,7 +3,7 @@ document: acceptable-use-policy
 version: 1.0.0
 effective_date: 2026-08-17
 language: it
-status: pending-review
+status: approved
 ---
 
 # Informativa sull'uso accettabile

@@ -3,7 +3,7 @@ document: cookie-policy
 version: 1.0.0
 effective_date: 2026-08-17
 language: es
-status: pending-review
+status: approved
 ---
 
 # Política de cookies

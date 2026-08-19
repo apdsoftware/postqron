@@ -3,7 +3,7 @@ document: terms-of-service
 version: 1.2.0
 effective_date: 2026-08-18
 language: it
-status: pending-review
+status: approved
 ---
 
 # Termini di servizio

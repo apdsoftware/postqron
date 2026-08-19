@@ -3,7 +3,7 @@ document: privacy-policy
 version: 1.1.0
 effective_date: 2026-08-18
 language: fr
-status: pending-review
+status: approved
 ---
 
 # Politique de confidentialité
