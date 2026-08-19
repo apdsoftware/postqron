@@ -55,12 +55,25 @@ che è assoluto e in parte fuori dal controllo di chiunque mandi email.
    della privacy policy **resta vera**, e resterà vera finché il marketing non
    passa di lì.
 
-### Cosa resta aperto dalla loro parte
+### La decisione è definitiva
 
-Gli **header personalizzati e RFC 8058** (§4 qui sotto) sono già in lavorazione
-come attività di deliverability, separatamente. Ci hanno segnalato che header
-arbitrari forniti dal chiamante sono una superficie di injection nota, quindi
-passeranno da una valutazione di sicurezza dedicata.
+Confermato il 2026-08-19: **no su entrambi i punti, e Mailronix si usa così com'è.**
+Non c'è un secondo giro da attendere, e questo documento non va riaperto.
+
+Gli **header personalizzati e RFC 8058** (§4 qui sotto) restano un'attività loro di
+deliverability, separata e senza data, con una valutazione di sicurezza davanti —
+header arbitrari forniti dal chiamante sono una superficie di injection nota. **Non
+contarci.** Se un giorno arriveranno, la conseguenza per noi è una sola e sta scritta
+accanto al codice che la riguarda: `httpapi.unsubscribePage`.
+
+### Il rischio che resta, ed è l'unico da sorvegliare
+
+La privacy policy §2.8 dice «one click» e la nostra disiscrizione ne chiede due — si
+apre il link e si conferma. **La frase è approvata così, e non deve guidare
+l'implementazione.** Il pericolo non è la frase imprecisa: è che qualcuno la legga come
+una specifica e faccia agire la `GET`, disiscrivendo chi non ha mai cliccato — perché le
+email le aprono anche gli scanner antivirus e i prefetch dei browser. La ragione è
+scritta dove serve trovarla, cioè sul gestore.
 
 ---
 

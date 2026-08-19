@@ -184,6 +184,31 @@ func (a *marketingAPI) writeState(w http.ResponseWriter, r *http.Request, state 
 // ------------------------------------------------------------ disiscrizione
 
 // unsubscribePage risponde alla `GET`: verifica il token e **non cambia niente**.
+//
+// # La privacy policy §2.8 dice «one click», e questo sono due. Non è un difetto
+//
+// La frase è stata approvata così, consapevolmente, e **non deve guidare
+// l'implementazione**: se qualcuno la leggesse come una specifica e facesse agire
+// la `GET`, reintrodurrebbe il difetto che questa separazione esiste per evitare.
+//
+// Una `GET` che disiscrive disiscrive chi non ha mai cliccato. Le email le aprono
+// gli scanner antivirus dei server di posta, i prefetch del browser e i crawler:
+// quelle persone smetterebbero di ricevere le comunicazioni senza saperlo, e per
+// R20.1 non avremmo modo di accorgercene. In cambio, la pagina di conferma è
+// **l'unico posto in cui possiamo dire, prima di agire, che le email
+// transazionali continuano ad arrivare** — che è un'altra promessa dello stesso
+// paragrafo.
+//
+// L'unica forma che avrebbe reso vera la lettera del documento è RFC 8058
+// (`List-Unsubscribe` più `List-Unsubscribe-Post`): un pulsante nativo in Gmail e
+// Outlook, un clic solo, e una `POST` che nessun crawler può innescare. Oggi non
+// è realizzabile — `SendRequestDirect` di Mailronix è
+// `from`/`to`/`subject`/`html_body`/`text_body` e non ha campi per le testate
+// personalizzate — e la decisione di non modificare quel servizio è definitiva
+// (docs/reference/mailronix-change-request.md).
+//
+// Se un giorno quelle testate arriveranno, questa sarà la strada da rifare, e la
+// frase tornerà vera da sé. Fino ad allora: **la `GET` non cambia niente.**
 func (a *marketingAPI) unsubscribePage(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 
